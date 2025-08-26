@@ -24,15 +24,23 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 # Import board functions from the correct module
-from .device_clone.board_config import (get_board_info,
-                                        get_pcileech_board_config,
-                                        validate_board)
+from .device_clone.board_config import (
+    get_board_info,
+    get_pcileech_board_config,
+    validate_board,
+)
+
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (ConfigurationError, FileOperationError,
-                         ModuleImportError, MSIXPreloadError,
-                         PCILeechBuildError, PlatformCompatibilityError,
-                         VivadoIntegrationError)
+from .exceptions import (
+    ConfigurationError,
+    FileOperationError,
+    ModuleImportError,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    PlatformCompatibilityError,
+    VivadoIntegrationError,
+)
 from .log_config import get_logger, setup_logging
 from .string_utils import safe_format
 
@@ -298,8 +306,10 @@ class MSIXManager:
                     config_space_bytes=config_space_bytes,
                 )
             else:
+                # No MSI-X capability found -> treat as not preloaded so callers
+                # don't assume hardware MSI-X values are available.
                 self.logger.info("  • No MSI-X capability found")
-                return MSIXData(preloaded=True, msix_info=None)
+                return MSIXData(preloaded=False, msix_info=None)
 
         except Exception as e:
             self.logger.warning("MSI-X preload failed: %s", str(e))
@@ -928,8 +938,10 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                      PCILeechGenerator)
+        from .device_clone.pcileech_generator import (
+            PCILeechGenerationConfig,
+            PCILeechGenerator,
+        )
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -951,8 +963,7 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import \
-                DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
             self.logger.info(
                 f"Loading donor template from: {self.config.donor_template}"
@@ -982,6 +993,26 @@ class FirmwareBuilder:
             # Pass the donor template to the generator config
             self.gen.config.donor_template = donor_template
         result = self.gen.generate_pcileech_firmware()
+
+        # Ensure a conservative template_context exists with MSI-X defaults.
+        # This prevents template generation from crashing when the generator
+        # returns a minimal result.
+        if "template_context" not in result or not isinstance(
+            result.get("template_context"), dict
+        ):
+            result["template_context"] = {}
+
+        tc = result["template_context"]
+        # Provide conservative MSI-X defaults if missing
+        tc.setdefault(
+            "msix_config",
+            {
+                "is_supported": False,
+                "num_vectors": 0,
+            },
+        )
+        # Explicitly include msix_data key (None by default) for callers that rely on it
+        tc.setdefault("msix_data", None)
 
         # Inject config space hex/COE into template context if missing
         try:
@@ -1016,6 +1047,22 @@ class FirmwareBuilder:
             self.logger.warning(f"Config space hex generation failed: {e}")
 
         return result
+
+    def _recheck_vfio_bindings(self) -> None:
+        """Recheck VFIO bindings via canonical helper and log the outcome."""
+        try:
+            from src.cli.vfio_helpers import ensure_device_vfio_binding
+        except Exception:
+            # Helper not available; keep quiet in production paths
+            self.logger.info("VFIO binding recheck skipped: helper unavailable")
+            return
+
+        group_id = ensure_device_vfio_binding(self.config.bdf)
+        self.logger.warning(
+            "VFIO binding recheck passed: bdf=%s group=%s",
+            self.config.bdf,
+            str(group_id),
+        )
 
     def _inject_msix(self, result: Dict[str, Any], msix_data: MSIXData) -> None:
         """Inject MSI-X data into generation result."""
@@ -1102,8 +1149,7 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
