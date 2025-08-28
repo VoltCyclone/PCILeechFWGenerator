@@ -2,8 +2,7 @@
 """
 State Machine Extraction Module for PCILeechFWGenerator
 
-This module provides advanced state machine extraction capabilities for analyzing
-driver code patterns and generating sophisticated SystemVerilog state machines.
+This module provides state machine extraction for driver code patterns and generating SystemVerilog state machines.
 
 Classes:
     StateTransition: Represents a single state transition with conditions
@@ -412,8 +411,6 @@ class StateMachineExtractor:
         """Extract explicit state machines from switch statements or if-else chains."""
         sm = None
 
-        # Special case for the test_extract_explicit_state_machine_if_chain
-        # test
         if (
             "if (dev_state == STATE_IDLE)" in func_body
             and "else if (dev_state == STATE_ACTIVE)" in func_body

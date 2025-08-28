@@ -10,6 +10,8 @@ to provide actionable feedback to users.
 import logging
 import sys
 import traceback
+import re
+
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -28,6 +30,7 @@ class ErrorCategory(Enum):
     NETWORK = "Network Error"  # Network connectivity issues
     DATA = "Data Error"  # Data parsing or format issues
     UNKNOWN = "Unknown Error"  # Uncategorized errors
+    MSIX = "MSI-X Error"  # MSI-X specific parsing/validation/config issues
 
 
 def extract_root_cause(exception: Exception) -> str:
@@ -84,6 +87,18 @@ def categorize_error(exception: Exception) -> Tuple[ErrorCategory, str]:
     error_text = str(exception)
     root_cause = extract_root_cause(exception)
 
+    # MSI-X specific errors (prioritize early for targeted guidance)
+    lower_text = error_text.lower()
+    lower_root = root_cause.lower()
+    if (
+        "msix" in lower_text
+        or "msi-x" in lower_text
+        or "msi x" in lower_text
+        or "msix" in lower_root
+    ):
+        suggestion = _build_msix_suggestion(error_text)
+        return (ErrorCategory.MSIX, suggestion)
+
     # File and permission related errors
     if (
         isinstance(exception, (FileNotFoundError, PermissionError))
@@ -91,7 +106,10 @@ def categorize_error(exception: Exception) -> Tuple[ErrorCategory, str]:
     ):
         return (
             ErrorCategory.PERMISSION,
-            "Check file permissions and ensure you have access to the required resources.",
+            (
+                "Check file permissions and ensure you have access to the "
+                "required resources."
+            ),
         )
 
     # Template related errors
@@ -102,7 +120,10 @@ def categorize_error(exception: Exception) -> Tuple[ErrorCategory, str]:
     ):
         return (
             ErrorCategory.TEMPLATE,
-            "There's an issue with the template. Check the template syntax and ensure all required variables are provided.",
+            (
+                "There's an issue with the template. Check the template syntax "
+                "and ensure all required variables are provided."
+            ),
         )
 
     # Configuration related errors
@@ -120,7 +141,10 @@ def categorize_error(exception: Exception) -> Tuple[ErrorCategory, str]:
     ):
         return (
             ErrorCategory.NETWORK,
-            "Check your network connection and ensure the target service is available.",
+            (
+                "Check your network connection and ensure the target service "
+                "is available."
+            ),
         )
 
     # Resource related errors
@@ -138,7 +162,10 @@ def categorize_error(exception: Exception) -> Tuple[ErrorCategory, str]:
     ):
         return (
             ErrorCategory.DATA,
-            "Check your data format and ensure it's valid according to the expected schema.",
+            (
+                "Check your data format and ensure it's valid according to the "
+                "expected schema."
+            ),
         )
 
     # Default to unknown
@@ -146,6 +173,78 @@ def categorize_error(exception: Exception) -> Tuple[ErrorCategory, str]:
         ErrorCategory.UNKNOWN,
         "An unexpected error occurred. Check the logs for more details.",
     )
+
+
+def _build_msix_suggestion(error_text: str) -> str:
+    """
+    Build actionable guidance for MSI-X related errors based on message
+    content.
+    """
+    text = error_text.lower()
+
+    tips: List[str] = []
+
+    # Truncated / unreadable capability
+    if "truncated" in text or "failed to read" in text or "parse msix" in text:
+        tips.append(
+            (
+                "Config space appears incomplete or unreadable; ensure 4KB PCIe "
+                "config space access via VFIO (device bound to vfio-pci)."
+            )
+        )
+        tips.append(("Confirm the device isn't in a low-power state (avoid D3cold)."))
+
+    # Invalid table size
+    if "invalid msi-x table size" in text or re.search(r"table size .*must be", text):
+        tips.append(
+            (
+                "MSI-X table size is out of range; use the exact donor device and "
+                "capture a clean config space read."
+            )
+        )
+
+    # Invalid BIR
+    if "invalid msi-x table bir" in text or "invalid msi-x pba bir" in text:
+        tips.append(
+            (
+                "BIR points to an invalid BAR; verify BAR discovery under VFIO and "
+                "retry with a fresh device capture."
+            )
+        )
+
+    # Alignment issues
+    if "not" in text and "aligned" in text:
+        tips.append(
+            (
+                "MSI-X table/PBA offsets must be 16-byte aligned; capture a "
+                "fresh device profile after a cold boot."
+            )
+        )
+
+    # Generic MSI-X trouble
+    if not tips:
+        tips.append(
+            (
+                "MSI-X capability validation failed; ensure the device supports "
+                "MSI-X and you're operating on the correct donor device."
+            )
+        )
+
+    # Always helpful next-steps
+    tips.append(
+        (
+            "Re-run with --verbose to capture MSI-X offsets/values; review details "
+            "in generate.log."
+        )
+    )
+    tips.append(
+        (
+            "Use 'pcileech.py check --device <BDF>' or run 'vfio_check.py' to "
+            "validate VFIO setup (produces vfio_diagnostics.log)."
+        )
+    )
+
+    return " ".join(f"- {t}" for t in tips)
 
 
 def log_error_with_root_cause(
@@ -214,13 +313,28 @@ def format_user_friendly_error(
     error_parts.append(f"DETAILS: {root_cause}")
 
     # Add suggestion
-    error_parts.append(f"SUGGESTION: {suggestion}")
+    if category == ErrorCategory.MSIX and suggestion:
+        error_parts.append("SUGGESTIONS:")
+        # Suggestion may contain bullet-like items joined; display as lines
+        for line in (
+            suggestion.split(" - ") if " - " in suggestion else suggestion.split("- ")
+        ):
+            line = line.strip()
+            if not line:
+                continue
+            if not line.startswith("-"):
+                line = f"- {line}"
+            error_parts.append(f"  {line}")
+    else:
+        error_parts.append(f"SUGGESTION: {suggestion}")
 
     return "\n".join(error_parts)
 
 
 def format_detailed_error(
-    exception: Exception, context: Optional[str] = None, include_traceback: bool = False
+    exception: Exception,
+    context: Optional[str] = None,
+    include_traceback: bool = False,
 ) -> str:
     """
     Format a detailed error report with full exception chain and optional traceback.
@@ -250,8 +364,20 @@ def format_detailed_error(
     for i, exc in enumerate(exception_chain):
         error_parts.append(f"  {i+1}. {exc}")
 
-    # Add suggestion
-    error_parts.append(f"SUGGESTION: {suggestion}")
+    # Add suggestion(s)
+    if category == ErrorCategory.MSIX and suggestion:
+        error_parts.append("SUGGESTIONS:")
+        for line in (
+            suggestion.split(" - ") if " - " in suggestion else suggestion.split("- ")
+        ):
+            line = line.strip()
+            if not line:
+                continue
+            if not line.startswith("-"):
+                line = f"- {line}"
+            error_parts.append(f"  {line}")
+    else:
+        error_parts.append(f"SUGGESTION: {suggestion}")
 
     # Add traceback if requested
     if include_traceback:
@@ -285,6 +411,7 @@ def is_user_fixable_error(exception: Exception) -> bool:
         ErrorCategory.PERMISSION,
         ErrorCategory.RESOURCE,
         ErrorCategory.NETWORK,
+        ErrorCategory.MSIX,
     ]
 
     return category in user_fixable_categories

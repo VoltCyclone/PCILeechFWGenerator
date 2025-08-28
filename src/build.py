@@ -42,7 +42,13 @@ from .exceptions import (
     VivadoIntegrationError,
 )
 from .log_config import get_logger, setup_logging
-from .string_utils import safe_format
+from string_utils import (
+    safe_format,
+    log_info_safe,
+    log_warning_safe,
+    log_error_safe,
+    log_debug_safe,
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants - Extracted magic numbers
@@ -282,12 +288,13 @@ class MSIXManager:
             Returns empty MSIXData on any failure (non-critical operation)
         """
         try:
-            self.logger.info("➤ Preloading MSI-X data before VFIO binding")
+            log_info_safe(self.logger, "➤ Preloading MSI-X data before VFIO binding")
 
             config_space_path = CONFIG_SPACE_PATH_TEMPLATE.format(self.bdf)
             if not os.path.exists(config_space_path):
-                self.logger.warning(
-                    "Config space not accessible via sysfs, skipping MSI-X preload"
+                log_warning_safe(
+                    self.logger,
+                    "Config space not accessible via sysfs, skipping MSI-X preload",
                 )
                 return MSIXData(preloaded=False)
 
@@ -296,8 +303,10 @@ class MSIXManager:
             msix_info = parse_msix_capability(config_space_hex)
 
             if msix_info["table_size"] > 0:
-                self.logger.info(
-                    "  • Found MSI-X capability: %d vectors", msix_info["table_size"]
+                log_info_safe(
+                    self.logger,
+                    "  • Found MSI-X capability: {vectors} vectors",
+                    vectors=msix_info["table_size"],
                 )
                 return MSIXData(
                     preloaded=True,
@@ -308,13 +317,17 @@ class MSIXManager:
             else:
                 # No MSI-X capability found -> treat as not preloaded so callers
                 # don't assume hardware MSI-X values are available.
-                self.logger.info("  • No MSI-X capability found")
+                log_info_safe(self.logger, "  • No MSI-X capability found")
                 return MSIXData(preloaded=False, msix_info=None)
 
         except Exception as e:
-            self.logger.warning("MSI-X preload failed: %s", str(e))
+            log_warning_safe(self.logger, "MSI-X preload failed: {err}", err=str(e))
             if self.logger.isEnabledFor(logging.DEBUG):
-                self.logger.debug("MSI-X preload exception details:", exc_info=True)
+                log_debug_safe(
+                    self.logger,
+                    "MSI-X preload exception details: {err}",
+                    err=str(e),
+                )
             return MSIXData(preloaded=False)
 
     def inject_data(self, result: Dict[str, Any], msix_data: MSIXData) -> None:
@@ -328,7 +341,7 @@ class MSIXManager:
         if not self._should_inject(msix_data):
             return
 
-        self.logger.info("  • Using preloaded MSI-X data")
+        log_info_safe(self.logger, "  • Using preloaded MSI-X data")
 
         # msix_info is guaranteed to be non-None by _should_inject
         if msix_data.msix_info is not None:
@@ -851,7 +864,7 @@ class FirmwareBuilder:
             msix_data = self._preload_msix()
 
             # Step 3: Generate PCILeech firmware
-            self.logger.info("➤ Generating PCILeech firmware …")
+            log_info_safe(self.logger, "➤ Generating PCILeech firmware …")
             generation_result = self._generate_firmware(donor_template)
 
             # Step 3: Inject preloaded MSI-X data if available
@@ -882,9 +895,9 @@ class FirmwareBuilder:
         except PlatformCompatibilityError:
             raise
         except Exception as e:
-            self.logger.error("Build failed: %s", str(e))
+            log_error_safe(self.logger, "Build failed: {err}", err=str(e))
             if self.logger.isEnabledFor(logging.DEBUG):
-                self.logger.debug("Full traceback:", exc_info=True)
+                log_debug_safe(self.logger, "Full traceback while building")
             raise
 
     def run_vivado(self) -> None:
@@ -903,7 +916,11 @@ class FirmwareBuilder:
         if self.config.vivado_path:
             # User provided explicit path
             vivado_path = self.config.vivado_path
-            self.logger.info(f"Using user-specified Vivado path: {vivado_path}")
+            log_info_safe(
+                self.logger,
+                "Using user-specified Vivado path: {path}",
+                path=vivado_path,
+            )
         else:
             # Auto-detect Vivado installation
             vivado_info = find_vivado_installation()
@@ -915,7 +932,9 @@ class FirmwareBuilder:
             # e.g., /tools/Xilinx/2025.1/Vivado/bin/vivado -> /tools/Xilinx/2025.1/Vivado
             vivado_exe_path = Path(vivado_info["executable"])
             vivado_path = str(vivado_exe_path.parent.parent)
-            self.logger.info(f"Auto-detected Vivado at: {vivado_path}")
+            log_info_safe(
+                self.logger, "Auto-detected Vivado at: {path}", path=vivado_path
+            )
 
         # Create and run VivadoRunner
         runner = VivadoRunner(
@@ -965,17 +984,21 @@ class FirmwareBuilder:
         if self.config.donor_template:
             from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
-            self.logger.info(
-                f"Loading donor template from: {self.config.donor_template}"
+            log_info_safe(
+                self.logger,
+                "Loading donor template from: {path}",
+                path=self.config.donor_template,
             )
             try:
                 template = DonorInfoTemplateGenerator.load_template(
                     self.config.donor_template
                 )
-                self.logger.info("✓ Donor template loaded successfully")
+                log_info_safe(self.logger, "✓ Donor template loaded successfully")
                 return template
             except Exception as e:
-                self.logger.error(f"Failed to load donor template: {e}")
+                log_error_safe(
+                    self.logger, "Failed to load donor template: {err}", err=str(e)
+                )
                 raise PCILeechBuildError(f"Failed to load donor template: {e}")
         return None
 
@@ -1044,7 +1067,9 @@ class FirmwareBuilder:
                     result["template_context"]["config_space_coe"] = config_space_hex
         except Exception as e:
             # Log but do not fail build if hex generation fails
-            self.logger.warning(f"Config space hex generation failed: {e}")
+            log_warning_safe(
+                self.logger, "Config space hex generation failed: {err}", err=str(e)
+            )
 
         return result
 
@@ -1054,14 +1079,17 @@ class FirmwareBuilder:
             from src.cli.vfio_helpers import ensure_device_vfio_binding
         except Exception:
             # Helper not available; keep quiet in production paths
-            self.logger.info("VFIO binding recheck skipped: helper unavailable")
+            log_info_safe(
+                self.logger, "VFIO binding recheck skipped: helper unavailable"
+            )
             return
 
         group_id = ensure_device_vfio_binding(self.config.bdf)
-        self.logger.warning(
-            "VFIO binding recheck passed: bdf=%s group=%s",
-            self.config.bdf,
-            str(group_id),
+        log_warning_safe(
+            self.logger,
+            "VFIO binding recheck passed: bdf={bdf} group={group}",
+            bdf=self.config.bdf,
+            group=str(group_id),
         )
 
     def _inject_msix(self, result: Dict[str, Any], msix_data: MSIXData) -> None:
@@ -1074,14 +1102,18 @@ class FirmwareBuilder:
             result["systemverilog_modules"]
         )
 
-        self.logger.info(
-            "  • Wrote %d SystemVerilog modules: %s", len(sv_files), ", ".join(sv_files)
+        log_info_safe(
+            self.logger,
+            "  • Wrote {count} SystemVerilog modules: {files}",
+            count=len(sv_files),
+            files=", ".join(sv_files),
         )
         if special_files:
-            self.logger.info(
-                "  • Wrote %d special files: %s",
-                len(special_files),
-                ", ".join(special_files),
+            log_info_safe(
+                self.logger,
+                "  • Wrote {count} special files: {files}",
+                count=len(special_files),
+                files=", ".join(special_files),
             )
 
     def _generate_profile(self) -> None:
@@ -1091,7 +1123,9 @@ class FirmwareBuilder:
                 duration=self.config.profile_duration
             )
             self.file_manager.write_json("behavior_profile.json", profile)
-            self.logger.info("  • Saved behavior profile → behavior_profile.json")
+            log_info_safe(
+                self.logger, "  • Saved behavior profile → behavior_profile.json"
+            )
 
     def _generate_tcl_scripts(self, result: Dict[str, Any]) -> None:
         """Generate TCL scripts for Vivado."""
@@ -1125,8 +1159,9 @@ class FirmwareBuilder:
             build_timeout=self.config.vivado_timeout,
         )
 
-        self.logger.info(
-            "  • Emitted Vivado scripts → vivado_project.tcl, vivado_build.tcl"
+        log_info_safe(
+            self.logger,
+            "  • Emitted Vivado scripts → vivado_project.tcl, vivado_build.tcl",
         )
 
     def _save_device_info(self, result: Dict[str, Any]) -> None:
@@ -1180,7 +1215,11 @@ class FirmwareBuilder:
                 output_path = self.config.output_dir / output_path
 
             generator.save_template_dict(template, output_path, pretty=True)
-            self.logger.info(f"  • Generated donor info template → {output_path.name}")
+            log_info_safe(
+                self.logger,
+                "  • Generated donor info template → {name}",
+                name=output_path.name,
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1325,7 +1364,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Calculate elapsed time
         elapsed_time = time.perf_counter() - start_time
-        logger.info("Build finished in %.1f s ✓", elapsed_time)
+        log_info_safe(logger, "Build finished in {secs:.1f} s ✓", secs=elapsed_time)
 
         # Run Vivado if requested
         if args.vivado:
@@ -1342,25 +1381,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     except PlatformCompatibilityError as e:
-        # Platform compatibility errors - log once at info level since details were already logged
-        logger.info("Build skipped due to platform compatibility: %s", e)
+        # Platform compatibility errors - log once at info level since details
+        # were already logged
+        log_info_safe(
+            logger, "Build skipped due to platform compatibility: {err}", err=str(e)
+        )
         return 1
 
     except ConfigurationError as e:
         # Configuration errors indicate user error
-        logger.error("Configuration error: %s", e)
+        log_error_safe(logger, "Configuration error: {err}", err=str(e))
         return 1
 
     except PCILeechBuildError as e:
         # Known build errors
-        logger.error("Build failed: %s", e)
+        log_error_safe(logger, "Build failed: {err}", err=str(e))
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Full traceback:", exc_info=True)
+            log_debug_safe(logger, "Full traceback while handling build error")
         return 1
 
     except KeyboardInterrupt:
         # User interrupted
-        logger.warning("Build interrupted by user")
+        log_warning_safe(logger, "Build interrupted by user")
         return 130
 
     except Exception as e:
@@ -1372,13 +1414,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             or "only available on Linux" in error_str
         ):
             # Platform compatibility errors were already logged in detail
-            logger.info(
-                "Build skipped due to platform compatibility (see details above)"
+            log_info_safe(
+                logger,
+                "Build skipped due to platform compatibility (see details above)",
             )
         else:
             # Unexpected errors
-            logger.error("Unexpected error: %s", e)
-            logger.debug("Full traceback:", exc_info=True)
+            log_error_safe(logger, "Unexpected error: {err}", err=str(e))
+            log_debug_safe(logger, "Full traceback for unexpected error")
         return 1
 
 
