@@ -7,16 +7,26 @@ import fcntl
 import logging
 import os
 
-from .vfio_constants import (VFIO_CHECK_EXTENSION, VFIO_GET_API_VERSION,
-                             VFIO_GROUP_FLAGS_VIABLE, VFIO_GROUP_GET_DEVICE_FD,
-                             VFIO_GROUP_GET_STATUS, VFIO_GROUP_SET_CONTAINER,
-                             VFIO_SET_IOMMU, VFIO_TYPE1_IOMMU,
-                             vfio_group_status)
+from .vfio_constants import (
+    VFIO_CHECK_EXTENSION,
+    VFIO_GET_API_VERSION,
+    VFIO_GROUP_FLAGS_VIABLE,
+    VFIO_GROUP_GET_DEVICE_FD,
+    VFIO_GROUP_GET_STATUS,
+    VFIO_GROUP_SET_CONTAINER,
+    VFIO_SET_IOMMU,
+    VFIO_TYPE1_IOMMU,
+    vfio_group_status,
+)
 
 # Import safe logging functions
 try:
-    from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                                log_warning_safe)
+    from ..string_utils import (
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+    )
 except ImportError:
     # Fallback implementations
     def log_info_safe(logger, template, **kwargs):
@@ -143,6 +153,42 @@ def check_iommu_group_binding(group: str) -> None:
             raise
         else:
             raise OSError(f"Failed to check IOMMU group {group} bindings: {e}")
+
+
+def ensure_device_vfio_binding(bdf: str) -> str:
+    """
+    Ensure VFIO prerequisites are met and the given device BDF is bound to vfio-pci.
+
+    Returns the IOMMU group id as a string on success.
+
+    Raises OSError on failure with a descriptive message.
+    """
+    log_debug_safe(logger, "Ensuring VFIO binding for {bdf}", bdf=bdf, prefix="VFIO")
+
+    # Reuse existing checks - these raise OSError on failure.
+    check_vfio_prerequisites()
+
+    sysfs_path = f"/sys/bus/pci/devices/{bdf}/iommu_group"
+    if not os.path.exists(sysfs_path):
+        raise OSError(f"Device {bdf} has no IOMMU group (path not found: {sysfs_path})")
+
+    try:
+        group = os.path.basename(os.readlink(sysfs_path))
+    except Exception as e:
+        raise OSError(f"Failed to read IOMMU group for {bdf}: {e}") from e
+
+    # Verify group bindings
+    check_iommu_group_binding(group)
+
+    log_info_safe(
+        logger,
+        "VFIO binding recheck passed for {bdf} (IOMMU group {group})",
+        bdf=bdf,
+        group=group,
+        prefix="VFIO",
+    )
+
+    return group
 
 
 def get_device_fd(bdf: str) -> tuple[int, int]:

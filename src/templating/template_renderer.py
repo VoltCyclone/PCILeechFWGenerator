@@ -16,17 +16,31 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 from src.__version__ import __version__
 from src.templates.template_mapping import update_template_path
 from src.utils.unified_context import ensure_template_compatibility
-from string_utils import (generate_tcl_header_comment, log_debug_safe,
-                          log_error_safe, log_info_safe, log_warning_safe,
-                          safe_format)
+from string_utils import (
+    generate_tcl_header_comment,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 __import__ = builtins.__import__
 
 try:
-    from jinja2 import (BaseLoader, Environment, FileSystemLoader,
-                        StrictUndefined, Template, TemplateError,
-                        TemplateNotFound, TemplateRuntimeError, Undefined,
-                        meta, nodes)
+    from jinja2 import (
+        BaseLoader,
+        Environment,
+        FileSystemLoader,
+        StrictUndefined,
+        Template,
+        TemplateError,
+        TemplateNotFound,
+        TemplateRuntimeError,
+        Undefined,
+        meta,
+        nodes,
+    )
     from jinja2.bccache import FileSystemBytecodeCache
     from jinja2.ext import Extension
     from jinja2.sandbox import SandboxedEnvironment
@@ -520,20 +534,23 @@ class TemplateRenderer:
                 except ImportError:
                     logger.debug("Template constants not available")
 
-                # Diagnostic: log the types after conversion to ensure dicts were wrapped
+                # Diagnostic: log the types after conversion to help debug conversion
+                # issues but keep this at DEBUG level to avoid noisy production logs.
                 try:
                     post_type_info = {
                         k: type(v).__name__ for k, v in compatible.items()
                     }
-                    logger.error(
+                    logger.debug(
                         "Post-conversion context top-level types: %s", post_type_info
                     )
                 except Exception:
-                    logger.error("Failed to collect post-conversion type information")
+                    logger.debug("Failed to collect post-conversion type information")
             except Exception:
-                # Fallback to the original context if conversion fails
-                logger.error(
-                    "ensure_template_compatibility raised an exception; falling back to original context"
+                # Fallback to the original context if conversion fails. Keep at DEBUG
+                # level since this is a recoverable, non-fatal compatibility path.
+                logger.debug(
+                    "ensure_template_compatibility raised an exception; "
+                    "falling back to original context"
                 )
                 compatible = context
 
@@ -718,8 +735,9 @@ class TemplateRenderer:
 
         try:
             # Use the centralized validator
-            from src.templating.template_context_validator import \
-                validate_template_context
+            from src.templating.template_context_validator import (
+                validate_template_context,
+            )
 
             # Apply centralized validation with strict mode
             validated_context = validate_template_context(
@@ -768,8 +786,9 @@ class TemplateRenderer:
 
         # Clear template context validator cache
         try:
-            from src.templating.template_context_validator import \
-                clear_global_template_cache
+            from src.templating.template_context_validator import (
+                clear_global_template_cache,
+            )
 
             clear_global_template_cache()
         except ImportError:

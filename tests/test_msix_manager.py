@@ -114,6 +114,11 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
         return fd, container_fd
 
     monkeypatch.setattr("src.cli.vfio_helpers.get_device_fd", fake_get_device_fd)
+    # The code now calls ensure_device_vfio_binding before opening the device fds;
+    # mock it to return a fake IOMMU group string so preload remains unit-testable.
+    monkeypatch.setattr(
+        "src.cli.vfio_helpers.ensure_device_vfio_binding", lambda bdf: "1"
+    )
 
     # Monkeypatch os.path.exists to allow the config path check to pass
     monkeypatch.setattr(os.path, "exists", lambda p: True)

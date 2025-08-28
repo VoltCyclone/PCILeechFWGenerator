@@ -73,12 +73,12 @@ PCILEECH_DEFAULT = {
 
 # Defaults for MSI-X configuration used by templates
 MSIX_DEFAULT = {
-    "table_size": 4,
-    "num_vectors": 4,
+    "table_size": 0,
+    "num_vectors": 0,
     "table_bir": 0,
-    "table_offset": 0x1000,
+    "table_offset": 0x0,
     "pba_bir": 0,
-    "pba_offset": 0x2000,
+    "pba_offset": 0x0,
     "is_supported": False,
 }
 
@@ -1007,15 +1007,16 @@ class UnifiedContextBuilder:
         # Interrupt configuration
         context["interrupt_config"] = TemplateObject({"vectors": 4})
 
-        # MSI-X configuration
+        # MSI-X configuration (disabled by default; enabled only with real data)
         msix_config = TemplateObject(
             {
-                "table_size": 4,
-                "num_vectors": 4,
+                "table_size": 0,
+                "num_vectors": 0,
                 "table_bir": 0,
-                "table_offset": 0x1000,
+                "table_offset": 0x0,
                 "pba_bir": 0,
-                "pba_offset": 0x2000,
+                "pba_offset": 0x0,
+                "is_supported": False,
             }
         )
         context["msix_config"] = msix_config

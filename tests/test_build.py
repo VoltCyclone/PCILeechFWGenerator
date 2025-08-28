@@ -25,13 +25,31 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
-    BUFFER_SIZE, CONFIG_SPACE_PATH_TEMPLATE, DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DURATION, FILE_WRITE_TIMEOUT, MAX_PARALLEL_FILE_WRITES,
-    REQUIRED_MODULES, BuildConfiguration, ConfigurationError,
-    ConfigurationManager, DeviceConfiguration, FileOperationError,
-    FileOperationsManager, FirmwareBuilder, ModuleChecker, ModuleImportError,
-    MSIXData, MSIXManager, MSIXPreloadError, PCILeechBuildError,
-    VivadoIntegrationError, _display_summary, main, parse_args)
+    BUFFER_SIZE,
+    CONFIG_SPACE_PATH_TEMPLATE,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PROFILE_DURATION,
+    FILE_WRITE_TIMEOUT,
+    MAX_PARALLEL_FILE_WRITES,
+    REQUIRED_MODULES,
+    BuildConfiguration,
+    ConfigurationError,
+    ConfigurationManager,
+    DeviceConfiguration,
+    FileOperationError,
+    FileOperationsManager,
+    FirmwareBuilder,
+    ModuleChecker,
+    ModuleImportError,
+    MSIXData,
+    MSIXManager,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    VivadoIntegrationError,
+    _display_summary,
+    main,
+    parse_args,
+)
 
 # ============================================================================
 # Fixtures
@@ -424,10 +442,10 @@ def test_msix_manager_preload_data_no_msix(valid_bdf, mock_logger):
     with mock.patch("os.path.exists", return_value=True), mock.patch.object(
         manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
     ), mock.patch("src.build.parse_msix_capability", return_value={"table_size": 0}):
-
         result = manager.preload_data()
 
-        assert result.preloaded is True
+        # New behavior: treat absence of MSI-X capability as not preloaded
+        assert result.preloaded is False
         assert result.msix_info is None
         assert result.config_space_hex is None
         assert result.config_space_bytes is None
