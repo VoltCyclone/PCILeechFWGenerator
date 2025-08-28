@@ -20,7 +20,7 @@ jobs:
     if: ${{ !contains(github.event.head_commit.message, '[skip version]') }}
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0  # Fetch full history for version analysis
@@ -78,7 +78,7 @@ jobs:
     if: needs.auto-version-update.outputs.version_updated == 'true'
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         ref: main  # Get the updated version
     
