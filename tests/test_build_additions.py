@@ -63,8 +63,6 @@ def test_recheck_vfio_bindings_calls_helper(monkeypatch, tmp_path: Path, caplog)
     monkeypatch.setattr(vfio_helpers, "ensure_device_vfio_binding", lambda bdf: "99")
 
     caplog.set_level(logging.INFO)
-    # Debug: inspect builder
-    print("BUILDER DIR:", dir(builder))
     # Should not raise
     builder._recheck_vfio_bindings()
 
