@@ -25,7 +25,6 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 # Import board functions from the correct module
 from .device_clone.board_config import (
-    get_board_info,
     get_pcileech_board_config,
     validate_board,
 )
