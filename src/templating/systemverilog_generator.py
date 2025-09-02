@@ -591,12 +591,22 @@ class SystemVerilogGenerator:
                 # Always close file descriptors
                 try:
                     os.close(device_fd)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Non-fatal error while closing device_fd. Log and continue.
+                    log_error_safe(
+                        logger,
+                        "Error closing device_fd: {error}",
+                        error=str(e),
+                    )
                 try:
                     os.close(container_fd)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Non-fatal error while closing container_fd. Log and continue.
+                    log_error_safe(
+                        logger,
+                        "Error closing container_fd: {error}",
+                        error=str(e),
+                    )
 
         except ImportError:
             log_error_safe(logger, "VFIO module not available")
