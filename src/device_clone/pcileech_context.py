@@ -51,6 +51,7 @@ from src.device_clone.device_config import get_device_config
 from src.device_clone.board_config import get_pcileech_board_config
 from src.device_clone.constants import (
     BAR_TYPE_MEMORY_64BIT,
+    BAR_SIZE_CONSTANTS,
     DEFAULT_CLASS_CODE,
     DEFAULT_EXT_CFG_CAP_PTR,
     DEFAULT_REVISION_ID,
@@ -940,7 +941,18 @@ class PCILeechContextBuilder:
         bar_configs = []
         for i, bar_data in enumerate(bars):
             try:
-                bar_info = self._get_vfio_bar_info(i, bar_data)
+                # Use the true BAR index from config space when querying VFIO.
+                # enumerate() index may not match BAR index if some BARs are
+                # disabled or filtered out, which can mis-read I/O BAR sizes.
+                vfio_region_index = i
+                if isinstance(bar_data, dict):
+                    vfio_region_index = bar_data.get("index", bar_data.get("bar", i))
+                elif isinstance(bar_data, BarInfo):
+                    vfio_region_index = bar_data.index
+                elif hasattr(bar_data, "index"):
+                    vfio_region_index = getattr(bar_data, "index", i)
+
+                bar_info = self._get_vfio_bar_info(vfio_region_index, bar_data)
                 if bar_info:
                     bar_configs.append(bar_info)
             except Exception as e:
@@ -1006,7 +1018,39 @@ class PCILeechContextBuilder:
         else:
             return None
 
-        # Only return valid memory BARs
+        # Enforce minimum size for memory BARs; fallback to sysfs-reported size
+        # in bar_data when VFIO reports an unexpectedly small size (e.g., due to
+        # wrong region mapping or kernel quirks).
+        if is_memory:
+            min_mem = BAR_SIZE_CONSTANTS.get("MIN_MEMORY_SIZE", 128)
+            if size < min_mem:
+                fallback_size = None
+                try:
+                    if isinstance(bar_data, dict):
+                        fallback_size = bar_data.get("size")
+                    elif isinstance(bar_data, BarInfo):
+                        fallback_size = getattr(bar_data, "size", 0)
+                    elif hasattr(bar_data, "size"):
+                        fallback_size = getattr(bar_data, "size")
+                except Exception:
+                    fallback_size = None
+
+                if isinstance(fallback_size, int) and fallback_size >= min_mem:
+                    # Use the more reliable sysfs resource size
+                    log_warning_safe(
+                        self.logger,
+                        f"BAR {index}: VFIO size {size}B < {min_mem}B; using sysfs size {fallback_size}B",
+                    )
+                    size = fallback_size
+                else:
+                    # Skip invalid/small memory BARs
+                    log_warning_safe(
+                        self.logger,
+                        f"Skipping BAR {index}: memory BAR size {size}B below minimum {min_mem}B",
+                    )
+                    return None
+
+        # Only return valid memory BARs; never select I/O BARs for MMIO aperture
         if is_memory and size > 0:
             return BarConfiguration(
                 index=index,
