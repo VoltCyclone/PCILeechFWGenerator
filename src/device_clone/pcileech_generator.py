@@ -46,6 +46,11 @@ from src.utils.attribute_access import has_attr, safe_get_attr
 
 logger = logging.getLogger(__name__)
 
+# Data sizing constants for MSI-X handling
+MSIX_ENTRY_SIZE = 16  # bytes per MSI-X table entry
+DWORD_SIZE = 4  # bytes per 32-bit word
+DWORDS_PER_MSIX_ENTRY = MSIX_ENTRY_SIZE // DWORD_SIZE
+
 
 @dataclass
 class PCILeechGenerationConfig:
@@ -1810,7 +1815,7 @@ puts "Synthesis complete!"
 
         # Read bytes from the BAR region using VFIO
         manager = VFIODeviceManager(self.config.device_bdf, self.logger)
-        total_bytes = table_size * 16
+        total_bytes = table_size * MSIX_ENTRY_SIZE
 
         raw = manager.read_region_slice(
             index=table_bir, offset=table_offset, size=total_bytes
@@ -1829,12 +1834,14 @@ puts "Synthesis complete!"
         entries: List[Dict[str, Any]] = []
         hex_lines: List[str] = []
         for i in range(table_size):
-            start = i * 16
-            chunk = raw[start : start + 16]
+            start = i * MSIX_ENTRY_SIZE
+            chunk = raw[start : start + MSIX_ENTRY_SIZE]
             entries.append({"vector": i, "data": chunk.hex(), "enabled": True})
             # Break into four 32-bit LE words for init hex
-            for w in range(4):
-                word = int.from_bytes(chunk[w * 4 : (w + 1) * 4], "little")
+            for w in range(DWORDS_PER_MSIX_ENTRY):
+                word = int.from_bytes(
+                    chunk[w * DWORD_SIZE : (w + 1) * DWORD_SIZE], "little"
+                )
                 hex_lines.append(f"{word:08X}")
 
         return {

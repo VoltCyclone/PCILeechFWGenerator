@@ -460,8 +460,19 @@ class VFIODeviceManager:
                 )
                 return None
 
-            # Compute page-aligned mapping window
-            page_sz = os.sysconf("SC_PAGESIZE") if hasattr(os, "sysconf") else 4096
+            # Compute page-aligned mapping window using portable page size
+            # Prefer mmap.PAGESIZE, then resource.getpagesize(), then os.sysconf
+            try:
+                page_sz = mmap.PAGESIZE  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    import resource  # noqa: WPS433 (local import by design)
+
+                    page_sz = resource.getpagesize()
+                except Exception:
+                    page_sz = (
+                        os.sysconf("SC_PAGESIZE") if hasattr(os, "sysconf") else 4096
+                    )
             abs_off = region_off + offset
             map_off = (abs_off // page_sz) * page_sz
             delta = abs_off - map_off
