@@ -8,31 +8,68 @@ with a simplified import structure to reduce complexity.
 
 # Version information
 from .__version__ import __version__
+
 # CLI functionality
 from .cli import BuildConfig, VFIOBinder, flash_firmware, run_build
+
 # Device cloning functionality - flattened imports
-from .device_clone import (  # Board configuration; Device configuration; Config space management; Behavior profiling; PCILeech generator
-    BehaviorProfile, BehaviorProfiler, ConfigSpaceManager, DeviceConfigManager,
-    DeviceConfiguration, PCILeechGenerationConfig, PCILeechGenerator,
-    get_board_info, validate_board)
+from .device_clone import (  # Device clone suite
+    BehaviorProfile,
+    BehaviorProfiler,
+    ConfigSpaceManager,
+    DeviceConfigManager,
+    DeviceConfiguration,
+    PCILeechGenerationConfig,
+    PCILeechGenerator,
+    get_board_info,
+    validate_board,
+)
+
 # Core exceptions
-from .exceptions import (BuildError, ConfigurationError, PCILeechError,
-                         PCILeechGenerationError, TemplateError,
-                         ValidationError)
+from .exceptions import (
+    BuildError,
+    ConfigurationError,
+    PCILeechError,
+    PCILeechGenerationError,
+    TemplateError,
+    ValidationError,
+)
+
 # File management
-from .file_management import (DonorDumpManager, FileManager, OptionROMManager,
-                              RepoManager)
+from .file_management import (
+    DonorDumpManager,
+    FileManager,
+    OptionROMManager,
+    RepoManager,
+)
+
 # Import utilities
 from .import_utils import safe_import
+
 # PCI capability handling - now at top level
-from .pci_capability import (CapabilityProcessor, CapabilityWalker,
-                             ConfigSpace, PCICapabilityID, PCIExtCapabilityID)
+from .pci_capability import (
+    CapabilityProcessor,
+    CapabilityWalker,
+    ConfigSpace,
+    PCICapabilityID,
+    PCIExtCapabilityID,
+)
+
 # Utility functions from specific utility modules
 from .string_utils import generate_sv_header_comment  # String utilities
-from .string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                           safe_format)
+
+from .string_utils import generate_hex_header_comment
+
+from .string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+
 # Templating functionality
 from .templating import AdvancedSVGenerator, TCLBuilder, TemplateRenderer
+
 # Vivado handling
 from .vivado_handling import VivadoErrorReporter
 
@@ -52,6 +89,7 @@ __all__ = [
     "log_error_safe",
     "log_warning_safe",
     "generate_sv_header_comment",
+    "generate_hex_header_comment",
     "safe_import",
     # Device cloning
     "get_board_info",

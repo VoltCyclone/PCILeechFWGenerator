@@ -697,8 +697,7 @@ class DonorDumpManager:
         logger.info(f"Generating synthetic donor information for {device_type} device")
 
         # Import vendor ID constants
-        from src.device_clone.constants import (VENDOR_ID_INTEL,
-                                                get_fallback_vendor_id)
+        from src.device_clone.constants import VENDOR_ID_INTEL, get_fallback_vendor_id
 
         # Convert to hex string format
         intel_vid_str = f"0x{VENDOR_ID_INTEL:04x}"
@@ -815,13 +814,28 @@ class DonorDumpManager:
             logger.error(f"Failed to save donor information: {e}")
             return False
 
-    def save_config_space_hex(self, config_hex_str: str, output_path: str) -> bool:
+    def save_config_space_hex(
+        self,
+        config_hex_str: str,
+        output_path: str,
+        include_header: bool = False,
+        *,
+        vendor_id: Optional[str] = None,
+        device_id: Optional[str] = None,
+        class_code: Optional[str] = None,
+        board: Optional[str] = None,
+    ) -> bool:
         """
         Save configuration space data in a format suitable for SystemVerilog $readmemh
 
         Args:
             config_hex_str: Hex string of configuration space data
             output_path: Path to save the hex file
+            include_header: When True, prepend a standardized header comment
+            vendor_id: Optional vendor ID for header metadata
+            device_id: Optional device ID for header metadata
+            class_code: Optional class code for header metadata
+            board: Optional board identifier for header metadata
 
         Returns:
             True if data was saved successfully
@@ -843,6 +857,27 @@ class DonorDumpManager:
 
             # Format the hex data for $readmemh (32-bit words, one per line)
             with open(output_path, "w") as f:
+                # Optional standardized header (off by default for test parity)
+                if include_header:
+                    try:
+                        from src.string_utils import generate_hex_header_comment
+
+                        header = generate_hex_header_comment(
+                            title=(
+                                "config_space_init.hex - "
+                                "PCIe Configuration Space Initialization"
+                            ),
+                            total_bytes=4096,
+                            total_dwords=1024,
+                            vendor_id=vendor_id,
+                            device_id=device_id,
+                            class_code=class_code,
+                            board=board,
+                        )
+                        f.write(header + "\n\n")
+                    except Exception:
+                        # Non-fatal if header generation fails
+                        pass
                 # Process 8 hex characters (4 bytes) at a time to create 32-bit words
                 # Convert to little-endian format for SystemVerilog
                 for i in range(0, len(config_hex_str), 8):

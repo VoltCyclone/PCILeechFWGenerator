@@ -1,28 +1,44 @@
 """Module generator for SystemVerilog code generation."""
 
 import logging
+
 from functools import lru_cache
+
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.string_utils import (
     generate_sv_header_comment,
+    log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
 )
 from src.utils.attribute_access import get_attr_or_raise, has_attr, safe_get_attr
 
-from .sv_constants import SV_TEMPLATES, SV_VALIDATION
+from .sv_constants import SV_TEMPLATES, SV_VALIDATION, SV_CONSTANTS
+
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
 
 class SVModuleGenerator:
     """Handles SystemVerilog module generation with improved architecture."""
 
-    def __init__(self, renderer: TemplateRenderer, logger: logging.Logger):
-        """Initialize the module generator."""
+    def __init__(
+        self,
+        renderer: TemplateRenderer,
+        logger: logging.Logger,
+        prefix: str = "SV_GEN",
+    ):
+        """Initialize the module generator.
+
+        Args:
+            renderer: Template renderer instance
+            logger: Logger to use for output
+            prefix: Log prefix for all messages from this generator
+        """
         self.renderer = renderer
         self.logger = logger
+        self.prefix = prefix
         self.templates = SV_TEMPLATES
         self.messages = SV_VALIDATION.ERROR_MESSAGES
         self._module_cache = {}
@@ -40,7 +56,11 @@ class SVModuleGenerator:
         Returns:
             Dictionary of module name to generated code
         """
-        log_info_safe(self.logger, "Generating PCILeech SystemVerilog modules")
+        log_info_safe(
+            self.logger,
+            "Generating PCILeech SystemVerilog modules",
+            prefix=self.prefix,
+        )
 
         modules = {}
 
@@ -60,6 +80,7 @@ class SVModuleGenerator:
             log_info_safe(
                 self.logger,
                 "Generated {count} PCILeech SystemVerilog modules",
+                prefix=self.prefix,
                 count=len(modules),
             )
 
@@ -67,7 +88,10 @@ class SVModuleGenerator:
 
         except Exception as e:
             log_error_safe(
-                self.logger, "PCILeech module generation failed: {error}", error=str(e)
+                self.logger,
+                "PCILeech module generation failed: {error}",
+                prefix=self.prefix,
+                error=str(e),
             )
             raise
 
@@ -84,7 +108,11 @@ class SVModuleGenerator:
         Returns:
             Dictionary of module name to generated code
         """
-        log_info_safe(self.logger, "Generating legacy SystemVerilog modules")
+        log_info_safe(
+            self.logger,
+            "Generating legacy SystemVerilog modules",
+            prefix=self.prefix,
+        )
 
         modules = {}
         failed_modules = []
@@ -100,6 +128,7 @@ class SVModuleGenerator:
                 log_error_safe(
                     self.logger,
                     "Failed to generate module {module}: {error}",
+                    prefix=self.prefix,
                     module=module_template,
                     error=str(e),
                 )
@@ -117,6 +146,7 @@ class SVModuleGenerator:
                 log_error_safe(
                     self.logger,
                     "Failed to generate advanced controller: {error}",
+                    prefix=self.prefix,
                     error=str(e),
                 )
 
@@ -125,6 +155,7 @@ class SVModuleGenerator:
             log_warning_safe(
                 self.logger,
                 "Generated {success} of {total} modules. Failed: {failed}",
+                prefix=self.prefix,
                 success=len(modules),
                 total=len(self.templates.BASIC_SV_MODULES),
                 failed=", ".join(failed_modules),
@@ -153,12 +184,36 @@ class SVModuleGenerator:
         }
 
         try:
-            return self.renderer.render_template(
+            log_debug_safe(
+                self.logger,
+                "Rendering device-specific ports for {dtype}/{dclass}",
+                prefix=self.prefix,
+                dtype=device_type,
+                dclass=device_class,
+            )
+            rendered = self.renderer.render_template(
                 self.templates.DEVICE_SPECIFIC_PORTS, context
             )
+            log_debug_safe(
+                self.logger,
+                "Rendered device-specific ports for {dtype}/{dclass} (len={length})",
+                prefix=self.prefix,
+                dtype=device_type,
+                dclass=device_class,
+                length=len(rendered) if rendered else 0,
+            )
+            return rendered
+
         except TemplateRenderError as e:
-            error_msg = f"Failed to render device-specific ports for {device_type}/{device_class}: {e}"
-            log_error_safe(self.logger, error_msg)
+            error_msg = (
+                "Failed to render device-specific ports for"
+                f" {device_type}/{device_class}: {e}"
+            )
+            log_error_safe(
+                self.logger,
+                error_msg,
+                prefix=self.prefix,
+            )
             raise TemplateRenderError(error_msg) from e
 
     def _generate_core_pcileech_modules(
@@ -183,6 +238,11 @@ class SVModuleGenerator:
             }
 
         # TLP BAR controller
+        log_debug_safe(
+            self.logger,
+            "Rendering core template: TLPS128 BAR controller",
+            prefix=self.prefix,
+        )
         modules["pcileech_tlps128_bar_controller"] = self.renderer.render_template(
             self.templates.PCILEECH_TLPS_BAR_CONTROLLER, context
         )
@@ -195,16 +255,29 @@ class SVModuleGenerator:
             raise TemplateRenderError(self.messages["missing_device_signature"])
 
         # FIFO controller
+        log_debug_safe(
+            self.logger,
+            "Rendering core template: FIFO controller",
+            prefix=self.prefix,
+        )
         modules["pcileech_fifo"] = self.renderer.render_template(
             self.templates.PCILEECH_FIFO, context
         )
 
         # Top-level wrapper
+        log_debug_safe(
+            self.logger,
+            "Rendering core template: top-level wrapper",
+            prefix=self.prefix,
+        )
         modules["top_level_wrapper"] = self.renderer.render_template(
             self.templates.TOP_LEVEL_WRAPPER, context
         )
 
         # Configuration space COE
+        log_debug_safe(
+            self.logger, "Rendering core template: cfgspace.coe", prefix=self.prefix
+        )
         modules["pcileech_cfgspace.coe"] = self.renderer.render_template(
             self.templates.PCILEECH_CFGSPACE, context
         )
@@ -216,27 +289,45 @@ class SVModuleGenerator:
         msix_config = context.get("msix_config", {})
 
         if not self._is_msix_enabled(msix_config, context):
+            log_debug_safe(
+                self.logger,
+                "MSI-X generation skipped (unsupported or no data)",
+                prefix=self.prefix,
+            )
             return
 
-        log_info_safe(self.logger, "Generating MSI-X modules")
+        log_info_safe(self.logger, "Generating MSI-X modules", prefix=self.prefix)
 
         # MSI-X capability registers
+        log_debug_safe(
+            self.logger, "Rendering MSI-X capability registers", prefix=self.prefix
+        )
         modules["msix_capability_registers"] = self.renderer.render_template(
             self.templates.MSIX_CAPABILITY_REGISTERS, context
         )
 
         # MSI-X implementation
+        log_debug_safe(
+            self.logger, "Rendering MSI-X implementation", prefix=self.prefix
+        )
         modules["msix_implementation"] = self.renderer.render_template(
             self.templates.MSIX_IMPLEMENTATION, context
         )
 
         # MSI-X table
+        log_debug_safe(self.logger, "Rendering MSI-X table", prefix=self.prefix)
         modules["msix_table"] = self.renderer.render_template(
             self.templates.MSIX_TABLE, context
         )
 
         # Generate initialization files
         num_vectors = self._get_msix_vectors(msix_config)
+        log_info_safe(
+            self.logger,
+            "MSI-X vectors: {count}",
+            prefix=self.prefix,
+            count=num_vectors,
+        )
         modules["msix_pba_init.hex"] = self._generate_msix_pba_init(num_vectors)
         modules["msix_table_init.hex"] = self._generate_msix_table_init(
             num_vectors, context
@@ -303,6 +394,7 @@ class SVModuleGenerator:
                 log_warning_safe(
                     self.logger,
                     "Failed to render clock crossing: {error}",
+                    prefix=self.prefix,
                     error=str(e),
                 )
 
@@ -311,7 +403,11 @@ class SVModuleGenerator:
     def _extract_registers(self, behavior_profile: Any) -> List[Dict]:
         """Extract register definitions from behavior profile."""
         if not behavior_profile:
-            log_warning_safe(self.logger, "No register accesses found, using defaults")
+            log_warning_safe(
+                self.logger,
+                "No register accesses found, using defaults",
+                prefix=self.prefix,
+            )
             return self._get_default_registers()
 
         try:
@@ -320,16 +416,26 @@ class SVModuleGenerator:
                 register_accesses = behavior_profile.register_accesses
             else:
                 log_warning_safe(
-                    self.logger, "No register accesses found, using defaults"
+                    self.logger,
+                    "No register accesses found, using defaults",
+                    prefix=self.prefix,
                 )
                 return self._get_default_registers()
 
         except AttributeError:
-            log_warning_safe(self.logger, "No register accesses found, using defaults")
+            log_warning_safe(
+                self.logger,
+                "No register accesses found, using defaults",
+                prefix=self.prefix,
+            )
             return self._get_default_registers()
 
         if not register_accesses:
-            log_warning_safe(self.logger, "No register accesses found, using defaults")
+            log_warning_safe(
+                self.logger,
+                "No register accesses found, using defaults",
+                prefix=self.prefix,
+            )
             return self._get_default_registers()
 
         # Process register accesses to build unique register map
@@ -338,7 +444,11 @@ class SVModuleGenerator:
             self._process_register_access(access, register_map)
 
         if not register_map:
-            log_warning_safe(self.logger, "No register accesses found, using defaults")
+            log_warning_safe(
+                self.logger,
+                "No register accesses found, using defaults",
+                prefix=self.prefix,
+            )
             return self._get_default_registers()
 
         return list(register_map.values())
@@ -394,84 +504,15 @@ class SVModuleGenerator:
 
     def _get_register_name_from_offset(self, offset: int) -> str:
         """Map register offset to name."""
-        offset_map = {
-            0x00: "VENDOR_ID",
-            0x02: "DEVICE_ID",
-            0x04: "COMMAND",
-            0x06: "STATUS",
-            0x08: "REVISION_ID",
-            0x0C: "CLASS_CODE",
-            0x10: "BAR0",
-            0x14: "BAR1",
-            0x18: "BAR2",
-            0x1C: "BAR3",
-            0x20: "BAR4",
-            0x24: "BAR5",
-            0x50: "MSI_CTRL",
-            0x60: "MSIX_CTRL",
-        }
-        return offset_map.get(offset, f"REG_{offset:02X}")
+        return SV_CONSTANTS.REGISTER_OFFSET_TO_NAME.get(offset, f"REG_{offset:02X}")
 
     def _get_offset_from_register_name(self, reg_name: str) -> Optional[int]:
         """Map register name to offset."""
-        name_map = {
-            "VENDOR_ID": 0x00,
-            "DEVICE_ID": 0x02,
-            "COMMAND": 0x04,
-            "STATUS": 0x06,
-            "REVISION_ID": 0x08,
-            "CLASS_CODE": 0x0C,
-            "BAR0": 0x10,
-            "BAR1": 0x14,
-            "BAR2": 0x18,
-            "BAR3": 0x1C,
-            "BAR4": 0x20,
-            "BAR5": 0x24,
-            "MSI_CTRL": 0x50,
-            "MSIX_CTRL": 0x60,
-        }
-        return name_map.get(reg_name)
+        return SV_CONSTANTS.REGISTER_NAME_TO_OFFSET.get(reg_name)
 
     def _get_default_registers(self) -> List[Dict]:
         """Get default PCILeech registers."""
-        return [
-            {
-                "name": "PCILEECH_CTRL",
-                "offset": 0x00,
-                "access_type": "rw",
-                "size": 32,
-            },
-            {
-                "name": "PCILEECH_STATUS",
-                "offset": 0x04,
-                "access_type": "ro",
-                "size": 32,
-            },
-            {
-                "name": "PCILEECH_ADDR_LO",
-                "offset": 0x08,
-                "access_type": "rw",
-                "size": 32,
-            },
-            {
-                "name": "PCILEECH_ADDR_HI",
-                "offset": 0x0C,
-                "access_type": "rw",
-                "size": 32,
-            },
-            {
-                "name": "PCILEECH_DATA",
-                "offset": 0x10,
-                "access_type": "rw",
-                "size": 32,
-            },
-            {
-                "name": "PCILEECH_SIZE",
-                "offset": 0x14,
-                "access_type": "rw",
-                "size": 32,
-            },
-        ]
+        return SV_CONSTANTS.DEFAULT_PCILEECH_REGISTERS
 
     def _is_msix_enabled(
         self, msix_config: Dict[str, Any], context: Dict[str, Any]
@@ -577,10 +618,14 @@ class SVModuleGenerator:
                                 data_bytes = bytes.fromhex(data_hex)
                             except Exception:
                                 # If parsing fails, treat as missing
-                                self.logger.warning(
-                                    "MSI-X table entry %d has invalid hex data; "
-                                    "filling with zeros",
-                                    i,
+                                log_warning_safe(
+                                    self.logger,
+                                    (
+                                        "MSI-X entry {index} invalid hex; "
+                                        "filling zeros"
+                                    ),
+                                    prefix=self.prefix,
+                                    index=i,
                                 )
                                 data_bytes = b""
                         else:
@@ -592,11 +637,15 @@ class SVModuleGenerator:
                     # Ensure 16 bytes per entry
                     if len(data_bytes) < 16:
                         if len(data_bytes) != 0:
-                            self.logger.warning(
-                                "MSI-X table entry %d is %d bytes; "
-                                "padding to 16 bytes",
-                                i,
-                                len(data_bytes),
+                            log_warning_safe(
+                                self.logger,
+                                (
+                                    "MSI-X entry {index} is {size} bytes; "
+                                    "padding to 16"
+                                ),
+                                prefix=self.prefix,
+                                index=i,
+                                size=len(data_bytes),
                             )
                         data_bytes = data_bytes.ljust(16, b"\x00")
 
@@ -611,6 +660,11 @@ class SVModuleGenerator:
         # In production, if no explicit table entries are available, refuse to
         # fabricate MSI-X table contents. This is a safety measure; callers
         # should either provide real table contents or run without MSI-X.
+        log_error_safe(
+            self.logger,
+            "Missing MSI-X table data; refusing to fabricate values",
+            prefix=self.prefix,
+        )
         raise TemplateRenderError(
             "MSI-X table data must be read from actual hardware. "
             "Cannot generate safe firmware without real MSI-X values."

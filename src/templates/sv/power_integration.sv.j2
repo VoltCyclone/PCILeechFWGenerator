@@ -1,16 +1,27 @@
 {{ header | safe }}
 
     // ── Power Management Integration ─────────────────────────────────────────
+    {%- set _enable_pme = enable_pme|default(false) %}
+    {%- set _enable_wake_events = enable_wake_events|default(false) %}
     
     // PMCSR (Power Management Control/Status Register) signals
     logic        pmcsr_wr;
     logic [15:0] pmcsr_wdata;
     logic [15:0] pmcsr_rdata;
-{%- if enable_wake_events %}
+{%- if _enable_wake_events %}
     logic        wake_evt;
 {%- endif %}
-{%- if enable_pme %}
+{%- if _enable_pme %}
     logic        pme_req;
+{%- endif %}
+    // PME TurnOff/To_Ack handshake and WAKE#
+    logic        pme_to_ack;
+    logic        wake_n;
+    // Local or top-level connected sideband
+{%- if _enable_pme %}
+    // If top-level exposes inputs, use them; else tie-offs are added below
+    logic        pme_turnoff;
+    logic        aux_pwr_present;
 {%- endif %}
     
     // Instantiate minimal power management stub
@@ -23,12 +34,16 @@
         .pmcsr_wr(pmcsr_wr),
         .pmcsr_wdata(pmcsr_wdata),
         .pmcsr_rdata(pmcsr_rdata),
-{%- if enable_wake_events %}
+{%- if _enable_wake_events %}
         .wake_evt(wake_evt),
 {%- else %}
         .wake_evt(1'b0),
 {%- endif %}
-{%- if enable_pme %}
+    .pme_turnoff(pme_turnoff),
+    .pme_to_ack(pme_to_ack),
+    .aux_pwr_present(aux_pwr_present),
+    .wake_n(wake_n),
+{%- if _enable_pme %}
         .pme_req(pme_req)
 {%- else %}
         .pme_req()  // Leave unconnected if PME disabled
@@ -37,12 +52,20 @@
     
     // Connect PMCSR to config space at offset 0x44
     always_comb begin
-        pmcsr_wr = cfg_wr_en && (cfg_addr[7:0] == 8'h44);
-        pmcsr_wdata = cfg_wr_data[15:0];
+    pmcsr_wr = cfg_wr_en && (cfg_addr[7:0] == 8'h44);
+    pmcsr_wdata = cfg_wr_data[15:0];
         
-{%- if enable_wake_events %}
+{%- if _enable_wake_events %}
         // Wake event can be triggered by external signals or internal logic
         wake_evt = 1'b0;  // Connect to actual wake sources as needed
+{%- endif %}
+{%- if _enable_pme %}
+    // If not driven by top-level, tie to safe defaults here
+    // synthesis translate_off
+    if (1) begin end
+    // synthesis translate_on
+    pme_turnoff = pme_turnoff; // assume connected at top
+    aux_pwr_present = aux_pwr_present; // assume connected at top
 {%- endif %}
     end
     
@@ -53,3 +76,5 @@
             cfg_rd_data[31:16] = 16'h0;  // Upper 16 bits reserved
         end
     end
+
+    // Optional: pme_to_ack and wake_n can be forwarded to top-level ports in the wrapper

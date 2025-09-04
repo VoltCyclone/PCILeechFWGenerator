@@ -10,13 +10,17 @@ import builtins
 import logging
 import math
 import sys
+
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+
+from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 from src.__version__ import __version__
 from src.templates.template_mapping import update_template_path
 from src.utils.unified_context import ensure_template_compatibility
-from string_utils import (
+
+
+from src.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
     log_error_safe,
@@ -24,6 +28,8 @@ from string_utils import (
     log_warning_safe,
     safe_format,
 )
+
+from .sv_constants import SV_CONSTANTS
 
 __import__ = builtins.__import__
 
@@ -41,6 +47,7 @@ try:
         meta,
         nodes,
     )
+
     from jinja2.bccache import FileSystemBytecodeCache
     from jinja2.ext import Extension
     from jinja2.sandbox import SandboxedEnvironment
@@ -108,7 +115,8 @@ class TemplateRenderer:
                          defaults to src/templates/
             strict: Use StrictUndefined to fail on missing variables
             sandboxed: Use sandboxed environment for untrusted templates
-            bytecode_cache_dir: Directory for bytecode cache (speeds up repeated renders)
+            bytecode_cache_dir: Directory for bytecode cache
+                                 (speeds up repeated renders)
             auto_reload: Auto-reload templates when changed
         """
         template_dir = Path(template_dir or Path(__file__).parent.parent / "templates")
@@ -179,6 +187,7 @@ class TemplateRenderer:
             return " ".join(f"{{{item}}}" for item in escaped_items)
 
         # SystemVerilog-specific filters
+
         def _parse_int(value) -> int:
             """Parse integer from various formats."""
             if isinstance(value, int):
@@ -198,7 +207,10 @@ class TemplateRenderer:
                 )
 
         def sv_hex(value, width: int = 32) -> str:
-            """Return SystemVerilog literal. width<=0 returns just hex without width."""
+            """Return SystemVerilog literal.
+
+            width<=0 returns just hex without width.
+            """
             iv = _parse_int(value)
             if width and width > 0:
                 hex_digits = (width + 3) // 4
@@ -231,52 +243,6 @@ class TemplateRenderer:
                 init_str = ""
             return f"logic {width_str}{name}{init_str};"
 
-        # SystemVerilog reserved keywords
-        SV_KEYWORDS = {
-            "assign",
-            "module",
-            "endmodule",
-            "begin",
-            "end",
-            "logic",
-            "wire",
-            "reg",
-            "input",
-            "output",
-            "inout",
-            "parameter",
-            "localparam",
-            "always",
-            "always_ff",
-            "always_comb",
-            "always_latch",
-            "if",
-            "else",
-            "case",
-            "endcase",
-            "for",
-            "while",
-            "do",
-            "function",
-            "endfunction",
-            "task",
-            "endtask",
-            "class",
-            "endclass",
-            "package",
-            "endpackage",
-            "interface",
-            "endinterface",
-            "typedef",
-            "enum",
-            "struct",
-            "union",
-            "initial",
-            "final",
-            "generate",
-            "endgenerate",
-        }
-
         def sv_identifier(name: str) -> str:
             """Convert to valid SystemVerilog identifier."""
             import re
@@ -284,7 +250,7 @@ class TemplateRenderer:
             s = re.sub(r"[^a-zA-Z0-9_]", "_", name)
             if not re.match(r"^[a-zA-Z_]", s):
                 s = "_" + s
-            if s in SV_KEYWORDS:
+            if s in SV_CONSTANTS.SV_RESERVED_KEYWORDS:
                 s = s + "_id"
             return s
 
@@ -370,6 +336,7 @@ class TemplateRenderer:
         # Safe integer coercion filter used by many templates. Returns an int or
         # the provided default when conversion fails. Accepts decimal and hex
         # strings (0x...), integers, and other numeric-like inputs.
+
         def safe_int_filter(value, default=0):
             try:
                 return _parse_int(value)
@@ -414,18 +381,19 @@ class TemplateRenderer:
         self, template_name: str, context: Dict[str, Any]
     ) -> None:
         """
-        Comprehensive validation of all variables referenced in a template.
+            Comprehensive validation of all variables referenced in a template.
 
-        This method enforces that all variables used in a template are properly defined
-        in the context before rendering begins. It strictly prevents template rendering
-        with incomplete context data to maintain security and data integrity.
+        This method enforces that all variables used in a template are
+        properly defined in the context before rendering begins. It
+        strictly prevents template rendering with incomplete context
+        data to maintain security and data integrity.
 
-        Args:
-            template_name: Name of the template to validate
-            context: Template context to check against
+            Args:
+                template_name: Name of the template to validate
+                context: Template context to check against
 
-        Raises:
-            TemplateRenderError: If any variable used in the template is undefined
+            Raises:
+                TemplateRenderError: If any variable used in the template is undefined
         """
         try:
             # Get template source and parse it
@@ -446,7 +414,8 @@ class TemplateRenderer:
             assigned_in_template = set()
             try:
                 # Find simple set statements: {% set var = ... %}
-                # Handle whitespace-control variants like '{% set', '{%- set', '{% set -%}', etc.
+                # Handle whitespace-control variants like '{% set', '{%- set',
+                # '{% set -%}', etc.
                 for m in re.finditer(r"\{%-?\s*set\s+([A-Za-z_][A-Za-z0-9_]*)", src):
                     assigned_in_template.add(m.group(1))
             except Exception:
@@ -461,11 +430,15 @@ class TemplateRenderer:
             if missing:
                 # Prepare a clear, security-focused error message
                 missing_sorted = sorted(missing)
-                error_msg = (
-                    f"SECURITY VIOLATION: Template '{template_name}' references undefined variables: "
-                    f"{', '.join(missing_sorted)}.\n"
-                    f"Template path: {file_path}\n"
-                    f"To maintain template integrity and security, all variables must be explicitly defined."
+                error_msg = safe_format(
+                    "SECURITY VIOLATION: Template '{tpl}' references "
+                    "undefined variables: {vars}.\n"
+                    "Template path: {path}\n"
+                    "To maintain template integrity and security, all "
+                    "variables must be explicitly defined.",
+                    tpl=template_name,
+                    vars=", ".join(missing_sorted),
+                    path=file_path,
                 )
 
                 log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
@@ -475,11 +448,15 @@ class TemplateRenderer:
                 k for k in referenced_vars if k in context and context[k] is None
             ]
             if none_vars:
-                error_msg = (
-                    f"SECURITY VIOLATION: Template '{template_name}' contains None values for "
-                    f"critical variables: {', '.join(sorted(none_vars))}.\n"
-                    f"Template path: {file_path}\n"
-                    f"Complete initialization of all template variables is required for secure rendering."
+                error_msg = safe_format(
+                    "SECURITY VIOLATION: Template '{tpl}' contains None "
+                    "values for critical variables: {vars}.\n"
+                    "Template path: {path}\n"
+                    "Complete initialization of all template variables is "
+                    "required for secure rendering.",
+                    tpl=template_name,
+                    vars=", ".join(sorted(none_vars)),
+                    path=file_path,
                 )
                 log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
                 raise TemplateRenderError(error_msg)
@@ -489,8 +466,10 @@ class TemplateRenderer:
             log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
             raise TemplateRenderError(error_msg) from e
         except Exception as e:
-            error_msg = (
-                f"Error during preflight validation of template '{template_name}': {e}"
+            error_msg = safe_format(
+                "Error during preflight validation of template '{tpl}': {err}",
+                tpl=template_name,
+                err=e,
             )
             log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
             raise TemplateRenderError(error_msg) from e
@@ -511,13 +490,23 @@ class TemplateRenderer:
         """
         template_name = update_template_path(template_name)
         try:
-            # Ensure the provided context is template-compatible (convert nested dicts)
+            # Ensure the provided context is template-compatible
+            # (convert nested dicts)
             # Debug: log top-level types to help diagnose template conversion issues
             try:
                 type_info = {k: type(v).__name__ for k, v in context.items()}
-                logger.debug("Template context top-level types: %s", type_info)
+                log_debug_safe(
+                    logger,
+                    "Template context top-level types: {types}",
+                    prefix="TEMPLATE",
+                    types=type_info,
+                )
             except Exception:
-                logger.debug("Failed to collect template context type information")
+                log_debug_safe(
+                    logger,
+                    "Failed to collect template context type information",
+                    prefix="TEMPLATE",
+                )
 
             try:
                 compatible = ensure_template_compatibility(context)
@@ -532,7 +521,11 @@ class TemplateRenderer:
                         if key not in compatible:
                             compatible[key] = value
                 except ImportError:
-                    logger.debug("Template constants not available")
+                    log_debug_safe(
+                        logger,
+                        "Template constants not available",
+                        prefix="TEMPLATE",
+                    )
 
                 # Diagnostic: log the types after conversion to help debug conversion
                 # issues but keep this at DEBUG level to avoid noisy production logs.
@@ -540,17 +533,26 @@ class TemplateRenderer:
                     post_type_info = {
                         k: type(v).__name__ for k, v in compatible.items()
                     }
-                    logger.debug(
-                        "Post-conversion context top-level types: %s", post_type_info
+                    log_debug_safe(
+                        logger,
+                        "Post-conversion context top-level types: {types}",
+                        prefix="TEMPLATE",
+                        types=post_type_info,
                     )
                 except Exception:
-                    logger.debug("Failed to collect post-conversion type information")
+                    log_debug_safe(
+                        logger,
+                        "Failed to collect post-conversion type information",
+                        prefix="TEMPLATE",
+                    )
             except Exception:
                 # Fallback to the original context if conversion fails. Keep at DEBUG
                 # level since this is a recoverable, non-fatal compatibility path.
-                logger.debug(
+                log_debug_safe(
+                    logger,
                     "ensure_template_compatibility raised an exception; "
-                    "falling back to original context"
+                    "falling back to original context",
+                    prefix="TEMPLATE",
                 )
                 compatible = context
 
@@ -711,26 +713,32 @@ class TemplateRenderer:
         optional_fields: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
-        Validate template context using the centralized TemplateContextValidator.
+            Validate template context using the centralized TemplateContextValidator.
 
-        This method delegates validation to the centralized validator while maintaining
-        backward compatibility with the existing interface.
+        This method delegates validation to the centralized validator
+        while maintaining backward compatibility with the existing
+        interface.
 
-        Args:
-            context: Original template context
-            template_name: Name of the template being rendered
-            required_fields: List of required fields (deprecated - use TemplateContextValidator)
-            optional_fields: List of optional fields (deprecated - use TemplateContextValidator)
+            Args:
+                context: Original template context
+                template_name: Name of the template being rendered
+                required_fields: List of required fields (deprecated -
+                                 use TemplateContextValidator)
+                optional_fields: List of optional fields (deprecated -
+                                 use TemplateContextValidator)
 
-        Returns:
-            Validated context
+            Returns:
+                Validated context
 
-        Raises:
-            TemplateRenderError: If validation fails
+            Raises:
+                TemplateRenderError: If validation fails
         """
         if not context:
             raise TemplateRenderError(
-                f"Template context cannot be empty for template '{template_name or 'unknown'}'"
+                safe_format(
+                    "Template context cannot be empty for template '{name}'",
+                    name=(template_name or "unknown"),
+                )
             )
 
         try:
@@ -758,7 +766,8 @@ class TemplateRenderer:
                 if key in validated_context and validated_context[key] is None:
                     error_msg = safe_format(
                         "SECURITY VIOLATION: Template context key '{key}' is None. "
-                        "Explicit initialization required for all template variables.",
+                        "Explicit initialization required for all template "
+                        "variables.",
                         key=key,
                     )
                     log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
@@ -805,6 +814,41 @@ class TemplateRenderer:
 _cached_exception_class: Optional[Type[Exception]] = None
 
 
+class _FallbackTemplateRenderError(Exception):
+    """Minimal fallback when src.exceptions.TemplateRenderError is unavailable."""
+
+    def __init__(
+        self,
+        message: str = "Template render error",
+        template_name: Optional[str] = None,
+        line_number: Optional[int] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        self.template_name = template_name
+        self.line_number = line_number
+        self.original_error = original_error
+
+    def __str__(self) -> str:
+        parts = [str(self.args[0]) if self.args else "Template render error"]
+        if self.template_name:
+            parts.append(f"Template: {self.template_name}")
+        if self.line_number is not None:
+            parts.append(f"Line: {self.line_number}")
+        if self.original_error:
+            try:
+                orig_msg = (
+                    self.original_error.args[0]
+                    if getattr(self.original_error, "args", None)
+                    else repr(self.original_error)
+                )
+            except Exception:
+                orig_msg = repr(self.original_error)
+            err_type = type(self.original_error).__name__
+            parts.append(f"Caused by: {err_type}: {orig_msg}")
+        return " | ".join(parts)
+
+
 def _clear_exception_cache():
     """Clear the cached exception class. Useful for testing."""
     global _cached_exception_class
@@ -821,67 +865,44 @@ def _get_template_render_error_base() -> Type[Exception]:
     global _cached_exception_class
 
     if _cached_exception_class is not None:
-        return _cached_exception_class
+        return cast(Type[Exception], _cached_exception_class)
 
     try:
         # Use the module-level __import__ so tests can patch it.
-        mod = __import__("src.exceptions", fromlist=["TemplateRenderError"])  # type: ignore[name-defined]
+        mod = __import__(
+            "src.exceptions",
+            fromlist=["TemplateRenderError"],
+        )
         _tr = getattr(mod, "TemplateRenderError")
         _cached_exception_class = _tr
-        return _cached_exception_class
+        return cast(Type[Exception], _cached_exception_class)
     except ImportError as e:
-        # Create a simple fallback class with the expected API
-        class FallbackTemplateRenderError(Exception):
-            def __init__(
-                self,
-                message: str = "Template render error",
-                template_name: Optional[str] = None,
-                line_number: Optional[int] = None,
-                original_error: Optional[Exception] = None,
-            ):
-                super().__init__(message)
-                self.template_name = template_name
-                self.line_number = line_number
-                self.original_error = original_error
-
-            def __str__(self) -> str:
-                parts = [str(self.args[0]) if self.args else "Template render error"]
-                if self.template_name:
-                    parts.append(f"Template: {self.template_name}")
-                if self.line_number is not None:
-                    parts.append(f"Line: {self.line_number}")
-                if self.original_error:
-                    try:
-                        orig_msg = (
-                            self.original_error.args[0]
-                            if getattr(self.original_error, "args", None)
-                            else repr(self.original_error)
-                        )
-                    except Exception:
-                        orig_msg = repr(self.original_error)
-                    parts.append(
-                        f"Caused by: {type(self.original_error).__name__}: {orig_msg}"
-                    )
-                return " | ".join(parts)
-
-        _cached_exception_class = FallbackTemplateRenderError
+        # Use simple fallback class with the expected API
+        _cached_exception_class = _FallbackTemplateRenderError
 
         # Only warn when a debugger is attached (development mode)
         if hasattr(sys, "gettrace") and sys.gettrace() is not None:
             import warnings
 
+            warn_msg = safe_format(
+                "Failed to import TemplateRenderError from src.exceptions: {err}. "
+                "Using fallback.",
+                err=e,
+            )
             warnings.warn(
-                f"Failed to import TemplateRenderError from src.exceptions: {e}. Using fallback.",
+                warn_msg,
                 ImportWarning,
                 stacklevel=2,
             )
 
-        return _cached_exception_class
+    return cast(Type[Exception], _cached_exception_class)
 
 
 # Expose a TemplateRenderError in this module that always provides the
 # richer attributes (template_name, line_number, original_error) while
 # inheriting from the project's canonical exception when available.
+
+
 class TemplateRenderError(_get_template_render_error_base()):
     def __init__(
         self,
@@ -925,7 +946,7 @@ class TemplateRenderError(_get_template_render_error_base()):
             parts.append(f"Line: {self.line_number}")
         if getattr(self, "original_error", None):
             try:
-                orig = self.original_error
+                orig = cast(Exception, self.original_error)
                 orig_msg = repr(orig)
                 # Try to extract message from args if available
                 try:
@@ -946,6 +967,8 @@ class TemplateRenderError(_get_template_render_error_base()):
 
 
 # Convenience function for quick template rendering
+
+
 def render_tcl_template(
     template_name: str,
     context: Dict[str, Any],

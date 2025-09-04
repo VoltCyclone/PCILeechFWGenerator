@@ -136,7 +136,9 @@ class SystemVerilogGenerator:
         self.validator = SVValidator(self.logger)
         self.context_builder = SVContextBuilder(self.logger)
         self.renderer = TemplateRenderer(template_dir)
-        self.module_generator = SVModuleGenerator(self.renderer, self.logger)
+        self.module_generator = SVModuleGenerator(
+            self.renderer, self.logger, prefix="SV_GEN"
+        )
 
         # Validate device configuration
         self.validator.validate_device_config(self.device_config)

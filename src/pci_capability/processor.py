@@ -11,14 +11,24 @@ categorizing, and pruning capabilities.
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .core import CapabilityWalker, ConfigSpace
 from .msix import MSIXCapabilityHandler
 from .patches import PatchEngine
 from .rules import RuleEngine
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PatchInfo, PruningAction)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    EmulationCategory,
+    PatchInfo,
+    PruningAction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -449,6 +459,17 @@ class CapabilityProcessor:
                     link_ctrl = self.config_space.read_word(cap_info.offset + 16)
                     context["pcie_aspm_control"] = link_ctrl & 0x3
                     context["pcie_link_training"] = bool(link_ctrl & 0x0020)
+
+                # Device Capabilities 2 (offset 0x24) and Device Control 2 (0x28)
+                if self.config_space.has_data(cap_info.offset + 0x24, 4):
+                    dev_caps2 = self.config_space.read_dword(cap_info.offset + 0x24)
+                    # LTR Mechanism Supported is bit 11 in Dev Caps 2.
+                    # We'll expose support explicitly in context.
+                    context["pcie_ltr_supported"] = bool((dev_caps2 >> 11) & 0x1)
+
+                if self.config_space.has_data(cap_info.offset + 0x28, 2):
+                    dev_ctrl2 = self.config_space.read_word(cap_info.offset + 0x28)
+                    context["pcie_ltr_enabled"] = bool(dev_ctrl2 & 0x0400)
 
             # Power Management capability
             elif cap_info.cap_id == 0x01:  # Power Management
@@ -938,6 +959,42 @@ class CapabilityProcessor:
                         safe_format(
                             "Configure PCIe link control at 0x{link_ctrl_offset:02x}",
                             link_ctrl_offset=link_ctrl_offset,
+                        ),
+                    )
+                    if patch:
+                        patches.append(patch)
+
+            # Device Control 2 (offset 0x28) - enable LTR if supported
+            dev_ctrl2_offset = cap_info.offset + 0x28
+            dev_caps2_offset = cap_info.offset + 0x24
+            if self.config_space.has_data(dev_ctrl2_offset, 2):
+                current_dev_ctrl2 = self.config_space.read_word(dev_ctrl2_offset)
+
+                # Determine LTR support from context or by reading Dev Capabilities 2
+                ltr_supported = device_context.get("pcie_ltr_supported")
+                if ltr_supported is None and self.config_space.has_data(
+                    dev_caps2_offset, 4
+                ):
+                    dev_caps2_val = self.config_space.read_dword(dev_caps2_offset)
+                    ltr_supported = bool((dev_caps2_val >> 11) & 0x1)
+
+                enable_ltr = device_context.get("enable_ltr", True)
+                new_dev_ctrl2 = current_dev_ctrl2
+                if ltr_supported and enable_ltr:
+                    # Bit 10 = LTR Enable
+                    new_dev_ctrl2 = current_dev_ctrl2 | 0x0400
+                else:
+                    # Keep as-is; don't forcibly clear unless explicitly disabled
+                    pass
+
+                if new_dev_ctrl2 != current_dev_ctrl2:
+                    patch = self.patch_engine.create_word_patch(
+                        dev_ctrl2_offset,
+                        current_dev_ctrl2,
+                        new_dev_ctrl2,
+                        safe_format(
+                            "Set LTR Enable in Dev Ctl2 at 0x{dev_ctrl2_offset:02x}",
+                            dev_ctrl2_offset=dev_ctrl2_offset,
                         ),
                     )
                     if patch:
@@ -1937,8 +1994,7 @@ class CapabilityProcessor:
 
     def _create_generic_removal_patches(self, cap_info: CapabilityInfo) -> List:
         """Create generic patches to remove a capability from the capability chain."""
-        from .constants import (PCI_CAP_NEXT_PTR_OFFSET,
-                                PCI_CAPABILITIES_POINTER)
+        from .constants import PCI_CAP_NEXT_PTR_OFFSET, PCI_CAPABILITIES_POINTER
 
         patches = []
 

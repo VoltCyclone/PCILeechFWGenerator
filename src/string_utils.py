@@ -8,8 +8,15 @@ cause syntax errors when split across lines.
 """
 
 import logging
+
 from datetime import datetime
+
 from typing import Any, Dict, List, Optional
+
+# Short constants to keep lines within linter limits while reusing the same banner
+# Note: dynamic borders are constructed in helpers to satisfy line-length rules.
+SV_HEADER_BAR = "//=="
+TCL_HEADER_BAR = "#=="
 
 
 def safe_format(template: str, prefix: Optional[str] = None, **kwargs: Any) -> str:
@@ -324,8 +331,13 @@ def format_padded_message(message: str, log_level: str) -> str:
 
 
 # Convenience functions for common logging patterns
+
+
 def log_info_safe(
-    logger: logging.Logger, template: str, prefix: Optional[str] = None, **kwargs: Any
+    logger: logging.Logger,
+    template: str,
+    prefix: Optional[str] = None,
+    **kwargs: Any,
 ) -> None:
     """Convenience function for safe INFO level logging."""
     # Use the centralized safe_log_format to ensure padding/timestamp and
@@ -334,21 +346,30 @@ def log_info_safe(
 
 
 def log_error_safe(
-    logger: logging.Logger, template: str, prefix: Optional[str] = None, **kwargs: Any
+    logger: logging.Logger,
+    template: str,
+    prefix: Optional[str] = None,
+    **kwargs: Any,
 ) -> None:
     """Convenience function for safe ERROR level logging."""
     safe_log_format(logger, logging.ERROR, template, prefix=prefix, **kwargs)
 
 
 def log_warning_safe(
-    logger: logging.Logger, template: str, prefix: Optional[str] = None, **kwargs: Any
+    logger: logging.Logger,
+    template: str,
+    prefix: Optional[str] = None,
+    **kwargs: Any,
 ) -> None:
     """Convenience function for safe WARNING level logging."""
     safe_log_format(logger, logging.WARNING, template, prefix=prefix, **kwargs)
 
 
 def log_debug_safe(
-    logger: logging.Logger, template: str, prefix: Optional[str] = None, **kwargs: Any
+    logger: logging.Logger,
+    template: str,
+    prefix: Optional[str] = None,
+    **kwargs: Any,
 ) -> None:
     """Convenience function for safe DEBUG level logging."""
     safe_log_format(logger, logging.DEBUG, template, prefix=prefix, **kwargs)
@@ -382,21 +403,21 @@ def generate_sv_header_comment(
         ...     "Device Configuration Module",
         ...     vendor_id="1234", device_id="5678", board="AC701"
         ... )
-        '//==============================================================================\\n// Device Configuration Module - Generated for 1234:5678\\n// Board: AC701\\n//=============================================================================='
+        '//... Device Configuration Module - Generated for 1234:5678 ...'
 
         >>> generate_sv_header_comment("PCIe Controller Module")
-        '//==============================================================================\\n// PCIe Controller Module\\n//=============================================================================='
+        '//... PCIe Controller Module ...'
     """
     from src.utils.validation_constants import SV_FILE_HEADER
 
-    # Use the first line of the standardized header as a base
+    # Use the first line of the standardized header as a base (single-line banner)
     header_base = (
         SV_FILE_HEADER.split("\n")[0] if "\n" in SV_FILE_HEADER else SV_FILE_HEADER
     )
 
-    lines = [
-        "//=============================================================================="
-    ]
+    # Build border line dynamically to satisfy line-length rules
+    sv_border = "//" + "=" * 78
+    lines = [sv_border, header_base]
 
     # Build the main title line
     if vendor_id and device_id:
@@ -416,9 +437,7 @@ def generate_sv_header_comment(
             display_key = key.replace("_", " ").title()
             lines.append(f"// {display_key}: {value}")
 
-    lines.append(
-        "//=============================================================================="
-    )
+    lines.append(sv_border)
 
     return "\n".join(lines)
 
@@ -456,18 +475,18 @@ def generate_tcl_header_comment(
         ...     vendor_id="1234", device_id="5678",
         ...     class_code="0200", board="AC701"
         ... )
-        '#==============================================================================\\n# PCILeech Firmware Build Script\\n# Generated for device 1234:5678 (Class: 0200)\\n# Board: AC701\\n#=============================================================================='
+    '# ... PCILeech Firmware Build Script ...'
     """
     from src.utils.validation_constants import TCL_FILE_HEADER
 
-    # Use the standardized header as a base
+    # Use the standardized header as a base (single-line banner)
     header_base = (
         TCL_FILE_HEADER.split("\n")[0] if "\n" in TCL_FILE_HEADER else TCL_FILE_HEADER
     )
 
-    lines = [
-        "#=============================================================================="
-    ]
+    # Build border line dynamically to satisfy line-length rules
+    tcl_border = "#" + "=" * 78
+    lines = [tcl_border, header_base]
 
     # Build the main title line
     lines.append(f"# {title}")
@@ -494,9 +513,78 @@ def generate_tcl_header_comment(
             display_key = key.replace("_", " ").title()
             lines.append(f"# {display_key}: {value}")
 
-    lines.append(
-        "#=============================================================================="
+    lines.append(tcl_border)
+
+    return "\n".join(lines)
+
+
+def generate_hex_header_comment(
+    title: str,
+    total_bytes: Optional[int] = None,
+    total_dwords: Optional[int] = None,
+    vendor_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    class_code: Optional[str] = None,
+    board: Optional[str] = None,
+    **kwargs: Any,
+) -> str:
+    """
+    Generate a standardized HEX file header comment block.
+
+    This creates a consistent header used for .hex files intended for
+    $readmemh initialization, aligning with other header styles.
+
+    Args:
+        title: Main title/description (e.g., "config_space_init.hex - ...")
+        total_bytes: Optional total byte count included when provided
+        total_dwords: Optional total dword count included when provided
+        vendor_id: Optional vendor ID to display
+        device_id: Optional device ID to display
+        class_code: Optional class code to display
+        board: Optional board identifier
+        **kwargs: Additional key-value pairs to include as comments
+
+    Returns:
+        Formatted HEX header comment block
+    """
+    from src.utils.validation_constants import HEX_FILE_HEADER
+
+    # First line from standardized header as base
+    header_base = (
+        HEX_FILE_HEADER.split("\n")[0] if "\n" in HEX_FILE_HEADER else HEX_FILE_HEADER
     )
+
+    # Dynamic border line to respect line-length rules
+    hex_border = "//" + "=" * 78
+    lines = [hex_border, header_base]
+
+    # Title
+    lines.append(f"// {title}")
+
+    # Optional device information
+    if vendor_id and device_id:
+        dev_line = f"// Generated for device {vendor_id}:{device_id}"
+        if class_code:
+            dev_line += f" (Class: {class_code})"
+        lines.append(dev_line)
+
+    # Optional board info
+    if board:
+        lines.append(f"// Board: {board}")
+
+    # Totals if provided
+    if total_bytes is not None and total_dwords is not None:
+        lines.append(f"// Total size: {total_bytes} bytes ({total_dwords} dwords)")
+    elif total_bytes is not None:
+        lines.append(f"// Total size: {total_bytes} bytes")
+
+    # Additional key/value pairs
+    for key, value in kwargs.items():
+        if value is not None:
+            display_key = key.replace("_", " ").title()
+            lines.append(f"// {display_key}: {value}")
+
+    lines.append(hex_border)
 
     return "\n".join(lines)
 

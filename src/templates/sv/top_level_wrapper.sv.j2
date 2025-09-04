@@ -31,6 +31,22 @@ module pcileech_top (
     // Debug/status outputs
     output logic [31:0] debug_status,
     output logic        device_ready
+{%- set _enable_pme = enable_pme|default(false) %}
+{%- set _enable_wake_events = enable_wake_events|default(false) %}
+{#- Expose sideband pins only when explicitly requested by context -#}
+{%- set _expose_pm_sideband = expose_pm_sideband|default(power_management.has_interface_signals if power_management is defined else false) %}
+{%- if _expose_pm_sideband %}
+    ,
+    // Optional PCIe power management sideband (expose for integration)
+{%- if _enable_pme %}
+    input  logic        pme_turnoff,
+    input  logic        aux_pwr_present,
+    output logic        pme_to_ack,
+{%- endif %}
+{%- if _enable_wake_events %}
+    output logic        wake_n
+{%- endif %}
+{%- endif %}
 );
 
     // Internal signals
@@ -53,6 +69,20 @@ module pcileech_top (
         .cfg_subsystem_id(cfg_subsystem_id),
         .cfg_bar(cfg_bar)
     );
+
+{%- if _expose_pm_sideband %}
+    // Default safe values for optional PM sideband when not wired internally
+{%- if _enable_pme %}
+    // If no internal PM block drives To_Ack, hold low; allow external connection
+    assign pme_to_ack = 1'b0;
+    // If AUX not driven externally, expect board logic to tie appropriately
+    // (no internal assignment for inputs pme_turnoff/aux_pwr_present)
+{%- endif %}
+{%- if _enable_wake_events %}
+    // Deassert WAKE# by default (active-low)
+    assign wake_n = 1'b1;
+{%- endif %}
+{%- endif %}
 
     // Additional BAR controller signals
     logic [2:0]  bar_index;

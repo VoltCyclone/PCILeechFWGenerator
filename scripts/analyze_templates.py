@@ -336,7 +336,7 @@ def main():
     print("\n6. MISSING CRITICAL FILES")
     print("-" * 40)
     critical_files = [
-        "sv/pcileech_header.svh.j2",  # Referenced but doesn't exist
+        "sv/pcileech_header.svh.j2",
     ]
     missing_critical = []
     for file in critical_files:

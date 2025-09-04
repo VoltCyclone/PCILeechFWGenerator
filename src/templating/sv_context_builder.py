@@ -317,7 +317,7 @@ class SVContextBuilder:
             getattr(device_config, "enable_dma", True),
         )
         context["enable_interrupt"] = (
-            context.get("interrupt_config", {}).get("vectors", 0) > 0
+            getattr(context.get("interrupt_config", None), "vectors", 0) > 0
         )
         context["enable_clock_crossing"] = True
         context["enable_performance_counters"] = True

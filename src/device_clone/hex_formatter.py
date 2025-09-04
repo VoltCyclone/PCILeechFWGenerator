@@ -8,13 +8,16 @@ generates hex files compatible with FPGA initialization.
 """
 
 import logging
+
 from pathlib import Path
+
 from typing import List, Optional, Union
 
 try:
     from src.string_utils import log_debug_safe, log_error_safe, log_info_safe
 except ImportError:
     # Fallback for when string_utils is not available
+
     def log_info_safe(logger, template, **kwargs):
         logger.info(template.format(**kwargs))
 
@@ -68,6 +71,10 @@ class ConfigSpaceHexFormatter:
         config_space_data: bytes,
         include_comments: bool = True,
         words_per_line: int = 1,
+        vendor_id: Optional[str] = None,
+        device_id: Optional[str] = None,
+        class_code: Optional[str] = None,
+        board: Optional[str] = None,
     ) -> str:
         """
         Convert configuration space data to hex format.
@@ -99,17 +106,22 @@ class ConfigSpaceHexFormatter:
 
         hex_lines = []
 
-        # Add header comment
+        # Add header comment using unified helper
         if include_comments:
-            from src.utils.validation_constants import HEX_FILE_HEADER
+            from src.string_utils import generate_hex_header_comment
 
-            hex_lines.append(
-                "// config_space_init.hex - PCIe Configuration Space Initialization"
+            header = generate_hex_header_comment(
+                title=(
+                    "config_space_init.hex - " "PCIe Configuration Space Initialization"
+                ),
+                total_bytes=len(config_space_data),
+                total_dwords=len(config_space_data) // 4,
+                vendor_id=vendor_id,
+                device_id=device_id,
+                class_code=class_code,
+                board=board,
             )
-            hex_lines.append(HEX_FILE_HEADER)
-            hex_lines.append(
-                f"// Total size: {len(config_space_data)} bytes ({len(config_space_data) // 4} dwords)"
-            )
+            hex_lines.append(header)
             hex_lines.append("")
 
         # Process data in 32-bit chunks
