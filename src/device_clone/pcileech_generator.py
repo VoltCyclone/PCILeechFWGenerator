@@ -25,19 +25,23 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Import existing infrastructure components
-from src.device_clone.behavior_profiler import (BehaviorProfile,
-                                                BehaviorProfiler)
+from src.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
 from src.device_clone.config_space_manager import ConfigSpaceManager
-from src.device_clone.msix_capability import (parse_msix_capability,
-                                              validate_msix_configuration)
-from src.device_clone.pcileech_context import PCILeechContextBuilder
+from src.device_clone.msix_capability import (
+    parse_msix_capability,
+    validate_msix_configuration,
+)
+from src.device_clone.pcileech_context import (
+    PCILeechContextBuilder,
+    VFIODeviceManager,
+)
 from src.device_clone.writemask_generator import WritemaskGenerator
 from src.error_utils import extract_root_cause
 from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
+
 # Import from centralized locations
 from src.string_utils import log_error_safe, log_info_safe, log_warning_safe
-from src.templating import (AdvancedSVGenerator, TemplateRenderer,
-                            TemplateRenderError)
+from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
 from src.utils.attribute_access import has_attr, safe_get_attr
 
 logger = logging.getLogger(__name__)
@@ -113,8 +117,7 @@ class PCILeechGenerator:
         self.logger = logging.getLogger(__name__)
 
         # Initialize shared/global fallback manager
-        from src.device_clone.fallback_manager import \
-            get_global_fallback_manager
+        from src.device_clone.fallback_manager import get_global_fallback_manager
 
         self.fallback_manager = get_global_fallback_manager(
             mode=config.fallback_mode, allowed_fallbacks=config.allowed_fallbacks
@@ -215,6 +218,33 @@ class PCILeechGenerator:
                     config_space_data
                 )
 
+                # Step 3a: If MSI-X capability present, capture actual table bytes via VFIO
+                if msix_data and msix_data.get("table_size", 0) > 0:
+                    try:
+                        captured = self._capture_msix_table_entries(msix_data)
+                        if captured:
+                            # Merge captured entries/init hex into msix_data
+                            msix_data.update(captured)
+                            log_info_safe(
+                                self.logger,
+                                "Captured MSI-X table: {vectors} vectors",
+                                vectors=msix_data.get("table_size", 0),
+                                prefix="MSIX",
+                            )
+                        else:
+                            log_warning_safe(
+                                self.logger,
+                                "MSI-X table capture returned no data",
+                                prefix="MSIX",
+                            )
+                    except Exception as e:
+                        log_warning_safe(
+                            self.logger,
+                            "MSI-X table capture failed: {error}",
+                            error=str(e),
+                            prefix="MSIX",
+                        )
+
                 # Step 3a: Handle interrupt strategy fallback if MSI-X not available
                 if msix_data is None or msix_data.get("table_size", 0) == 0:
                     log_info_safe(
@@ -264,6 +294,10 @@ class PCILeechGenerator:
                     interrupt_strategy,
                     interrupt_vectors,
                 )
+
+                # Ensure msix_data is embedded so SV generator can access it
+                if isinstance(template_context, dict):
+                    template_context.setdefault("msix_data", msix_data)
 
             # VFIO cleanup happens here automatically when exiting the 'with' block
             log_info_safe(
@@ -677,8 +711,9 @@ class PCILeechGenerator:
         """
         try:
             # Import the centralized validator
-            from src.templating.template_context_validator import \
-                validate_template_context
+            from src.templating.template_context_validator import (
+                validate_template_context,
+            )
 
             # Since we're generating PCILeech firmware, we need to validate
             # against PCILeech-specific template requirements
@@ -922,8 +957,11 @@ class PCILeechGenerator:
         """Generate constraint files."""
         try:
             # Import TCL builder components
-            from src.templating.tcl_builder import (BuildContext, TCLBuilder,
-                                                    TCLScriptType)
+            from src.templating.tcl_builder import (
+                BuildContext,
+                TCLBuilder,
+                TCLScriptType,
+            )
             from src.templating.template_renderer import TemplateRenderer
 
             # Create template renderer
@@ -1236,8 +1274,9 @@ puts "Synthesis complete!"
                         )
                     else:
                         # Generate new content as last resort
-                        from src.templating.systemverilog_generator import \
-                            AdvancedSVGenerator
+                        from src.templating.systemverilog_generator import (
+                            AdvancedSVGenerator,
+                        )
 
                         sv_gen = AdvancedSVGenerator(
                             template_dir=self.config.template_dir
@@ -1744,3 +1783,61 @@ puts "Synthesis complete!"
             f"Invalidated caches for context hash: {context_hash[:8]}...",
             prefix="CACHE",
         )
+
+    def _capture_msix_table_entries(
+        self, msix_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Capture MSI-X table bytes from hardware via VFIO.
+
+        Returns a dict with either 'table_entries' (list of per-vector 16B hex)
+        and/or 'table_init_hex' (newline-separated 32-bit words) on success.
+        """
+        try:
+            table_size = int(msix_data.get("table_size", 0))
+            table_bir = int(msix_data.get("table_bir", 0))
+            table_offset = int(msix_data.get("table_offset", 0))
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                "Invalid MSI-X capability fields: {error}",
+                error=str(e),
+                prefix="MSIX",
+            )
+            return None
+
+        if table_size <= 0:
+            return None
+
+        # Read bytes from the BAR region using VFIO
+        manager = VFIODeviceManager(self.config.device_bdf, self.logger)
+        total_bytes = table_size * 16
+
+        raw = manager.read_region_slice(
+            index=table_bir, offset=table_offset, size=total_bytes
+        )
+        if not raw or len(raw) < total_bytes:
+            log_warning_safe(
+                self.logger,
+                "MSI-X table read incomplete: requested={req} got={got}",
+                req=total_bytes,
+                got=(len(raw) if raw else 0),
+                prefix="MSIX",
+            )
+            return None
+
+        # Split into 16-byte entries and also build dword-wise init hex
+        entries: List[Dict[str, Any]] = []
+        hex_lines: List[str] = []
+        for i in range(table_size):
+            start = i * 16
+            chunk = raw[start : start + 16]
+            entries.append({"vector": i, "data": chunk.hex(), "enabled": True})
+            # Break into four 32-bit LE words for init hex
+            for w in range(4):
+                word = int.from_bytes(chunk[w * 4 : (w + 1) * 4], "little")
+                hex_lines.append(f"{word:08X}")
+
+        return {
+            "table_entries": entries,
+            "table_init_hex": "\n".join(hex_lines) + "\n",
+        }

@@ -396,6 +396,88 @@ class VFIODeviceManager:
                 self.close()
             return None
 
+    def read_region_slice(self, index: int, offset: int, size: int) -> Optional[bytes]:
+        """Read a slice of a VFIO region safely using mmap.
+
+        This handles page alignment requirements by mapping a page-aligned range
+        and slicing out the requested bytes.
+
+        Args:
+            index: VFIO region index (BAR index for BARs)
+            offset: Offset within the region to start reading
+            size: Number of bytes to read
+
+        Returns:
+            Bytes read or None on error
+        """
+        import mmap
+        import os
+
+        if size <= 0:
+            return b""
+
+        opened_here = self._device_fd is None
+        if opened_here:
+            try:
+                self.open()
+            except Exception as e:
+                log_error_safe(self.logger, f"VFIO device open failed: {e}")
+                return None
+
+        try:
+            # Query full region info to get the kernel-provided mmap offset
+            info = VfioRegionInfo()
+            info.argsz = ctypes.sizeof(VfioRegionInfo)
+            info.index = index
+            if self._device_fd is None:
+                raise ContextError("Device FD not available")
+            fcntl.ioctl(self._device_fd, VFIO_DEVICE_GET_REGION_INFO, info, True)
+
+            region_size = int(info.size)
+            region_off = int(info.offset)
+            region_flags = int(info.flags)
+
+            if offset < 0 or offset >= region_size:
+                log_error_safe(
+                    self.logger,
+                    "Region {index} offset out of range: {offset} (size {size})",
+                    index=index,
+                    offset=offset,
+                    size=region_size,
+                )
+                return None
+
+            # Clamp size to region bounds
+            read_len = min(size, region_size - offset)
+
+            # Verify the region is mappable before attempting mmap
+            if not (region_flags & VFIO_REGION_INFO_FLAG_MMAP):
+                log_warning_safe(
+                    self.logger,
+                    "Region {index} is not mappable (flags={flags}); cannot mmap",
+                    index=index,
+                    flags=region_flags,
+                )
+                return None
+
+            # Compute page-aligned mapping window
+            page_sz = os.sysconf("SC_PAGESIZE") if hasattr(os, "sysconf") else 4096
+            abs_off = region_off + offset
+            map_off = (abs_off // page_sz) * page_sz
+            delta = abs_off - map_off
+            map_len = ((delta + read_len + page_sz - 1) // page_sz) * page_sz
+
+            with mmap.mmap(
+                self._device_fd, map_len, offset=map_off, access=mmap.ACCESS_READ
+            ) as mm:
+                return bytes(mm[delta : delta + read_len])
+        except OSError as e:
+            log_error_safe(self.logger, f"VFIO read_region_slice failed: {e}")
+            return None
+        finally:
+            if opened_here:
+                self.close()
+
 
 class PCILeechContextBuilder:
     """Builds template context from device profiling data - Optimized."""
