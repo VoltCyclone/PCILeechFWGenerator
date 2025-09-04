@@ -949,8 +949,7 @@ class PCILeechContextBuilder:
                     vfio_region_index = bar_data.get("index", bar_data.get("bar", i))
                 elif isinstance(bar_data, BarInfo):
                     vfio_region_index = bar_data.index
-                elif hasattr(bar_data, "index"):
-                    vfio_region_index = getattr(bar_data, "index", i)
+                    vfio_region_index = getattr(bar_data, "index")
 
                 bar_info = self._get_vfio_bar_info(vfio_region_index, bar_data)
                 if bar_info:
