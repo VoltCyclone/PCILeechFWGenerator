@@ -160,7 +160,7 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
 {%- endif %}
                     14'h1FFE: bar_rd_data <= error_status;  // Error status
                     14'h1FFF: bar_rd_data <= debug_status;  // Debug status
-                    default: bar_rd_data <= 32'hDEADBEEF;
+                    default: bar_rd_data <= 32'h00000000;
                 endcase
             end
             

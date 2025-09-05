@@ -41,7 +41,7 @@ module pcileech_tlps128_bar_controller #(
         if (custom_pio_sel) begin
             bar_rd_data = custom_pio_rdata;
         end else begin
-            bar_rd_data = 32'hDEADBEEF;  // Default for unmapped regions
+            bar_rd_data = 32'h00000000;  // Default for unmapped regions
         end
     end
 

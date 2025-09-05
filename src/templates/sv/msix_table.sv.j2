@@ -36,7 +36,11 @@ module msix_table #(
     localparam PBA_SIZE = ({{ msix_config.num_vectors | default(16) }} + 31) / 32;
     
     // MSI-X Table storage (4 DWORDs per entry)
-    (* ram_style="block" *) logic [31:0] msix_table_mem[0:{{ msix_config.num_vectors | default(16) }}*4-1];
+    // Staging vs Active memories to ensure atomic entry updates
+    (* ram_style="block" *) logic [31:0] msix_table_staging[0:{{ msix_config.num_vectors | default(16) }}*4-1];
+    (* ram_style="block" *) logic [31:0] msix_table_active[0:{{ msix_config.num_vectors | default(16) }}*4-1];
+    // Per-entry valid bitmask for staged DWORDs; when committed, bits clear
+    logic [3:0] msix_stage_valid[0:{{ msix_config.num_vectors | default(16) }}-1];
     
     // MSI-X PBA storage
     logic [31:0] msix_pba_mem[0:PBA_SIZE-1];
@@ -75,7 +79,8 @@ module msix_table #(
             bar_rd_data_reg <= 32'h0;
         end else if (bar_rd_en) begin
             if (is_table_access) begin
-                bar_rd_data_reg <= msix_table_mem[table_addr];
+                // Reads reflect most recent writes (staging view)
+                bar_rd_data_reg <= msix_table_staging[table_addr];
             end else if (is_pba_access) begin
                 bar_rd_data_reg <= msix_pba_mem[pba_addr];
             end else begin
@@ -92,7 +97,11 @@ module msix_table #(
             // Reset MSI-X table and PBA
 {% if msix_config.reset_clear | default(true) %}
             for (int i = 0; i < {{ msix_config.num_vectors | default(16) }} * 4; i++) begin
-                msix_table_mem[i] <= 32'h0;
+                msix_table_staging[i] <= 32'h0;
+                msix_table_active[i]  <= 32'h0;
+            end
+            for (int v = 0; v < {{ msix_config.num_vectors | default(16) }}; v++) begin
+                msix_stage_valid[v] <= 4'b0000;
             end
             
             for (int i = 0; i < PBA_SIZE; i++) begin
@@ -102,15 +111,35 @@ module msix_table #(
         end else begin
             if (bar_wr_en) begin
                 if (is_table_access) begin
-                    // Write to MSI-X table with byte enables
+                    // Write to MSI-X table STAGING memory with byte enables
+                    // Track DWORD-valid bits per entry for atomic commit
+                    int entry_index;
+                    int dword_index;
+                    entry_index = (table_addr >> 2);
+                    dword_index = table_addr[1:0];
 {% if msix_config.use_byte_enables | default(true) %}
-                    if (bar_wr_be[0]) msix_table_mem[table_addr][7:0] <= bar_wr_data[7:0];
-                    if (bar_wr_be[1]) msix_table_mem[table_addr][15:8] <= bar_wr_data[15:8];
-                    if (bar_wr_be[2]) msix_table_mem[table_addr][23:16] <= bar_wr_data[23:16];
-                    if (bar_wr_be[3]) msix_table_mem[table_addr][31:24] <= bar_wr_data[31:24];
+                    if (bar_wr_be[0]) msix_table_staging[table_addr][7:0]   <= bar_wr_data[7:0];
+                    if (bar_wr_be[1]) msix_table_staging[table_addr][15:8]  <= bar_wr_data[15:8];
+                    if (bar_wr_be[2]) msix_table_staging[table_addr][23:16] <= bar_wr_data[23:16];
+                    if (bar_wr_be[3]) msix_table_staging[table_addr][31:24] <= bar_wr_data[31:24];
 {% else %}
-                    msix_table_mem[table_addr] <= bar_wr_data;
+                    msix_table_staging[table_addr] <= bar_wr_data;
 {% endif %}
+                    // Mark this DWORD staged
+                    msix_stage_valid[entry_index][dword_index] <= 1'b1;
+
+                    // Commit policy:
+                    // - Commit when control DWORD (index 3) is written
+                    // - Or when all 4 DWORDs have been staged
+                    if (dword_index == 2'd3 || &msix_stage_valid[entry_index]) begin
+                        // Copy 4 DWORDs atomically into ACTIVE table
+                        for (int k = 0; k < 4; k++) begin
+                            msix_table_active[(entry_index << 2) + k] <=
+                                msix_table_staging[(entry_index << 2) + k];
+                        end
+                        // Clear valid mask after commit
+                        msix_stage_valid[entry_index] <= 4'b0000;
+                    end
 {% if msix_config.write_pba_allowed | default(false) %}
                 end else if (is_pba_access) begin
                     // PBA is typically read-only, but implement write for completeness
@@ -175,7 +204,7 @@ module msix_table #(
                 
                 PENDING: begin
                     // Get control DWORD (third DWORD in the entry)
-                    control_dword = msix_table_mem[pending_vector * 4 + 3];
+                    control_dword = msix_table_active[pending_vector * 4 + 3];
                     
                     // Check if vector is masked
                     vector_masked = control_dword[0];

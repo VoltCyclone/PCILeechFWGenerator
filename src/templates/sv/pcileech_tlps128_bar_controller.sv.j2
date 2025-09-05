@@ -672,7 +672,7 @@ module pcileech_tlps128_bar_controller #(
                 REGION_DATA_BUFFER: bar_rd_data = data_buffer_rdata;
                 REGION_MSIX_TABLE:  bar_rd_data = msix_table_data;
                 REGION_MSIX_PBA:    bar_rd_data = msix_pba_data;
-                default:            bar_rd_data = 32'hDEADBEEF;
+                default:            bar_rd_data = 32'h00000000;
             endcase
         end
     end
@@ -791,7 +791,7 @@ module pcileech_tlps128_bar_controller #(
             REGION_STATUS_REG:  return status_reg_mem[offset[31:2]];
             REGION_DATA_BUFFER: return data_buffer_mem[offset[31:2]];
             REGION_CUSTOM_PIO:  return custom_region_mem[offset[31:2]];
-            default:            return 32'hDEADBEEF;
+            default:            return 32'h00000000;
         endcase
     endfunction
     

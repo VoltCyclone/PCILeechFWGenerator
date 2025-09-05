@@ -180,7 +180,7 @@ module pcileech_tlps128_bar_controller #(
             bar_access_msix : bar_rd_data = msix_tbl_rdata;
             bar_access_cust : bar_rd_data = custom_win_rdata;
             bar_access_mem  : bar_rd_data = bar_mem_q;
-            default         : bar_rd_data = 32'hDEADBEEF;
+            default         : bar_rd_data = 32'h00000000;
         endcase
     end
 
