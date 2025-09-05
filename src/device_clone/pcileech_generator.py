@@ -48,6 +48,9 @@ from src.string_utils import (
 )
 from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
 from src.utils.attribute_access import has_attr, safe_get_attr
+from src.pci_capability.msix_bar_validator import (
+    validate_msix_bar_configuration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +319,20 @@ class PCILeechGenerator:
                 bdf=self.config.device_bdf,
                 prefix="VFIO",
             )
+
+            # Step 4.5: Validate MSI-X/BAR configuration before any rendering
+            # Fail fast if donor BAR layout and MSI-X placement are invalid
+            try:
+                self._validate_msix_and_bar_layout(
+                    template_context=template_context,
+                    config_space_data=config_space_data,
+                    msix_data=msix_data,
+                )
+            except Exception as e:
+                # Convert to a generation error with clear root cause
+                raise PCILeechGenerationError(
+                    f"MSI-X/BAR validation failed: {e}"
+                ) from e
 
             # Step 5: Generate SystemVerilog modules (no VFIO needed)
             systemverilog_modules = self._generate_systemverilog_modules(
@@ -1893,3 +1910,127 @@ puts "Synthesis complete!"
             "table_entries": entries,
             "table_init_hex": "\n".join(hex_lines) + "\n",
         }
+
+    # --- Validation helpers ---
+    def _validate_msix_and_bar_layout(
+        self,
+        template_context: Dict[str, Any],
+        config_space_data: Dict[str, Any],
+        msix_data: Optional[Dict[str, Any]],
+    ) -> None:
+        """Run comprehensive MSI-X/BAR validation and fail fast on errors.
+
+        This enforces donor BAR layout fidelity and MSI-X placement correctness
+        before any template rendering. Warnings are logged; errors abort.
+        """
+        # Gather device_info for report context
+        device_info = config_space_data.get("device_info") or {
+            "vendor_id": (
+                int(template_context.get("vendor_id", "0") or 0, 16)
+                if isinstance(template_context.get("vendor_id"), str)
+                else template_context.get("vendor_id")
+            ),
+            "device_id": (
+                int(template_context.get("device_id", "0") or 0, 16)
+                if isinstance(template_context.get("device_id"), str)
+                else template_context.get("device_id")
+            ),
+        }
+
+        # Build BARs list for validator (expecting dicts with keys: bar, type, size, prefetchable)
+        raw_bars = config_space_data.get("bars", [])
+        bars_for_validation: List[Dict[str, Any]] = self._coerce_bars_for_validation(
+            raw_bars
+        )
+
+        # Build capabilities list (only MSI-X is needed for this validation)
+        capabilities: List[Dict[str, Any]] = []
+        if msix_data and msix_data.get("table_size", 0) > 0:
+            try:
+                # Validator expects MSI-X table_size encoded as N-1
+                encoded_size = int(msix_data.get("table_size", 0)) - 1
+                capabilities.append(
+                    {
+                        "cap_id": 0x11,
+                        "table_size": max(encoded_size, 0),
+                        "table_bar": int(msix_data.get("table_bir", 0)),
+                        "table_offset": int(msix_data.get("table_offset", 0)),
+                        "pba_bar": int(msix_data.get("pba_bir", 0)),
+                        "pba_offset": int(msix_data.get("pba_offset", 0)),
+                    }
+                )
+            except Exception:
+                # If msix_data is malformed, treat as no MSI-X cap so validator checks basic BARs
+                capabilities = []
+
+        is_valid, errors, warnings = validate_msix_bar_configuration(
+            bars_for_validation, capabilities, device_info
+        )
+
+        # Log warnings as non-fatal
+        for w in warnings or []:
+            log_warning_safe(self.logger, "MSI-X/BAR validation warning: {msg}", msg=w)
+
+        if not is_valid:
+            # Emit actionable error and abort
+            joined = "; ".join(errors or ["unknown error"])
+            log_error_safe(
+                self.logger,
+                "Build aborted: MSI-X/BAR configuration invalid: {errs}",
+                errs=joined,
+            )
+            raise ValueError(joined)
+
+    def _coerce_bars_for_validation(self, bars: List[Any]) -> List[Dict[str, Any]]:
+        """Coerce heterogeneous BAR representations into validator's dict format.
+
+        Accepts:
+          - BarInfo instances
+          - dicts with keys {bar, type, size, prefetchable}
+          - dicts from parse_bar_info_from_config_space with {index, bar_type, ...}
+        """
+        result: List[Dict[str, Any]] = []
+        for b in bars or []:
+            try:
+                if isinstance(b, dict):
+                    if "bar" in b and "type" in b:
+                        result.append(
+                            {
+                                "bar": int(b.get("bar", b.get("index", 0))),
+                                "type": str(b.get("type", b.get("bar_type", "memory"))),
+                                "size": int(b.get("size", 0)),
+                                "prefetchable": bool(b.get("prefetchable", False)),
+                            }
+                        )
+                    else:
+                        # Likely parse_bar_info format
+                        result.append(
+                            {
+                                "bar": int(b.get("index", 0)),
+                                "type": str(b.get("bar_type", "memory")),
+                                "size": int(b.get("size", 0)),
+                                "prefetchable": bool(b.get("prefetchable", False)),
+                            }
+                        )
+                else:
+                    # Try attribute-based (e.g., BarInfo)
+                    idx = getattr(b, "index", 0)
+                    btype = getattr(b, "bar_type", None) or (
+                        "memory"
+                        if getattr(b, "is_memory", False)
+                        else ("io" if getattr(b, "is_io", False) else "memory")
+                    )
+                    size = getattr(b, "size", 0)
+                    prefetch = getattr(b, "prefetchable", False)
+                    result.append(
+                        {
+                            "bar": int(idx),
+                            "type": str(btype),
+                            "size": int(size) if size is not None else 0,
+                            "prefetchable": bool(prefetch),
+                        }
+                    )
+            except Exception:
+                # Skip malformed entries silently; validator will catch missing BARs
+                continue
+        return result

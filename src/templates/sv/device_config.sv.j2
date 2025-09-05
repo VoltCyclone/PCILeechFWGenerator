@@ -6,7 +6,7 @@ module device_config #(
     {# Use centralized helper macros for consistent ID handling #}
     parameter VENDOR_ID = {{ get_vendor_id(device_config, device, config_space, vendor_id_int) | sv_hex(16) }},
     parameter DEVICE_ID = {{ get_device_id(device_config, device, config_space, device_id_int) | sv_hex(16) }},
-    parameter CLASS_CODE = {{ (device_config.class_code | default('000000')) | sv_hex(24) }},
+    parameter CLASS_CODE = {{ device_config.class_code | sv_hex(24) }},
     parameter SUBSYSTEM_VENDOR_ID = {{ get_subsystem_vendor_id(device_config, device, vendor_id_int) | sv_hex(16) }},
     parameter SUBSYSTEM_DEVICE_ID = {{ get_subsystem_device_id(device_config, device, device_id_int) | sv_hex(16) }},
 {%- for i in range(6) %}

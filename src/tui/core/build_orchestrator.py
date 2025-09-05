@@ -16,7 +16,19 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import psutil
 
-# Import local modules
+from string_utils import (
+    safe_format,
+    log_info_safe,
+    log_warning_safe,
+    log_error_safe,
+)
+
+from src.error_utils import (
+    extract_root_cause,
+    format_user_friendly_error,
+    log_error_with_root_cause,
+)
+
 from ..models.config import BuildConfiguration
 from ..models.device import PCIDevice
 from ..models.progress import BuildProgress, BuildStage, ValidationResult
@@ -30,13 +42,21 @@ PROCESS_TERMINATION_TIMEOUT = 2.0  # Seconds to wait for process termination
 
 # Progress parsing tokens for easier maintenance
 LOG_PROGRESS_TOKENS = {
-    "Running synthesis": (BuildStage.VIVADO_SYNTHESIS, 25, "Running synthesis"),
+    "Running synthesis": (
+        BuildStage.VIVADO_SYNTHESIS,
+        25,
+        "Running synthesis",
+    ),
     "Running implementation": (
         BuildStage.VIVADO_SYNTHESIS,
         50,
         "Running implementation",
     ),
-    "Generating bitstream": (BuildStage.VIVADO_SYNTHESIS, 75, "Generating bitstream"),
+    "Generating bitstream": (
+        BuildStage.VIVADO_SYNTHESIS,
+        75,
+        "Generating bitstream",
+    ),
 }
 
 logger = logging.getLogger(__name__)
@@ -74,6 +94,68 @@ class BuildOrchestrator:
         self._should_cancel = False
         self._executor = ThreadPoolExecutor(max_workers=4)
         self._last_resource_update = 0
+
+    # -----------------------------
+    # Internal helpers (errors/logs)
+    # -----------------------------
+
+    def _add_progress_error(self, message: str, **kwargs: Any) -> None:
+        """Add a formatted error message to progress if available."""
+        if self._current_progress:
+            self._current_progress.add_error(safe_format(message, **kwargs))
+
+    def _add_progress_warning(self, message: str, **kwargs: Any) -> None:
+        """Add a formatted warning message to progress if available."""
+        if self._current_progress:
+            self._current_progress.add_warning(safe_format(message, **kwargs))
+
+    def _report_exception(
+        self,
+        prefix: str,
+        exc: BaseException,
+        *,
+        platform_hint: bool = False,
+    ) -> None:
+        """
+        Record exception with root cause and optionally convert to a
+        platform-compatibility warning.
+        """
+        error_str = str(exc)
+        exc_for_root = exc if isinstance(exc, Exception) else Exception(error_str)
+        root_cause = extract_root_cause(exc_for_root)
+
+        # Platform-compatibility special-casing
+        if platform_hint and (
+            ("requires Linux" in error_str)
+            or ("platform incompatibility" in error_str)
+            or ("only available on Linux" in error_str)
+        ):
+            # Progress warning
+            self._add_progress_warning("{prefix}: {msg}", prefix=prefix, msg=error_str)
+            # Log as WARNING with safe formatter
+            log_warning_safe(
+                logger,
+                "{pfx}: {rc}",
+                pfx=safe_format(prefix),
+                rc=root_cause,
+            )
+            return
+
+        # Progress error with a concise, user-friendly message
+        try:
+            friendly = format_user_friendly_error(exc_for_root, context=prefix)
+            self._add_progress_error("{msg}", msg=friendly)
+        except Exception:
+            # Fallback to simple prefix + message if formatting failed
+            self._add_progress_error("{prefix}: {msg}", prefix=prefix, msg=error_str)
+
+        # Log error with extracted root cause (concise by default)
+        log_error_with_root_cause(
+            logger,
+            safe_format("{pfx} failed", pfx=prefix),
+            exc_for_root,
+            show_full_traceback=False,
+        )
 
     async def start_build(
         self,
@@ -125,26 +207,12 @@ class BuildOrchestrator:
             return True
 
         except asyncio.CancelledError:
-            if self._current_progress:
-                self._current_progress.add_warning("Build cancelled by user")
-                await self._notify_progress()
+            self._add_progress_warning("Build cancelled by user")
+            await self._notify_progress()
             return False
         except Exception as e:
-            if self._current_progress:
-                error_str = str(e)
-                # Check if this is a platform compatibility error
-                if (
-                    "requires Linux" in error_str
-                    or "platform incompatibility" in error_str
-                    or "only available on Linux" in error_str
-                ):
-                    self._current_progress.add_warning(
-                        f"Build skipped due to platform compatibility: {error_str}"
-                    )
-                else:
-                    self._current_progress.add_error(f"Build failed: {error_str}")
-                await self._notify_progress()
-            logger.exception("Build failed with exception")
+            self._report_exception("Build failed", e, platform_hint=True)
+            await self._notify_progress()
             raise
         finally:
             self._is_building = False
@@ -287,14 +355,15 @@ class BuildOrchestrator:
                 # Wait for graceful termination
                 try:
                     await asyncio.wait_for(
-                        self._build_process.wait(), timeout=PROCESS_TERMINATION_TIMEOUT
+                        self._build_process.wait(),
+                        timeout=PROCESS_TERMINATION_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
                     logger.warning("Process did not terminate gracefully, forcing kill")
                     self._build_process.kill()
 
             except (psutil.Error, asyncio.CancelledError, ProcessLookupError) as e:
-                logger.exception(f"Error during build cancellation: {e}")
+                self._report_exception("Error during build cancellation", e)
 
     def get_current_progress(self) -> Optional[BuildProgress]:
         """Get the current build progress state."""
@@ -336,7 +405,13 @@ class BuildOrchestrator:
             try:
                 self._progress_callback(self._current_progress)
             except Exception as e:
-                logger.exception(f"Progress callback error: {e}")
+                # Log but don't fail the orchestrator on callback errors
+                exc_obj = e if isinstance(e, Exception) else Exception(str(e))
+                log_error_safe(
+                    logger,
+                    "Progress callback error: {msg}",
+                    msg=extract_root_cause(exc_obj),
+                )
 
     async def _update_resource_usage(self) -> None:
         """
@@ -355,7 +430,10 @@ class BuildOrchestrator:
             cpu_percent = psutil.cpu_percent(interval=None)
 
             # Get memory and disk info in thread pool
-            memory = await loop.run_in_executor(self._executor, psutil.virtual_memory)
+            memory = await loop.run_in_executor(
+                self._executor,
+                psutil.virtual_memory,
+            )
             disk = await loop.run_in_executor(self._executor, psutil.disk_usage, "/")
 
             self._current_progress.update_resource_usage(
@@ -364,7 +442,11 @@ class BuildOrchestrator:
                 disk_free=disk.free / (1024**3),  # GB
             )
         except (psutil.Error, OSError) as e:
-            logger.warning(f"Resource monitoring failed: {e}")
+            log_warning_safe(
+                logger,
+                "Resource monitoring failed: {msg}",
+                msg=str(e),
+            )
 
     async def _validate_environment(self) -> None:
         """
@@ -451,9 +533,8 @@ class BuildOrchestrator:
             await self._notify_progress()
 
         try:
-            logger.info(
-                "Container image 'pcileech-fw-generator' not found. Building it now..."
-            )
+            logger.info("Container image 'pcileech-fw-generator' not found.")
+            logger.info("Building it now...")
             build_result = await self._run_shell(
                 "podman build -t pcileech-fw-generator:latest .", monitor=False
             )
@@ -467,7 +548,11 @@ class BuildOrchestrator:
 
         except Exception as e:
             raise RuntimeError(
-                f"Container image 'pcileech-fw-generator' not found and build failed: {str(e)}"
+                safe_format(
+                    "Container image 'pcileech-fw-generator' not found and build "
+                    "failed: {msg}",
+                    msg=str(e),
+                )
             )
 
     async def _validate_local_environment(
@@ -589,10 +674,9 @@ class BuildOrchestrator:
                 await self._update_git_repo(repo, last_update_file)
 
         except (OSError, IOError) as e:
-            if self._current_progress:
-                self._current_progress.add_warning(
-                    f"Error checking repository update status: {str(e)}"
-                )
+            self._add_progress_warning(
+                "Error checking repository update status: {msg}", msg=str(e)
+            )
 
     def _check_if_update_needed(self, last_update_file: Path) -> bool:
         """
@@ -611,6 +695,7 @@ class BuildOrchestrator:
                 return days_since_update >= GIT_REPO_UPDATE_DAYS
         except (ValueError, TypeError):
             return True
+        return True
 
     async def _update_git_repo(self, repo: Any, last_update_file: Path) -> None:
         """
@@ -685,10 +770,7 @@ class BuildOrchestrator:
                 await self._notify_progress()
 
         except (GitCommandError, OSError) as e:
-            if self._current_progress:
-                self._current_progress.add_error(
-                    f"Failed to clone repository: {str(e)}"
-                )
+            self._add_progress_error("Failed to clone repository: {msg}", msg=str(e))
             raise RuntimeError(f"Failed to clone PCILeech FPGA repository: {str(e)}")
 
     async def _ensure_repo_fallback(self, repo_dir: Path) -> None:
@@ -734,13 +816,15 @@ class BuildOrchestrator:
             await self._handle_module_status(config, manager, module_status)
 
         except ImportError as e:
-            logger.exception(f"Failed to import donor_dump_manager: {e}")
+            self._report_exception("Failed to import donor_dump_manager", e)
             self._report_donor_module_error(
-                f"Failed to import donor_dump_manager: {str(e)}"
+                safe_format("Failed to import donor_dump_manager: {msg}", msg=str(e))
             )
         except Exception as e:
-            logger.exception(f"Error checking donor module: {e}")
-            self._report_donor_module_error(f"Error checking donor module: {str(e)}")
+            self._report_exception("Error checking donor module", e)
+            self._report_donor_module_error(
+                safe_format("Error checking donor module: {msg}", msg=str(e))
+            )
 
     def _report_donor_module_error(self, error_message: str) -> None:
         """
@@ -761,6 +845,7 @@ class BuildOrchestrator:
         """
         try:
             import sys
+
             from pathlib import Path
 
             # Add project root to path
@@ -771,6 +856,7 @@ class BuildOrchestrator:
             # Import the module
             # Return the module
             import file_management.donor_dump_manager as donor_dump_manager
+
             from file_management.donor_dump_manager import DonorDumpManager
 
             return donor_dump_manager
@@ -811,7 +897,11 @@ class BuildOrchestrator:
                 and status == "not_built"
                 and "headers" in str(module_status.get("issues", []))
             ):
-                await self._attempt_header_installation(config, manager, module_status)
+                await self._attempt_header_installation(
+                    config,
+                    manager,
+                    module_status,
+                )
         else:
             # Module is properly installed
             self._current_progress.current_operation = (
@@ -861,14 +951,17 @@ class BuildOrchestrator:
         await self._notify_progress()
 
         # Get kernel version
-        kernel_version = module_status.get("raw_status", {}).get("kernel_version", "")
+        raw_status = module_status.get("raw_status", {})
+        kernel_version = raw_status.get("kernel_version", "")
         if not kernel_version:
-            self._current_progress.add_error("Could not determine kernel version")
+            self._current_progress.add_error(
+                safe_format("Could not determine kernel version")
+            )
             return
 
         try:
             self._current_progress.add_warning(
-                "Detecting Linux distribution and installing appropriate headers..."
+                safe_format("Detecting distro and installing kernel headers...")
             )
 
             # Install headers
@@ -881,10 +974,12 @@ class BuildOrchestrator:
 
         except Exception as e:
             self._current_progress.add_error(
-                f"Failed to install kernel headers: {str(e)}"
+                safe_format("Failed to install kernel headers: {err}", err=str(e))
             )
             self._current_progress.add_warning(
-                "You may need to install kernel headers manually for your distribution"
+                safe_format(
+                    "You may need to install kernel headers manually for your distro"
+                )
             )
 
     async def _build_donor_module_after_headers(self, manager: Any) -> None:
@@ -912,10 +1007,10 @@ class BuildOrchestrator:
             # Add more detailed error information
             if "ModuleBuildError" in str(type(build_error)):
                 self._current_progress.add_warning(
-                    "This may be due to kernel version mismatch or missing build tools."
+                    "This may be due to kernel mismatch or missing build tools."
                 )
                 self._current_progress.add_warning(
-                    "Try installing build-essential package: sudo apt-get install build-essential"
+                    "Try: sudo apt-get install build-essential"
                 )
 
     def _report_header_installation_failure(
@@ -944,7 +1039,7 @@ class BuildOrchestrator:
             )
         except Exception as e:
             self._current_progress.add_warning(
-                "Could not determine manual installation command for your distribution"
+                "Could not determine header install command for your distro"
             )
 
     async def _run_shell(self, cmd, monitor=True) -> subprocess.CompletedProcess:
@@ -975,9 +1070,10 @@ class BuildOrchestrator:
             )
             stdout, stderr = await process.communicate()
 
+            returncode = process.returncode if process.returncode is not None else 0
             return subprocess.CompletedProcess(
                 args=cmd_str,
-                returncode=process.returncode if process.returncode is not None else 0,
+                returncode=returncode,
                 stdout=stdout.decode("utf-8"),
                 stderr=stderr.decode("utf-8"),
             )
@@ -1018,10 +1114,14 @@ class BuildOrchestrator:
             if self._build_process.stderr:
                 stderr = await self._build_process.stderr.read()
                 error_msg = stderr.decode("utf-8")
-            if self._current_progress:
-                self._current_progress.add_error(f"Build command failed: {error_msg}")
+            self._add_progress_error(
+                "Build command failed: {msg}", msg=error_msg or "unknown error"
+            )
             raise RuntimeError(
-                f"Build command failed with code {self._build_process.returncode}"
+                safe_format(
+                    "Build command failed with code {code}",
+                    code=self._build_process.returncode,
+                )
             )
 
         # Return a CompletedProcess-like object for compatibility
@@ -1046,8 +1146,8 @@ class BuildOrchestrator:
             # Skip validation for local builds without donor info file
             if config.local_build and not config.donor_info_file:
                 if self._current_progress:
-                    self._current_progress.add_warning(
-                        "Skipping PCI configuration validation - no donor info file provided"
+                    self._add_progress_warning(
+                        "Skipping PCI config validation - no donor info file"
                     )
                 return
 
@@ -1075,7 +1175,8 @@ class BuildOrchestrator:
                     # Check vendor ID
                     if device.vendor_id and "vendor_id" in donor_info:
                         device_vendor = device.vendor_id.lower().replace("0x", "")
-                        donor_vendor = donor_info["vendor_id"].lower().replace("0x", "")
+                        donor_vendor = donor_info["vendor_id"].lower()
+                        donor_vendor = donor_vendor.replace("0x", "")
                         if device_vendor != donor_vendor:
                             validation_results.append(
                                 ValidationResult(
@@ -1105,9 +1206,8 @@ class BuildOrchestrator:
                         device_subvendor = device.subsystem_vendor.lower().replace(
                             "0x", ""
                         )
-                        donor_subvendor = (
-                            donor_info["subvendor_id"].lower().replace("0x", "")
-                        )
+                        donor_subvendor = donor_info["subvendor_id"].lower()
+                        donor_subvendor = donor_subvendor.replace("0x", "")
                         if device_subvendor != donor_subvendor:
                             validation_results.append(
                                 ValidationResult(
@@ -1123,9 +1223,8 @@ class BuildOrchestrator:
                         device_subsystem = device.subsystem_device.lower().replace(
                             "0x", ""
                         )
-                        donor_subsystem = (
-                            donor_info["subsystem_id"].lower().replace("0x", "")
-                        )
+                        donor_subsystem = donor_info["subsystem_id"].lower()
+                        donor_subsystem = donor_subsystem.replace("0x", "")
                         if device_subsystem != donor_subsystem:
                             validation_results.append(
                                 ValidationResult(
@@ -1140,11 +1239,18 @@ class BuildOrchestrator:
                     if validation_results:
                         if self._current_progress:
                             self._current_progress.add_warning(
-                                f"Found {len(validation_results)} PCI configuration mismatches"
+                                safe_format(
+                                    "Found {n} PCI config mismatches",
+                                    n=len(validation_results),
+                                )
                             )
                             for result in validation_results:
-                                self._current_progress.add_warning(
-                                    f"PCI mismatch: {result.field} - expected {result.expected}, got {result.actual}"
+                                self._add_progress_warning(
+                                    "PCI mismatch: {field} - expected {exp}, "
+                                    "got {act}",
+                                    field=result.field,
+                                    exp=result.expected,
+                                    act=result.actual,
                                 )
                     else:
                         if self._current_progress:
@@ -1154,21 +1260,17 @@ class BuildOrchestrator:
                             await self._notify_progress()
 
                 except FileNotFoundError:
-                    if self._current_progress:
-                        self._current_progress.add_error(
-                            f"Donor info file not found: {config.donor_info_file}"
-                        )
+                    self._add_progress_error(
+                        "Donor info file missing: {path}",
+                        path=str(config.donor_info_file),
+                    )
                 except json.JSONDecodeError:
-                    if self._current_progress:
-                        self._current_progress.add_error(
-                            f"Invalid JSON in donor info file: {config.donor_info_file}"
-                        )
+                    self._add_progress_error(
+                        "Invalid JSON in donor info file: {path}",
+                        path=str(config.donor_info_file),
+                    )
                 except Exception as e:
-                    logger.exception(f"Error validating PCI configuration: {e}")
-                    if self._current_progress:
-                        self._current_progress.add_error(
-                            f"Error validating PCI configuration: {str(e)}"
-                        )
+                    self._report_exception("Error validating PCI configuration", e)
 
             # For non-local builds with donor_dump, validation happens during
             # donor_dump extraction
@@ -1180,19 +1282,11 @@ class BuildOrchestrator:
                     await self._notify_progress()
 
         except ImportError as e:
-            logger.exception(f"Failed to import build module: {e}")
-            if self._current_progress:
-                self._current_progress.add_error(
-                    f"Failed to validate PCI configuration: {str(e)}"
-                )
-                await self._notify_progress()
+            self._report_exception("Failed to validate PCI configuration", e)
+            await self._notify_progress()
         except Exception as e:
-            logger.exception(f"Error validating PCI configuration: {e}")
-            if self._current_progress:
-                self._current_progress.add_error(
-                    f"Failed to validate PCI configuration: {str(e)}"
-                )
-                await self._notify_progress()
+            self._report_exception("Failed to validate PCI configuration", e)
+            await self._notify_progress()
 
     async def _analyze_device(self, device: PCIDevice) -> None:
         """
@@ -1219,7 +1313,9 @@ class BuildOrchestrator:
         # Validate VFIO device path
         vfio_device = f"/dev/vfio/{iommu_group}"
         if not os.path.exists(vfio_device) and self._current_progress:
-            self._current_progress.add_warning(f"VFIO device {vfio_device} not found")
+            self._current_progress.add_warning(
+                safe_format("Missing VFIO device {dev}", dev=vfio_device)
+            )
 
     async def _extract_registers(self, device: PCIDevice) -> None:
         """
@@ -1249,6 +1345,7 @@ class BuildOrchestrator:
         """
         # Import behavior profiler
         import sys
+
         from pathlib import Path
 
         sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -1256,13 +1353,16 @@ class BuildOrchestrator:
 
         # Log the start of profiling
         if self._current_progress:
-            self._current_progress.current_operation = f"Profiling device {device.bdf}"
+            self._current_progress.current_operation = safe_format(
+                "Profiling device {bdf}", bdf=device.bdf
+            )
             await self._notify_progress()
 
-        # Run the profiling in a separate thread to avoid blocking the event loop
+        # Run profiling in a separate thread to avoid blocking the event loop
+
         def run_profiling():
             try:
-                # Use enable_ftrace=True for real hardware, but it requires root privileges
+                # Use enable_ftrace=True for real hardware; requires root
                 enable_ftrace = not config.disable_ftrace and os.geteuid() == 0
                 profiler = BehaviorProfiler(
                     bdf=device.bdf, debug=True, enable_ftrace=enable_ftrace
@@ -1274,7 +1374,7 @@ class BuildOrchestrator:
             except Exception as e:
                 if self._current_progress:
                     self._current_progress.add_error(
-                        f"Behavior profiling failed: {str(e)}"
+                        safe_format("Behavior profiling failed: {err}", err=str(e))
                     )
                 return None
 
@@ -1284,14 +1384,18 @@ class BuildOrchestrator:
 
         # Update progress with results
         if profile and self._current_progress:
-            self._current_progress.current_operation = (
-                f"Analyzed {profile.total_accesses} register accesses"
+            self._current_progress.current_operation = safe_format(
+                "Analyzed {n} register accesses",
+                n=profile.total_accesses,
             )
             self._current_progress.add_warning(
-                f"Found {len(profile.timing_patterns)} timing patterns"
+                safe_format("Found {n} timing patterns", n=len(profile.timing_patterns))
             )
             self._current_progress.add_warning(
-                f"Identified {len(profile.state_transitions)} state transitions"
+                safe_format(
+                    "Identified {n} state transitions",
+                    n=len(profile.state_transitions),
+                )
             )
 
     async def _generate_systemverilog(
@@ -1323,8 +1427,16 @@ class BuildOrchestrator:
             device: The PCIe device to synthesize for
             config: Build configuration
         """
-        # Convert config to CLI args
-        cli_args = config.to_cli_args()
+        # Convert config to CLI-like args (no method available on TUI model)
+        cli_args = {
+            "advanced_sv": bool(config.advanced_sv),
+            "enable_variance": bool(config.enable_variance),
+            "enable_behavior_profiling": bool(config.behavior_profiling),
+            "behavior_profile_duration": float(config.profile_duration),
+            "use_donor_dump": bool(config.donor_dump),
+            "donor_info_file": config.donor_info_file,
+            "skip_board_check": bool(config.skip_board_check),
+        }
 
         # Build command parts
         build_cmd_parts = [
@@ -1391,7 +1503,10 @@ class BuildOrchestrator:
                 "-v",
                 f"{os.getcwd()}/output:/app/output",
                 "pcileech-fw-generator:latest",
-                f"python3 /app/src/build.py --bdf {device.bdf} --board {config.board_type}",
+                (
+                    f"python3 /app/src/build.py --bdf {device.bdf} "
+                    f"--board {config.board_type}"
+                ),
             ]
 
             # Add the same options to the container command

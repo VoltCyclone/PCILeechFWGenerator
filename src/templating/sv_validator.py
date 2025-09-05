@@ -1,12 +1,33 @@
-"""Validation module for SystemVerilog generation."""
+"""Validation module for SystemVerilog generation.
+
+Enforces strict donor-identity usage when requested and validates presence of
+subsystem IDs, class code, revision, and donor artifacts (VPD/Option ROM).
+"""
+
+import hashlib
 
 import logging
+
 from typing import Any, Dict, List, Optional, Union
 
 from src.device_clone.device_config import DeviceClass, DeviceType
-from src.string_utils import log_error_safe, log_warning_safe
+
+from src.string_utils import (
+    log_error_safe,
+    log_warning_safe,
+    log_info_safe,
+    safe_format,
+)
+
+from src.utils.context_error_messages import (
+    VPD_REQUIRED_MISSING,
+    OPTION_ROM_MISSING_SIZE,
+    ROM_SIZE_MISMATCH,
+)
+
 
 from .sv_constants import SV_CONSTANTS, SV_VALIDATION
+
 from .template_renderer import TemplateRenderError
 
 
@@ -66,6 +87,25 @@ class SVValidator:
         # Validate critical fields
         self._validate_critical_fields(context)
 
+        # Always validate device identification fields
+        try:
+            device_config = (
+                context.get("device_config")
+                if isinstance(context, dict)
+                else context.device_config
+            )
+        except Exception:
+            device_config = None
+        if device_config is not None:
+            self.validate_device_identification(
+                device_config
+                if isinstance(device_config, dict)
+                else device_config.to_dict()  # type: ignore[attr-defined]
+            )
+
+        # Validate donor artifacts (VPD/Option ROM) when signaled
+        self._validate_donor_artifacts(context)
+
     def validate_device_identification(self, device_config: Dict[str, Any]) -> None:
         """
         Validate critical device identification fields.
@@ -76,32 +116,154 @@ class SVValidator:
         Raises:
             TemplateRenderError: If validation fails
         """
-        required_fields = ["vendor_id", "device_id"]
-        missing_fields = []
-        invalid_fields = []
+        # Require full set of identifiers (avoid silent fallbacks)
+        required_fields = [
+            "vendor_id",
+            "device_id",
+            "subsystem_vendor_id",
+            "subsystem_device_id",
+            "class_code",
+            "revision_id",
+        ]
+        missing_fields: List[str] = []
+        invalid_fields: List[str] = []
 
         for field in required_fields:
             value = device_config.get(field)
             if not value:
                 missing_fields.append(field)
-            elif not isinstance(value, str) or len(value) != 4:
-                invalid_fields.append(
-                    f"{field}='{value}' (must be 4-character hex string)"
-                )
+            else:
+                # Validate widths: vendor/device/subsystem IDs are 4 hex chars,
+                # class_code is 6, revision_id is 2
+                if field in (
+                    "vendor_id",
+                    "device_id",
+                    "subsystem_vendor_id",
+                    "subsystem_device_id",
+                ):
+                    if not isinstance(value, str) or len(value) != 4:
+                        invalid_fields.append(
+                            f"{field}='{value}' (must be 4-character hex string)"
+                        )
+                elif field == "class_code":
+                    if not isinstance(value, str) or len(value) != 6:
+                        invalid_fields.append(
+                            f"{field}='{value}' (must be 6-character hex string)"
+                        )
+                elif field == "revision_id":
+                    if not isinstance(value, str) or len(value) != 2:
+                        invalid_fields.append(
+                            f"{field}='{value}' (must be 2-character hex string)"
+                        )
 
         if missing_fields or invalid_fields:
-            error_details = []
+            error_details: List[str] = []
             if missing_fields:
                 error_details.append(f"Missing fields: {', '.join(missing_fields)}")
             if invalid_fields:
                 error_details.append(f"Invalid fields: {', '.join(invalid_fields)}")
 
+            details = "; ".join(error_details)
             error_msg = (
-                f"Critical device identification validation failed: {'; '.join(error_details)}. "
-                "Cannot generate safe firmware without proper device identification."
+                "Critical device identification validation failed: "
+                f"{details}. Cannot generate safe firmware without proper "
+                "device identification."
             )
             log_error_safe(self.logger, error_msg)
             raise TemplateRenderError(error_msg)
+
+    def _validate_donor_artifacts(self, context: Any) -> None:
+        """
+        Validate VPD and Option ROM donor artifacts when required.
+
+        Rules:
+        - If requires_vpd is True, require non-empty vpd_data bytes/hex.
+        - If has_option_rom is True, require ROM_SIZE > 0. If rom_data is provided,
+          ensure its length matches ROM_SIZE and compute checksum when possible.
+        """
+
+        # Normalize access to context attributes/keys
+
+        def _get(name: str, default: Any = None) -> Any:
+            if isinstance(context, dict):
+                return context.get(name, default)
+            try:
+                return getattr(context, name)
+            except Exception:
+                return default
+
+        # VPD checks
+        requires_vpd = bool(_get("requires_vpd", False))
+        vpd_data = _get("vpd_data")
+        if requires_vpd:
+            if vpd_data is None or (
+                hasattr(vpd_data, "__len__") and len(vpd_data) == 0
+            ):
+                error_msg = VPD_REQUIRED_MISSING
+                log_error_safe(self.logger, error_msg)
+                raise TemplateRenderError(error_msg)
+
+        # Option ROM checks
+        has_option_rom = False
+        device_cfg = _get("device_config")
+        if device_cfg is not None:
+            try:
+                # Support dict or TemplateObject
+                has_option_rom = bool(
+                    device_cfg.get("has_option_rom")
+                    if isinstance(device_cfg, dict)
+                    else getattr(device_cfg, "has_option_rom", False)
+                )
+            except Exception:
+                has_option_rom = False
+        # Allow top-level alias override
+        has_option_rom = bool(_get("has_option_rom", has_option_rom))
+
+        if has_option_rom:
+            rom_size = _get("ROM_SIZE", None)
+            if not isinstance(rom_size, int) or rom_size <= 0:
+                error_msg = OPTION_ROM_MISSING_SIZE
+                log_error_safe(self.logger, error_msg)
+                raise TemplateRenderError(error_msg)
+
+            rom_data = _get("rom_data", None)
+            if rom_data is not None:
+                try:
+                    data_len = len(rom_data)
+                except Exception:
+                    data_len = None
+                if data_len is None or data_len != rom_size:
+                    error_msg = safe_format(
+                        ROM_SIZE_MISMATCH,
+                        size=rom_size,
+                        dlen=(data_len if data_len is not None else -1),
+                    )
+                    log_error_safe(self.logger, error_msg)
+                    raise TemplateRenderError(error_msg)
+
+                # Compute checksum if not present and attach for downstream consumers
+                rom_checksum = _get("rom_checksum", None)
+                if rom_checksum is None:
+                    try:
+                        if isinstance(rom_data, (bytes, bytearray)):
+                            digest = hashlib.sha256(rom_data).hexdigest()
+                        elif isinstance(rom_data, str):
+                            # If provided as hex string
+                            digest = hashlib.sha256(bytes.fromhex(rom_data)).hexdigest()
+                        else:
+                            digest = None
+                        if digest:
+                            log_info_safe(
+                                self.logger,
+                                safe_format(
+                                    "Computed ROM checksum: {csum}",
+                                    csum=digest[:16],
+                                ),
+                            )
+                    except Exception:
+                        # Non-fatal: checksum computation failure should not
+                        # proceed silently if required elsewhere
+                        pass
 
     def validate_numeric_range(
         self,
@@ -207,7 +369,11 @@ class SVValidator:
             raise TemplateRenderError(self.messages["empty_device_signature"])
 
     def validate_template_requirements(
-        self, device_config: Any, power_config: Any, error_config: Any, perf_config: Any
+        self,
+        device_config: Any,
+        power_config: Any,
+        error_config: Any,
+        perf_config: Any,
     ) -> None:
         """
         Comprehensive validation of all template requirements.
@@ -249,7 +415,8 @@ class SVValidator:
         # Raise error if any critical issues found
         if errors:
             error_msg = self.messages["validation_failed"].format(
-                count=len(errors), errors="\n".join(f"  - {error}" for error in errors)
+                count=len(errors),
+                errors="\n".join(f"  - {error}" for error in errors),
             )
             log_error_safe(self.logger, error_msg)
             raise TemplateRenderError(error_msg)

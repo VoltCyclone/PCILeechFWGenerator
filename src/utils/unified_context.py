@@ -2,18 +2,26 @@
 """
 Unified context building and template compatibility utilities.
 
-This module provides a single, consistent approach to building template contexts
-that work seamlessly with Jinja2 templates, avoiding the dict vs attribute access issues.
+This module provides a single, consistent approach to building
+template contexts that work seamlessly with Jinja2 templates,
+avoiding the dict vs attribute access issues.
 """
 
 import logging
+
 import secrets
+
 from dataclasses import asdict, dataclass, field
+
 from datetime import datetime
+
 from enum import Enum
+
 from functools import lru_cache
+
 from pathlib import Path
-from typing import Any, Dict, Generic, List, Optional, Set, TypeVar, Union
+
+from typing import Any, Dict, Generic, List, Optional, Set, TypeVar, Union, Mapping
 
 from string_utils import (
     log_debug_safe,
@@ -21,6 +29,13 @@ from string_utils import (
     log_info_safe,
     log_warning_safe,
     safe_format,
+)
+from src.error_utils import extract_root_cause
+
+from src.utils.context_error_messages import (
+    MISSING_IDENTIFIERS,
+    STRICT_MODE_MISSING,
+    TEMPLATE_CONTEXT_VALIDATION_FAILED,
 )
 
 from .validation_constants import (
@@ -178,7 +193,10 @@ try:
 except Exception:
     # Fallback to the static default if the secure RNG is unavailable
     logger = logging.getLogger(__name__)
-    log_debug_safe(logger, "Secure RNG unavailable; using static DEFAULT_REVISION_ID")
+    log_debug_safe(
+        logger,
+        "Secure RNG unavailable; using static DEFAULT_REVISION_ID",
+    )
     DEFAULT_REVISION_ID = "00"
 
 
@@ -207,21 +225,21 @@ class TemplateObject:
 
         for key, value in data.items():
             # Ensure key is a valid attribute name
-            clean_key = self._clean_key(key)
+            clean_key = type(self)._clean_key(key)
 
             # Convert value if needed
             if isinstance(value, dict) and clean_key not in converted_attrs:
                 value = TemplateObject(value)
                 data[clean_key] = value
             elif isinstance(value, list) and clean_key not in converted_attrs:
-                value = self._convert_list(value)
+                value = TemplateObject._convert_list(value)
                 data[clean_key] = value
             elif not isinstance(value, (dict, list)) and hasattr(
                 value, "value"
             ):  # Enum-like objects
                 value = value.value  # type: ignore
                 data[clean_key] = value
-
+            # Mark this attribute as converted so we don't re-wrap it
             converted_attrs.add(clean_key)
 
     @staticmethod
@@ -229,10 +247,11 @@ class TemplateObject:
         """Convert any key to a valid attribute name."""
         if isinstance(key, str):
             return key
-        elif hasattr(key, "name"):
+        if hasattr(key, "name"):
             return str(key.name)
-        elif hasattr(key, "value"):
+        if hasattr(key, "value"):
             return str(key.value)
+        # Fallback to string conversion for any other key type
         return str(key)
 
     @staticmethod
@@ -529,11 +548,24 @@ class UnifiedContextBuilder:
     Optimized for performance and maintainability.
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
-        """Initialize the unified context builder."""
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        *,
+        strict_identity: bool = False,
+    ):
+        """Initialize the unified context builder.
+
+        Args:
+            logger: Logger instance
+            strict_identity: When True, fail fast on missing donor identity fields
+                             and avoid static defaults for critical identifiers
+                             (subsystem IDs, class_code, revision_id, ROM_SIZE).
+        """
         self.logger = logger or logging.getLogger(__name__)
         self.config = ContextBuilderConfig()
         self._version_cache: Optional[str] = None
+        self.strict_identity = strict_identity
 
     def validate_hex_value(self, value: str, field_name: str) -> None:
         """Validate a hex string value."""
@@ -548,7 +580,9 @@ class UnifiedContextBuilder:
         """Validate that all required fields are present and non-empty."""
         missing = [name for name in required if not fields.get(name)]
         if missing:
-            raise ValueError(f"vendor_id and device_id are required")
+            msg = safe_format(MISSING_IDENTIFIERS, names=", ".join(missing))
+            log_error_safe(self.logger, msg)
+            raise ConfigurationError(msg)
 
     def get_device_class(self, class_code: HexString) -> str:
         """Get device class from PCI class code."""
@@ -556,7 +590,7 @@ class UnifiedContextBuilder:
         return DEVICE_CLASS_MAPPINGS.get(prefix, "generic")
 
     def _get_device_class(self, class_code: HexString) -> str:
-        """Get device class from PCI class code (old method name for compatibility)."""
+        """Compatibility alias for get_device_class."""
         return self.get_device_class(class_code)
 
     def parse_hex_to_int(self, value: str, default: int = 0) -> int:
@@ -575,8 +609,8 @@ class UnifiedContextBuilder:
         device_id: HexString,
         subsystem_vendor_id: Optional[HexString] = None,
         subsystem_device_id: Optional[HexString] = None,
-        class_code: HexString = DEFAULT_CLASS_CODE,
-        revision_id: HexString = DEFAULT_REVISION_ID,
+        class_code: Optional[HexString] = None,
+        revision_id: Optional[HexString] = None,
         interrupt_strategy: str = "intx",
         interrupt_vectors: int = 1,
         **kwargs,
@@ -603,32 +637,65 @@ class UnifiedContextBuilder:
         """
         # Validate required fields
         self.validate_required_fields(
-            {"vendor_id": vendor_id, "device_id": device_id}, ["vendor_id", "device_id"]
+            {"vendor_id": vendor_id, "device_id": device_id},
+            ["vendor_id", "device_id"],
         )
 
-        # Set defaults for optional fields
-        subsystem_vendor_id = subsystem_vendor_id or vendor_id
-        subsystem_device_id = subsystem_device_id or device_id
+        # Identity policy: enforce donor-provided fields in strict mode
+        if self.strict_identity:
+            missing_strict: List[str] = []
+            if not subsystem_vendor_id:
+                missing_strict.append("subsystem_vendor_id")
+            if not subsystem_device_id:
+                missing_strict.append("subsystem_device_id")
+            if not class_code:
+                missing_strict.append("class_code")
+            if not revision_id:
+                missing_strict.append("revision_id")
+            if missing_strict:
+                msg = safe_format(
+                    STRICT_MODE_MISSING,
+                    fields=", ".join(sorted(set(missing_strict))),
+                )
+                log_error_safe(self.logger, msg)
+                raise ConfigurationError(msg)
+        else:
+            # Set defaults for optional fields (compatibility mode)
+            subsystem_vendor_id = subsystem_vendor_id or vendor_id
+            subsystem_device_id = subsystem_device_id or device_id
+            class_code = class_code or DEFAULT_CLASS_CODE
+            revision_id = revision_id or DEFAULT_REVISION_ID
 
         # Determine device classification
-        device_class = self.get_device_class(class_code)
+        device_class = self.get_device_class(class_code or DEFAULT_CLASS_CODE)
 
         # Create configuration
+        # Type narrowing for static analysis and safety after validations above
+        if subsystem_vendor_id is None or subsystem_device_id is None:
+            raise ConfigurationError(
+                "Internal error: subsystem IDs unexpectedly None after checks"
+            )
+        if class_code is None or revision_id is None:
+            raise ConfigurationError(
+                "Internal error: class_code/revision_id unexpectedly None "
+                "after checks"
+            )
+
         config = UnifiedDeviceConfig(
             vendor_id=vendor_id,
             device_id=device_id,
             subsystem_vendor_id=subsystem_vendor_id,
             subsystem_device_id=subsystem_device_id,
-            class_code=class_code,
-            revision_id=revision_id,
+            class_code=class_code or DEFAULT_CLASS_CODE,
+            revision_id=revision_id or DEFAULT_REVISION_ID,
             interrupt_mode=interrupt_strategy,
             interrupt_vectors=interrupt_vectors,
             device_class=device_class,
-            is_network=(class_code.startswith("02")),
-            is_storage=(class_code.startswith("01")),
-            is_display=(class_code.startswith("03")),
+            is_network=((class_code or DEFAULT_CLASS_CODE).startswith("02")),
+            is_storage=((class_code or DEFAULT_CLASS_CODE).startswith("01")),
+            is_display=((class_code or DEFAULT_CLASS_CODE).startswith("03")),
             num_sources=max(1, interrupt_vectors),
-            num_msix=max(1, interrupt_vectors) if interrupt_strategy == "msix" else 4,
+            num_msix=(max(1, interrupt_vectors) if interrupt_strategy == "msix" else 4),
             **kwargs,
         )
 
@@ -840,7 +907,20 @@ class UnifiedContextBuilder:
         active_device_config = self.create_active_device_config(
             vendor_id=vendor_id,
             device_id=device_id,
-            class_code="020000" if device_type == "network" else "000000",
+            class_code=(
+                (
+                    "020000"
+                    if device_type == "network"
+                    else (kwargs.get("class_code") or None)
+                )
+                if not self.strict_identity
+                else kwargs.get("class_code")
+            ),
+            revision_id=(
+                (kwargs.get("revision_id") or None)
+                if not self.strict_identity
+                else kwargs.get("revision_id")
+            ),
         )
 
         generation_metadata = self.create_generation_metadata(
@@ -920,12 +1000,14 @@ class UnifiedContextBuilder:
         device_id: str,
         device_type: str,
         device_class: str,
+        **kwargs,
     ) -> None:
         """Add device configuration to context."""
         vendor_id_int = context["vendor_id_int"]
         device_id_int = context["device_id_int"]
 
-        # Determine revision id from active_device_config when available to avoid None attribute access
+        # Determine revision id from active_device_config when available
+        # to avoid None attribute access
         active_dev = context.get("active_device_config")
         if active_dev is not None:
             revision_val = getattr(active_dev, "revision_id", DEFAULT_REVISION_ID)
@@ -938,13 +1020,35 @@ class UnifiedContextBuilder:
                 "device_id": device_id,
                 "vendor_id_int": vendor_id_int,
                 "device_id_int": device_id_int,
-                "subsystem_vendor_id": vendor_id,
-                "subsystem_device_id": device_id,
+                # In strict mode these must be provided upstream; don't default
+                "subsystem_vendor_id": (
+                    vendor_id
+                    if not self.strict_identity
+                    else kwargs.get("subsystem_vendor_id")
+                ),
+                "subsystem_device_id": (
+                    device_id
+                    if not self.strict_identity
+                    else kwargs.get("subsystem_device_id")
+                ),
                 "subsys_vendor_id": vendor_id,  # Alias
                 "subsys_device_id": device_id,  # Alias
-                "class_code": "020000" if device_type == "network" else "000000",
-                # Use the active device config revision if available; fall back to the module default
-                "revision_id": revision_val,
+                "class_code": (
+                    (
+                        "020000"
+                        if device_type == "network"
+                        else kwargs.get("class_code", "000000")
+                    )
+                    if not self.strict_identity
+                    else kwargs.get("class_code")
+                ),
+                # Use the active device config revision if available; fall back
+                # to the module default
+                "revision_id": (
+                    revision_val
+                    if not self.strict_identity
+                    else kwargs.get("revision_id")
+                ),
                 "max_payload_size": 256,
                 "msi_vectors": 4,
                 "enable_advanced_features": True,
@@ -953,7 +1057,7 @@ class UnifiedContextBuilder:
                 "device_class": device_class,
                 # Add attributes expected by templates
                 "enable_perf_counters": True,
-                "has_option_rom": False,
+                "has_option_rom": bool(kwargs.get("has_option_rom", False)),
             }
         )
 
@@ -962,13 +1066,14 @@ class UnifiedContextBuilder:
         context["device"] = device_config
         context["device_info"] = device_config
 
-        # Create a comprehensive config object that includes error handling, performance, etc.
-        # This is needed for templates that expect config.timeout_cycles, config.enable_error_logging, etc.
+        # Create a comprehensive config object that includes error handling,
+        # performance, etc. This is needed for templates that expect
+        # config.timeout_cycles, config.enable_error_logging, etc.
         comprehensive_config = TemplateObject(
             {
                 # Device configuration
                 **device_config.to_dict(),
-                # Error handling configuration (will be added later from error_config)
+                # Error handling configuration (added later from error_config)
                 "timeout_cycles": 32768,
                 "enable_error_logging": True,
                 "enable_timeout_detection": True,
@@ -976,6 +1081,11 @@ class UnifiedContextBuilder:
                 "enable_crc_check": False,
                 # Performance configuration
                 "enable_perf_counters": True,
+                # Sampling logic defaults used by some templates
+                # Keep this non-identity default only in compatibility mode
+                # (strict_identity=False). In strict mode, a caller can pass
+                # sampling_period explicitly via kwargs if needed.
+                "sampling_period": kwargs.get("sampling_period", 1024),
                 # Board configuration
                 "has_option_rom": False,
             }
@@ -986,7 +1096,25 @@ class UnifiedContextBuilder:
     def _add_standard_configs(self, context: Dict[str, Any], **kwargs) -> None:
         """Add standard configuration objects."""
         # Config space
-        context["config_space"] = TemplateObject({"size": 256, "raw_data": ""})
+        # Provide baseline class_code/revision_id derived from device_config
+        # to satisfy templates that render config space headers. These are
+        # safe, compatibility-only defaults when not operating in strict mode.
+        try:
+            dc = context.get("device_config")
+            dc_class = getattr(dc, "class_code", DEFAULT_CLASS_CODE)
+            dc_rev = getattr(dc, "revision_id", DEFAULT_REVISION_ID)
+        except Exception:
+            dc_class = DEFAULT_CLASS_CODE
+            dc_rev = DEFAULT_REVISION_ID
+
+        context["config_space"] = TemplateObject(
+            {
+                "size": 256,
+                "raw_data": "",
+                "class_code": self.parse_hex_to_int(dc_class, 0),
+                "revision_id": self.parse_hex_to_int(dc_rev, 0),
+            }
+        )
 
         # BAR configuration
         context["bar_config"] = TemplateObject(
@@ -1082,7 +1210,8 @@ class UnifiedContextBuilder:
 
     def _add_compatibility_aliases(self, context: Dict[str, Any], **kwargs) -> None:
         """Add compatibility aliases for legacy templates."""
-        # Update the main config object with error handling and performance attributes
+        # Update the main config object with error handling and performance
+        # attributes
         if "config" in context and "error_handling" in context:
             config_dict = context["config"].to_dict()
             config_dict.update(context["error_handling"].to_dict())
@@ -1125,8 +1254,9 @@ class UnifiedContextBuilder:
             context["clk_hz"] = context["power_management"].clk_hz
             context["transition_delays"] = context["power_management"].transition_delays
             context["tr_ns"] = context["power_management"].transition_timeout_ns
-            # Keep both names available for backward compatibility: top-level and nested
-            # Some templates reference `transition_cycles` directly while newer ones use
+            # Keep both names available for backward compatibility: top-level
+            # and nested. Some templates reference `transition_cycles` directly
+            # while newer ones use
             # `power_management.transition_cycles`. Provide both aliases here.
             context.setdefault(
                 "transition_cycles", context["power_management"].transition_cycles
@@ -1141,12 +1271,14 @@ class UnifiedContextBuilder:
                         "transition_cycles"
                     ]
             except Exception:
-                # Be defensive: if power_management isn't the expected object, set a safe dict
+                # Be defensive: if power_management isn't the expected object,
+                # set a safe dict
                 context["power_management"] = TemplateObject(
                     {"transition_cycles": dict(POWER_TRANSITION_CYCLES)}
                 )
         else:
-            # If power_management is a bool, replace it with a TemplateObject with defaults
+            # If power_management is a bool, replace it with a TemplateObject
+            # with defaults
             context["power_management"] = TemplateObject(
                 {
                     "transition_cycles": dict(POWER_TRANSITION_CYCLES),
@@ -1176,7 +1308,8 @@ class UnifiedContextBuilder:
             "perf_config"
         ].network_signals_available
         context["metrics_to_monitor"] = context["perf_config"].metrics_to_monitor
-        # Expose common performance flags as top-level aliases to reduce template checks
+        # Expose common performance flags as top-level aliases to reduce
+        # template checks
         context.setdefault(
             "enable_perf_outputs", context["perf_config"].enable_perf_outputs
         )
@@ -1202,7 +1335,10 @@ class UnifiedContextBuilder:
         # Default values
         context.setdefault("BAR_APERTURE_SIZE", kwargs.get("BAR_APERTURE_SIZE", 0x1000))
         context.setdefault("CONFIG_SPACE_SIZE", kwargs.get("CONFIG_SPACE_SIZE", 256))
-        context.setdefault("ROM_SIZE", kwargs.get("ROM_SIZE", 0))
+        # Avoid defaulting ROM_SIZE in strict mode; require explicit value
+        # when ROM is present
+        if not self.strict_identity:
+            context.setdefault("ROM_SIZE", kwargs.get("ROM_SIZE", 0))
         context.setdefault("registers", kwargs.get("registers", []))
         context.setdefault("enable_interrupt", True)
         context.setdefault("enable_custom_config", True)
@@ -1258,7 +1394,8 @@ class UnifiedContextBuilder:
             "synthesis_strategy", kwargs.get("synthesis_strategy", "default")
         )
         context.setdefault(
-            "implementation_strategy", kwargs.get("implementation_strategy", "default")
+            "implementation_strategy",
+            kwargs.get("implementation_strategy", "default"),
         )
         context.setdefault("pcie_rst_pin", kwargs.get("pcie_rst_pin", ""))
         context.setdefault("constraint_files", kwargs.get("constraint_files", []))
@@ -1266,6 +1403,15 @@ class UnifiedContextBuilder:
         context.setdefault("error_thresholds", kwargs.get("error_thresholds", {}))
         context.setdefault("CUSTOM_WIN_BASE", kwargs.get("CUSTOM_WIN_BASE", 0))
         context.setdefault("ROM_HEX_FILE", kwargs.get("ROM_HEX_FILE", ""))
+        # Propagate donor artifact flags/data if provided
+        if "requires_vpd" in kwargs:
+            context["requires_vpd"] = bool(kwargs.get("requires_vpd"))
+        if "vpd_data" in kwargs:
+            context["vpd_data"] = kwargs.get("vpd_data")
+        if "has_option_rom" in kwargs:
+            context["has_option_rom"] = bool(kwargs.get("has_option_rom"))
+        if "rom_data" in kwargs:
+            context["rom_data"] = kwargs.get("rom_data")
         context.setdefault("ENABLE_CACHE", kwargs.get("ENABLE_CACHE", False))
         context.setdefault("constraints", context["board_config"].constraints)
         context.setdefault("pcie_config", kwargs.get("pcie_config", {}))
@@ -1329,7 +1475,7 @@ class UnifiedContextBuilder:
 
         # Add device configuration
         self._add_device_config(
-            context, vendor_id, device_id, device_type, device_class
+            context, vendor_id, device_id, device_type, device_class, **kwargs
         )
 
         # Add standard configurations
@@ -1345,7 +1491,16 @@ class UnifiedContextBuilder:
         self._add_compatibility_aliases(template_context._data, **kwargs)
 
         # Validate the context
-        self.validate_template_context(template_context)
+        try:
+            self.validate_template_context(template_context)
+        except Exception as e:
+            rc = extract_root_cause(e)
+            log_error_safe(
+                self.logger,
+                safe_format(TEMPLATE_CONTEXT_VALIDATION_FAILED, rc=rc),
+            )
+            # Re-raise the original exception to preserve type/trace
+            raise
 
         return template_context
 
@@ -1426,8 +1581,20 @@ def ensure_template_compatibility(context: Dict[str, Any]) -> Dict[str, Any]:
             # single problematic nested object from causing templates to
             # receive the raw dict (which led to AttributeError in Jinja).
             compatible_context[key] = convert_to_template_object(value)
-        except Exception:
-            # Defensive: keep the original value if conversion fails.
+        except Exception as e:
+            # Defensive: keep the original value if conversion fails and
+            # log at debug level.
+            logger = logging.getLogger(__name__)
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "Compatibility conversion skipped for key={key} "
+                    "(type={typ}): {rc}",
+                    key=key,
+                    typ=type(value).__name__,
+                    rc=extract_root_cause(e),
+                ),
+            )
             compatible_context[key] = value
 
     return compatible_context
@@ -1456,7 +1623,16 @@ def normalize_config_to_dict(
     if isinstance(obj, TemplateObject):
         try:
             return obj.to_dict()
-        except Exception:
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "normalize_config_to_dict: to_dict() failed for {typ}: {rc}",
+                    typ=type(obj).__name__,
+                    rc=extract_root_cause(e),
+                ),
+            )
             return dict(default or {})
 
     # Plain dict -> shallow copy
@@ -1471,11 +1647,32 @@ def normalize_config_to_dict(
             if isinstance(result, dict):
                 return dict(result)
             # If result is a mapping-like object, coerce to dict
-            try:
-                return dict(result)
-            except Exception:
-                return dict(default or {})
-        except Exception:
+            if isinstance(result, Mapping):
+                try:
+                    return dict(result)  # type: ignore[arg-type]
+                except Exception as e:
+                    logger = logging.getLogger(__name__)
+                    log_debug_safe(
+                        logger,
+                        safe_format(
+                            "normalize_config_to_dict: Mapping coercion failed "
+                            "for {typ}: {rc}",
+                            typ=type(result).__name__,
+                            rc=extract_root_cause(e),
+                        ),
+                    )
+                    return dict(default or {})
+            return dict(default or {})
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "normalize_config_to_dict: to_dict() raised for {typ}: {rc}",
+                    typ=type(obj).__name__,
+                    rc=extract_root_cause(e),
+                ),
+            )
             return dict(default or {})
 
     # Fallback: try __dict__ for simple objects. Some test helpers create
@@ -1508,7 +1705,17 @@ def normalize_config_to_dict(
                 return dict(collected)
 
             return dict(default or {})
-        except Exception:
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "normalize_config_to_dict: __dict__/dir() extraction "
+                    "failed for {typ}: {rc}",
+                    typ=type(obj).__name__,
+                    rc=extract_root_cause(e),
+                ),
+            )
             return dict(default or {})
 
     # Last resort: return default

@@ -2,10 +2,10 @@
 {{ header | safe }}
 
 module sampling_logic #(
-    parameter COUNTER_WIDTH = {{ config.counter_width | default(32) }},
+    parameter COUNTER_WIDTH = {{ config.counter_width }},
     {%- set metrics = config.metrics_to_monitor | default([]) %}
     parameter NUM_METRICS = {{ (metrics|length) if metrics else 1 }},
-    parameter SAMPLING_PERIOD = {{ config.sampling_period | default(1000) }}
+    parameter SAMPLING_PERIOD = {{ config.sampling_period }}
 ) (
     input  logic clk,
     input  logic rst_n,

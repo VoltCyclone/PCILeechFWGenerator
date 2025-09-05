@@ -116,8 +116,7 @@ class BuildManager:
             # Update UI with initial progress
             self.app.ui_coordinator.update_build_progress_display()
 
-            # Import the real build system
-            # We do this inside the function to avoid circular imports
+            # do this inside the function to avoid circular imports
             try:
                 from src.build import BuildConfiguration as CoreBuildConfig
                 from src.build import FirmwareBuilder
@@ -205,8 +204,6 @@ class BuildManager:
                 build_progress.add_error(f"Configuration error: {str(config_error)}")
                 self.app.ui_coordinator.update_build_progress_display()
                 return False, f"Build configuration failed: {str(config_error)}"
-            # This code is no longer used - we use the real build system now
-            return False, "Unreachable code path - implementation error"
 
         except Exception as e:
             return False, f"Build failed: {str(e)}"

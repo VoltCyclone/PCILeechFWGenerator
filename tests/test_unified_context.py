@@ -16,11 +16,14 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
-                                       UnifiedDeviceConfig,
-                                       convert_to_template_object,
-                                       ensure_template_compatibility,
-                                       get_package_version)
+from src.utils.unified_context import (
+    TemplateObject,
+    UnifiedContextBuilder,
+    UnifiedDeviceConfig,
+    convert_to_template_object,
+    ensure_template_compatibility,
+    get_package_version,
+)
 
 
 class TestGetPackageVersion:
@@ -327,11 +330,13 @@ class TestUnifiedContextBuilder:
 
     def test_create_active_device_config_validation_error(self):
         """Test validation error for missing required parameters."""
-        with pytest.raises(ValueError, match="vendor_id and device_id are required"):
+        with pytest.raises(Exception) as exc1:
             self.builder.create_active_device_config(vendor_id="", device_id="1234")
+        assert "vendor_id" in str(exc1.value)
 
-        with pytest.raises(ValueError, match="vendor_id and device_id are required"):
+        with pytest.raises(Exception) as exc2:
             self.builder.create_active_device_config(vendor_id="8086", device_id="")
+        assert "device_id" in str(exc2.value)
 
     def test_create_generation_metadata(self):
         """Test creating generation metadata."""

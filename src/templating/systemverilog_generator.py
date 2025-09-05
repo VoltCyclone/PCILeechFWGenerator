@@ -205,9 +205,6 @@ class SystemVerilogGenerator:
             TemplateRenderError: If generation fails
         """
         try:
-            # Phase 0 compatibility: Check if we need to provide non-critical defaults
-            # BEFORE validation. Critical fields (device_signature, device_config)
-            # are still validated strictly for security.
             context_with_defaults = template_context.copy()
 
             # Only provide defaults for non-critical template convenience fields
@@ -219,8 +216,6 @@ class SystemVerilogGenerator:
                     "generator_version": __version__
                 }
 
-            # Critical security validation: device identification must be complete if present
-            # This validation happens BEFORE Phase 0 compatibility to preserve security
             device_config = context_with_defaults.get("device_config")
             if device_config is not None:
                 # If device_config exists, it must be complete and valid
@@ -238,7 +233,6 @@ class SystemVerilogGenerator:
                 self.device_config,
             )
 
-            # Phase-0 compatibility: ensure commonly-referenced template keys exist
             # Templates assume keys like `device`, `timing_config`, `msix_config`,
             # `bar_config`, `board_config`, and `generation_metadata` are present.
             # Provide conservative defaults here so strict template rendering doesn't
@@ -274,7 +268,6 @@ class SystemVerilogGenerator:
                 "device_class", enhanced_context.get("device_class", "CONSUMER")
             )
 
-            # Backwards-compatible mapping: older tests/contexts use `config_space_data`.
             # Ensure templates that expect `config_space` have something usable.
             if (
                 "config_space" not in enhanced_context
@@ -297,12 +290,9 @@ class SystemVerilogGenerator:
                     cs.setdefault("class_code", 0x020000)
                     cs.setdefault("revision_id", 0x01)
 
-                    # Device ID handling: Only provide defaults if device_config is
-                    # completely absent OR completely valid (both vendor_id and device_id present)
                     device_cfg = enhanced_context.get("device_config")
 
                     if device_cfg is None:
-                        # No device_config at all - provide minimal defaults for template compatibility
                         cs.setdefault("vendor_id", 0x8086)
                         cs.setdefault("device_id", 0x1533)
                     elif (
@@ -310,13 +300,9 @@ class SystemVerilogGenerator:
                         and device_cfg.get("vendor_id")
                         and device_cfg.get("device_id")
                     ):
-                        # Complete device_config - use its values as config_space defaults
                         cs.setdefault("vendor_id", device_cfg["vendor_id"])
                         cs.setdefault("device_id", device_cfg["device_id"])
-                    # If device_config exists but is incomplete, DO NOT provide defaults
-                    # This will cause template rendering to fail, preserving security validation
             except Exception:
-                # If config_space is some TemplateObject-like thing, trust its accessors
                 pass
 
             # Ensure a minimal pci leech config exists
@@ -328,7 +314,6 @@ class SystemVerilogGenerator:
             # Additional missing keys commonly referenced by templates
             enhanced_context.setdefault("device_specific_config", {})
 
-            # Handle device_config - if it's a TemplateObject, convert to dict with required attributes
             device_config = enhanced_context.get("device_config", {})
             if hasattr(device_config, "__class__") and "TemplateObject" in str(
                 device_config.__class__

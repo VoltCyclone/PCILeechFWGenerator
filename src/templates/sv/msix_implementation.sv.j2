@@ -2,11 +2,11 @@
 {{ header | safe }}
 
 module msix_implementation #(
-    parameter NUM_MSIX = {{ msix_config.num_vectors | default(16) }},
-    parameter MSIX_TABLE_BIR = {{ msix_config.table_bir | default(0) }},
-    parameter MSIX_TABLE_OFFSET = 32'h{{ "%X" | format(msix_config.table_offset | default(0x1000)) }},
-    parameter MSIX_PBA_BIR = {{ msix_config.pba_bir | default(0) }},
-    parameter MSIX_PBA_OFFSET = 32'h{{ "%X" | format(msix_config.pba_offset | default(0x2000)) }},
+    parameter NUM_MSIX = {{ msix_config.num_vectors }},
+    parameter MSIX_TABLE_BIR = {{ msix_config.table_bir }},
+    parameter MSIX_TABLE_OFFSET = 32'h{{ "%X" | format(msix_config.table_offset) }},
+    parameter MSIX_PBA_BIR = {{ msix_config.pba_bir }},
+    parameter MSIX_PBA_OFFSET = 32'h{{ "%X" | format(msix_config.pba_offset) }},
     parameter MSIX_ENABLED = {{ '1\'b1' if msix_config.enabled | default(true) else '1\'b0' }},
     parameter MSIX_FUNCTION_MASK = {{ '1\'b1' if msix_config.function_mask | default(false) else '1\'b0' }},
     parameter PBA_SIZE = {{ ((msix_config.num_vectors | default(16) + 31) // 32) }}  // Number of 32-bit words needed for PBA

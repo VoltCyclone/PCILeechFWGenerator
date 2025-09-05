@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import List, Tuple
 
 from ..log_config import get_logger
+from src.error_utils import (
+    format_user_friendly_error,
+    log_error_with_root_cause,
+)
 from ..shell import Shell
 
 logger = get_logger(__name__)
@@ -108,10 +112,17 @@ def flash_firmware(bin_path: Path) -> None:
         print("[✓] Firmware flashed successfully")
 
     except subprocess.CalledProcessError as e:
-        error_msg = f"Flash failed: {e}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        # Log concise root cause and show user-friendly guidance
+        log_error_with_root_cause(logger, "Flash failed", e)
+        print(
+            format_user_friendly_error(e, context="firmware flash"),
+            file=sys.stderr,
+        )
+        raise RuntimeError("Flash failed") from e
     except Exception as e:
-        error_msg = f"Unexpected error during firmware flash: {e}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        log_error_with_root_cause(logger, "Unexpected error during firmware flash", e)
+        print(
+            format_user_friendly_error(e, context="firmware flash"),
+            file=sys.stderr,
+        )
+        raise RuntimeError("Unexpected error during firmware flash") from e

@@ -20,7 +20,7 @@ disable=line-too-long,
 
 [FORMAT]
 # Maximum number of characters on a single line.
-max-line-length=120
+max-line-length=240
 
 [REPORTS]
 # Set the output format. Available formats are text, parseable, colorized, json

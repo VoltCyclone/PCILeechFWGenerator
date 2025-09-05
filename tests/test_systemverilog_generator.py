@@ -12,13 +12,15 @@ import pytest
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.templating.sv_constants import SV_VALIDATION
-from src.templating.systemverilog_generator import (AdvancedSVGenerator,
-                                                    DeviceSpecificLogic,
-                                                    ErrorHandlingConfig,
-                                                    PerformanceConfig,
-                                                    PowerManagementConfig,
-                                                    SystemVerilogGenerator,
-                                                    TemplateRenderError)
+from src.templating.systemverilog_generator import (
+    AdvancedSVGenerator,
+    DeviceSpecificLogic,
+    ErrorHandlingConfig,
+    PerformanceConfig,
+    PowerManagementConfig,
+    SystemVerilogGenerator,
+    TemplateRenderError,
+)
 
 
 class TestSystemVerilogGenerator:
@@ -61,7 +63,16 @@ class TestSystemVerilogGenerator:
 
         # Missing device_signature (but valid device_config to pass device identification validation)
         invalid_context = {
-            "device_config": {"vendor_id": "8086", "device_id": "1533"}
+            "device_config": {
+                "vendor_id": "8086",
+                "device_id": "1533",
+                # Provide required donor identity fields so the error
+                # surfaces for device_signature
+                "subsystem_vendor_id": "0000",
+                "subsystem_device_id": "0000",
+                "class_code": "020000",
+                "revision_id": "00",
+            }
             # Missing device_signature
         }
 
@@ -200,6 +211,12 @@ class TestValidation:
             "device_config": {
                 "vendor_id": "1234",
                 "device_id": "5678",
+                # Provide required donor identity fields so the error
+                # surfaces for device_signature
+                "subsystem_vendor_id": "0000",
+                "subsystem_device_id": "0000",
+                "class_code": "020000",
+                "revision_id": "00",
             }
             # Missing device_signature
         }

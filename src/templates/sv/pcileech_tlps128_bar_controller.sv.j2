@@ -690,7 +690,7 @@ module pcileech_tlps128_bar_controller #(
             case (cfg_ext_register_number)
                 10'h000: cfg_ext_read_data = 32'h{{ get_device_id(device_config, device, config_space, device_id_int) }}{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }};
                 10'h001: cfg_ext_read_data = 32'h{{ "%04X%04X" % ((config_space.status | default(0x0010) | int), (config_space.command | default(0x0000) | int)) }};
-                10'h002: cfg_ext_read_data = 32'h{{ "%06X%02X" % ((config_space.class_code | default(0x020000) | int), (config_space.revision_id | default(0x01) | int)) }};
+                10'h002: cfg_ext_read_data = 32'h{{ "%06X%02X" % ((config_space.class_code | int), (config_space.revision_id | int)) }};
                 10'h040: cfg_ext_read_data = pcileech_ctrl_reg; // PCILeech control register
                 10'h041: cfg_ext_read_data = pcileech_stat_reg; // PCILeech status register
                 10'h042: cfg_ext_read_data = error_status_reg;  // Error status register
