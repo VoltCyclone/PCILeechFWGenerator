@@ -11,8 +11,13 @@ binary format.
 import logging
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .core import ConfigSpace
 from .types import PatchInfo, PruningAction
 
@@ -264,6 +269,21 @@ class PatchEngine:
         # Check for conflicts with existing patches
         for existing_patch in self.patches:
             if patch.overlaps_with(existing_patch):
+                # Allow identical duplicate patches (same offset, size, and data)
+                if (
+                    patch.offset == existing_patch.offset
+                    and patch.size == existing_patch.size
+                    and patch.original_data == existing_patch.original_data
+                    and patch.new_data == existing_patch.new_data
+                ):
+                    log_debug_safe(
+                        logger,
+                        "Suppressing duplicate patch: {patch}",
+                        prefix="PCI_CAP",
+                        patch=patch,
+                    )
+                    return True  # treat as success without adding duplicate
+
                 log_warning_safe(
                     logger,
                     safe_format(

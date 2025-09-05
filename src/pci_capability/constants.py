@@ -67,7 +67,8 @@ DPC_CONTROL_REGISTER_OFFSET = 6  # DPC Control Register offset from capability h
 
 # Resizable BAR Extended Capability
 RBAR_CAPABILITY_REGISTER_OFFSET = 8  # First BAR capability register offset
-RBAR_SIZE_MASK_ABOVE_128MB = 0xF7FFFFFF  # Clear bits 27-31 (sizes above 128MB)
+# Clear bits [31:27] (sizes above 128MB). Keep only lower 27 bits.
+RBAR_SIZE_MASK_ABOVE_128MB = 0x07FFFFFF
 
 # Standard Capability Names Mapping
 STANDARD_CAPABILITY_NAMES = {

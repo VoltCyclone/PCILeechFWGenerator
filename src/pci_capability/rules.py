@@ -13,12 +13,22 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .constants import PCI_DEVICE_ID_OFFSET, PCI_VENDOR_ID_OFFSET
 from .core import ConfigSpace
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PCICapabilityID, PCIExtCapabilityID)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    EmulationCategory,
+    PCICapabilityID,
+    PCIExtCapabilityID,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -432,6 +442,50 @@ class RuleEngine:
                 CapabilityType.EXTENDED,
                 EmulationCategory.PARTIALLY_SUPPORTED,
                 description="Resizable BAR - partially supported",
+            ),
+            # Additional commonly-present capabilities we handle
+            CapabilityRule(
+                PCIExtCapabilityID.LATENCY_TOLERANCE_REPORTING.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.PARTIALLY_SUPPORTED,
+                description="Latency Tolerance Reporting - partially supported",
+            ),
+            CapabilityRule(
+                PCIExtCapabilityID.L1_PM_SUBSTATES.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.PARTIALLY_SUPPORTED,
+                description="L1 PM Substates - partially supported",
+            ),
+            CapabilityRule(
+                PCIExtCapabilityID.PRECISION_TIME_MEASUREMENT.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.PARTIALLY_SUPPORTED,
+                description="Precision Time Measurement - partially supported",
+            ),
+            CapabilityRule(
+                PCIExtCapabilityID.SINGLE_ROOT_IO_VIRTUALIZATION.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.PARTIALLY_SUPPORTED,
+                description="SR-IOV - partially supported",
+            ),
+            CapabilityRule(
+                PCIExtCapabilityID.ALTERNATIVE_ROUTING_ID_INTERPRETATION.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.PARTIALLY_SUPPORTED,
+                description="ARI - partially supported",
+            ),
+            # Mirror vendor-specific extended as-is by default
+            CapabilityRule(
+                PCIExtCapabilityID.VENDOR_SPECIFIC_EXTENDED.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.FULLY_SUPPORTED,
+                description="Vendor-Specific Extended (VSEC) - preserve as-is",
+            ),
+            CapabilityRule(
+                PCIExtCapabilityID.DESIGNATED_VENDOR_SPECIFIC.value,
+                CapabilityType.EXTENDED,
+                EmulationCategory.FULLY_SUPPORTED,
+                description="Designated Vendor-Specific (DVSEC) - preserve as-is",
             ),
         ]
 
