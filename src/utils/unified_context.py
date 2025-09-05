@@ -225,7 +225,7 @@ class TemplateObject:
 
         for key, value in data.items():
             # Ensure key is a valid attribute name
-            clean_key = type(self)._clean_key(key)
+            clean_key = TemplateObject._clean_key(key)
 
             # Convert value if needed
             if isinstance(value, dict) and clean_key not in converted_attrs:
