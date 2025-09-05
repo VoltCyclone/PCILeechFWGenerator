@@ -16,6 +16,9 @@ module pcileech_tlps128_bar_controller #(
     parameter MSIX_PBA_BIR = {{ msix_config.pba_bir | default(0) }},
     parameter MSIX_PBA_OFFSET = {{ msix_config.pba_offset | default('h2000') }},
     
+    // Unmapped region default read value (configurable)
+    parameter DEFAULT_UNMAPPED_VALUE = 32'h00000000,
+    
     // PCILeech Memory Layout
     parameter DEVICE_CTRL_BASE = 32'h00000000,  // Device Control Region
     parameter DEVICE_CTRL_SIZE = 32'h00000100,  // 256 bytes
@@ -672,7 +675,7 @@ module pcileech_tlps128_bar_controller #(
                 REGION_DATA_BUFFER: bar_rd_data = data_buffer_rdata;
                 REGION_MSIX_TABLE:  bar_rd_data = msix_table_data;
                 REGION_MSIX_PBA:    bar_rd_data = msix_pba_data;
-                default:            bar_rd_data = 32'h00000000;
+                default:            bar_rd_data = DEFAULT_UNMAPPED_VALUE;
             endcase
         end
     end
@@ -791,7 +794,7 @@ module pcileech_tlps128_bar_controller #(
             REGION_STATUS_REG:  return status_reg_mem[offset[31:2]];
             REGION_DATA_BUFFER: return data_buffer_mem[offset[31:2]];
             REGION_CUSTOM_PIO:  return custom_region_mem[offset[31:2]];
-            default:            return 32'h00000000;
+            default:            return DEFAULT_UNMAPPED_VALUE;
         endcase
     endfunction
     

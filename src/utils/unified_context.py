@@ -225,6 +225,7 @@ class TemplateObject:
 
         for key, value in data.items():
             # Ensure key is a valid attribute name
+            # Call static method via class for clarity and consistency
             clean_key = TemplateObject._clean_key(key)
 
             # Convert value if needed
