@@ -47,9 +47,10 @@ module pmcsr_stub #(
     localparam int D3HOT_TO_D3COLD_CLKS = (D3HOT_TO_D3COLD_NS > 0) ? (D3HOT_TO_D3COLD_NS * CLK_HZ / 1_000_000_000) : 1;
     localparam int WAKE_PULSE_CLKS      = (WAKE_PULSE_NS      > 0) ? (WAKE_PULSE_NS      * CLK_HZ / 1_000_000_000) : 1;
 
-    typedef logic [$clog2(D3_TO_D0_CLKS > D0_TO_D3_CLKS ?
-                          (D3_TO_D0_CLKS > D3HOT_TO_D3COLD_CLKS ? D3_TO_D0_CLKS : D3HOT_TO_D3COLD_CLKS) :
-                          (D0_TO_D3_CLKS > D3HOT_TO_D3COLD_CLKS ? D0_TO_D3_CLKS : D3HOT_TO_D3COLD_CLKS)) - 1:0] t_tr_cnt;
+    localparam int MAX_TR_CLKS = (D3_TO_D0_CLKS > D0_TO_D3_CLKS) ?
+                                    ((D3_TO_D0_CLKS > D3HOT_TO_D3COLD_CLKS) ? D3_TO_D0_CLKS : D3HOT_TO_D3COLD_CLKS) :
+                                    ((D0_TO_D3_CLKS > D3HOT_TO_D3COLD_CLKS) ? D0_TO_D3_CLKS : D3HOT_TO_D3COLD_CLKS);
+    typedef logic [$clog2(MAX_TR_CLKS)-1:0] t_tr_cnt;
     t_tr_cnt tr_cnt;
     t_tr_cnt wake_cnt;
     logic    wake_pulse_active;
