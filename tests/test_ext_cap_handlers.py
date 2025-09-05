@@ -119,7 +119,6 @@ def test_ltr_handler_respects_overrides_and_preserves_by_default():
     _write_dword(hex_list, 0x120 + 0x08, 0x00000000)
     cfg = ConfigSpace("".join(hex_list))
 
-    proc = CapabilityProcessor(cfg, RuleEngine())
 
     # By default (no overrides), no patch should be created -> value unchanged
     assert cfg.read_dword(0x120 + 0x08) == 0x00000000
