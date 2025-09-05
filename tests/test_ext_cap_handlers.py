@@ -122,7 +122,6 @@ def test_ltr_handler_respects_overrides_and_preserves_by_default():
     proc = CapabilityProcessor(cfg, RuleEngine())
 
     # By default (no overrides), no patch should be created -> value unchanged
-    res = proc.process_capabilities([PruningAction.MODIFY])
     assert cfg.read_dword(0x120 + 0x08) == 0x00000000
 
     # Now force overrides via device context
