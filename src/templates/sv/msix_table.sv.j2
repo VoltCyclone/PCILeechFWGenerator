@@ -113,9 +113,7 @@ module msix_table #(
                 if (is_table_access) begin
                     // Write to MSI-X table STAGING memory with byte enables
                     // Track DWORD-valid bits per entry for atomic commit
-                    int entry_index;
-                    int dword_index;
-                    entry_index = (table_addr >> 2);
+                    entry_index = (table_addr >> 4);
                     dword_index = table_addr[1:0];
 {% if msix_config.use_byte_enables | default(true) %}
                     if (bar_wr_be[0]) msix_table_staging[table_addr][7:0]   <= bar_wr_data[7:0];
