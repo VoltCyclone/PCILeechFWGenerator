@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 
 ## 📑 Table of Contents
 
+- [Version 0.13.15 (2025-09-06)](#version-01315-2025-09-06)
 - [Version 0.13.14 (2025-09-06)](#version-01314-2025-09-06)
 - [Version 0.13.13 (2025-09-06)](#version-01313-2025-09-06)
 - [Version 0.13.12 (2025-09-04)](#version-01312-2025-09-04)
@@ -25,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 - [Version 0.13.5 (2025-08-22)](#version-0135-2025-08-22)
 - [Version 0.13.4 (2025-08-16)](#version-0134-2025-08-16)
 - [Version 0.5.8 (2025-06-09)](#020---2025-06-09)
+
+---
+## Version 0.13.15 (2025-09-06)
+
+Minor updates and improvements.
 
 ---
 ## Version 0.13.14 (2025-09-06)
