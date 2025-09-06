@@ -188,12 +188,12 @@ class BarContentGenerator:
         byte_counts = [0] * 256
         for byte in data:
             byte_counts[byte] += 1
-            entropy = 0.0
-            total = len(data)
-            for count in byte_counts:
-                if count > 0:
-                    prob = count / total
-                    entropy -= prob * math.log2(prob)
+        entropy = 0.0
+        total = len(data)
+        for count in byte_counts:
+            if count > 0:
+                prob = count / total
+                entropy -= prob * math.log2(prob)
         unique_bytes = len(set(data))
         uniqueness = unique_bytes / 256.0
         return {
