@@ -10,9 +10,11 @@ from typing import Any, Dict
 
 import pytest
 
-from src.device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                 PCILeechGenerationError,
-                                                 PCILeechGenerator)
+from src.device_clone.pcileech_generator import (
+    PCILeechGenerationConfig,
+    PCILeechGenerationError,
+    PCILeechGenerator,
+)
 
 
 class DummyConfigSpaceManager:
@@ -136,6 +138,12 @@ def make_generator(bars, msix_cap) -> PCILeechGenerator:
             "vendor_id": "1234",
             "device_id": "5678",
             "config_space_data": config_space_data,
+            # Minimal additions required by enforced TCL templates.
+            # Tests focus on MSI-X/BAR validation; provide stable FPGA metadata
+            # so template rendering doesn't fail on unrelated missing keys.
+            "fpga_family": "7series",
+            "fpga_part": "xc7a35t-csg324-1",
+            "board_name": "test_board",
         }
 
     gen._build_template_context = _build_template_context

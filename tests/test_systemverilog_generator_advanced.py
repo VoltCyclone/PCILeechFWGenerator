@@ -26,9 +26,11 @@ from test_helpers import requires_hardware
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
-from src.templating.advanced_sv_features import (ErrorHandlingConfig,
-                                                 PerformanceConfig,
-                                                 PowerManagementConfig)
+from src.templating.advanced_sv_features import (
+    ErrorHandlingConfig,
+    PerformanceConfig,
+    PowerManagementConfig,
+)
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 from src.templating.template_renderer import TemplateRenderError
 
@@ -363,6 +365,12 @@ class TestVFIOErrorHandlingAdvanced:
 
             with pytest.raises(TemplateRenderError, match="VFIO device access failed"):
                 base_generator.generate_pcileech_integration_code(mock_vfio_context)
+
+    def test_vfio_integration_success_with_verified_flag(self, base_generator):
+        """Integration code should succeed when vfio_binding_verified flag present (no direct vfio_device)."""
+        context = {"vfio_binding_verified": True}
+        result = base_generator.generate_pcileech_integration_code(context)
+        assert "PCILeech integration code" in result
 
     @pytest.mark.parametrize(
         "context",
