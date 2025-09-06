@@ -288,15 +288,27 @@ FFFFFFFF,
 ; Uncorrectable Error Status (latched events)
 00000000,
 ; Uncorrectable Error Mask
-{{ "%08X" % aer.uncorrectable_error_mask }},
+{% if aer is not defined or not aer %}
+; Warning: AER context missing - zeroing uncorrectable error mask
+{% endif %}
+{{ "%08X" % ((aer.uncorrectable_error_mask if (aer is defined and aer and (aer.uncorrectable_error_mask is defined)) else 0) | safe_int(0)) }},
 ; Uncorrectable Error Severity
-{{ "%08X" % aer.uncorrectable_error_severity }},
+{% if aer is not defined or not aer %}
+; Warning: AER context missing - zeroing uncorrectable error severity
+{% endif %}
+{{ "%08X" % ((aer.uncorrectable_error_severity if (aer is defined and aer and (aer.uncorrectable_error_severity is defined)) else 0) | safe_int(0)) }},
 ; Correctable Error Status (latched events)
 00000000,
 ; Correctable Error Mask
-{{ "%08X" % aer.correctable_error_mask }},
+{% if aer is not defined or not aer %}
+; Warning: AER context missing - zeroing correctable error mask
+{% endif %}
+{{ "%08X" % ((aer.correctable_error_mask if (aer is defined and aer and (aer.correctable_error_mask is defined)) else 0) | safe_int(0)) }},
 ; Advanced Error Capabilities and Control
-{{ "%08X" % aer.advanced_error_capabilities }},
+{% if aer is not defined or not aer %}
+; Warning: AER context missing - zeroing advanced error capabilities
+{% endif %}
+{{ "%08X" % ((aer.advanced_error_capabilities if (aer is defined and aer and (aer.advanced_error_capabilities is defined)) else 0) | safe_int(0)) }},
 ; Header Log (4 DWORDs)
 00000000,
 00000000,
