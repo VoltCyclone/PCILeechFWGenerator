@@ -204,6 +204,10 @@ class BarContentGenerator:
         }
 
 
-def create_bar_generator(device_id: Optional[str] = None) -> BarContentGenerator:
-    """Factory function to create a BAR content generator"""
-    return BarContentGenerator(device_id)
+def create_bar_generator(device_signature: Optional[str] = None) -> BarContentGenerator:
+    """Factory function to create a BAR content generator
+
+    Args:
+        device_signature: Unique identifier for this device instance.
+    """
+    return BarContentGenerator(device_signature)
