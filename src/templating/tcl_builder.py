@@ -27,6 +27,7 @@ from src.string_utils import (
     log_error_safe,
     log_debug_safe,
     generate_tcl_header_comment,
+    get_project_name,
 )
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
@@ -102,7 +103,7 @@ class BuildContext:
     class_code: Optional[int] = None
     subsys_vendor_id: Optional[int] = None
     subsys_device_id: Optional[int] = None
-    project_name: str = "pcileech_firmware"
+    project_name: str = get_project_name()
     project_dir: str = "./vivado_project"
     output_dir: str = "."
     synthesis_strategy: str = "Vivado Synthesis Defaults"
@@ -482,7 +483,7 @@ class TCLBuilder:
     # Class constants
     DEFAULT_BUILD_JOBS = 4
     DEFAULT_BUILD_TIMEOUT = 3600
-    DEFAULT_PROJECT_NAME = "pcileech_firmware"
+    DEFAULT_PROJECT_NAME = get_project_name()
     DEFAULT_PROJECT_DIR = "./vivado_project"
 
     def __init__(

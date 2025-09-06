@@ -1225,8 +1225,9 @@ set_property IOSTANDARD LVCMOS33 [get_ports sys_clk]
             return self._generate_default_tcl_scripts(template_context)
 
     def _generate_default_tcl_scripts(self, context: Dict[str, Any]) -> Dict[str, str]:
-        """Generate default TCL scripts as fallback."""
-        project_name = context.get("project_name", "pcileech_fw")
+        from src.string_utils import get_project_name
+
+        project_name = context.get("project_name", get_project_name())
         fpga_part = context.get("fpga_part", "xc7a35t-csg324-1")
 
         build_script = f"""# PCILeech Build Script

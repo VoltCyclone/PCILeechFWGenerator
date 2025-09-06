@@ -22,6 +22,7 @@ from ..string_utils import (
     log_warning_safe,
     safe_format,
     safe_print_format,
+    get_project_name,
 )
 from ..__version__ import __version__
 
@@ -505,7 +506,7 @@ class FileManager:
     ) -> Dict[str, Any]:
         """Generate project configuration file."""
         return {
-            "project_name": "pcileech_firmware",
+            "project_name": get_project_name(),
             "board": board,
             "device_info": device_info,
             "build_timestamp": time.time(),

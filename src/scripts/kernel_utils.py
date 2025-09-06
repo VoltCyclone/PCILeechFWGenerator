@@ -16,10 +16,15 @@ Expected kernel layout:
 """
 
 import os
+
 import pathlib
+
 import platform
+
 import subprocess
+
 import tarfile
+
 from typing import Any, Dict, List, Optional, Union
 
 # Project logging & safe string formatting utilities (mandatory per repo style)
@@ -389,118 +394,4 @@ def find_driver_sources(
 # ---------------------------------------------------------------------------
 
 
-def enrich_context_with_driver(
-    context: Union[Dict[str, Any], TemplateObject],
-    vendor_id: str,
-    device_id: str,
-    *,
-    ensure_sources: bool = False,
-    max_sources: int = 40,
-) -> Union[Dict[str, Any], TemplateObject]:
-    """Attach kernel driver metadata to an existing build context.
-
-    Adds a `kernel_driver` section with:
-        module: resolved module name (if found)
-        vendor_id / device_id
-        source_count
-        source_files (truncated list)
-        sources_truncated (bool)
-
-    Behavior:
-        - Fails softly: logs warnings instead of raising unless Linux check fails.
-        - Does not hardcode IDs; requires caller to pass vendor/device IDs.
-    """
-
-    # Normalize access to underlying dict for TemplateObject
-
-    def _set(obj: Union[Dict[str, Any], TemplateObject], key: str, value: Any) -> None:
-        if isinstance(obj, TemplateObject):
-            setattr(obj, key, value if isinstance(value, TemplateObject) else value)
-        else:
-            obj[key] = value
-
-    if not vendor_id or not device_id:
-        log_error_safe(
-            logger,
-            safe_format(
-                (
-                    "Cannot enrich context with kernel driver metadata: "
-                    "missing IDs (vendor_id={vid}, device_id={did})"
-                ),
-                vid=vendor_id,
-                did=device_id,
-            ),
-            prefix="KERNEL",
-        )
-        return context
-
-    if not is_linux():  # Soft skip on non-Linux platforms
-        log_warning_safe(
-            logger,
-            safe_format(
-                "Skipping kernel driver enrichment; non-Linux platform {plat}",
-                plat=platform.system(),
-            ),
-            prefix="KERNEL",
-        )
-        return context
-
-    module_name: Optional[str] = None
-    source_files: List[str] = []
-    truncated = False
-
-    try:
-        module_name = resolve_driver_module(vendor_id, device_id)
-        log_info_safe(
-            logger,
-            safe_format(
-                "Resolved driver module {mod} for {vid}:{did}",
-                mod=module_name,
-                vid=vendor_id,
-                did=device_id,
-            ),
-            prefix="KERNEL",
-        )
-
-        if ensure_sources:
-            ksrc = ensure_kernel_source()
-            if ksrc and module_name:
-                try:
-                    paths = find_driver_sources(ksrc, module_name)
-                    if len(paths) > max_sources:
-                        truncated = True
-                        paths = paths[:max_sources]
-                    source_files = [str(p) for p in paths]
-                except Exception as e:  # pragma: no cover (defensive)
-                    log_warning_safe(
-                        logger,
-                        safe_format(
-                            "Failed to locate driver sources for {mod}: {e}",
-                            mod=module_name,
-                            e=e,
-                        ),
-                        prefix="KERNEL",
-                    )
-    except Exception as e:
-        log_warning_safe(
-            logger,
-            safe_format(
-                "Driver module resolution failed for {vid}:{did}: {e}",
-                vid=vendor_id,
-                did=device_id,
-                e=e,
-            ),
-            prefix="KERNEL",
-        )
-
-    data: Dict[str, Any] = {
-        "vendor_id": vendor_id,
-        "device_id": device_id,
-        "module": module_name,
-        "source_count": len(source_files),
-        "source_files": source_files,
-        "sources_truncated": truncated,
-    }
-
-    _set(context, "kernel_driver", TemplateObject(data))
-    return context
+from src.utils.context_driver_enrichment import enrich_context_with_driver

@@ -555,13 +555,12 @@ class UnifiedContextBuilder:
         *,
         strict_identity: bool = False,
     ):
-        """Initialize the unified context builder.
+        """Initialize the context builder.
 
         Args:
-            logger: Logger instance
-            strict_identity: When True, fail fast on missing donor identity fields
+            logger: Optional logger instance
+            strict_identity: If True, require all device identifiers to be provided
                              and avoid static defaults for critical identifiers
-                             (subsystem IDs, class_code, revision_id, ROM_SIZE).
         """
         self.logger = logger or logging.getLogger(__name__)
         self.config = ContextBuilderConfig()
@@ -1495,9 +1494,8 @@ class UnifiedContextBuilder:
         # This will add a 'kernel_driver' section to the context,
         # even if empty or partial.
         try:
-            # Local import to avoid circular dependency
-            # (kernel_utils imports this module)
-            from src.scripts.kernel_utils import enrich_context_with_driver
+            # Import from shared driver enrichment module to avoid cyclic dependency
+            from src.utils.context_driver_enrichment import enrich_context_with_driver
 
             enrich_context_with_driver(
                 template_context,

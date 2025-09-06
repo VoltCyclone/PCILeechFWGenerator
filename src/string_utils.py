@@ -8,11 +8,23 @@ cause syntax errors when split across lines.
 """
 
 import logging
+
 import os
 
 from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional
+
+from src.device_clone.constants import VIVADO_PROJECT_NAME
+
+
+def get_project_name() -> str:
+    """
+    Return the canonical project name for Vivado/PCILeech builds.
+    Always use this function or VIVADO_PROJECT_NAME for project naming.
+    """
+    return VIVADO_PROJECT_NAME
+
 
 # Short constants to keep lines within linter limits while reusing the same banner
 # Note: dynamic borders are constructed in helpers to satisfy line-length rules.
