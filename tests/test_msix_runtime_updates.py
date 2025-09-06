@@ -6,13 +6,12 @@ SystemVerilog generation includes the capability register module wiring (by
 string inspection of rendered template output). Keeps tests lightweight and
 independent of hardware access.
 """
-import pytest
+from pathlib import Path
 from unittest.mock import Mock
 
-from src.device_clone.pcileech_context import (
-    PCILeechContextBuilder,
-)
-from pathlib import Path
+import pytest
+
+from src.device_clone.pcileech_context import PCILeechContextBuilder
 
 
 @pytest.fixture

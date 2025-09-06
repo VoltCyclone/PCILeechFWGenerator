@@ -1,8 +1,7 @@
-import logging
-from typing import Optional
-
 import fcntl as _fcntl
+import logging
 import mmap as _mmap
+from typing import Optional
 
 import pytest
 

@@ -10,7 +10,8 @@ from typing import Dict, Final, List, Optional, Union
 
 # Import the VendorID enum for use in fallback functions
 try:
-    from src.pci_capability.dynamic_functions import VendorID as ExternalVendorID
+    from src.pci_capability.dynamic_functions import \
+        VendorID as ExternalVendorID
 
     # Use the external VendorID enum values
     VENDOR_ID_INTEL = ExternalVendorID.INTEL

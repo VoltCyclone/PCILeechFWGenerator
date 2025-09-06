@@ -5,12 +5,11 @@ This module provides a single source of truth for all generation metadata,
 ensuring consistency across the codebase.
 """
 
-from datetime import datetime
 import os
-
-from src.string_utils import utc_timestamp
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from src.string_utils import utc_timestamp
 
 # Internal package version resolution to avoid cyclic imports
 

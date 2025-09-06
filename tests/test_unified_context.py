@@ -16,14 +16,11 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.utils.unified_context import (
-    TemplateObject,
-    UnifiedContextBuilder,
-    UnifiedDeviceConfig,
-    convert_to_template_object,
-    ensure_template_compatibility,
-    get_package_version,
-)
+from src.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
+                                       UnifiedDeviceConfig,
+                                       convert_to_template_object,
+                                       ensure_template_compatibility,
+                                       get_package_version)
 
 
 class TestGetPackageVersion:

@@ -12,15 +12,13 @@ import pytest
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.templating.sv_constants import SV_VALIDATION
-from src.templating.systemverilog_generator import (
-    AdvancedSVGenerator,
-    DeviceSpecificLogic,
-    ErrorHandlingConfig,
-    PerformanceConfig,
-    PowerManagementConfig,
-    SystemVerilogGenerator,
-    TemplateRenderError,
-)
+from src.templating.systemverilog_generator import (AdvancedSVGenerator,
+                                                    DeviceSpecificLogic,
+                                                    ErrorHandlingConfig,
+                                                    PerformanceConfig,
+                                                    PowerManagementConfig,
+                                                    SystemVerilogGenerator,
+                                                    TemplateRenderError)
 
 
 class TestSystemVerilogGenerator:

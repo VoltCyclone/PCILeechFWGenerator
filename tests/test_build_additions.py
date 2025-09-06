@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.build import FirmwareBuilder, BuildConfiguration
+from src.build import BuildConfiguration, FirmwareBuilder
 
 
 def make_builder(monkeypatch, tmp_path: Path) -> FirmwareBuilder:

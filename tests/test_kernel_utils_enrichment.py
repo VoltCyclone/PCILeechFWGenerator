@@ -5,15 +5,14 @@ environment or kernel sources. Platform-specific branches are simulated
 by monkeypatching where needed. We avoid invoking real system commands.
 """
 
-from typing import Dict, Any
-from unittest.mock import patch, MagicMock
+from typing import Any, Dict
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.utils.unified_context import UnifiedContextBuilder, TemplateObject
-
 # Import the helper directly
 from src.scripts import kernel_utils
+from src.utils.unified_context import TemplateObject, UnifiedContextBuilder
 
 
 def _make_base_context(vendor: str = "8086", device: str = "1234") -> TemplateObject:

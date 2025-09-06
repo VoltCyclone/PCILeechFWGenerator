@@ -11,12 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Import project logging and string utilities
 from src.log_config import get_logger
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe)
 
 # Import PCI capability infrastructure for extended capabilities support
 try:
@@ -42,9 +38,7 @@ except ImportError:
     try:
         from templating.template_renderer import TemplateRenderer
     except ImportError:
-        from src.templating.template_renderer import (
-            TemplateRenderer,
-        )
+        from src.templating.template_renderer import TemplateRenderer
 
 # Import BAR size constants
 try:
@@ -548,7 +542,8 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
             if bar_value != 0:
 
                 try:
-                    from src.device_clone.bar_size_converter import BarSizeConverter
+                    from src.device_clone.bar_size_converter import \
+                        BarSizeConverter
 
                     size = 0  # Skip BarSizeConverter for config space parsing
                 except ImportError:

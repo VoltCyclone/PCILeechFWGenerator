@@ -697,7 +697,8 @@ class DonorDumpManager:
         logger.info(f"Generating synthetic donor information for {device_type} device")
 
         # Import vendor ID constants
-        from src.device_clone.constants import VENDOR_ID_INTEL, get_fallback_vendor_id
+        from src.device_clone.constants import (VENDOR_ID_INTEL,
+                                                get_fallback_vendor_id)
 
         # Convert to hex string format
         intel_vid_str = f"0x{VENDOR_ID_INTEL:04x}"
@@ -860,7 +861,8 @@ class DonorDumpManager:
                 # Optional standardized header (off by default for test parity)
                 if include_header:
                     try:
-                        from src.string_utils import generate_hex_header_comment
+                        from src.string_utils import \
+                            generate_hex_header_comment
 
                         header = generate_hex_header_comment(
                             title=(

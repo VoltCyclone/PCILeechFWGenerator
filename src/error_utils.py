@@ -8,10 +8,9 @@ to provide actionable feedback to users.
 """
 
 import logging
+import re
 import sys
 import traceback
-import re
-
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 

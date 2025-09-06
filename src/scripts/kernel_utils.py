@@ -16,28 +16,18 @@ Expected kernel layout:
 """
 
 import os
-
 import pathlib
-
 import platform
-
 import subprocess
-
 import tarfile
-
 from typing import Any, Dict, List, Optional, Union
 
-# Project logging & safe string formatting utilities (mandatory per repo style)
-from string_utils import (
-    safe_format,
-    log_info_safe,
-    log_warning_safe,
-    log_error_safe,
-    log_debug_safe,
-)
 from src.log_config import get_logger
-
-from src.utils.unified_context import TemplateObject  # For context compatibility
+from src.utils.unified_context import \
+    TemplateObject  # For context compatibility
+# Project logging & safe string formatting utilities (mandatory per repo style)
+from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                          log_warning_safe, safe_format)
 
 logger = get_logger(__name__)
 

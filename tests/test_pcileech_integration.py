@@ -7,20 +7,17 @@ and template loading from the cloned repository.
 import shutil
 import tempfile
 import unittest
-
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.file_management.board_discovery import (
-    BoardDiscovery,
-    discover_all_boards,
-)
+import pytest
+
+from src.file_management.board_discovery import (BoardDiscovery,
+                                                 discover_all_boards)
 from src.file_management.repo_manager import RepoManager
 from src.file_management.template_discovery import TemplateDiscovery
-from src.vivado_handling.pcileech_build_integration import (
-    PCILeechBuildIntegration,
-)
+from src.vivado_handling.pcileech_build_integration import \
+    PCILeechBuildIntegration
 
 
 @pytest.mark.hardware  # Requires external repo; skip in CI unit runs.
@@ -339,11 +336,9 @@ class TestBoardConfigIntegration(unittest.TestCase):
 
     def test_board_config_dynamic_loading(self):
         """Test that board configurations are loaded dynamically."""
-        from src.device_clone.board_config import (
-            get_fpga_part,
-            list_supported_boards,
-            validate_board,
-        )
+        from src.device_clone.board_config import (get_fpga_part,
+                                                   list_supported_boards,
+                                                   validate_board)
 
         # Get supported boards
         boards = list_supported_boards()
@@ -363,7 +358,8 @@ class TestBoardConfigIntegration(unittest.TestCase):
 
     def test_board_recommendations(self):
         """Test board recommendation system."""
-        from src.device_clone.board_config import list_boards_with_recommendations
+        from src.device_clone.board_config import \
+            list_boards_with_recommendations
 
         recommendations = list_boards_with_recommendations()
         self.assertIsInstance(recommendations, list)

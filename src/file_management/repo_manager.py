@@ -20,13 +20,8 @@ from typing import List, Optional
 
 # Import project logging and string utilities
 from ..log_config import get_logger
-from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    utc_timestamp,
-)
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe, utc_timestamp)
 
 ###############################################################################
 # Configuration constants - override with environment vars if desired.

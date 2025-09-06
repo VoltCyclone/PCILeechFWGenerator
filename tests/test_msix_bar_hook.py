@@ -10,11 +10,9 @@ from typing import Any, Dict
 
 import pytest
 
-from src.device_clone.pcileech_generator import (
-    PCILeechGenerationConfig,
-    PCILeechGenerator,
-    PCILeechGenerationError,
-)
+from src.device_clone.pcileech_generator import (PCILeechGenerationConfig,
+                                                 PCILeechGenerationError,
+                                                 PCILeechGenerator)
 
 
 class DummyConfigSpaceManager:

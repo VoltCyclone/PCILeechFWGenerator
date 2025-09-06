@@ -1,8 +1,9 @@
 import os
 import sys
+
 import pytest
 
-from src.build import MSIXManager, MSIXData, BuildConfiguration
+from src.build import BuildConfiguration, MSIXData, MSIXManager
 
 
 def _in_container() -> bool:
@@ -103,6 +104,7 @@ def test_msix_json_ingestion_via_env(tmp_path, monkeypatch):
 
 
 import os
+
 import pytest
 
 from src.build import MSIXManager

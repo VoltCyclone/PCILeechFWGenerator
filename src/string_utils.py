@@ -8,11 +8,8 @@ cause syntax errors when split across lines.
 """
 
 import logging
-
 import os
-
 from datetime import datetime, timezone
-
 from typing import Any, Dict, List, Optional
 
 from src.device_clone.constants import VIVADO_PROJECT_NAME

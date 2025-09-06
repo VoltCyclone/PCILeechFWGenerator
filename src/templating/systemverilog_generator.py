@@ -17,26 +17,15 @@ from src.__version__ import __version__
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
 from src.error_utils import format_user_friendly_error
-from src.string_utils import (
-    generate_sv_header_comment,
-    log_error_safe,
-    log_info_safe,
-    utc_timestamp,
-)
+from src.string_utils import (generate_sv_header_comment, log_error_safe,
+                              log_info_safe, utc_timestamp)
 
-from ..utils.unified_context import (
-    DEFAULT_TIMING_CONFIG,
-    MSIX_DEFAULT,
-    PCILEECH_DEFAULT,
-    TemplateObject,
-    UnifiedContextBuilder,
-    normalize_config_to_dict,
-)
-from .advanced_sv_features import (
-    AdvancedSVFeatureGenerator,
-    ErrorHandlingConfig,
-    PerformanceConfig,
-)
+from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
+                                     PCILEECH_DEFAULT, TemplateObject,
+                                     UnifiedContextBuilder,
+                                     normalize_config_to_dict)
+from .advanced_sv_features import (AdvancedSVFeatureGenerator,
+                                   ErrorHandlingConfig, PerformanceConfig)
 from .advanced_sv_power import PowerManagementConfig
 from .sv_constants import SVConstants, SVTemplates, SVValidation
 from .sv_context_builder import SVContextBuilder
@@ -577,7 +566,6 @@ class SystemVerilogGenerator:
             # Defer importing VFIO helpers and perform device FD acquisition first so
             # unit tests that patch get_device_fd can intercept and return mock FDs.
             import mmap
-
             # Local os import kept near usage
             import os
 

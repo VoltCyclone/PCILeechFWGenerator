@@ -16,18 +16,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import psutil
 
-from string_utils import (
-    safe_format,
-    log_info_safe,
-    log_warning_safe,
-    log_error_safe,
-)
-
-from src.error_utils import (
-    extract_root_cause,
-    format_user_friendly_error,
-    log_error_with_root_cause,
-)
+from src.error_utils import (extract_root_cause, format_user_friendly_error,
+                             log_error_with_root_cause)
+from string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                          safe_format)
 
 from ..models.config import BuildConfiguration
 from ..models.device import PCIDevice
@@ -845,7 +837,6 @@ class BuildOrchestrator:
         """
         try:
             import sys
-
             from pathlib import Path
 
             # Add project root to path
@@ -856,7 +847,6 @@ class BuildOrchestrator:
             # Import the module
             # Return the module
             import file_management.donor_dump_manager as donor_dump_manager
-
             from file_management.donor_dump_manager import DonorDumpManager
 
             return donor_dump_manager
@@ -1345,7 +1335,6 @@ class BuildOrchestrator:
         """
         # Import behavior profiler
         import sys
-
         from pathlib import Path
 
         sys.path.append(str(Path(__file__).parent.parent.parent))

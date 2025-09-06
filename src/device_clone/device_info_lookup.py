@@ -14,14 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Import DeviceConfiguration first to avoid cyclic import
-from src.device_clone.device_config import DeviceConfiguration, DeviceIdentification
+from src.device_clone.device_config import (DeviceConfiguration,
+                                            DeviceIdentification)
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe)
 
 # Import config_space_manager dynamically when needed to avoid circular dependencies
 logger = logging.getLogger(__name__)
@@ -91,7 +88,8 @@ class DeviceInfoLookup:
             )
 
             # Dynamically import ConfigSpaceManager to avoid circular dependency
-            from src.device_clone.config_space_manager import ConfigSpaceManager
+            from src.device_clone.config_space_manager import \
+                ConfigSpaceManager
 
             manager = ConfigSpaceManager(self.bdf)
             try:

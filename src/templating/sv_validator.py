@@ -5,29 +5,17 @@ subsystem IDs, class code, revision, and donor artifacts (VPD/Option ROM).
 """
 
 import hashlib
-
 import logging
-
 from typing import Any, Dict, List, Optional, Union
 
 from src.device_clone.device_config import DeviceClass, DeviceType
-
-from src.string_utils import (
-    log_error_safe,
-    log_warning_safe,
-    log_info_safe,
-    safe_format,
-)
-
-from src.utils.context_error_messages import (
-    VPD_REQUIRED_MISSING,
-    OPTION_ROM_MISSING_SIZE,
-    ROM_SIZE_MISMATCH,
-)
-
+from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                              safe_format)
+from src.utils.context_error_messages import (OPTION_ROM_MISSING_SIZE,
+                                              ROM_SIZE_MISMATCH,
+                                              VPD_REQUIRED_MISSING)
 
 from .sv_constants import SV_CONSTANTS, SV_VALIDATION
-
 from .template_renderer import TemplateRenderError
 
 

@@ -10,44 +10,25 @@ import builtins
 import logging
 import math
 import sys
-
 from pathlib import Path
-
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 from src.__version__ import __version__
+from src.string_utils import (generate_tcl_header_comment, log_debug_safe,
+                              log_error_safe, log_info_safe, log_warning_safe,
+                              safe_format)
 from src.templates.template_mapping import update_template_path
 from src.utils.unified_context import ensure_template_compatibility
-
-
-from src.string_utils import (
-    generate_tcl_header_comment,
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
 
 from .sv_constants import SV_CONSTANTS
 
 __import__ = builtins.__import__
 
 try:
-    from jinja2 import (
-        BaseLoader,
-        Environment,
-        FileSystemLoader,
-        StrictUndefined,
-        Template,
-        TemplateError,
-        TemplateNotFound,
-        TemplateRuntimeError,
-        Undefined,
-        meta,
-        nodes,
-    )
-
+    from jinja2 import (BaseLoader, Environment, FileSystemLoader,
+                        StrictUndefined, Template, TemplateError,
+                        TemplateNotFound, TemplateRuntimeError, Undefined,
+                        meta, nodes)
     from jinja2.bccache import FileSystemBytecodeCache
     from jinja2.ext import Extension
     from jinja2.sandbox import SandboxedEnvironment
@@ -743,9 +724,8 @@ class TemplateRenderer:
 
         try:
             # Use the centralized validator
-            from src.templating.template_context_validator import (
-                validate_template_context,
-            )
+            from src.templating.template_context_validator import \
+                validate_template_context
 
             # Apply centralized validation with strict mode
             validated_context = validate_template_context(
@@ -795,9 +775,8 @@ class TemplateRenderer:
 
         # Clear template context validator cache
         try:
-            from src.templating.template_context_validator import (
-                clear_global_template_cache,
-            )
+            from src.templating.template_context_validator import \
+                clear_global_template_cache
 
             clear_global_template_cache()
         except ImportError:

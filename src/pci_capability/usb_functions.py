@@ -17,8 +17,8 @@ from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
                             log_warning_safe, safe_format)
 from .base_function_analyzer import (BaseFunctionAnalyzer,
                                      create_function_capabilities)
-from .constants import (AMD_EHCI_PATTERNS,  # USB Function Analyzer Constants
-                        AMD_XHCI_PATTERNS, CLASS_CODES, INTEL_EHCI_PATTERNS,
+from .constants import AMD_EHCI_PATTERNS  # USB Function Analyzer Constants
+from .constants import (AMD_XHCI_PATTERNS, CLASS_CODES, INTEL_EHCI_PATTERNS,
                         INTEL_UHCI_PATTERNS, INTEL_XHCI_PATTERNS,
                         NEC_XHCI_PATTERNS, USB_AUX_CURRENT_OTHER,
                         USB_AUX_CURRENT_XHCI_USB4, USB_BAR_SIZE_EHCI_BASE,

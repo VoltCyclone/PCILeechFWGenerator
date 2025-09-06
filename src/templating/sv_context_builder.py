@@ -5,13 +5,9 @@ from typing import Any, Dict, List, Optional, Union
 
 from src.string_utils import log_error_safe, log_warning_safe
 
-from ..utils.unified_context import (
-    DEFAULT_TIMING_CONFIG,
-    MSIX_DEFAULT,
-    PCILEECH_DEFAULT,
-    TemplateObject,
-    normalize_config_to_dict,
-)
+from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
+                                     PCILEECH_DEFAULT, TemplateObject,
+                                     normalize_config_to_dict)
 from .sv_constants import SV_CONSTANTS
 from .template_renderer import TemplateRenderError
 
@@ -190,8 +186,9 @@ class SVContextBuilder:
         device_id = device_config.get("device_id")
 
         if not vendor_id or not device_id:
-            from src.string_utils import log_error_safe, safe_format
             import logging
+
+            from src.string_utils import log_error_safe, safe_format
 
             logger = logging.getLogger(__name__)
             log_error_safe(

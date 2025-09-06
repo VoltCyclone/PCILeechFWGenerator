@@ -7,8 +7,8 @@ with attributes. This eliminates repetitive isinstance/hasattr checks throughout
 the codebase.
 """
 
-from typing import Any, Optional, TypeVar, Union, cast
 import collections.abc
+from typing import Any, Optional, TypeVar, Union, cast
 
 T = TypeVar("T")
 

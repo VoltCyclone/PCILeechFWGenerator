@@ -14,17 +14,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ..device_clone.constants import PCILEECH_BUILD_SCRIPT, PCILEECH_PROJECT_SCRIPT
-from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-    safe_print_format,
-    get_project_name,
-)
 from ..__version__ import __version__
+from ..device_clone.constants import (PCILEECH_BUILD_SCRIPT,
+                                      PCILEECH_PROJECT_SCRIPT)
+from ..string_utils import (get_project_name, log_debug_safe, log_error_safe,
+                            log_info_safe, log_warning_safe, safe_format,
+                            safe_print_format)
 
 logger = logging.getLogger(__name__)
 

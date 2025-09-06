@@ -16,12 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from src.string_utils import (
-        log_debug_safe,
-        log_error_safe,
-        log_info_safe,
-        log_warning_safe,
-    )
+    from src.string_utils import (log_debug_safe, log_error_safe,
+                                  log_info_safe, log_warning_safe)
 except ImportError:
     # Fallback for when string_utils is not available
     def log_info_safe(logger, template, **kwargs):
@@ -39,7 +35,8 @@ except ImportError:
 
 # Import device configuration system
 try:
-    from src.device_clone.device_config import DeviceConfiguration, get_device_config
+    from src.device_clone.device_config import (DeviceConfiguration,
+                                                get_device_config)
 except ImportError:
     # Fallback if device config is not available
     DeviceConfiguration = None
@@ -1108,7 +1105,8 @@ class ConfigSpaceManager:
                 )
                 bar_info.size = size_found
                 # Generate proper encoding for the size
-                from src.device_clone.bar_size_converter import BarSizeConverter
+                from src.device_clone.bar_size_converter import \
+                    BarSizeConverter
 
                 try:
                     bar_info.size_encoding = BarSizeConverter.size_to_encoding(

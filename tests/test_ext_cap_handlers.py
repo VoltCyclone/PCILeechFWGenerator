@@ -6,27 +6,23 @@ Each test builds a minimal extended capability chain and verifies that
 CapabilityProcessor generates and applies the expected patches.
 """
 
-from typing import List, Tuple
 import sys
 from pathlib import Path
+from typing import List, Tuple
 
 import pytest
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.pci_capability.constants import (AER_CAPABILITY_VALUES,
+                                          EXT_CAP_ID_AER, EXT_CAP_ID_ARI,
+                                          EXT_CAP_ID_LTR, EXT_CAP_ID_PTM,
+                                          EXT_CAP_ID_SRIOV)
 from src.pci_capability.core import ConfigSpace
 from src.pci_capability.processor import CapabilityProcessor
 from src.pci_capability.rules import RuleEngine
-from src.pci_capability.types import PruningAction, PCIExtCapabilityID
-from src.pci_capability.constants import (
-    EXT_CAP_ID_AER,
-    EXT_CAP_ID_LTR,
-    EXT_CAP_ID_SRIOV,
-    EXT_CAP_ID_ARI,
-    EXT_CAP_ID_PTM,
-    AER_CAPABILITY_VALUES,
-)
+from src.pci_capability.types import PCIExtCapabilityID, PruningAction
 
 
 def _write_bytes(hex_list: List[str], offset: int, value_bytes: bytes) -> None:

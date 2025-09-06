@@ -19,16 +19,10 @@ from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
-from src.cli.vfio_handler import (
-    BindingState,
-    DeviceInfo,
-    VFIOBinder,
-    VFIOBinderImpl,
-    VFIOBindError,
-    VFIOGroupError,
-    VFIOPermissionError,
-    _get_iommu_group,
-)
+from src.cli.vfio_handler import (BindingState, DeviceInfo, VFIOBinder,
+                                  VFIOBinderImpl, VFIOBindError,
+                                  VFIOGroupError, VFIOPermissionError,
+                                  _get_iommu_group)
 
 
 @pytest.mark.hardware

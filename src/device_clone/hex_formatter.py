@@ -8,9 +8,7 @@ generates hex files compatible with FPGA initialization.
 """
 
 import logging
-
 from pathlib import Path
-
 from typing import List, Optional, Union
 
 try:

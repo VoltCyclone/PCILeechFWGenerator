@@ -1,22 +1,15 @@
 """Module generator for SystemVerilog code generation."""
 
 import logging
-
 from functools import lru_cache
-
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.string_utils import (
-    generate_sv_header_comment,
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
-from src.utils.attribute_access import get_attr_or_raise, has_attr, safe_get_attr
+from src.string_utils import (generate_sv_header_comment, log_debug_safe,
+                              log_error_safe, log_info_safe, log_warning_safe)
+from src.utils.attribute_access import (get_attr_or_raise, has_attr,
+                                        safe_get_attr)
 
-from .sv_constants import SV_TEMPLATES, SV_VALIDATION, SV_CONSTANTS
-
+from .sv_constants import SV_CONSTANTS, SV_TEMPLATES, SV_VALIDATION
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
 
