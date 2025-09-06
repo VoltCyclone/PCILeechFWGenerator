@@ -1589,113 +1589,8 @@ class PCILeechGenerator:
             # Import hex formatter
             from src.device_clone.hex_formatter import ConfigSpaceHexFormatter
 
-            # Helper to coerce various representations into bytes
-
-            def _coerce_to_bytes(value: Any) -> Optional[bytes]:
-                if not value:
-                    return None
-                # Already bytes
-                if isinstance(value, (bytes, bytearray)):
-                    return bytes(value)
-                # Hex string
-                if isinstance(value, str):
-                    # Remove common whitespace and separators
-                    s = value.replace(" ", "").replace("\n", "").replace("\t", "")
-                    # Accept 0x prefixes or ':'/'-' separators;
-                    # strip all non-hex characters first.
-                    try:
-                        import re
-
-                        # Remove 0x prefixes (case-insensitive)
-                        s = re.sub(r"0x", "", s, flags=re.IGNORECASE)
-                        # Keep only hex digits
-                        s = "".join(ch for ch in s if ch in "0123456789abcdefABCDEF")
-                        # Ensure even length for fromhex
-                        if len(s) % 2 != 0:
-                            s = "0" + s
-                        return bytes.fromhex(s)
-                    except Exception:
-                        return None
-                # Lists of ints
-                if isinstance(value, list) and all(isinstance(x, int) for x in value):
-                    try:
-                        return bytes(value)
-                    except Exception:
-                        return None
-                return None
-
-            raw_config_space: Optional[bytes] = None
-
-            # 1) Top-level config_space_data (preferred)
-            csd = template_context.get("config_space_data")
-            if isinstance(csd, dict):
-                raw_config_space = (
-                    _coerce_to_bytes(csd.get("raw_config_space"))
-                    or _coerce_to_bytes(csd.get("raw_data"))
-                    or _coerce_to_bytes(csd.get("config_space_hex"))
-                )
-
-            # 2) Top-level raw keys
-            if raw_config_space is None:
-                raw_config_space = _coerce_to_bytes(
-                    template_context.get("raw_config_space")
-                ) or _coerce_to_bytes(template_context.get("config_space_hex"))
-
-            # 3) config_space dict (common from context builder)
-            if raw_config_space is None:
-                cfg = template_context.get("config_space")
-                if isinstance(cfg, dict):
-                    raw_config_space = (
-                        _coerce_to_bytes(cfg.get("raw_data"))
-                        or _coerce_to_bytes(cfg.get("raw_config_space"))
-                        or _coerce_to_bytes(cfg.get("config_space_hex"))
-                    )
-
-            # 4) device_config -> config_space_data (legacy)
-            if raw_config_space is None:
-                device_cfg = template_context.get("device_config")
-                if isinstance(device_cfg, dict) and "config_space_data" in device_cfg:
-                    nested = device_cfg.get("config_space_data")
-                    if isinstance(nested, dict):
-                        raw_config_space = (
-                            _coerce_to_bytes(nested.get("raw_config_space"))
-                            or _coerce_to_bytes(nested.get("raw_data"))
-                            or _coerce_to_bytes(nested.get("config_space_hex"))
-                        )
-
-            # 5) Best-effort: probe any dict-like entry that looks like config space
-            if raw_config_space is None:
-                for key, value in template_context.items():
-                    if not isinstance(value, dict):
-                        continue
-                    k = str(key).lower()
-                    if "config" in k or "raw" in k:
-                        raw_config_space = (
-                            _coerce_to_bytes(value.get("raw_config_space"))
-                            or _coerce_to_bytes(value.get("raw_data"))
-                            or _coerce_to_bytes(value.get("config_space_hex"))
-                        )
-                        if raw_config_space:
-                            # Found a plausible config space container.
-                            log_info_safe(
-                                self.logger,
-                                "Found config space candidate key '{key}'",
-                                key=key,
-                                prefix="HEX",
-                            )
-                            break
-
-            if not raw_config_space:
-                # Log all available keys for debugging
-                log_warning_safe(
-                    self.logger,
-                    "Config space data not found; keys={keys}",
-                    keys=list(template_context.keys()),
-                    prefix="HEX",
-                )
-                raise ValueError(
-                    "No configuration space data available in template context"
-                )
+            # Resolve raw configuration space bytes via centralized helper
+            raw_config_space = self._extract_raw_config_space(template_context)
 
             # Create hex formatter
             formatter = ConfigSpaceHexFormatter()
@@ -1758,6 +1653,119 @@ class PCILeechGenerator:
             raise PCILeechGenerationError(
                 safe_format("Config space hex generation failed: {err}", err=e)
             ) from e
+
+    def _extract_raw_config_space(self, template_context: Dict[str, Any]) -> bytes:
+        """Extract raw PCI configuration space bytes from diverse context shapes.
+
+        This centralizes the previously duplicated probing logic. It tries a
+        prioritized sequence of known container keys, then performs a
+        best-effort scan of dict-like values. Fails fast if nothing is found.
+
+        Args:
+            template_context: Full template context.
+
+        Returns:
+            Raw configuration space as bytes.
+
+        Raises:
+            ValueError: If no configuration space bytes can be resolved.
+        """
+        import re
+
+        def _coerce_to_bytes(value: Any) -> Optional[bytes]:
+            if not value:
+                return None
+            if isinstance(value, (bytes, bytearray)):
+                return bytes(value)
+            if isinstance(value, str):
+                s = value.replace(" ", "").replace("\n", "").replace("\t", "")
+                try:
+                    s = re.sub(r"0x", "", s, flags=re.IGNORECASE)
+                    s = "".join(ch for ch in s if ch in "0123456789abcdefABCDEF")
+                    if len(s) % 2 != 0:
+                        s = "0" + s
+                    return bytes.fromhex(s)
+                except Exception:
+                    return None
+            if isinstance(value, list) and all(isinstance(x, int) for x in value):
+                try:
+                    return bytes(value)
+                except Exception:
+                    return None
+            return None
+
+        raw: Optional[bytes] = None
+
+        # 1) Top-level config_space_data (preferred rich structure)
+        csd = template_context.get("config_space_data")
+        if isinstance(csd, dict):
+            raw = (
+                _coerce_to_bytes(csd.get("raw_config_space"))
+                or _coerce_to_bytes(csd.get("raw_data"))
+                or _coerce_to_bytes(csd.get("config_space_hex"))
+            )
+
+        # 2) Direct raw keys
+        if raw is None:
+            first = _coerce_to_bytes(template_context.get("raw_config_space"))
+            second = _coerce_to_bytes(template_context.get("config_space_hex"))
+            raw = first or second
+
+        # 3) Nested config_space dict
+        if raw is None:
+            cfg = template_context.get("config_space")
+            if isinstance(cfg, dict):
+                raw = (
+                    _coerce_to_bytes(cfg.get("raw_data"))
+                    or _coerce_to_bytes(cfg.get("raw_config_space"))
+                    or _coerce_to_bytes(cfg.get("config_space_hex"))
+                )
+
+        # 4) Legacy path: device_config -> config_space_data
+        if raw is None:
+            device_cfg = template_context.get("device_config")
+            if isinstance(device_cfg, dict) and "config_space_data" in device_cfg:
+                nested = device_cfg.get("config_space_data")
+                if isinstance(nested, dict):
+                    raw = (
+                        _coerce_to_bytes(nested.get("raw_config_space"))
+                        or _coerce_to_bytes(nested.get("raw_data"))
+                        or _coerce_to_bytes(nested.get("config_space_hex"))
+                    )
+
+        # 5) Heuristic scan of dict-like entries
+        if raw is None:
+            for key, value in template_context.items():
+                if not isinstance(value, dict):
+                    continue
+                k = str(key).lower()
+                if "config" in k or "raw" in k:
+                    raw = (
+                        _coerce_to_bytes(value.get("raw_config_space"))
+                        or _coerce_to_bytes(value.get("raw_data"))
+                        or _coerce_to_bytes(value.get("config_space_hex"))
+                    )
+                    if raw:
+                        log_info_safe(
+                            self.logger,
+                            "Found config space candidate key '{key}'",
+                            key=key,
+                            prefix="HEX",
+                        )
+                        break
+
+        if not raw:
+            log_warning_safe(
+                self.logger,
+                "Config space data not found; keys={keys}",
+                keys=list(template_context.keys()),
+                prefix="HEX",
+            )
+            raise ValueError(
+                "No configuration space data available in template context"
+            )
+
+        return raw
 
     def _validate_generated_firmware(
         self,
@@ -2228,7 +2236,12 @@ class PCILeechGenerator:
                         result.append(
                             {
                                 "bar": int(b.get("bar", b.get("index", 0))),
-                                "type": str(b.get("type", b.get("bar_type", "memory"))),
+                                "type": str(
+                                    b.get(
+                                        "type",
+                                        b.get("bar_type", "memory"),
+                                    )
+                                ),
                                 "size": int(b.get("size", 0)),
                                 "prefetchable": bool(b.get("prefetchable", False)),
                             }
