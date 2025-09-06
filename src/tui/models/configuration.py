@@ -69,7 +69,7 @@ class BuildConfiguration(BaseModel):
         default=True, description="Enable advanced SystemVerilog features"
     )
     enable_variance: bool = Field(
-        default=False, description="Enable manufacturing variance simulation"
+        default=True, description="Enable manufacturing variance simulation"
     )
     behavior_profiling: bool = Field(
         default=False, description="Enable behavior profiling"
