@@ -34,6 +34,12 @@ except ImportError:
 
 from ..string_utils import log_info_safe, log_warning_safe
 from .container import BuildConfig, run_build  # new unified runner
+from .build_constants import (
+    DEFAULT_ACTIVE_TIMER_PERIOD,
+    DEFAULT_ACTIVE_INTERRUPT_MODE,
+    DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+    DEFAULT_ACTIVE_PRIORITY,
+)
 from .version_checker import add_version_args, check_and_notify
 
 logger = get_logger(__name__)
@@ -104,7 +110,9 @@ def build_sub(parser: argparse._SubParsersAction):
     )
     p.add_argument("--enable-variance", action="store_true", help="Enable variance")
     p.add_argument(
-        "--auto-fix", action="store_true", help="Let VFIOBinder auto-remediate issues"
+        "--auto-fix",
+        action="store_true",
+        help="Let VFIOBinder auto-remediate issues",
     )
     p.add_argument(
         "--output-template",
@@ -113,6 +121,14 @@ def build_sub(parser: argparse._SubParsersAction):
     p.add_argument(
         "--donor-template",
         help="Use donor info JSON template to override discovered values",
+    )
+    p.add_argument(
+        "--dynamic-image",
+        action="store_true",
+        help=(
+            "Derive container image tag from project version and feature flags "
+            "(improves cache reuse across builds)"
+        ),
     )
 
     # Add active device configuration group
@@ -125,26 +141,35 @@ def build_sub(parser: argparse._SubParsersAction):
     active_group.add_argument(
         "--active-timer-period",
         type=int,
-        default=100000,
-        help="Timer period in clock cycles (default: 100000)",
+        default=DEFAULT_ACTIVE_TIMER_PERIOD,
+        help=(
+            "Timer period in clock cycles (default: " f"{DEFAULT_ACTIVE_TIMER_PERIOD})"
+        ),
     )
     active_group.add_argument(
         "--active-interrupt-mode",
         choices=["msi", "msix", "intx"],
-        default="msi",
-        help="Interrupt mode for active device (default: msi)",
+        default=DEFAULT_ACTIVE_INTERRUPT_MODE,
+        help=(
+            "Interrupt mode for active device "
+            f"(default: {DEFAULT_ACTIVE_INTERRUPT_MODE})"
+        ),
     )
     active_group.add_argument(
         "--active-interrupt-vector",
         type=int,
-        default=0,
-        help="Interrupt vector to use (default: 0)",
+        default=DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+        help=(
+            "Interrupt vector to use (default: " f"{DEFAULT_ACTIVE_INTERRUPT_VECTOR})"
+        ),
     )
     active_group.add_argument(
         "--active-priority",
         type=int,
-        default=15,
-        help="Interrupt priority 0-15 (default: 15, highest)",
+        default=DEFAULT_ACTIVE_PRIORITY,
+        help=(
+            "Interrupt priority 0-15 (default: " f"{DEFAULT_ACTIVE_PRIORITY}, highest)"
+        ),
     )
 
     # Add fallback control group
@@ -156,7 +181,9 @@ def build_sub(parser: argparse._SubParsersAction):
         help="Control fallback behavior (none=fail-fast, prompt=ask, auto=allow)",
     )
     fallback_group.add_argument(
-        "--allow-fallbacks", type=str, help="Comma-separated list of allowed fallbacks"
+        "--allow-fallbacks",
+        type=str,
+        help="Comma-separated list of allowed fallbacks",
     )
     fallback_group.add_argument(
         "--deny-fallbacks", type=str, help="Comma-separated list of denied fallbacks"
@@ -164,7 +191,10 @@ def build_sub(parser: argparse._SubParsersAction):
     fallback_group.add_argument(
         "--legacy-compatibility",
         action="store_true",
-        help="Enable legacy compatibility mode (temporarily restores old fallback behavior)",
+        help=(
+            "Enable legacy compatibility mode "
+            "(temporarily restores old fallback behavior)"
+        ),
     )
 
 
@@ -243,7 +273,8 @@ def main(argv: Optional[List[str]] = None):
                 prompt_for_update(latest_version)
             else:
                 log_info_safe(
-                    logger, f"✓ You are running the latest version ({latest_version})"
+                    logger,
+                    f"✓ You are running the latest version ({latest_version})",
                 )
         else:
             log_warning_safe(logger, "Unable to check for updates")
@@ -277,7 +308,8 @@ def main(argv: Optional[List[str]] = None):
             and fallback_mode == "none"
         ):
             log_warning_safe(
-                logger, "Legacy compatibility mode enabled - using 'auto' fallback mode"
+                logger,
+                "Legacy compatibility mode enabled - using 'auto' fallback mode",
             )
             fallback_mode = "auto"
             if not allowed_fallbacks:
@@ -296,6 +328,7 @@ def main(argv: Optional[List[str]] = None):
             auto_fix=args.auto_fix,
             fallback_mode=fallback_mode,
             allowed_fallbacks=allowed_fallbacks,
+            dynamic_image=getattr(args, "dynamic_image", False),
             denied_fallbacks=denied_fallbacks,
             disable_active_device=getattr(args, "disable_active_device", False),
             active_timer_period=getattr(args, "active_timer_period", 100000),
@@ -311,8 +344,7 @@ def main(argv: Optional[List[str]] = None):
         flash_bin(Path(args.firmware))
 
     elif args.cmd == "donor-template":
-        from ..device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from ..device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         if args.with_comments:
             # Generate template with comments (for documentation)
@@ -330,7 +362,9 @@ def main(argv: Optional[List[str]] = None):
                 args.output, pretty=not args.compact
             )
             log_info_safe(
-                logger, "✓ Donor info template saved to: {output}", output=args.output
+                logger,
+                "✓ Donor info template saved to: {output}",
+                output=args.output,
             )
 
         log_info_safe(logger, "\nNext steps:")

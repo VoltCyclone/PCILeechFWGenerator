@@ -28,6 +28,7 @@ from .device_clone.board_config import (
     get_pcileech_board_config,
     validate_board,
 )
+from .device_clone.constants import PRODUCTION_DEFAULTS
 
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
@@ -691,12 +692,21 @@ class ConfigurationManager:
         """
         self._validate_args(args)
 
+        # Optional environment toggle to apply production defaults
+        use_prod = bool(os.environ.get("PCILEECH_PRODUCTION_DEFAULTS"))
+        enable_profiling = args.profile > 0
+        preload_msix = getattr(args, "preload_msix", True)
+        if use_prod:
+            # Map production flags when present
+            enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
+            preload_msix = PRODUCTION_DEFAULTS.get("MSIX_CAPABILITY", True)
+
         return BuildConfiguration(
             bdf=args.bdf,
             board=args.board,
             output_dir=Path(args.output).resolve(),
-            enable_profiling=args.profile > 0,
-            preload_msix=getattr(args, "preload_msix", True),
+            enable_profiling=enable_profiling,
+            preload_msix=preload_msix,
             profile_duration=args.profile,
             output_template=getattr(args, "output_template", None),
             donor_template=getattr(args, "donor_template", None),

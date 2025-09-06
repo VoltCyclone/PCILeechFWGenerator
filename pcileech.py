@@ -259,8 +259,12 @@ if __name__ == "__main__":
 try:
     from src.error_utils import format_concise_error, log_error_with_root_cause
     from src.log_config import get_logger, setup_logging
-    from src.string_utils import (log_error_safe, log_info_safe,
-                                  log_warning_safe, safe_format)
+    from src.string_utils import (
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
     from src.utils.validation_constants import KNOWN_DEVICE_TYPES
 except ImportError as e:
     print(f"❌ Failed to import PCILeech modules: {e}")
@@ -271,10 +275,18 @@ except ImportError as e:
 def get_available_boards():
     """Get list of available board configurations."""
     try:
+        from src.device_clone.constants import BOARD_FALLBACKS as _FALLBACKS
         from src.device_clone.board_config import list_supported_boards
 
         boards = list_supported_boards()
-        if not boards:
+        return sorted(boards) if boards else _FALLBACKS
+    except Exception:
+        # Single fallback path (avoid re‑duplicating the list here)
+        try:
+            from src.device_clone.constants import BOARD_FALLBACKS as _FALLBACKS
+
+            return _FALLBACKS
+        except Exception:
             return [
                 "pcileech_35t325_x4",
                 "pcileech_35t325_x1",
@@ -285,18 +297,6 @@ def get_available_boards():
                 "pcileech_squirrel",
                 "pcileech_pciescreamer_xc7a35",
             ]
-        return sorted(boards)
-    except Exception:
-        return [
-            "pcileech_35t325_x4",
-            "pcileech_35t325_x1",
-            "pcileech_35t484_x1",
-            "pcileech_75t484_x1",
-            "pcileech_100t484_x1",
-            "pcileech_enigma_x1",
-            "pcileech_squirrel",
-            "pcileech_pciescreamer_xc7a35",
-        ]
 
 
 def check_sudo():
@@ -761,8 +761,12 @@ def handle_check(args):
         # Import the VFIO diagnostics functionality
         from pathlib import Path
 
-        from src.cli.vfio_diagnostics import (Diagnostics, Status,
-                                              remediation_script, render)
+        from src.cli.vfio_diagnostics import (
+            Diagnostics,
+            Status,
+            remediation_script,
+            render,
+        )
 
         log_info_safe(
             logger,
@@ -878,8 +882,7 @@ def handle_donor_template(args):
     """Handle donor template generation."""
     logger = get_logger(__name__)
     try:
-        from src.device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from src.device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # If validate flag is set, validate the file instead
         if args.validate:

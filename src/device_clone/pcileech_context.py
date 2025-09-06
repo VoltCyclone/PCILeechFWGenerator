@@ -104,6 +104,67 @@ from src.utils.unified_context import (
 
 from src.utils.validation_constants import SV_FILE_HEADER
 
+# ---------------------------------------------------------------------------
+# Shared MSI-X runtime flag defaults
+# Centralizes previously duplicated dict literals between disabled/enabled
+# msix_context construction to maintain DRY semantics. Any invariant field
+# changes (e.g. entry sizing, staging support) now require edits in one spot.
+# ---------------------------------------------------------------------------
+_MSIX_BASE_RUNTIME_FLAGS: Dict[str, Any] = {
+    # Clear table & PBA memories on reset
+    "reset_clear": True,
+    # Honor byte enables on writes to table structures
+    "use_byte_enables": True,
+    # Staging + atomic commit design indicators consumed by SV templates
+    "supports_staging": True,
+    "supports_atomic_commit": True,
+    # Entry sizing metadata (16B entries = 4 dwords)
+    "table_entry_dwords": 4,
+    "entry_size_bytes": 16,
+}
+
+
+def _build_msix_disabled_runtime_flags() -> Dict[str, Any]:
+    """Return runtime flag set for a disabled / unsupported MSI-X capability.
+
+    Always returns a fresh dict (avoid accidental shared mutations).
+    """
+    return {
+        **_MSIX_BASE_RUNTIME_FLAGS,
+        # Capability-level state flags
+        "function_mask": False,
+        # PBA writes remain ignored while disabled
+        "write_pba_allowed": False,
+        # Zero PBA storage requirement
+        "pba_size_dwords": 0,
+    }
+
+
+def _build_msix_enabled_runtime_flags(
+    pba_size_dwords: int,
+    *,
+    function_mask: bool = False,
+    write_pba_allowed: bool = False,
+) -> Dict[str, Any]:
+    """Return runtime flag set for an enabled MSI-X capability.
+
+    Parameters
+    ----------
+    pba_size_dwords: int
+        Computed dword length of PBA storage
+    function_mask: bool
+        Current function mask state from capability
+    write_pba_allowed: bool
+        Whether template logic should permit PBA writes (kept False for
+        spec-compliant read-only behavior unless explicitly changed later)
+    """
+    return {
+        **_MSIX_BASE_RUNTIME_FLAGS,
+        "function_mask": function_mask,
+        "write_pba_allowed": write_pba_allowed,
+        "pba_size_dwords": pba_size_dwords,
+    }
+
 
 class TemplateContext(TypedDict, total=False):
     """Template context structure."""
@@ -953,7 +1014,7 @@ class PCILeechContextBuilder:
         """Build MSI-X context."""
         if not msix_data or not msix_data.get("capability_info"):
             # Return disabled MSI-X config
-            return {
+            disabled_ctx = {
                 "num_vectors": 0,
                 "table_bir": 0,
                 "table_offset": 0,
@@ -965,21 +1026,9 @@ class PCILeechContextBuilder:
                 "table_size": 0,
                 "table_size_minus_one": 0,
                 "NUM_MSIX": 0,
-                # Runtime behavior flags (defaults for disabled state)
-                "function_mask": False,
-                # Clear table & PBA memories on reset
-                "reset_clear": True,
-                # Honor byte enables on writes to table
-                "use_byte_enables": True,
-                # Keep PBA writes ignored unless enabled explicitly
-                "write_pba_allowed": False,
-                # Staging + atomic commit design indicators
-                "supports_staging": True,
-                "supports_atomic_commit": True,
-                "table_entry_dwords": 4,
-                "entry_size_bytes": 16,
-                "pba_size_dwords": 0,
             }
+            disabled_ctx.update(_build_msix_disabled_runtime_flags())
+            return disabled_ctx
 
         cap = msix_data["capability_info"]
         table_size = cap["table_size"]
@@ -1001,7 +1050,6 @@ class PCILeechContextBuilder:
             "pba_bir": cap.get("pba_bir", cap["table_bir"]),
             "pba_offset": pba_offset,
             "enabled": cap.get("enabled", False),
-            "function_mask": cap.get("function_mask", False),
             "is_supported": table_size > 0,
             "validation_errors": msix_data.get("validation_errors", []),
             "is_valid": msix_data.get("is_valid", True),
@@ -1014,20 +1062,16 @@ class PCILeechContextBuilder:
             "MSIX_TABLE_OFFSET": f"32'h{table_offset:08X}",
             "MSIX_PBA_BIR": cap.get("pba_bir", cap["table_bir"]),
             "MSIX_PBA_OFFSET": f"32'h{pba_offset:08X}",
-            # Runtime behavior & semantic flags consumed by modern SV templates
-            # Runtime behavior flags consumed by SV templates
-            "reset_clear": True,
-            "use_byte_enables": True,
-            # Maintain PBA as read-only for spec-compliant drivers
-            "write_pba_allowed": False,
-            # Staging/atomic commit support metadata
-            "supports_staging": True,
-            "supports_atomic_commit": True,
-            # Entry sizing metadata
-            "table_entry_dwords": 4,
-            "entry_size_bytes": 16,
-            "pba_size_dwords": pba_size_dwords,
         }
+        # Merge standardized runtime flags
+        context.update(
+            _build_msix_enabled_runtime_flags(
+                pba_size_dwords=pba_size_dwords,
+                function_mask=cap.get("function_mask", False),
+                # Preserve existing behavior: keep PBA writes disabled by default
+                write_pba_allowed=False,
+            )
+        )
 
         # Add alignment warning if present
         if alignment_warning:

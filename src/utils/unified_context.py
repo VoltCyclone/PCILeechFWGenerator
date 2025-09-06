@@ -1491,6 +1491,28 @@ class UnifiedContextBuilder:
         # Add compatibility aliases
         self._add_compatibility_aliases(template_context._data, **kwargs)
 
+        # Always enrich context with kernel driver metadata.
+        # This will add a 'kernel_driver' section to the context,
+        # even if empty or partial.
+        try:
+            # Local import to avoid circular dependency
+            # (kernel_utils imports this module)
+            from src.scripts.kernel_utils import enrich_context_with_driver
+
+            enrich_context_with_driver(
+                template_context,
+                vendor_id=vendor_id,
+                device_id=device_id,
+                ensure_sources=kwargs.get("include_kernel_sources", False),
+                max_sources=kwargs.get("kernel_source_limit", 40),
+            )
+        except Exception as e:  # pragma: no cover (defensive path)
+            log_warning_safe(
+                self.logger,
+                "Kernel driver enrichment skipped: {e}",
+                e=e,
+            )
+
         # Validate the context
         try:
             self.validate_template_context(template_context)

@@ -2,9 +2,6 @@ name: Consolidated CI
 
 on:
   push:
-    branches:
-    - main
-    - develop
   pull_request:
     branches:
     - main
@@ -12,10 +9,17 @@ on:
     - cron: '0 3 * * 0'  # Run at 3:00 AM UTC every Sunday
   workflow_dispatch:  # Allow manual triggering
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write
   actions: read
+
+env:
+  NO_INTERACTIVE: '1'
 
 jobs:
   template-validation:
@@ -27,19 +31,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Python setup & deps
+        uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          cache: 'pip'  # Enable pip caching
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install jinja2 pyyaml
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
+          requirements-files: 'requirements.txt'
+          extra-packages: 'jinja2 pyyaml'
+          editable: 'false'
 
       - name: Run template variable validation
         id: template-validation
@@ -63,17 +61,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Python setup & deps
+        uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install jinja2 pyyaml
-          pip install -e .
+          requirements-files: 'requirements.txt'
+          extra-packages: 'jinja2 pyyaml'
+          editable: 'true'
 
       - name: Validate template syntax
         run: python scripts/validate_template_syntax.py
@@ -92,21 +86,12 @@ jobs:
         with:
           languages: python
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Python setup & deps
+        uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          fi
+          requirements-files: 'requirements.txt,requirements-dev.txt'
+          editable: 'false'
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
@@ -124,27 +109,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Python setup & deps
+        uses: ./.github/actions/python-setup
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          if [ -f requirements-test.txt ]; then
-            pip install -r requirements-test.txt
-          fi
-          # Install TUI-specific test dependencies (textual, rich, etc.) for Python 3.10+
-          if [ -f requirements-tui.txt ]; then
-            pip install -r requirements-tui.txt
-          fi
-
-          pip install -e ".[test]"
+          requirements-files: 'requirements.txt,requirements-test.txt,requirements-tui.txt'
+          extras: 'test'
+          editable: 'true'
+          skip-missing: 'true'
 
       - name: Run unit tests
         run: |
@@ -205,16 +177,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Python setup & deps (build)
+        uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build setuptools setuptools_scm wheel twine
+          extra-packages: 'build setuptools setuptools_scm wheel twine'
+          editable: 'false'
 
       - name: Build packages
         id: build-packages
@@ -227,69 +195,14 @@ jobs:
           name: python-packages
           path: dist/
 
-  docs:
-    name: Docs build
-    runs-on: ubuntu-latest
-    needs: [codeql-analysis, unit-tests]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install docs dependencies
+      - name: Build container image
         run: |
-          python -m pip install --upgrade pip
-          if [ -f site/requirements.txt ]; then
-            pip install -r site/requirements.txt
-          fi
+          docker build -t pcileech-fw-generator:ci -f Containerfile .
 
-      - name: Build site
-        working-directory: site
-        id: build-site
-        run: mkdocs build --clean
-        continue-on-error: false  # Fail the workflow if build fails
-
-      - name: Upload docs
-        uses: actions/upload-artifact@v4
-        with:
-          name: mkdocs-site
-          path: site/site/
-
-  performance:
-    name: Performance benchmarks
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    needs: [codeql-analysis, unit-tests]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install performance dependencies
+      - name: Smoke test container (imports)
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest-benchmark memory-profiler psutil
+          docker run --rm pcileech-fw-generator:ci python3 -c "import sys; sys.path.append('/app/src'); import build; print('Import OK')"
 
-      - name: Run benchmarks
-        run: python scripts/run_performance.py
-
-      - name: Upload performance results
-        uses: actions/upload-artifact@v4
-        with:
-          name: performance-results
-          path: performance-results.json
+      - name: Smoke test CLI help
+        run: |
+          docker run --rm pcileech-fw-generator:ci python3 /app/pcileech.py --help > /dev/null

@@ -20,48 +20,64 @@ import pathlib
 import platform
 import subprocess
 import tarfile
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+# Project logging & safe string formatting utilities (mandatory per repo style)
+from string_utils import (
+    safe_format,
+    log_info_safe,
+    log_warning_safe,
+    log_error_safe,
+    log_debug_safe,
+)
+from src.log_config import get_logger
+
+from src.utils.unified_context import TemplateObject  # For context compatibility
+
+logger = get_logger(__name__)
 
 
 def is_linux() -> bool:
-    """Check if running on Linux."""
+    """Return True if current platform is Linux."""
     return platform.system().lower() == "linux"
 
 
 def check_linux_requirement(operation: str) -> None:
-    """Check if operation requires Linux and raise error if not available."""
+    """Validate Linux-only operation; raise RuntimeError if not Linux."""
     if not is_linux():
-        raise RuntimeError(
-            f"{operation} requires Linux. "
-            f"Current platform: {platform.system()}. "
-            "This functionality is only available on Linux systems."
+        msg = safe_format(
+            (
+                "{op} requires Linux. Current platform: {plat}. "
+                "This functionality is only available on Linux systems."
+            ),
+            op=operation,
+            plat=platform.system(),
         )
+        log_error_safe(logger, msg, prefix="KERNEL")
+        raise RuntimeError(msg)
 
 
 def run_command(cmd: str) -> str:
-    """
-    Execute a shell command safely with proper error handling.
-
-    Args:
-        cmd: Command to execute
-
-    Returns:
-        Command output as string
-
-    Raises:
-        RuntimeError: If command fails with descriptive error message
-    """
+    """Run shell command and return stdout; raise RuntimeError on failure."""
     try:
+        log_debug_safe(
+            logger,
+            safe_format("Executing command: {c}", c=cmd),
+            prefix="KERNEL",
+        )
         result = subprocess.run(
             cmd, shell=True, check=True, capture_output=True, text=True
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Command failed: {cmd}\n"
-            f"Exit code: {e.returncode}\n"
-            f"Error output: {e.stderr}"
-        ) from e
+        msg = safe_format(
+            "Command failed: {cmd}\nExit code: {code}\nError output: {err}",
+            cmd=cmd,
+            code=e.returncode,
+            err=e.stderr.strip(),
+        )
+        log_error_safe(logger, msg, prefix="KERNEL")
+        raise RuntimeError(msg) from e
 
 
 def setup_debugfs() -> None:
@@ -84,12 +100,19 @@ def setup_debugfs() -> None:
             )
             if result.returncode != 0:
                 raise RuntimeError(
-                    f"/sys/kernel directory not accessible. "
-                    f"Exit code: {result.returncode}, "
-                    f"Error: {result.stderr.strip()}"
+                    safe_format(
+                        (
+                            "/sys/kernel directory not accessible. "
+                            "Exit code: {code}, Error: {err}"
+                        ),
+                        code=result.returncode,
+                        err=result.stderr.strip(),
+                    )
                 )
         except Exception as e:
-            raise RuntimeError(f"Cannot access /sys/kernel: {e}") from e
+            raise RuntimeError(
+                safe_format("Cannot access /sys/kernel: {e}", e=e)
+            ) from e
 
         # Check current user privileges
         try:
@@ -125,12 +148,18 @@ def setup_debugfs() -> None:
 
                 if not sudo_available:
                     raise RuntimeError(
-                        f"Debugfs setup requires root privileges. "
-                        f"Current UID: {uid}. "
-                        f"Please run with sudo or as root user."
+                        safe_format(
+                            (
+                                "Debugfs setup requires root privileges. "
+                                "Current UID: {uid}. Run with sudo/root."
+                            ),
+                            uid=uid,
+                        )
                     )
         except Exception as e:
-            raise RuntimeError(f"Cannot determine user privileges: {e}") from e
+            raise RuntimeError(
+                safe_format("Cannot determine user privileges: {e}", e=e)
+            ) from e
 
         # Check if debugfs is already mounted
         try:
@@ -148,11 +177,15 @@ def setup_debugfs() -> None:
             )
             if result.returncode != 0:
                 raise RuntimeError(
-                    "debugfs filesystem not supported by kernel. "
-                    "Please ensure debugfs is compiled into the kernel or loaded as a module."
+                    (
+                        "debugfs filesystem not supported by kernel. "
+                        "Ensure debugfs is compiled in or available as a module."
+                    )
                 )
         except Exception as e:
-            raise RuntimeError(f"Cannot check debugfs kernel support: {e}") from e
+            raise RuntimeError(
+                safe_format("Cannot check debugfs kernel support: {e}", e=e)
+            ) from e
 
         # Create the debug directory if it doesn't exist
         try:
@@ -161,18 +194,28 @@ def setup_debugfs() -> None:
             # Provide more specific error information
             if "Permission denied" in str(e):
                 raise RuntimeError(
-                    f"Permission denied creating /sys/kernel/debug. "
-                    f"This operation requires root privileges. "
-                    f"Original error: {e}"
+                    safe_format(
+                        (
+                            "Permission denied creating /sys/kernel/debug. "
+                            "Root privileges required. Original error: {e}"
+                        ),
+                        e=e,
+                    )
                 ) from e
             elif "Read-only file system" in str(e):
                 raise RuntimeError(
-                    f"/sys filesystem is read-only. "
-                    f"Cannot create debugfs mount point. "
-                    f"Original error: {e}"
+                    safe_format(
+                        (
+                            "/sys filesystem is read-only. Cannot create "
+                            "debugfs mount point. Original error: {e}"
+                        ),
+                        e=e,
+                    )
                 ) from e
             else:
-                raise RuntimeError(f"Failed to create /sys/kernel/debug: {e}") from e
+                raise RuntimeError(
+                    safe_format("Failed to create /sys/kernel/debug: {e}", e=e)
+                ) from e
 
         # Mount debugfs
         try:
@@ -184,15 +227,21 @@ def setup_debugfs() -> None:
                 return
             elif "permission denied" in error_str:
                 raise RuntimeError(
-                    f"Permission denied mounting debugfs. "
-                    f"This operation requires root privileges. "
-                    f"Original error: {e}"
+                    safe_format(
+                        (
+                            "Permission denied mounting debugfs. Root "
+                            "privileges required. Original error: {e}"
+                        ),
+                        e=e,
+                    )
                 ) from e
             else:
-                raise RuntimeError(f"Failed to mount debugfs: {e}") from e
+                raise RuntimeError(
+                    safe_format("Failed to mount debugfs: {e}", e=e)
+                ) from e
 
     except Exception as e:
-        raise RuntimeError(f"Failed to setup debugfs: {e}") from e
+        raise RuntimeError(safe_format("Failed to setup debugfs: {e}", e=e)) from e
 
 
 def ensure_kernel_source() -> Optional[pathlib.Path]:
@@ -227,6 +276,7 @@ def ensure_kernel_source() -> Optional[pathlib.Path]:
         try:
             with tarfile.open(src_pkg) as t:
                 # Security: validate tar members before extraction
+
                 def is_safe_path(member: tarfile.TarInfo, target_dir: str) -> bool:
                     # Get the absolute path where the member would be extracted
                     member_path = os.path.join(target_dir, member.name)
@@ -240,7 +290,9 @@ def ensure_kernel_source() -> Optional[pathlib.Path]:
                 ]
                 t.extractall("/usr/src", members=safe_members)
         except Exception as e:
-            raise RuntimeError(f"Failed to extract kernel source: {e}") from e
+            raise RuntimeError(
+                safe_format("Failed to extract kernel source: {e}", e=e)
+            ) from e
 
     return untar_dir
 
@@ -263,19 +315,32 @@ def resolve_driver_module(vendor_id: str, device_id: str) -> str:
 
     try:
         alias_line = run_command(
-            f"modprobe --resolve-alias pci:v0000{vendor_id}d0000{device_id}*"
+            safe_format(
+                "modprobe --resolve-alias pci:v0000{vid}d0000{did}*",
+                vid=vendor_id,
+                did=device_id,
+            )
         ).splitlines()
 
         if not alias_line:
             raise RuntimeError(
-                f"No driver module found for VID:DID {vendor_id}:{device_id} in modules.alias"
+                safe_format(
+                    (
+                        "No driver module found for VID:DID {vid}:{did} "
+                        "in modules.alias"
+                    ),
+                    vid=vendor_id,
+                    did=device_id,
+                )
             )
 
         return alias_line[-1].strip()  # e.g. snd_hda_intel
     except RuntimeError:
         raise
     except Exception as e:
-        raise RuntimeError(f"Failed to resolve driver module: {e}") from e
+        raise RuntimeError(
+            safe_format("Failed to resolve driver module: {e}", e=e)
+        ) from e
 
 
 def find_driver_sources(
@@ -302,7 +367,7 @@ def find_driver_sources(
         # Look in drivers directory first as it's most likely location
         drivers_dir = kernel_source_dir / "drivers"
         if drivers_dir.exists():
-            candidates = []
+            candidates: List[pathlib.Path] = []
             for ext in [".c", ".h"]:
                 for file_path in drivers_dir.rglob(f"*{ext}"):
                     try:
@@ -317,3 +382,125 @@ def find_driver_sources(
             src_files = candidates
 
     return src_files
+
+
+# ---------------------------------------------------------------------------
+# Context Enrichment Helpers
+# ---------------------------------------------------------------------------
+
+
+def enrich_context_with_driver(
+    context: Union[Dict[str, Any], TemplateObject],
+    vendor_id: str,
+    device_id: str,
+    *,
+    ensure_sources: bool = False,
+    max_sources: int = 40,
+) -> Union[Dict[str, Any], TemplateObject]:
+    """Attach kernel driver metadata to an existing build context.
+
+    Adds a `kernel_driver` section with:
+        module: resolved module name (if found)
+        vendor_id / device_id
+        source_count
+        source_files (truncated list)
+        sources_truncated (bool)
+
+    Behavior:
+        - Fails softly: logs warnings instead of raising unless Linux check fails.
+        - Does not hardcode IDs; requires caller to pass vendor/device IDs.
+    """
+
+    # Normalize access to underlying dict for TemplateObject
+
+    def _set(obj: Union[Dict[str, Any], TemplateObject], key: str, value: Any) -> None:
+        if isinstance(obj, TemplateObject):
+            setattr(obj, key, value if isinstance(value, TemplateObject) else value)
+        else:
+            obj[key] = value
+
+    if not vendor_id or not device_id:
+        log_error_safe(
+            logger,
+            safe_format(
+                (
+                    "Cannot enrich context with kernel driver metadata: "
+                    "missing IDs (vendor_id={vid}, device_id={did})"
+                ),
+                vid=vendor_id,
+                did=device_id,
+            ),
+            prefix="KERNEL",
+        )
+        return context
+
+    if not is_linux():  # Soft skip on non-Linux platforms
+        log_warning_safe(
+            logger,
+            safe_format(
+                "Skipping kernel driver enrichment; non-Linux platform {plat}",
+                plat=platform.system(),
+            ),
+            prefix="KERNEL",
+        )
+        return context
+
+    module_name: Optional[str] = None
+    source_files: List[str] = []
+    truncated = False
+
+    try:
+        module_name = resolve_driver_module(vendor_id, device_id)
+        log_info_safe(
+            logger,
+            safe_format(
+                "Resolved driver module {mod} for {vid}:{did}",
+                mod=module_name,
+                vid=vendor_id,
+                did=device_id,
+            ),
+            prefix="KERNEL",
+        )
+
+        if ensure_sources:
+            ksrc = ensure_kernel_source()
+            if ksrc and module_name:
+                try:
+                    paths = find_driver_sources(ksrc, module_name)
+                    if len(paths) > max_sources:
+                        truncated = True
+                        paths = paths[:max_sources]
+                    source_files = [str(p) for p in paths]
+                except Exception as e:  # pragma: no cover (defensive)
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Failed to locate driver sources for {mod}: {e}",
+                            mod=module_name,
+                            e=e,
+                        ),
+                        prefix="KERNEL",
+                    )
+    except Exception as e:
+        log_warning_safe(
+            logger,
+            safe_format(
+                "Driver module resolution failed for {vid}:{did}: {e}",
+                vid=vendor_id,
+                did=device_id,
+                e=e,
+            ),
+            prefix="KERNEL",
+        )
+
+    data: Dict[str, Any] = {
+        "vendor_id": vendor_id,
+        "device_id": device_id,
+        "module": module_name,
+        "source_count": len(source_files),
+        "source_files": source_files,
+        "sources_truncated": truncated,
+    }
+
+    _set(context, "kernel_driver", TemplateObject(data))
+    return context

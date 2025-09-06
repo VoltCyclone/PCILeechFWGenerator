@@ -272,6 +272,23 @@ class VFIOGroupError(VFIOBindError):
     pass
 
 
+def is_platform_error(message: str) -> bool:
+    """Return True if message indicates a known platform incompatibility.
+
+    Centralized heuristic used across modules to detect when an error should
+    be treated as a platform support issue (e.g. attempting Linux‑only
+    features on macOS). Update patterns here when new guard messages are
+    introduced. Keep patterns concise to avoid false positives.
+    """
+    patterns = (
+        "requires Linux",
+        "Current platform:",
+        "only available on Linux",
+        "platform incompatibility",
+    )
+    return any(p in message for p in patterns)
+
+
 # Export all exception classes
 __all__ = [
     "PCILeechError",
@@ -297,4 +314,5 @@ __all__ = [
     "VFIODeviceNotFoundError",
     "VFIOPermissionError",
     "VFIOGroupError",
+    "is_platform_error",
 ]

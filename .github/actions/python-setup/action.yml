@@ -1,0 +1,97 @@
+name: 'python-setup'
+description: 'Setup Python with caching, install requirements, optional editable install with extras.'
+author: 'Project Automation'
+inputs:
+  python-version:
+    description: 'Python version to use.'
+    required: true
+  requirements-files:
+    description: 'Newline or comma separated list of requirements file paths to install.'
+    required: false
+    default: ''
+  extras:
+    description: 'Extras specification for editable install (e.g. test,dev).'
+    required: false
+    default: ''
+  extra-packages:
+    description: 'Additional packages (space separated) to pip install after requirements.'
+    required: false
+    default: ''
+  editable:
+    description: 'Install the project in editable mode.'
+    required: false
+    default: 'false'
+  upgrade-pip:
+    description: 'Upgrade pip/setuptools/wheel first.'
+    required: false
+    default: 'true'
+  cache:
+    description: 'Enable pip caching via actions/setup-python.'
+    required: false
+    default: 'true'
+  skip-missing:
+    description: 'Silently skip missing requirement files (true) or fail (false).'
+    required: false
+    default: 'true'
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
+
+    - name: Upgrade pip
+      if: inputs.upgrade-pip == 'true'
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+
+    - name: Install requirements
+      if: inputs.requirements-files != ''
+      shell: bash
+      env:
+        RAW_FILES: ${{ inputs.requirements-files }}
+        SKIP_MISSING: ${{ inputs.skip-missing }}
+      run: |
+        set -euo pipefail
+        # Support both comma and newline separated lists
+        FILES=$(echo "$RAW_FILES" | tr ',' '\n')
+        for f in $FILES; do
+          f_trim=$(echo "$f" | xargs)
+          [ -z "$f_trim" ] && continue
+          if [ -f "$f_trim" ]; then
+            echo "Installing requirements from $f_trim" >&2
+            pip install -r "$f_trim"
+          else
+            if [ "$SKIP_MISSING" = 'true' ]; then
+              echo "Skipping missing requirements file: $f_trim" >&2
+            else
+              echo "Required requirements file missing: $f_trim" >&2
+              exit 2
+            fi
+          fi
+        done
+
+    - name: Install extra packages
+      if: inputs.extra-packages != ''
+      shell: bash
+      run: |
+        set -e
+        pip install ${{ inputs.extra-packages }}
+
+    - name: Editable install
+      if: inputs.editable == 'true'
+      shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+      run: |
+        set -e
+        if [ -n "$EXTRAS" ]; then
+          echo "Editable install with extras: $EXTRAS" >&2
+          pip install -e .[${EXTRAS}]
+        else
+          echo "Editable install without extras" >&2
+          pip install -e .
+        fi

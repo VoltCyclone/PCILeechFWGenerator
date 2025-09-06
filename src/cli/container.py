@@ -2,20 +2,37 @@
 """container_build - unified VFIO‑aware Podman build runner"""
 from __future__ import annotations
 
+import json
+import os
+import re
 import shutil
 import subprocess
 import sys
 import textwrap
 import time
 from dataclasses import dataclass, field
-import json
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from ..log_config import get_logger
 from ..shell import Shell
-from .vfio import VFIOBinder  # auto‑fix & diagnostics baked in
-from .vfio import get_current_driver, restore_driver
+from ..exceptions import is_platform_error
+from ..device_clone.constants import (
+    PRODUCTION_DEFAULTS,
+)  # Central production feature toggles
+from .vfio import (
+    VFIOBinder,  # auto‑fix & diagnostics baked in
+    get_current_driver,
+    restore_driver,
+)
+from .build_constants import (
+    DEFAULT_BEHAVIOR_PROFILE_DURATION,
+    DEFAULT_ACTIVE_TIMER_PERIOD,
+    DEFAULT_ACTIVE_INTERRUPT_MODE,
+    DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+    DEFAULT_ACTIVE_PRIORITY,
+)
+
 
 # Import safe logging functions
 try:
@@ -27,6 +44,7 @@ try:
     )
 except ImportError:
     # Fallback implementations
+
     def log_info_safe(logger, template, **kwargs):
         logger.info(template.format(**kwargs))
 
@@ -69,53 +87,131 @@ class EnvError(RuntimeError):
 class BuildConfig:
     bdf: str
     board: str
-    # feature toggles
-    advanced_sv: bool = False
-    enable_variance: bool = False
-    disable_power_management: bool = False
-    disable_error_handling: bool = False
-    disable_performance_counters: bool = False
-    behavior_profile_duration: int = 30
+    # feature toggles (defaults from PRODUCTION_DEFAULTS)
+    advanced_sv: bool = PRODUCTION_DEFAULTS.get("ADVANCED_SV", False)
+    enable_variance: bool = PRODUCTION_DEFAULTS.get("MANUFACTURING_VARIANCE", False)
+    # disable_* flags are inverse of production defaults
+    disable_power_management: bool = not PRODUCTION_DEFAULTS.get(
+        "POWER_MANAGEMENT", False
+    )
+    disable_error_handling: bool = not PRODUCTION_DEFAULTS.get("ERROR_HANDLING", False)
+    disable_performance_counters: bool = not PRODUCTION_DEFAULTS.get(
+        "PERFORMANCE_COUNTERS", False
+    )
+    behavior_profile_duration: int = DEFAULT_BEHAVIOR_PROFILE_DURATION
     # runtime toggles
     auto_fix: bool = True  # hand to VFIOBinder
     container_tag: str = "latest"
-    container_image: str = "pcileech-fw-generator"
+    container_image: str = "pcileechfwgenerator"
+    # dynamic image resolution toggle
+    dynamic_image: bool = False  # derive tag from project version & flags
     # fallback control options
     fallback_mode: str = "none"  # "none", "prompt", or "auto"
     allowed_fallbacks: List[str] = field(default_factory=list)
     denied_fallbacks: List[str] = field(default_factory=list)
     # active device configuration
     disable_active_device: bool = False
-    active_timer_period: int = 100000
-    active_interrupt_mode: str = "msi"
-    active_interrupt_vector: int = 0
-    active_priority: int = 15
+    active_timer_period: int = DEFAULT_ACTIVE_TIMER_PERIOD
+    active_interrupt_mode: str = DEFAULT_ACTIVE_INTERRUPT_MODE
+    active_interrupt_vector: int = DEFAULT_ACTIVE_INTERRUPT_VECTOR
+    active_priority: int = DEFAULT_ACTIVE_PRIORITY
     # output options
     output_template: Optional[str] = None
     donor_template: Optional[str] = None
 
-    def cmd_args(self) -> List[str]:
-        """Translate config to build.py flags - only include supported arguments"""
-        args = [f"--bdf {self.bdf}", f"--board {self.board}"]
+    # ------------------------------------------------------------------
+    # Image reference helpers
+    # ------------------------------------------------------------------
 
-        # Add feature toggles
+    def _get_project_version(self) -> str:
+        """Return project version (lightweight, no heavy imports on failure).
+
+        Falls back to 'latest' if version cannot be determined. Only used
+        when dynamic_image=True so normal path remains unchanged.
+        """
+        try:  # Try canonical version module
+            from src import __version__ as v  # type: ignore
+
+            return getattr(v, "__version__", "latest")
+        except Exception:
+            pass
+        # Fallback: parse pyproject.toml for version line (cheap scan)
+        try:
+            pyproj = Path(__file__).parent.parent.parent / "pyproject.toml"
+            if pyproj.exists():
+                for line in pyproj.read_text().splitlines():
+                    if line.strip().startswith("version ="):
+                        # version = "1.2.3"
+                        val = line.split("=", 1)[1].strip().strip("\"'")
+                        if val:
+                            return val
+        except Exception:
+            pass
+        return "latest"
+
+    def resolve_image_parts(self) -> tuple[str, str]:
+        """Return (image, tag) possibly rewritten if dynamic_image enabled.
+
+        In dynamic mode the tag encodes version and enabled feature flags to
+        reduce unnecessary rebuilds across differing feature sets while still
+        allowing caching for identical configurations.
+        """
+        if not self.dynamic_image:
+            return self.container_image, self.container_tag
+
+        version = self._get_project_version()
+        # Sanitize version/tag components to allowed chars [A-Za-z0-9_.-]
+        import re as _re
+
+        def _sanitize(component: str) -> str:
+            return "".join(c for c in component if c.isalnum() or c in "._-") or "x"
+
+        parts = [_sanitize(version)]
+        if self.advanced_sv:
+            parts.append("adv")
+        if self.enable_variance:
+            parts.append("var")
+        tag = "-".join(parts)
+        # Ensure length constraint from build_image validation (<=128)
+        if len(tag) > 128:
+            tag = tag[:128]
+        return self.container_image, tag
+
+    def cmd_args(self) -> List[str]:
+        """Structured argument vector (no shell concatenation).
+
+        Returns list suitable for subprocess without shell=True. Ordering stable.
+        """
+        args: List[str] = ["--bdf", self.bdf, "--board", self.board]
+
+        # Only include flags that build.py actually understands today.
+        # (Keep unsupported toggles internal; they'll be surfaced once the
+        # main builder exposes corresponding CLI flags.)
         if self.advanced_sv:
             args.append("--advanced-sv")
         if self.enable_variance:
             args.append("--enable-variance")
-
-        # Only include arguments that build.py actually supports:
-        # --profile (for behavior profiling duration)
-        if self.behavior_profile_duration != 30:
-            args.append(f"--profile {self.behavior_profile_duration}")
-
-        # --output-template and --donor-template are supported
+        if self.behavior_profile_duration != DEFAULT_BEHAVIOR_PROFILE_DURATION:
+            # 0 disables profiling per build.py help.
+            args.extend(["--profile", str(self.behavior_profile_duration)])
         if self.output_template:
-            args.append(f"--output-template {self.output_template}")
+            args.extend(["--output-template", self.output_template])
         if self.donor_template:
-            args.append(f"--donor-template {self.donor_template}")
-
+            args.extend(["--donor-template", self.donor_template])
         return args
+
+    def __post_init__(self) -> None:
+        """Validate critical fields early (fail fast; no fallbacks)."""
+        bdf_pattern = re.compile(
+            r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"
+        )
+        if not bdf_pattern.match(self.bdf):
+            raise ValueError(
+                f"Invalid BDF format: {self.bdf}. Expected format: DDDD:BB:DD.F"
+            )
+        # Basic board non-empty validation
+        if not self.board or not isinstance(self.board, str):
+            raise ValueError("Board must be a non-empty string")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -149,7 +245,8 @@ def image_exists(name: str) -> bool:
             "podman images --format '{{.Repository}}:{{.Tag}}'",
             timeout=5,
         )
-        return any(line.startswith(name) for line in out.splitlines())
+        target = name.strip()
+        return any(line.strip() == target for line in out.splitlines())
     except RuntimeError as e:
         # If podman fails to connect, return False
         if "Cannot connect to Podman" in str(e) or "connection refused" in str(e):
@@ -158,27 +255,64 @@ def image_exists(name: str) -> bool:
 
 
 def build_image(name: str, tag: str) -> None:
-    # Validate input parameters to prevent injection
+    """Build podman image with stricter validation & no shell invocation."""
     import re
 
-    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name):
-        raise ValueError(f"Invalid container name: {name}")
-    # See:
-    # https://docs.docker.com/engine/reference/commandline/tag/#extended-description
-    # Image name: lowercase, digits, ., _, -, /; must start/end with alphanumeric;
-    # max 255 chars
-    if not re.match(
-        r"^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", name
-    ):
+    # Repository/name (enforce lowercase per OCI/Docker convention)
+    name_pattern = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
+    if not re.fullmatch(name_pattern, name):
         raise ValueError(f"Invalid container image name: {name}")
-    # Tag: alphanumeric, ., _, -, max 128 chars
-    if not re.match(r"^[A-Za-z0-9_.-]{1,128}$", tag):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", tag):
         raise ValueError(f"Invalid container tag: {tag}")
 
-    log_info_safe(logger, "Building container image {name}:{tag}", name=name, tag=tag)
-    # Use shell=False and pass arguments as list to prevent injection
+    log_info_safe(
+        logger,
+        "Building container image {name}:{tag}",
+        name=name,
+        tag=tag,
+    )
     cmd = ["podman", "build", "-t", f"{name}:{tag}", "-f", "Containerfile", "."]
-    subprocess.run(cmd, shell=False, check=True)
+    subprocess.run(cmd, check=True)
+
+
+def _build_podman_command(
+    cfg: BuildConfig, group_dev: str, output_dir: Path
+) -> Sequence[str]:
+    """Construct podman run command as argument vector (no shell=True)."""
+    uname_release = os.uname().release if hasattr(os, "uname") else ""
+    kernel_headers = f"/lib/modules/{uname_release}/build" if uname_release else None
+    cmd: List[str] = [
+        "podman",
+        "run",
+        "--rm",
+        "--privileged",
+        f"--device={group_dev}",
+        "--device=/dev/vfio/vfio",
+        "--entrypoint",
+        "python3",
+        "--user",
+        "root",
+    ]
+    # Mount output dir
+    cmd.extend(["-v", f"{output_dir}:/app/output"])
+    # Mount kernel headers if present (Linux). On macOS this path won't exist.
+    if kernel_headers and Path(kernel_headers).exists():
+        cmd.extend(["-v", f"{kernel_headers}:/kernel-headers:ro"])
+    else:
+        log_warning_safe(
+            logger,
+            "Kernel headers path missing; skipping mount (host={platform})",
+            platform=sys.platform,
+            prefix="CONT",
+        )
+
+    # Image (respect dynamic tagging if enabled)
+    _image, _tag = cfg.resolve_image_parts()
+    cmd.append(f"{_image}:{_tag}")
+    # Python module invocation and build args
+    cmd.extend(["-m", "src.build"])  # entrypoint already python3
+    cmd.extend(cfg.cmd_args())
+    return cmd
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -187,7 +321,21 @@ def build_image(name: str, tag: str) -> None:
 
 
 def prompt_user_for_local_build() -> bool:
-    """Prompt user to confirm local build when Podman is unavailable."""
+    """Prompt user to confirm local build when Podman is unavailable.
+
+    In CI or when NO_INTERACTIVE is set, we fail fast without prompting.
+    This enforces non-interactive invariants for hosted runners.
+    """
+    non_interactive = bool(os.environ.get("NO_INTERACTIVE") or os.environ.get("CI"))
+    if non_interactive:
+        # Use error log to make failure conspicuous in CI output
+        log_error_safe(
+            logger,
+            "Interactive fallback disabled (NO_INTERACTIVE/CI) - aborting",
+            prefix="BUILD",
+        )
+        return False
+
     print("\n" + "=" * 60)
     print("⚠️  Podman is not available or cannot connect.")
     print("=" * 60)
@@ -247,32 +395,7 @@ def run_local_build(cfg: BuildConfig) -> None:
             raise ImportError("Cannot run local build - missing build module")
 
     # Process the command arguments properly
-    build_args = []
-
-    # Add core arguments directly
-    build_args.append("--bdf")
-    build_args.append(cfg.bdf)
-    build_args.append("--board")
-    build_args.append(cfg.board)
-
-    # Add boolean flags
-    if cfg.advanced_sv:
-        build_args.append("--advanced-sv")
-    if cfg.enable_variance:
-        build_args.append("--enable-variance")
-
-    # Add other parameters that build.py supports
-    if cfg.behavior_profile_duration != 30:
-        build_args.append("--profile")
-        build_args.append(str(cfg.behavior_profile_duration))
-
-    if cfg.output_template:
-        build_args.append("--output-template")
-        build_args.append(cfg.output_template)
-
-    if cfg.donor_template:
-        build_args.append("--donor-template")
-        build_args.append(cfg.donor_template)
+    build_args = cfg.cmd_args()
 
     log_info_safe(
         logger,
@@ -297,19 +420,9 @@ def run_local_build(cfg: BuildConfig) -> None:
         )
     except Exception as e:
         elapsed = time.time() - start
-
-        # Check if this is a platform compatibility error to reduce redundant logging
+        # Check if this is a platform compatibility error (centralized helper)
         error_str = str(e)
-        is_platform_error = (
-            "requires Linux" in error_str
-            or "Current platform:" in error_str
-            or "only available on Linux" in error_str
-            or "platform incompatibility" in error_str
-        )
-
-        if is_platform_error:
-            # For platform errors, log at a lower level since the detailed error was
-            # already logged
+        if is_platform_error(error_str):
             log_info_safe(
                 logger,
                 (
@@ -341,7 +454,16 @@ def run_build(cfg: BuildConfig) -> None:
             prefix="BUILD",
         )
 
-        # Prompt user for local build
+        non_interactive = bool(os.environ.get("NO_INTERACTIVE") or os.environ.get("CI"))
+        if non_interactive:
+            log_error_safe(
+                logger,
+                "Aborting (non-interactive mode) - no Podman available",
+                prefix="BUILD",
+            )
+            sys.exit(2)
+
+        # Prompt user for local build (interactive only)
         if prompt_user_for_local_build():
             run_local_build(cfg)
         else:
@@ -367,7 +489,17 @@ def run_build(cfg: BuildConfig) -> None:
                 prefix="BUILD",
             )
 
-            # Prompt user for local build
+            non_interactive = bool(
+                os.environ.get("NO_INTERACTIVE") or os.environ.get("CI")
+            )
+            if non_interactive:
+                log_error_safe(
+                    logger,
+                    "Aborting (non-interactive mode) - Podman connection failed",
+                    prefix="BUILD",
+                )
+                sys.exit(2)
+            # Prompt user for local build (interactive only)
             if prompt_user_for_local_build():
                 run_local_build(cfg)
             else:
@@ -442,27 +574,16 @@ def run_build(cfg: BuildConfig) -> None:
             prefix="CONT",
         )
 
-        cmd_args = " ".join(cfg.cmd_args())
-        podman_cmd = textwrap.dedent(
-            f"""
-            podman run --rm --privileged \
-              --device={group_dev} \
-              --device=/dev/vfio/vfio \
-              --entrypoint python3 \
-              --user root \
-              -v {output_dir}:/app/output \
-              -v /lib/modules/$(uname -r)/build:/kernel-headers:ro \
-              {cfg.container_image}:{cfg.container_tag} \
-              -m src.build {cmd_args}
-            """
-        ).strip()
-
+        podman_cmd_vec = _build_podman_command(cfg, group_dev, output_dir)
         log_debug_safe(
-            logger, "Container command: {cmd}", cmd=podman_cmd, prefix="CONT"
+            logger,
+            "Container command (argv): {cmd}",
+            cmd=" ".join(podman_cmd_vec),
+            prefix="CONT",
         )
         start = time.time()
         try:
-            subprocess.run(podman_cmd, shell=True, check=True)
+            subprocess.run(podman_cmd_vec, check=True)
         except subprocess.CalledProcessError as e:
             raise ContainerError(f"Build failed (exit {e.returncode})") from e
         except KeyboardInterrupt:
@@ -474,12 +595,15 @@ def run_build(cfg: BuildConfig) -> None:
             # Get the container ID if possible
             try:
                 container_id = (
+                    # Use the actual configured image:tag instead of a hardcoded name
                     subprocess.check_output(
-                        (
-                            "podman ps -q --filter "
-                            "ancestor=pcileech-fw-generator:latest"
-                        ),
-                        shell=True,
+                        [
+                            "podman",
+                            "ps",
+                            "-q",
+                            "--filter",
+                            f"ancestor={cfg.container_image}:{cfg.container_tag}",
+                        ]
                     )
                     .decode()
                     .strip()
@@ -491,9 +615,8 @@ def run_build(cfg: BuildConfig) -> None:
                         container_id=container_id,
                         prefix="CONT",
                     )
-                    subprocess.run(
-                        f"podman stop {container_id}", shell=True, check=False
-                    )
+                    # Best‑effort stop; no shell required
+                    subprocess.run(["podman", "stop", container_id], check=False)
             except Exception as e:
                 log_warning_safe(
                     logger,
