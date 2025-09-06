@@ -80,25 +80,45 @@ module pcileech_tlps128_bar_controller #(
     logic [31:0] msix_tbl_rdata;
     
     // ------------------------------------------------------------
-    // MSI‑X capability decode (reads from cfg shadow BRAM)
+    // MSI‑X capability runtime registers
+    // Replaces static decode from shadow BRAM so driver writes to the
+    // MSI‑X Message Control register update enable/mask semantics.
     // ------------------------------------------------------------
+    localparam [9:0] MSIX_CAP_REG = 10'h1C; // Base dword index for MSI-X cap (0x70 >> 2)
+
+    // Write detection for MSI-X capability dword window (0x70 - 0x7C)
+    logic        msix_cap_wr;
+    logic [31:0] msix_cap_addr;
+    logic [31:0] msix_cap_wdata;
+    logic [3:0]  msix_cap_be;
     logic        msix_enabled;
     logic        msix_fn_masked;
-    logic [31:0] msix_cap_data;
+    wire  [10:0] msix_table_size_ro;
 
-    localparam [9:0] MSIX_CAP_REG = 10'h1C; // (0x70 >> 2)
+    assign msix_cap_wr   = cfg_ext_write_received &&
+                           (cfg_ext_register_number >= MSIX_CAP_REG) &&
+                           (cfg_ext_register_number <= (MSIX_CAP_REG + 4));
+    // Capability-internal byte address (low 4 bits used inside module)
+    assign msix_cap_addr = {28'h0, (cfg_ext_register_number - MSIX_CAP_REG), 2'b00};
+    assign msix_cap_wdata = cfg_ext_write_data;
+    assign msix_cap_be    = cfg_ext_write_byte_enable;
 
-    // Access MSI-X capability register through host interface
-    logic [31:0] msix_cap_read_data;
-    logic        msix_cap_read_valid;
-    
-    always_comb begin
-        // Read MSI-X capability register from config space shadow
-        // This should be connected to the config space shadow's host read data
-        msix_cap_data   = cfg_shdw_rdata; // Will be updated when we read the specific register
-        msix_enabled    = msix_cap_data[15];
-        msix_fn_masked  = msix_cap_data[14];
-    end
+    msix_capability_registers #(
+        .TABLE_SIZE_MINUS_ONE (NUM_MSIX-1),
+        .TABLE_OFFSET_BIR     (MSIX_TABLE_OFFSET + MSIX_TABLE_BIR),
+        .PBA_OFFSET_BIR       (MSIX_PBA_OFFSET + MSIX_PBA_BIR)
+    ) msix_caps (
+        .clk               (clk),
+        .reset_n           (reset_n),
+        .msix_cap_wr       (msix_cap_wr),
+        .msix_cap_addr     (msix_cap_addr),
+        .msix_cap_wdata    (msix_cap_wdata),
+        .msix_cap_be       (msix_cap_be),
+        .msix_cap_rdata    (/* unused */),
+        .msix_enable       (msix_enabled),
+        .msix_function_mask(msix_fn_masked),
+        .msix_table_size   (msix_table_size_ro)
+    );
 
     // ------------------------------------------------------------
     // MSI‑X table sub‑module

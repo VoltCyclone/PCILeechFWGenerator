@@ -965,6 +965,20 @@ class PCILeechContextBuilder:
                 "table_size": 0,
                 "table_size_minus_one": 0,
                 "NUM_MSIX": 0,
+                # Runtime behavior flags (defaults for disabled state)
+                "function_mask": False,
+                # Clear table & PBA memories on reset
+                "reset_clear": True,
+                # Honor byte enables on writes to table
+                "use_byte_enables": True,
+                # Keep PBA writes ignored unless enabled explicitly
+                "write_pba_allowed": False,
+                # Staging + atomic commit design indicators
+                "supports_staging": True,
+                "supports_atomic_commit": True,
+                "table_entry_dwords": 4,
+                "entry_size_bytes": 16,
+                "pba_size_dwords": 0,
             }
 
         cap = msix_data["capability_info"]
@@ -1000,6 +1014,19 @@ class PCILeechContextBuilder:
             "MSIX_TABLE_OFFSET": f"32'h{table_offset:08X}",
             "MSIX_PBA_BIR": cap.get("pba_bir", cap["table_bir"]),
             "MSIX_PBA_OFFSET": f"32'h{pba_offset:08X}",
+            # Runtime behavior & semantic flags consumed by modern SV templates
+            # Runtime behavior flags consumed by SV templates
+            "reset_clear": True,
+            "use_byte_enables": True,
+            # Maintain PBA as read-only for spec-compliant drivers
+            "write_pba_allowed": False,
+            # Staging/atomic commit support metadata
+            "supports_staging": True,
+            "supports_atomic_commit": True,
+            # Entry sizing metadata
+            "table_entry_dwords": 4,
+            "entry_size_bytes": 16,
+            "pba_size_dwords": pba_size_dwords,
         }
 
         # Add alignment warning if present
