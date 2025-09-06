@@ -1126,12 +1126,11 @@ class PCILeechGenerator:
                 # Device information - NO FALLBACKS for critical IDs
                 "device": {
                     "vendor_id": template_context["vendor_id"],
-                    "revision_id": template_context.get(
-                        "revision_id", "00"
-                    ),  # Less critical, can have fallback
-                    "class_code": template_context.get(
-                        "class_code"
-                    ),  # Should be present but not using fallback
+                    "device_id": template_context.get("device_id"),
+                    "revision_id": template_context.get("revision_id", "00"),
+                    "class_code": template_context.get("class_code"),
+                    "subsys_vendor_id": template_context.get("subsys_vendor_id"),
+                    "subsys_device_id": template_context.get("subsys_device_id"),
                 },
                 # Board information
                 "board": {
@@ -1361,6 +1360,104 @@ class PCILeechGenerator:
             # is enforced below. Keep it short to avoid drift.
             unified_header = "# Generated PCILeech TCL Script"
 
+        # ------------------------------------------------------------------
+        # Hardened fallback TCL context construction.
+        # The normal path (TCLBuilder/BuildContext) already supplies
+        # device/board/device_config/board_config/etc. When we land here it
+        # means that higher level builder integration failed. We must still
+        # meet the template security contract (no missing required vars) and
+        # preserve donor uniqueness: never inject fabricated IDs if the
+        # upstream dynamic identifiers are absent. Fail fast instead.
+        # ------------------------------------------------------------------
+        vid = context.get("vendor_id")
+        did = context.get("device_id")
+        if not vid or not did:  # Strict: cannot proceed without both
+            raise PCILeechGenerationError(
+                safe_format(
+                    (
+                        "Fallback TCL generation aborted: missing vendor_id/"
+                        "device_id (vid={vid} did={did})"
+                    ),
+                    vid=vid,
+                    did=did,
+                )
+            )
+
+        # Optional identifiers; keep None checks explicit – if subsystem ids
+        # are absent we intentionally mirror primary IDs (mirrors unified
+        # context builder behavior) – this is allowed because they are still
+        # donor sourced, not constants. Do NOT introduce arbitrary defaults.
+        subsys_vid = context.get("subsystem_vendor_id") or vid
+        subsys_did = context.get("subsystem_device_id") or did
+        revision_id = context.get("revision_id") or context.get("revision")
+        class_code = context.get("class_code")
+
+        def _hex_clean(val: Any, width: int) -> str:
+            """Normalize value to uppercase zero-padded hex (no 0x)."""
+            if val is None:
+                # For revision/class we allow fallback minimal safe forms ONLY
+                # if upstream didn't provide them (non-identity critical).
+                if width == 2:
+                    return "00"
+                if width == 6:
+                    return "000000"
+                return "0000"  # shouldn't be used for VID/DID due to earlier guard
+            if isinstance(val, int):
+                return f"{val:0{width}X}"
+            s = str(val).lower().replace("0x", "").upper()
+            return s.zfill(width)
+
+        device_block = {
+            "vendor_id": _hex_clean(vid, 4),
+            "device_id": _hex_clean(did, 4),
+            "revision_id": _hex_clean(revision_id, 2),
+            "class_code": _hex_clean(class_code, 6),
+            "subsys_vendor_id": _hex_clean(subsys_vid, 4),
+            "subsys_device_id": _hex_clean(subsys_did, 4),
+        }
+
+        device_signature = safe_format(
+            "{vid}:{did}:{rid}",
+            vid=device_block["vendor_id"],
+            did=device_block["device_id"],
+            rid=device_block["revision_id"],
+        )
+
+        # Provide structured configs mirroring normal builder output so that
+        # any template expecting device_config/board_config remains satisfied.
+        device_config = {
+            **device_block,
+            "identification": {
+                "vendor_id": device_block["vendor_id"],
+                "device_id": device_block["device_id"],
+                "class_code": device_block["class_code"],
+                "subsystem_vendor_id": device_block["subsys_vendor_id"],
+                "subsystem_device_id": device_block["subsys_device_id"],
+            },
+            "registers": {"revision_id": device_block["revision_id"]},
+        }
+
+        board_block = {
+            "name": context.get("board_name", context.get("board", "unknown")),
+            "fpga_part": fpga_part,
+            "fpga_family": context.get("fpga_family", "7series"),
+            "pcie_ip_type": context.get("pcie_ip_type", "7x"),
+            "supports_msi": bool(context.get("supports_msi", False)),
+            "supports_msix": bool(context.get("supports_msix", False)),
+            "max_lanes": context.get("max_lanes", 1),
+        }
+
+        msix_cfg = context.get("msix_config") or {
+            "enabled": False,
+            "table_size": 0,
+            "vectors": 0,
+            "table_bir": 0,
+            "table_offset": 0x0,
+            "pba_bir": 0,
+            "pba_offset": 0x0,
+            "is_supported": False,
+        }
+
         tpl_context: Dict[str, Any] = {
             # Provide both legacy 'header_comment' and internal 'header'.
             "header_comment": unified_header,
@@ -1371,12 +1468,14 @@ class PCILeechGenerator:
             # it directly in addition to nested under board for backward
             # compatibility with existing templates.
             "fpga_family": context.get("fpga_family", "7series"),
-            "board": {
-                "name": context.get("board_name", context.get("board", "unknown")),
-                "fpga_part": fpga_part,
-                "fpga_family": context.get("fpga_family", "7series"),
-            },
-            "build": {"jobs": 4},
+            "board": board_block,
+            "board_config": board_block,
+            "device": device_block,
+            "device_config": device_config,
+            "device_signature": device_signature,
+            "msix_config": msix_cfg,
+            "constraint_files": [],
+            "build": {"jobs": 4, "batch_mode": True, "timeout": 3600},
             "batch_mode": True,
             "synthesis_strategy": "Flow_PerfOptimized_high",
             "implementation_strategy": "Performance_Explore",
@@ -1452,7 +1551,11 @@ class PCILeechGenerator:
             Writemask COE content or None if generation fails
         """
         try:
-            log_info_safe(self.logger, "Generating writemask COE file", prefix="WRMASK")
+            log_info_safe(
+                self.logger,
+                "Generating writemask COE file",
+                prefix="WRMASK",
+            )
 
             # Initialize writemask generator
             writemask_gen = WritemaskGenerator()

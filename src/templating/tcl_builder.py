@@ -117,8 +117,25 @@ class BuildContext:
         if not self.board_name:
             raise ValueError("board_name is required and cannot be empty")
 
-    def to_template_context(self) -> Dict[str, Any]:
-        """Convert build context to template context dictionary with all required variables."""
+    def to_template_context(self, strict: bool = False) -> Dict[str, Any]:
+        """Convert build context to template context dictionary with all
+        required variables.
+
+        Args:
+            strict: If True, raises ValueError if any implicit defaults
+                are used
+
+        Returns:
+            Dictionary containing template context with metadata about
+            defaults used
+        """
+        # Initialize context metadata to track default usage
+        context_metadata = {
+            "strict_mode": strict,
+            "defaults_used": {},
+            "explicit_values": {},
+        }
+
         # Enhanced subsystem ID handling with proper defaults
         subsys_vendor_id = getattr(self, "subsys_vendor_id", None) or self.vendor_id
         subsys_device_id = getattr(self, "subsys_device_id", None) or self.device_id
@@ -128,6 +145,50 @@ class BuildContext:
         device_id = self.device_id or 0x8168  # Default to RTL8168
         revision_id = self.revision_id or 0x15  # Default revision
         class_code = self.class_code or 0x020000  # Default to Ethernet controller
+
+        # Track which values were defaulted vs explicitly provided
+        if self.vendor_id is None:
+            context_metadata["defaults_used"]["vendor_id"] = 0x10EC
+        else:
+            context_metadata["explicit_values"]["vendor_id"] = self.vendor_id
+
+        if self.device_id is None:
+            context_metadata["defaults_used"]["device_id"] = 0x8168
+        else:
+            context_metadata["explicit_values"]["device_id"] = self.device_id
+
+        if self.revision_id is None:
+            context_metadata["defaults_used"]["revision_id"] = 0x15
+        else:
+            context_metadata["explicit_values"]["revision_id"] = self.revision_id
+
+        if self.class_code is None:
+            context_metadata["defaults_used"]["class_code"] = 0x020000
+        else:
+            context_metadata["explicit_values"]["class_code"] = self.class_code
+
+        if getattr(self, "subsys_vendor_id", None) is None:
+            context_metadata["defaults_used"]["subsys_vendor_id"] = (
+                self.vendor_id)
+        else:
+            context_metadata["explicit_values"]["subsys_vendor_id"] = (
+                self.subsys_vendor_id)
+
+        if getattr(self, "subsys_device_id", None) is None:
+            context_metadata["defaults_used"]["subsys_device_id"] = (
+                self.device_id)
+        else:
+            context_metadata["explicit_values"]["subsys_device_id"] = (
+                self.subsys_device_id)
+
+        # In strict mode, reject any implicit defaults
+        if strict and context_metadata["defaults_used"]:
+            default_keys = list(context_metadata["defaults_used"].keys())
+            raise ValueError(
+                f"Strict mode enabled: Cannot use implicit defaults for "
+                f"{default_keys}. Please provide explicit values for these "
+                "fields."
+            )
 
         # Generate device signature for security compliance
         device_signature = safe_format(
@@ -304,6 +365,8 @@ class BuildContext:
             "pcileech_ip_dir": self.pcileech_ip_dir,
             "batch_mode": self.batch_mode,
             "constraint_files": [],  # Add empty constraint files list
+            # Context metadata for introspection and strict mode validation
+            "context_metadata": context_metadata,
         }
 
 

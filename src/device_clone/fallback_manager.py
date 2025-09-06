@@ -105,6 +105,9 @@ class FallbackManager:
         "max_lanes": 1,
         "supports_msi": True,
         "supports_msix": False,
+    # Control whether PM sideband interface signals are exposed. Safe
+    # default is False (feature disabled) so templates gate logic cleanly.
+    "expose_pm_sideband": False,
         # Low-risk template-only fallbacks to reduce false positives during
         # static template validation. These are non-device-unique defaults
         # (empty/zero) and do not violate donor-uniqueness principles.
