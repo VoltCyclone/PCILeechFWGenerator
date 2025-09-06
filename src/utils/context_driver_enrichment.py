@@ -13,17 +13,6 @@ from string_utils import (
 
 from src.utils.unified_context import TemplateObject  # For context compatibility
 
-# Import kernel_utils dependencies individually to avoid long lines
-from src.scripts.kernel_utils import is_linux
-
-from src.scripts.kernel_utils import resolve_driver_module
-
-from src.scripts.kernel_utils import ensure_kernel_source
-
-from src.scripts.kernel_utils import find_driver_sources
-
-from src.scripts.kernel_utils import logger
-
 
 def enrich_context_with_driver(
     context: Union[Dict[str, Any], TemplateObject],
@@ -32,10 +21,10 @@ def enrich_context_with_driver(
     *,
     ensure_sources: bool = False,
     max_sources: int = 40,
-    _is_linux=is_linux,
-    _resolve_driver_module=resolve_driver_module,
-    _ensure_kernel_source=ensure_kernel_source,
-    _find_driver_sources=find_driver_sources,
+    _is_linux=None,
+    _resolve_driver_module=None,
+    _ensure_kernel_source=None,
+    _find_driver_sources=None,
 ) -> Union[Dict[str, Any], TemplateObject]:
     """Attach kernel driver metadata to an existing build context.
 
@@ -57,8 +46,27 @@ def enrich_context_with_driver(
         else:
             obj[key] = value
 
+    # Delayed imports to break cyclic dependency
+    from src.scripts import kernel_utils
+
     # Dependency injection for testability
-    is_linux = _is_linux
+    is_linux = _is_linux if _is_linux is not None else kernel_utils.is_linux
+    resolve_driver_module = (
+        _resolve_driver_module
+        if _resolve_driver_module is not None
+        else kernel_utils.resolve_driver_module
+    )
+    ensure_kernel_source = (
+        _ensure_kernel_source
+        if _ensure_kernel_source is not None
+        else kernel_utils.ensure_kernel_source
+    )
+    find_driver_sources = (
+        _find_driver_sources
+        if _find_driver_sources is not None
+        else kernel_utils.find_driver_sources
+    )
+    logger = kernel_utils.logger
     resolve_driver_module = _resolve_driver_module
     ensure_kernel_source = _ensure_kernel_source
     find_driver_sources = _find_driver_sources

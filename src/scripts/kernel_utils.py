@@ -394,4 +394,11 @@ def find_driver_sources(
 # ---------------------------------------------------------------------------
 
 
+# Expose enrich_context_with_driver for test and module compatibility
 from src.utils.context_driver_enrichment import enrich_context_with_driver
+
+# Retain the usage wrapper for legacy/internal use if needed
+
+
+def enrich_context_with_driver_usage(*args, **kwargs):
+    return enrich_context_with_driver(*args, **kwargs)
