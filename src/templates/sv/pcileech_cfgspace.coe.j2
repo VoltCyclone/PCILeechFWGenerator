@@ -285,23 +285,27 @@ FFFFFFFF,
 ; =====================================================================
 ; Cap ID=0x01, Next=0x00, AER Capabilities=0x0000
 00000001,
-; Uncorrectable Error Status
+; Uncorrectable Error Status (latched events)
 00000000,
 ; Uncorrectable Error Mask
-00000000,
+{{ "%08X" % aer.uncorrectable_error_mask }},
 ; Uncorrectable Error Severity
-00000000,
-; Correctable Error Status
+{{ "%08X" % aer.uncorrectable_error_severity }},
+; Correctable Error Status (latched events)
 00000000,
 ; Correctable Error Mask
-00000000,
+{{ "%08X" % aer.correctable_error_mask }},
 ; Advanced Error Capabilities and Control
-00000000,
+{{ "%08X" % aer.advanced_error_capabilities }},
 ; Header Log (4 DWORDs)
 00000000,
 00000000,
 00000000,
 00000000,
+{% if device_config.enable_error_injection %}
+; Optional Error Injection Control (implementation dependent)
+; This build enables error injection hooks in HDL (not represented here).
+{% endif %}
 ; Root Error Command
 00000000,
 ; Root Error Status

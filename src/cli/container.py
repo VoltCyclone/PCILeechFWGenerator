@@ -14,23 +14,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from ..device_clone.constants import \
-    PRODUCTION_DEFAULTS  # Central production feature toggles
+from ..device_clone.constants import (
+    PRODUCTION_DEFAULTS,
+)  # Central production feature toggles
 from ..exceptions import is_platform_error
 from ..log_config import get_logger
 from ..shell import Shell
-from .build_constants import (DEFAULT_ACTIVE_INTERRUPT_MODE,
-                              DEFAULT_ACTIVE_INTERRUPT_VECTOR,
-                              DEFAULT_ACTIVE_PRIORITY,
-                              DEFAULT_ACTIVE_TIMER_PERIOD,
-                              DEFAULT_BEHAVIOR_PROFILE_DURATION)
+from .build_constants import (
+    DEFAULT_ACTIVE_INTERRUPT_MODE,
+    DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+    DEFAULT_ACTIVE_PRIORITY,
+    DEFAULT_ACTIVE_TIMER_PERIOD,
+    DEFAULT_BEHAVIOR_PROFILE_DURATION,
+)
 from .vfio import VFIOBinder  # auto‑fix & diagnostics baked in
 from .vfio import get_current_driver, restore_driver
 
 # Import safe logging functions
 try:
-    from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                                log_warning_safe)
+    from ..string_utils import (
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+    )
 except ImportError:
     # Fallback implementations
 
@@ -107,6 +114,8 @@ class BuildConfig:
     # output options
     output_template: Optional[str] = None
     donor_template: Optional[str] = None
+    # experimental/testing features
+    enable_error_injection: bool = False
 
     # ------------------------------------------------------------------
     # Image reference helpers
@@ -187,6 +196,8 @@ class BuildConfig:
             args.extend(["--output-template", self.output_template])
         if self.donor_template:
             args.extend(["--donor-template", self.donor_template])
+        if self.enable_error_injection:
+            args.append("--enable-error-injection")
         return args
 
     def __post_init__(self) -> None:

@@ -14,23 +14,32 @@ from datetime import datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import (Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar,
-                    Union)
+from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
 
 from src.error_utils import extract_root_cause
 from src.utils.context_error_messages import (
-    MISSING_IDENTIFIERS, STRICT_MODE_MISSING,
-    TEMPLATE_CONTEXT_VALIDATION_FAILED)
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe, safe_format)
+    MISSING_IDENTIFIERS,
+    STRICT_MODE_MISSING,
+    TEMPLATE_CONTEXT_VALIDATION_FAILED,
+)
+from string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
-from .validation_constants import (CRITICAL_TEMPLATE_CONTEXT_KEYS,
-                                   DEFAULT_COUNTER_WIDTH,
-                                   DEFAULT_PROCESS_VARIATION,
-                                   DEFAULT_TEMPERATURE_COEFFICIENT,
-                                   DEFAULT_VOLTAGE_VARIATION,
-                                   DEVICE_CLASS_MAPPINGS, KNOWN_DEVICE_TYPES,
-                                   POWER_TRANSITION_CYCLES)
+from .validation_constants import (
+    CRITICAL_TEMPLATE_CONTEXT_KEYS,
+    DEFAULT_COUNTER_WIDTH,
+    DEFAULT_PROCESS_VARIATION,
+    DEFAULT_TEMPERATURE_COEFFICIENT,
+    DEFAULT_VOLTAGE_VARIATION,
+    DEVICE_CLASS_MAPPINGS,
+    KNOWN_DEVICE_TYPES,
+    POWER_TRANSITION_CYCLES,
+)
 
 # Type aliases for clarity
 HexString = str
@@ -1035,6 +1044,8 @@ class UnifiedContextBuilder:
                 "max_payload_size": 256,
                 "msi_vectors": 4,
                 "enable_advanced_features": True,
+                # Optional AER-related error injection logic (default disabled)
+                "enable_error_injection": kwargs.get("enable_error_injection", False),
                 "enable_dma_operations": True,
                 "device_type": device_type,
                 "device_class": device_class,
@@ -1075,6 +1086,36 @@ class UnifiedContextBuilder:
         )
 
         context["config"] = comprehensive_config
+
+        # -----------------------------------------------------------------
+        # Advanced Error Reporting (AER) context injection
+        # Only add if advanced features are enabled to avoid leaking
+        # capability data into minimal builds. Values are sourced strictly
+        # from centralized constants (no hardcoded fallbacks) to stay DRY.
+        # -----------------------------------------------------------------
+        if device_config.enable_advanced_features:
+            try:
+                from src.pci_capability.constants import (
+                    AER_CAPABILITY_VALUES as _AER,
+                )
+
+                aer_ctx = {
+                    # Store as integers; template will format as 8-hex digits
+                    "uncorrectable_error_mask": int(_AER["uncorrectable_error_mask"]),
+                    "uncorrectable_error_severity": int(
+                        _AER["uncorrectable_error_severity"]
+                    ),
+                    "correctable_error_mask": int(_AER["correctable_error_mask"]),
+                    "advanced_error_capabilities": int(
+                        _AER["advanced_error_capabilities"]
+                    ),
+                }
+                context["aer"] = TemplateObject(aer_ctx)
+            except Exception as e:  # Fail fast with explicit logging
+                log_warning_safe(
+                    self.logger,
+                    safe_format("Skipping AER context injection: {rc}", rc=str(e)),
+                )
 
     def _add_standard_configs(self, context: Dict[str, Any], **kwargs) -> None:
         """Add standard configuration objects."""
@@ -1478,8 +1519,7 @@ class UnifiedContextBuilder:
         # even if empty or partial.
         try:
             # Import from shared driver enrichment module to avoid cyclic dependency
-            from src.utils.context_driver_enrichment import \
-                enrich_context_with_driver
+            from src.utils.context_driver_enrichment import enrich_context_with_driver
 
             enrich_context_with_driver(
                 template_context,

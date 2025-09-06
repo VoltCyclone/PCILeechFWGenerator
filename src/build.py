@@ -23,19 +23,29 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe, safe_format)
+from string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 # Import board functions from the correct module
-from .device_clone.board_config import (get_pcileech_board_config,
-                                        validate_board)
+from .device_clone.board_config import get_pcileech_board_config, validate_board
 from .device_clone.constants import PRODUCTION_DEFAULTS
+
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (ConfigurationError, FileOperationError,
-                         ModuleImportError, MSIXPreloadError,
-                         PCILeechBuildError, PlatformCompatibilityError,
-                         VivadoIntegrationError)
+from .exceptions import (
+    ConfigurationError,
+    FileOperationError,
+    ModuleImportError,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    PlatformCompatibilityError,
+    VivadoIntegrationError,
+)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -87,6 +97,8 @@ class BuildConfiguration:
     vivado_path: Optional[str] = None
     vivado_jobs: int = 4
     vivado_timeout: int = 3600
+    # Experimental / testing feature toggles
+    enable_error_injection: bool = False
 
 
 @dataclass
@@ -701,6 +713,7 @@ class ConfigurationManager:
             vivado_path=getattr(args, "vivado_path", None),
             vivado_jobs=getattr(args, "vivado_jobs", 4),
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
+            enable_error_injection=getattr(args, "enable_error_injection", False),
         )
 
     def extract_device_config(
@@ -991,8 +1004,10 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                      PCILeechGenerator)
+        from .device_clone.pcileech_generator import (
+            PCILeechGenerationConfig,
+            PCILeechGenerator,
+        )
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1002,6 +1017,9 @@ class FirmwareBuilder:
                 template_dir=None,
                 output_dir=self.config.output_dir,
                 enable_behavior_profiling=self.config.enable_profiling,
+                enable_error_injection=getattr(
+                    self.config, "enable_error_injection", False
+                ),
             )
         )
 
@@ -1014,8 +1032,7 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import \
-                DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
@@ -1217,8 +1234,7 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1346,6 +1362,15 @@ Examples:
         type=int,
         default=3600,
         help="Timeout for Vivado operations in seconds (default: 3600)",
+    )
+
+    parser.add_argument(
+        "--enable-error-injection",
+        action="store_true",
+        help=(
+            "Enable hardware error injection test hooks (AER). Disabled by default; "
+            "use only in controlled validation scenarios."
+        ),
     )
 
     return parser.parse_args(argv)
