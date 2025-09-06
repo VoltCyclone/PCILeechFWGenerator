@@ -590,3 +590,34 @@ AER_CAPABILITY_VALUES = {
 
 # Common MSI-X table size
 BAR_SIZE_MSIX_TABLE = 0x1000
+
+# =============================================================================
+# MSI-X VALIDATOR CONSTANTS (formerly inline in msix_bar_validator)
+# =============================================================================
+
+# BAR index bounds
+BAR_INDEX_MIN = 0
+BAR_INDEX_MAX = 5  # Standard 6 BARs (0-5)
+NON_STANDARD_BAR_MAX = 2  # Typical expectation for MSI-X placement (BAR 0-2)
+
+# Alignment and sizing
+PAGE_SIZE_4K = 0x1000
+CACHELINE_OPTIMAL = 64
+MSIX_TABLE_ENTRY_SIZE_BYTES = 16  # Same as MSIX_TABLE_ENTRY_SIZE
+PBA_VECTORS_PER_DWORD = 32  # 1 bit per vector
+DWORD_SIZE_BYTES = 4
+
+# Vector count thresholds
+LARGE_VECTOR_WARNING_THRESHOLD = 256
+INTEL_VECTOR_WARNING_THRESHOLD = 128
+EXCESSIVE_VECTOR_THRESHOLD_LOWEND = 64
+LOW_END_DEVICE_ID_THRESHOLD = 0x1500
+OVERSIZED_BAR_FACTOR = 4  # BAR > needed * factor triggers warning
+
+# Reserved region heuristic (first 32KB for control/PIO/etc.)
+RESERVED_REGION_CONTROL_END = 0x8000
+RESERVED_REGIONS = [
+    {"start": 0x0000, "end": 0x1000, "name": "Device Control Registers"},
+    {"start": 0x4000, "end": 0x8000, "name": "Custom PIO Region"},
+    {"start": 0xF000, "end": 0x10000, "name": "Configuration Space Shadow"},
+]

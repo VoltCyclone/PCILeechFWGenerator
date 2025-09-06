@@ -16,8 +16,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from src.string_utils import (log_debug_safe, log_error_safe,
-                                  log_info_safe, log_warning_safe)
+    from src.string_utils import (
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+    )
 except ImportError:
     # Fallback for when string_utils is not available
     def log_info_safe(logger, template, **kwargs):
@@ -35,8 +39,7 @@ except ImportError:
 
 # Import device configuration system
 try:
-    from src.device_clone.device_config import (DeviceConfiguration,
-                                                get_device_config)
+    from src.device_clone.device_config import DeviceConfiguration, get_device_config
 except ImportError:
     # Fallback if device config is not available
     DeviceConfiguration = None
@@ -768,39 +771,6 @@ class ConfigSpaceManager:
         )
         device_info["bars"] = self._extract_bar_info(config_space)
 
-        # Use resilient device lookup to fill in any missing information
-        try:
-            # Use dynamic import to avoid circular dependency
-            device_info_lookup = importlib.import_module(
-                "src.device_clone.device_info_lookup"
-            )
-            lookup_device_info = getattr(device_info_lookup, "lookup_device_info")
-
-            # Get complete device info with fallback mechanisms, passing flag to prevent recursion
-            device_info = lookup_device_info(
-                self.bdf, device_info, from_config_manager=True
-            )
-
-            log_info_safe(
-                logger,
-                "Device info enhanced with resilient lookup for {bdf}",
-                bdf=self.bdf,
-                prefix="CNFG",
-            )
-        except ImportError:
-            log_warning_safe(
-                logger,
-                "Device info lookup module not available, using basic extraction only",
-                prefix="CNFG",
-            )
-        except Exception as e:
-            log_warning_safe(
-                logger,
-                "Failed to enhance device info with lookup: {error}",
-                error=str(e),
-                prefix="CNFG",
-            )
-
         self._log_extracted_device_info(device_info)
 
         return device_info
@@ -1138,8 +1108,7 @@ class ConfigSpaceManager:
                 )
                 bar_info.size = size_found
                 # Generate proper encoding for the size
-                from src.device_clone.bar_size_converter import \
-                    BarSizeConverter
+                from src.device_clone.bar_size_converter import BarSizeConverter
 
                 try:
                     bar_info.size_encoding = BarSizeConverter.size_to_encoding(

@@ -37,14 +37,13 @@ except ImportError:
 
 # Import template renderer
 try:
-    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
+    from src.templating.template_renderer import TemplateRenderer
 except ImportError:
     try:
-        from templating.template_renderer import TemplateRenderer, TemplateRenderError
+        from templating.template_renderer import TemplateRenderer
     except ImportError:
         from src.templating.template_renderer import (
             TemplateRenderer,
-            TemplateRenderError,
         )
 
 # Import BAR size constants
@@ -149,10 +148,7 @@ def is_valid_offset(data: bytearray, offset: int, size: int) -> bool:
 
 def find_cap(cfg: str, cap_id: int) -> Optional[int]:
     """
-    Find a capability in the PCI configuration space, supporting both standard and extended capabilities.
-
-    This function now supports PCIe extended capabilities (offset >= 0x100) by leveraging
-    the existing PCI capability infrastructure when available.
+    Find a capability in the PCI configuration space,
 
     Args:
         cfg: Configuration space as a hex string
@@ -178,20 +174,23 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
             if standard_offset is not None:
                 log_debug_safe(
                     logger,
-                    "Found capability ID 0x{cap_id:02x} at standard offset 0x{offset:02x}",
+                    "Found capability ID 0x{cap_id:02x} at ",
+                    " standard offset 0x{offset:02x}",
                     cap_id=cap_id,
                     offset=standard_offset,
                 )
                 return standard_offset
 
-            # If not found in standard space and extended capability support is available,
+            # If not found in standard space and extended
+            # capability support is available,
             # try extended capabilities
             if find_ext_cap is not None:
                 extended_offset = find_ext_cap(cfg, cap_id)
                 if extended_offset is not None:
                     log_debug_safe(
                         logger,
-                        "Found capability ID 0x{cap_id:02x} at extended offset 0x{offset:03x}",
+                        "Found capability ID 0x{cap_id:02x} at "
+                        "extended offset 0x{offset:03x}",
                         cap_id=cap_id,
                         offset=extended_offset,
                     )
@@ -206,13 +205,13 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         except Exception as e:
             log_warning_safe(
                 logger,
-                "Error using advanced PCI capability infrastructure: {error}, falling back to local implementation",
+                "Error using advanced PCI capability infrastructure: {error}, "
+                "falling back to local implementation",
                 error=e,
             )
             # Fall through to local implementation
 
     # Fallback to local implementation for standard capabilities only
-    # Check if configuration space is valid (minimum 256 bytes for basic config space)
     if not cfg or len(cfg) < 512:  # 256 bytes = 512 hex chars
         log_warning_safe(logger, "Configuration space is too small (need ≥256 bytes)")
         return None
@@ -416,7 +415,11 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         # Read PBA Offset/BIR register (offset 8 from capability start)
         pba_offset_bir_offset = cap + 8
         if not is_valid_offset(cfg_bytes, pba_offset_bir_offset, 4):
-            log_warning_safe(logger, "MSI-X PBA Offset/BIR register is out of bounds")
+            log_warning_safe(
+                logger,
+                "MSI-X PBA Offset/BIR register at 0x{offset:02x} is out of bounds",
+                offset=pba_offset_bir_offset,
+            )
             return result
 
         pba_offset_bir = read_u32_le(cfg_bytes, pba_offset_bir_offset)
@@ -543,19 +546,14 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
             # Estimate BAR size - try multiple methods for accuracy
             size = 0
             if bar_value != 0:
-                # Method 1: Try using BarSizeConverter for proper size detection
-                # Note: This requires the BAR value to be the result of writing all 1s
-                # and reading back, which we don't have from config space dumps
+
                 try:
                     from src.device_clone.bar_size_converter import BarSizeConverter
 
-                    # For config space values, we can't use the PCIe probe method
-                    # as we don't have the actual size mask. Use the simplified method instead.
                     size = 0  # Skip BarSizeConverter for config space parsing
                 except ImportError:
                     pass
 
-                # Method 2: Use simplified estimation based on address alignment
                 if size == 0:
                     if is_io_bar:
                         # I/O BARs are typically smaller
@@ -570,7 +568,7 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
                                 alignment, BAR_MEM_MIN_SIZE
                             )  # Minimum 4KB for memory BARs
                         else:
-                            size = BAR_MEM_DEFAULT_SIZE  # Default 64KB if we can't determine
+                            size = BAR_MEM_DEFAULT_SIZE
 
             bar_info = {
                 "index": i,
@@ -584,7 +582,8 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
             bars.append(bar_info)
             log_debug_safe(
                 logger,
-                "Parsed BAR {index}: {type} @ 0x{address:016x}, size=0x{size:x}, 64bit={is_64bit}",
+                "Parsed BAR {index}: {type} @ 0x{address:016x}, "
+                "size=0x{size:x}, 64bit={is_64bit}",
                 index=i,
                 type=bar_type,
                 address=base_addr,
@@ -684,7 +683,8 @@ def validate_msix_configuration_enhanced(
 
             log_debug_safe(
                 logger,
-                "Validating MSI-X overlap in BAR {bir}: size=0x{size:x}, 64bit={is_64bit}",
+                "Validating MSI-X overlap in BAR {bir}: size=0x{size:x}, "
+                "64bit={is_64bit}",
                 bir=table_bir,
                 size=bar_size,
                 is_64bit=bar_is_64bit,
@@ -700,7 +700,8 @@ def validate_msix_configuration_enhanced(
                 if table_end > bar_size:
                     errors.append(
                         f"MSI-X table extends beyond BAR {table_bir} "
-                        f"(table ends at 0x{table_end:x}, BAR size is 0x{bar_size:x})"
+                        f"(table ends at 0x{table_end:x}, "
+                        f"BAR size is 0x{bar_size:x})"
                     )
 
                 if pba_end > bar_size:
@@ -713,12 +714,14 @@ def validate_msix_configuration_enhanced(
             if table_offset < pba_end and table_end > pba_offset:
                 errors.append(
                     f"MSI-X table (0x{table_offset:x}-0x{table_end:x}) and "
-                    f"PBA (0x{pba_offset:x}-0x{pba_end:x}) overlap in BAR {table_bir}"
+                    f"PBA (0x{pba_offset:x}-0x{pba_end:x}) "
+                    f"overlap in BAR {table_bir}"
                 )
 
             log_debug_safe(
                 logger,
-                "MSI-X overlap validation complete: table=0x{table_offset:x}-0x{table_end:x}, "
+                "MSI-X overlap validation complete: "
+                "table=0x{table_offset:x}-0x{table_end:x}, "
                 "pba=0x{pba_offset:x}-0x{pba_end:x}, bar_size=0x{bar_size:x}",
                 table_offset=table_offset,
                 table_end=table_end,
@@ -760,8 +763,10 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
         )
 
         raise ValueError(
-            f"Cannot generate MSI-X module - missing critical fields: {missing_fields}. "
-            f"MSI-X BAR indices and offsets must come from actual hardware configuration."
+            f"Cannot generate MSI-X module - "
+            f"missing critical fields: {missing_fields}. "
+            f"MSI-X BAR indices and offsets must come "
+            f"from actual hardware configuration."
         )
 
     if msix_info["table_size"] == 0:
@@ -786,7 +791,10 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
         # Generate alignment warning if needed
         alignment_warning = ""
         if msix_info["table_offset"] % 8 != 0:
-            alignment_warning = f"// Warning: MSI-X table offset 0x{msix_info['table_offset']:x} is not 8-byte aligned"
+            alignment_warning = (
+                f"// Warning: MSI-X table offset "
+                f"0x{msix_info['table_offset']:x} is not 8-byte aligned"
+            )
 
     # Prepare template context
     context = {
@@ -891,11 +899,14 @@ def generate_msix_capability_registers(msix_info: Dict[str, Any]) -> str:
         1, msix_info.get("table_size", 1)
     )  # Minimum size 1 for valid SystemVerilog
 
-    # Prepare template context
+    # Precompute encoded offset|BIR values (keep lines short)
+    _table_enc = msix_info.get("table_offset", 0x1000) | msix_info.get("table_bir", 0)
+    _pba_enc = msix_info.get("pba_offset", 0x2000) | msix_info.get("pba_bir", 0)
+
     context = {
         "table_size_minus_one": table_size - 1,
-        "table_offset_bir": f"32'h{(msix_info.get('table_offset', 0x1000) | msix_info.get('table_bir', 0)):08X}",
-        "pba_offset_bir": f"32'h{(msix_info.get('pba_offset', 0x2000) | msix_info.get('pba_bir', 0)):08X}",
+        "table_offset_bir": "32'h" + f"{_table_enc:08X}",
+        "pba_offset_bir": "32'h" + f"{_pba_enc:08X}",
     }
 
     # Use template renderer
@@ -941,7 +952,8 @@ if __name__ == "__main__":
             BITNESS = "64-bit" if bar["is_64bit"] else "32-bit"
             PREFETCH = "prefetchable" if bar["prefetchable"] else "non-prefetchable"
             print(
-                f"  BAR {bar['index']}: {bar['bar_type']} @ 0x{bar['address']:016x}, "
+                f"  BAR {bar['index']}: {bar['bar_type']} @ "
+                f"0x{bar['address']:016x}, "
                 f"size=0x{bar['size']:x} ({BITNESS}, {PREFETCH})"
             )
 

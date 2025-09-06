@@ -45,6 +45,7 @@ from src.string_utils import (
     log_info_safe,
     log_warning_safe,
     generate_tcl_header_comment,
+    utc_timestamp,
 )
 from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
 from src.utils.attribute_access import has_attr, safe_get_attr
@@ -144,6 +145,30 @@ class PCILeechGenerator:
                 f"Failed to initialize PCILeech generator: {e}"
             ) from e
 
+    # ------------------------------------------------------------------
+    # Timestamp helper (legacy compatibility for tests expecting _get_timestamp)
+    # ------------------------------------------------------------------
+    def _get_timestamp(self) -> str:
+        """Return build timestamp.
+
+        Prefers BUILD_TIMESTAMP env (for reproducible builds/tests) else falls
+        back to naive ISO8601 (local time). This mirrors legacy behavior so
+        existing tests that patch datetime in modules still receive a plain
+        ISO string without a trailing 'Z'.
+        """
+        import os
+        from datetime import datetime
+
+        override = os.getenv("BUILD_TIMESTAMP")
+        if override:
+            return override
+        try:
+            return datetime.now().isoformat()
+        except Exception:
+            from src.string_utils import utc_timestamp
+
+            return utc_timestamp()
+
     def _initialize_components(self) -> None:
         """Initialize all infrastructure components."""
         log_info_safe(
@@ -240,8 +265,17 @@ class PCILeechGenerator:
                             msix_data.update(captured)
                             log_info_safe(
                                 self.logger,
-                                "Captured MSI-X table: {vectors} vectors",
+                                (
+                                    "Captured MSI-X table: {vectors} vectors, "
+                                    "init_hex_len={ihl}, entries={entries}"
+                                ),
                                 vectors=msix_data.get("table_size", 0),
+                                ihl=(
+                                    len(msix_data.get("table_init_hex", ""))
+                                    if isinstance(msix_data.get("table_init_hex"), str)
+                                    else 0
+                                ),
+                                entries=(len(msix_data.get("table_entries") or [])),
                                 prefix="MSIX",
                             )
                         else:
@@ -299,7 +333,8 @@ class PCILeechGenerator:
                     interrupt_strategy = "msix"
                     interrupt_vectors = msix_data["table_size"]
 
-                # Step 4: Build comprehensive template context (with VFIO still active for BAR analysis)
+                # Step 4: Build comprehensive template context (with VFIO still
+                # active for BAR analysis)
                 template_context = self._build_template_context(
                     behavior_profile,
                     config_space_data,
@@ -841,8 +876,29 @@ class PCILeechGenerator:
 
             log_info_safe(
                 self.logger,
-                "Generated {count} SystemVerilog modules",
+                (
+                    "Generated {count} SystemVerilog modules | "
+                    "Pre-render msix_data: init_hex_len={ihl}, entries={entries}"
+                ),
                 count=len(modules),
+                ihl=(
+                    len(
+                        (template_context.get("msix_data") or {}).get(
+                            "table_init_hex", ""
+                        )
+                    )
+                    if isinstance(
+                        (template_context.get("msix_data") or {}).get("table_init_hex"),
+                        str,
+                    )
+                    else 0
+                ),
+                entries=(
+                    len(
+                        (template_context.get("msix_data") or {}).get("table_entries")
+                        or []
+                    )
+                ),
             )
 
             return modules
@@ -1598,12 +1654,6 @@ puts "Synthesis complete!"
             enable_advanced_features=self.config.enable_advanced_features,
             strict_validation=self.config.strict_validation,
         )
-
-    def _get_timestamp(self) -> str:
-        """Get current timestamp for generation metadata."""
-        from datetime import datetime
-
-        return datetime.now().isoformat()
 
     def save_generated_firmware(
         self, generation_result: Dict[str, Any], output_dir: Optional[Path] = None

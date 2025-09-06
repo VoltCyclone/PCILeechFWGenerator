@@ -46,8 +46,8 @@ class DeviceInfoLookup:
         Get complete device information using ConfigSpaceManager and FallbackManager.
         Args:
             partial_info: Partial device information to complete
-            from_config_manager: Flag indicating if this call originated from ConfigSpaceManager
-                                to prevent recursion
+            from_config_manager: Indicating if this call is from ConfigSpaceManager
+
         Returns:
             Complete device information dictionary
         """
@@ -82,7 +82,8 @@ class DeviceInfoLookup:
         if needs_extraction:
             log_debug_safe(
                 logger,
-                "Extracting device info from config space (from_manager={from_mgr}, missing={missing}, invalid={invalid})",
+                "Extracting device info from config space "
+                "(from_manager={from_mgr}, missing={missing}, invalid={invalid})",
                 from_mgr=from_config_manager,
                 missing=missing_critical_fields,
                 invalid=invalid_fields,
@@ -126,11 +127,9 @@ class DeviceInfoLookup:
                     prefix="LOOKUP",
                 )
 
-        # Diagnostic: log a sanitized snapshot of device_info before applying fallbacks
         try:
 
             def _is_sensitive(var_name: str) -> bool:
-                # reuse FallbackManager's sensitivity rules if available, else conservative False
                 try:
                     mgr = get_global_fallback_manager()
                     return mgr.is_sensitive_var(var_name)

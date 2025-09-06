@@ -46,7 +46,6 @@ from src.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
 from src.device_clone.behavior_profiler import BehaviorProfile
 from src.device_clone.config_space_manager import BarInfo, ConfigSpaceConstants
 from src.device_clone.bar_size_converter import extract_bar_size
-from src.device_clone.device_info_lookup import lookup_device_info
 from src.device_clone.device_config import get_device_config
 from src.device_clone.board_config import get_pcileech_board_config
 from src.device_clone.constants import (
@@ -1436,60 +1435,50 @@ class PCILeechContextBuilder:
         )
 
     def _get_vendor_name(self, vendor_id: str) -> str:
-        """Get vendor name from ID using device info lookup."""
+        """Get vendor name from vendor ID using lspci directly.
 
-        # Use the existing device info lookup to get vendor name dynamically
-        device_info = lookup_device_info(self.device_bdf, {"vendor_id": vendor_id})
+        Removed indirection through now-deleted lookup_device_info to avoid
+        redundant config space re-reads. Keep minimal logic only.
+        """
+        import subprocess
 
-        # Try to get vendor name from device info or fallback
-        vendor_name = device_info.get("vendor_name")
-        if not vendor_name:
-            # Use lspci or other system tools to get vendor name
-            import subprocess
-
-            try:
-                result = subprocess.run(
-                    ["lspci", "-mm", "-d", f"{vendor_id}:"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                if result.returncode == 0 and result.stdout:
-                    # Parse vendor name from lspci output
-                    parts = result.stdout.strip().split('"')
-                    if len(parts) > 3:
-                        vendor_name = parts[3]
-            except:
-                pass
-
-        return vendor_name or f"Vendor {vendor_id}"
+        try:
+            result = subprocess.run(
+                ["lspci", "-mm", "-d", f"{vendor_id}:"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0 and result.stdout:
+                parts = result.stdout.strip().split('"')
+                if len(parts) > 3:
+                    return parts[3]
+        except Exception:
+            pass
+        return f"Vendor {vendor_id}"
 
     def _get_device_name(self, vendor_id: str, device_id: str) -> str:
-        """Get device name from IDs using device info lookup."""
+        """Get device name from vendor/device IDs via lspci.
 
-        device_info = lookup_device_info(
-            self.device_bdf, {"vendor_id": vendor_id, "device_id": device_id}
-        )
+        Direct resolution keeps behavior identical to previous code path when
+        lookup_device_info provided no enrichment (most cases).
+        """
+        import subprocess
 
-        device_name = device_info.get("device_name")
-        if not device_name:
-            import subprocess
-
-            try:
-                result = subprocess.run(
-                    ["lspci", "-mm", "-d", f"{vendor_id}:{device_id}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                if result.returncode == 0 and result.stdout:
-                    parts = result.stdout.strip().split('"')
-                    if len(parts) > 5:
-                        device_name = parts[5]
-            except:
-                pass
-
-        return device_name or f"Device {device_id}"
+        try:
+            result = subprocess.run(
+                ["lspci", "-mm", "-d", f"{vendor_id}:{device_id}"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0 and result.stdout:
+                parts = result.stdout.strip().split('"')
+                if len(parts) > 5:
+                    return parts[5]
+        except Exception:
+            pass
+        return f"Device {device_id}"
 
     def _build_overlay_config(
         self, config_space_data: Dict[str, Any]

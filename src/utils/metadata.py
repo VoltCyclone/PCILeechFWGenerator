@@ -6,10 +6,15 @@ ensuring consistency across the codebase.
 """
 
 from datetime import datetime
+import os
+
+from src.string_utils import utc_timestamp
 from typing import Any, Dict, List, Optional
 
 
 # Internal package version resolution to avoid cyclic imports
+
+
 def _get_package_version() -> str:
     """
     Get the package version dynamically.
@@ -105,8 +110,23 @@ def build_generation_metadata(
         ]
 
     # Build base metadata
+    # Allow test patching of datetime.now() in this module while still supporting
+    # centralized utc override via BUILD_TIMESTAMP. If BUILD_TIMESTAMP is set we
+    # trust it exactly (tests can also use it). Otherwise prefer the local
+    # datetime.now().isoformat() so existing patches like
+    # patch("src.utils.metadata.datetime") continue to work.
+    ts_override = os.getenv("BUILD_TIMESTAMP")
+    if ts_override:
+        gen_ts = ts_override
+    else:
+        try:
+            gen_ts = datetime.now().isoformat()
+        except Exception:
+            # Fallback to centralized helper
+            gen_ts = utc_timestamp()
+
     metadata = {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": gen_ts,
         "generator_version": generator_version,
         "device_bdf": device_bdf,
         "components_used": components_used,

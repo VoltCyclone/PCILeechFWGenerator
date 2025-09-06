@@ -7,12 +7,19 @@ throughout the codebase with a flexible, validated configuration system.
 """
 
 import json
+
 import logging
+
 import os
+
 import re
+
 from dataclasses import dataclass, field
+
 from enum import Enum
+
 from pathlib import Path
+
 from typing import Any, Dict, List, Optional, Union
 
 from ..utils.validation_constants import KNOWN_DEVICE_TYPES
@@ -25,8 +32,12 @@ except ImportError:
     yaml = None
     YAML_AVAILABLE = False
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +71,8 @@ class DeviceType(Enum):
                     f"Missing in KNOWN_DEVICE_TYPES: {missing_in_constant}"
                 )
             raise ValueError(
-                f"DeviceType enum and KNOWN_DEVICE_TYPES mismatch: {'; '.join(error_msg)}"
+                f"DeviceType enum and KNOWN_DEVICE_TYPES "
+                f"mismatch: {'; '.join(error_msg)}"
             )
 
 
@@ -230,8 +242,10 @@ class DeviceCapabilities:
     def validate(self) -> None:
         """Validate capability values."""
         # Import here to avoid circular dependency
-        from src.device_clone.payload_size_config import (PayloadSizeConfig,
-                                                          PayloadSizeError)
+        from src.device_clone.payload_size_config import (
+            PayloadSizeConfig,
+            PayloadSizeError,
+        )
 
         # Validate payload size using the new payload size configuration
         try:
@@ -252,23 +266,26 @@ class DeviceCapabilities:
         # Validate extended configuration space pointers
         if not (0x100 <= self.ext_cfg_cap_ptr <= 0xFFC):
             raise ValueError(
-                f"Invalid extended config capability pointer: 0x{self.ext_cfg_cap_ptr:03X}"
+                f"Invalid extended config capability pointer: "
+                f"0x{self.ext_cfg_cap_ptr:03X}"
             )
 
         if not (0x100 <= self.ext_cfg_xp_cap_ptr <= 0xFFC):
             raise ValueError(
-                f"Invalid extended config express capability pointer: 0x{self.ext_cfg_xp_cap_ptr:03X}"
+                f"Invalid extended config express capability pointer: "
+                f"0x{self.ext_cfg_xp_cap_ptr:03X}"
             )
 
         # Ensure pointers are 4-byte aligned
         if self.ext_cfg_cap_ptr % 4 != 0:
             raise ValueError(
-                f"Extended config capability pointer must be 4-byte aligned: 0x{self.ext_cfg_cap_ptr:03X}"
+                f"Extended config capability pointer must be 4-byte aligned: "
+                f"0x{self.ext_cfg_cap_ptr:03X}"
             )
-
         if self.ext_cfg_xp_cap_ptr % 4 != 0:
             raise ValueError(
-                f"Extended config express capability pointer must be 4-byte aligned: 0x{self.ext_cfg_xp_cap_ptr:03X}"
+                f"Extended config express capability pointer must be "
+                f"4-byte aligned: 0x{self.ext_cfg_xp_cap_ptr:03X}"
             )
 
         # Validate active device configuration
@@ -345,8 +362,12 @@ class DeviceConfiguration:
                 "msix_vectors": self.capabilities.msix_vectors,
                 "supports_msi": self.capabilities.supports_msi,
                 "supports_msix": self.capabilities.supports_msix,
-                "supports_power_management": self.capabilities.supports_power_management,
-                "supports_advanced_error_reporting": self.capabilities.supports_advanced_error_reporting,
+                "supports_power_management": (
+                    self.capabilities.supports_power_management
+                ),
+                "supports_advanced_error_reporting": (
+                    self.capabilities.supports_advanced_error_reporting
+                ),
                 "link_width": self.capabilities.link_width,
                 "link_speed": self.capabilities.link_speed,
                 "ext_cfg_cap_ptr": self.capabilities.ext_cfg_cap_ptr,
@@ -356,12 +377,21 @@ class DeviceConfiguration:
                     "timer_period": self.capabilities.active_device.timer_period,
                     "timer_enable": self.capabilities.active_device.timer_enable,
                     "interrupt_mode": self.capabilities.active_device.interrupt_mode,
-                    "interrupt_vector": self.capabilities.active_device.interrupt_vector,
+                    # NOTE: Avoid trailing commas creating 1-element tuples.
+                    "interrupt_vector": (
+                        self.capabilities.active_device.interrupt_vector
+                    ),
                     "priority": self.capabilities.active_device.priority,
-                    "msi_vector_width": self.capabilities.active_device.msi_vector_width,
+                    "msi_vector_width": (
+                        self.capabilities.active_device.msi_vector_width
+                    ),
                     "msi_64bit_addr": self.capabilities.active_device.msi_64bit_addr,
-                    "num_interrupt_sources": self.capabilities.active_device.num_interrupt_sources,
-                    "default_source_priority": self.capabilities.active_device.default_source_priority,
+                    "num_interrupt_sources": (
+                        self.capabilities.active_device.num_interrupt_sources
+                    ),
+                    "default_source_priority": (
+                        self.capabilities.active_device.default_source_priority
+                    ),
                 },
             },
             "custom_properties": self.custom_properties,
@@ -420,6 +450,40 @@ class DeviceConfigManager:
             count=len(self.DEFAULT_PROFILES),
         )
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _log_preconfigured_config_warning(config_file: Path, file_type: str) -> None:
+        """Emit standardized warning for preconfigured device profiles.
+
+        Avoids duplicated logging blocks for YAML/JSON cases while keeping
+        strong messaging about hardcoded IDs.
+        """
+        # Ensure consistent uppercase file type label.
+        ft_label = file_type.upper()
+        log_warning_safe(logger, "=" * 80)
+        log_warning_safe(
+            logger,
+            "⚠️  WARNING: USING PRECONFIGURED {ft_label} DEVICE CONFIGURATION",
+            ft_label=ft_label,
+        )
+        log_warning_safe(
+            logger,
+            "   Loading device profile from: {config_file}",
+            config_file=str(config_file),
+        )
+        log_warning_safe(
+            logger,
+            "   This uses hardcoded vendor/device IDs that may not be unique!",
+        )
+        log_warning_safe(
+            logger,
+            "   Consider using live device detection instead of {ft_label} configs.",
+            ft_label=ft_label,
+        )
+        log_warning_safe(logger, "=" * 80)
+
     def load_config_file(self, file_path: Union[str, Path]) -> DeviceConfiguration:
         """Load device configuration from file."""
         file_path = Path(file_path)
@@ -430,10 +494,6 @@ class DeviceConfigManager:
         try:
             with open(file_path, "r") as f:
                 if file_path.suffix.lower() in [".yaml", ".yml"]:
-                    if not YAML_AVAILABLE:
-                        raise ImportError(
-                            "PyYAML is required for YAML file support. Install with: pip install PyYAML"
-                        )
                     data = yaml.safe_load(f)  # type: ignore
                 elif file_path.suffix.lower() == ".json":
                     data = json.load(f)
@@ -460,19 +520,17 @@ class DeviceConfigManager:
             raise
 
     def _dict_to_config(self, data: Dict[str, Any]) -> DeviceConfiguration:
-        """Convert dictionary to DeviceConfiguration."""
-        # Require explicit class_code - no default for security
+        """Convert raw dictionary into a validated DeviceConfiguration.
+
+        Handles legacy artifacts (single-element lists for scalar fields)
+        introduced by earlier serialization that wrapped scalars.
+        """
         if "class_code" not in data["identification"]:
             raise ValueError(
                 "class_code must be explicitly specified in device identification"
             )
 
-        # Convert hex string values to integers if needed
         def convert_to_int(value: Any) -> int:
-            """Convert hex string or int to int.
-
-            Accepts '0x' prefixed hex, plain hex like '10ec', or decimal strings.
-            """
             if isinstance(value, int):
                 return value
             if isinstance(value, str):
@@ -511,20 +569,39 @@ class DeviceConfigManager:
             bist=data["registers"].get("bist", 0x00),
         )
 
-        # Load active device configuration if present
         active_device_data = data["capabilities"].get("active_device", {})
+
+        def _coerce_scalar(value: Any) -> Any:
+            if (
+                isinstance(value, (list, tuple))
+                and len(value) == 1
+                and isinstance(value[0], (int, str))
+            ):
+                return value[0]
+            return value
+
         active_device = ActiveDeviceConfig(
-            enabled=active_device_data.get("enabled", False),
-            timer_period=active_device_data.get("timer_period", 100000),
-            timer_enable=active_device_data.get("timer_enable", True),
-            interrupt_mode=active_device_data.get("interrupt_mode", "msi"),
-            interrupt_vector=active_device_data.get("interrupt_vector", 0),
-            priority=active_device_data.get("priority", 15),
-            msi_vector_width=active_device_data.get("msi_vector_width", 5),
-            msi_64bit_addr=active_device_data.get("msi_64bit_addr", False),
-            num_interrupt_sources=active_device_data.get("num_interrupt_sources", 8),
-            default_source_priority=active_device_data.get(
-                "default_source_priority", 8
+            enabled=_coerce_scalar(active_device_data.get("enabled", False)),
+            timer_period=_coerce_scalar(active_device_data.get("timer_period", 100000)),
+            timer_enable=_coerce_scalar(active_device_data.get("timer_enable", True)),
+            interrupt_mode=_coerce_scalar(
+                active_device_data.get("interrupt_mode", "msi")
+            ),
+            interrupt_vector=_coerce_scalar(
+                active_device_data.get("interrupt_vector", 0)
+            ),
+            priority=_coerce_scalar(active_device_data.get("priority", 15)),
+            msi_vector_width=_coerce_scalar(
+                active_device_data.get("msi_vector_width", 5)
+            ),
+            msi_64bit_addr=_coerce_scalar(
+                active_device_data.get("msi_64bit_addr", False)
+            ),
+            num_interrupt_sources=_coerce_scalar(
+                active_device_data.get("num_interrupt_sources", 8)
+            ),
+            default_source_priority=_coerce_scalar(
+                active_device_data.get("default_source_priority", 8)
             ),
         )
 
@@ -566,24 +643,7 @@ class DeviceConfigManager:
             # Try YAML
             config_file = self.config_dir / f"{name}.yaml"
             if config_file.exists():
-                log_warning_safe(logger, "=" * 80)
-                log_warning_safe(
-                    logger, "⚠️  WARNING: USING PRECONFIGURED YAML DEVICE CONFIGURATION"
-                )
-                log_warning_safe(
-                    logger,
-                    "   Loading device profile from: {config_file}",
-                    config_file=str(config_file),
-                )
-                log_warning_safe(
-                    logger,
-                    "   This uses hardcoded vendor/device IDs that may not be unique!",
-                )
-                log_warning_safe(
-                    logger,
-                    "   Consider using live device detection instead of YAML configs.",
-                )
-                log_warning_safe(logger, "=" * 80)
+                self._log_preconfigured_config_warning(config_file, "yaml")
                 config = self.load_config_file(config_file)
                 self.profiles[name] = config
                 return config
@@ -591,24 +651,7 @@ class DeviceConfigManager:
             # Try JSON
             config_file = self.config_dir / f"{name}.json"
             if config_file.exists():
-                log_warning_safe(logger, "=" * 80)
-                log_warning_safe(
-                    logger, "⚠️  WARNING: USING PRECONFIGURED JSON DEVICE CONFIGURATION"
-                )
-                log_warning_safe(
-                    logger,
-                    "   Loading device profile from: {config_file}",
-                    config_file=str(config_file),
-                )
-                log_warning_safe(
-                    logger,
-                    "   This uses hardcoded vendor/device IDs that may not be unique!",
-                )
-                log_warning_safe(
-                    logger,
-                    "   Consider using live device detection instead of JSON configs.",
-                )
-                log_warning_safe(logger, "=" * 80)
+                self._log_preconfigured_config_warning(config_file, "json")
                 config = self.load_config_file(config_file)
                 self.profiles[name] = config
                 return config
@@ -700,18 +743,50 @@ class DeviceConfigManager:
         if file_path is None:
             if self.config_dir is None:
                 raise ValueError(
-                    "No config_dir set: provide file_path or initialize DeviceConfigManager with a config_dir"
+                    "No config_dir set: provide file_path or initialize "
+                    "DeviceConfigManager with a config_dir"
                 )
             self.config_dir.mkdir(parents=True, exist_ok=True)
             file_path = self.config_dir / f"{config.name}.yaml"
 
         try:
+            if not YAML_AVAILABLE:
+                raise ImportError(
+                    "PyYAML is required for YAML file support. Install with: "
+                    "pip install PyYAML"
+                )
+
+            def _sanitize(obj: Any):
+                """Recursively sanitize object for safe YAML serialization.
+
+                Converts tuples to lists and strips any non-primitive objects
+                by using their string representation (last resort). This
+                ensures yaml.safe_load can parse without python/tuple tags.
+                """
+                if isinstance(obj, dict):
+                    return {k: _sanitize(v) for k, v in obj.items()}
+                if isinstance(obj, (list, set, tuple)):
+                    return [_sanitize(v) for v in list(obj)]
+                if isinstance(obj, (str, int, float, bool)) or obj is None:
+                    return obj
+                # Fallback: represent unknown types as string
+                try:
+                    return str(obj)
+                except Exception:
+                    return f"<unserializable {type(obj).__name__}>"
+
+            data = _sanitize(config.to_dict())
+
+            # Use safe_dump so that safe_load works symmetrically
+            assert yaml is not None  # for type checker
             with open(file_path, "w") as f:
-                if not YAML_AVAILABLE:
-                    raise ImportError(
-                        "PyYAML is required for YAML file support. Install with: pip install PyYAML"
-                    )
-                yaml.dump(config.to_dict(), f, default_flow_style=False, indent=2)  # type: ignore
+                yaml.safe_dump(
+                    data,
+                    f,
+                    default_flow_style=False,
+                    indent=2,
+                    sort_keys=True,
+                )
 
             # Add the profile to the in-memory profiles dictionary
             self.profiles[config.name] = config
@@ -782,7 +857,12 @@ def generate_device_state_machine(registers: List[Dict[str, Any]]) -> Dict[str, 
             "device_states": ["INIT", "READY", "ACTIVE", "ERROR"],
             "register_count": len(registers),
             "state_transitions": [
-                {"from": "INIT", "to": "READY", "trigger": "initialization_complete"},
+                {
+                    "from": "INIT",
+                    "to": "READY",
+                    "trigger": "initialization_complete",
+                },
+                # Short descriptions below remain compact; line wrapped above.
                 {"from": "READY", "to": "ACTIVE", "trigger": "operation_start"},
                 {"from": "ACTIVE", "to": "READY", "trigger": "operation_complete"},
                 {"from": "*", "to": "ERROR", "trigger": "error_condition"},

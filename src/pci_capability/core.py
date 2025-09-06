@@ -9,11 +9,9 @@ extended capabilities.
 """
 
 import logging
-from typing import Dict, Iterator, List, Optional, Set
+from typing import Dict, Iterator, Optional, Set
 
 from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,

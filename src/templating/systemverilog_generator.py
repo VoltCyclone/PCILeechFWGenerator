@@ -17,7 +17,12 @@ from src.__version__ import __version__
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
 from src.error_utils import format_user_friendly_error
-from src.string_utils import generate_sv_header_comment, log_error_safe, log_info_safe
+from src.string_utils import (
+    generate_sv_header_comment,
+    log_error_safe,
+    log_info_safe,
+    utc_timestamp,
+)
 
 from ..utils.unified_context import (
     DEFAULT_TIMING_CONFIG,
@@ -79,7 +84,8 @@ class MSIXHelper:
             Hex string representation of table initialization data
 
         Raises:
-            TemplateRenderError: If not in test environment and no hardware data available
+            TemplateRenderError: If not in test environment and no hardware
+                data available
         """
         import sys
 
@@ -149,6 +155,8 @@ class SystemVerilogGenerator:
             use_pcileech=self.use_pcileech_primary,
         )
 
+    # Local timestamp helper removed; use utc_timestamp from string_utils
+
     def _create_default_active_device_config(
         self, enhanced_context: Dict[str, Any]
     ) -> TemplateObject:
@@ -189,7 +197,9 @@ class SystemVerilogGenerator:
         )
 
     def generate_modules(
-        self, template_context: Dict[str, Any], behavior_profile: Optional[Any] = None
+        self,
+        template_context: Dict[str, Any],
+        behavior_profile: Optional[Any] = None,
     ) -> Dict[str, str]:
         """
         Generate SystemVerilog modules with improved error handling and performance.
@@ -213,7 +223,8 @@ class SystemVerilogGenerator:
                 context_with_defaults["bar_config"] = {}
             if "generation_metadata" not in context_with_defaults:
                 context_with_defaults["generation_metadata"] = {
-                    "generator_version": __version__
+                    "generator_version": __version__,
+                    "timestamp": utc_timestamp(),
                 }
 
             device_config = context_with_defaults.get("device_config")
@@ -221,7 +232,8 @@ class SystemVerilogGenerator:
                 # If device_config exists, it must be complete and valid
                 self.validator.validate_device_identification(device_config)
 
-            # Validate input context (will still enforce critical fields like device_signature)
+            # Validate input context (still enforces critical fields like
+            # device_signature)
             self.validator.validate_template_context(context_with_defaults)
 
             # Build enhanced context efficiently
@@ -247,7 +259,8 @@ class SystemVerilogGenerator:
                 enhanced_context.get("timing_config", DEFAULT_TIMING_CONFIG),
             )
             enhanced_context.setdefault(
-                "msix_config", enhanced_context.get("msix_config", MSIX_DEFAULT or {})
+                "msix_config",
+                enhanced_context.get("msix_config", MSIX_DEFAULT or {}),
             )
             enhanced_context.setdefault(
                 "bar_config", enhanced_context.get("bar_config", {})
@@ -258,7 +271,8 @@ class SystemVerilogGenerator:
             enhanced_context.setdefault(
                 "generation_metadata",
                 enhanced_context.get(
-                    "generation_metadata", {"generator_version": __version__}
+                    "generation_metadata",
+                    {"generator_version": __version__, "timestamp": utc_timestamp()},
                 ),
             )
             enhanced_context.setdefault(
@@ -279,6 +293,69 @@ class SystemVerilogGenerator:
                     )
                     or {}
                 )
+
+            # Propagate raw template context and MSI-X data through to the renderer.
+            # SV module generator relies on context["msix_data"] (or
+            # context["template_context"]["msix_data"]) to build the
+            # msix_table_init.hex from real hardware bytes in production.
+            try:
+                if "template_context" not in enhanced_context:
+                    enhanced_context["template_context"] = template_context
+                # Only set msix_data when provided by upstream generation
+                if "msix_data" in template_context and template_context.get(
+                    "msix_data"
+                ):
+                    enhanced_context["msix_data"] = template_context["msix_data"]
+                    # Mirror into nested template_context for consumers
+                    # that probe there.
+                    if isinstance(enhanced_context.get("template_context"), dict):
+                        enhanced_context["template_context"]["msix_data"] = (
+                            template_context["msix_data"]
+                        )
+                    # Targeted diagnostics: verify persistence of MSI-X payload
+                    try:
+                        md = enhanced_context.get("msix_data") or {}
+                        tih = md.get("table_init_hex")
+                        te = md.get("table_entries") or []
+                        log_info_safe(
+                            self.logger,
+                            (
+                                "Pre-render MSI-X: "
+                                "init_hex_len={ihl}, entries={entries}"
+                            ),
+                            ihl=(len(tih) if isinstance(tih, str) else 0),
+                            entries=(len(te) if isinstance(te, (list, tuple)) else 0),
+                            prefix="MSIX",
+                        )
+                    except Exception:
+                        # Logging must never break generation
+                        pass
+                else:
+                    # If MSI-X appears supported but msix_data is absent, emit
+                    # a focused diagnostic
+                    try:
+                        msix_cfg = enhanced_context.get("msix_config") or {}
+                        supported = (
+                            bool(msix_cfg.get("is_supported"))
+                            or (msix_cfg.get("num_vectors", 0) or 0) > 0
+                        )
+                        if supported and not template_context.get("msix_data"):
+                            log_info_safe(
+                                self.logger,
+                                (
+                                    "MSI-X supported (vectors={vectors}) but "
+                                    "msix_data missing before render; "
+                                    "upstream_template_has_msix_data={upstream}"
+                                ),
+                                vectors=msix_cfg.get("num_vectors", 0),
+                                upstream=("msix_data" in template_context),
+                                prefix="MSIX",
+                            )
+                    except Exception:
+                        pass
+            except Exception:
+                # Non-fatal: absence simply disables MSI-X table init rendering
+                pass
 
             # Ensure config_space has sensible defaults for commonly accessed fields
             # but only when device_config is either absent or completely valid
@@ -365,14 +442,19 @@ class SystemVerilogGenerator:
             raise TemplateRenderError(error_msg) from e
 
     # Backward compatibility methods
+
     def generate_systemverilog_modules(
-        self, template_context: Dict[str, Any], behavior_profile: Optional[Any] = None
+        self,
+        template_context: Dict[str, Any],
+        behavior_profile: Optional[Any] = None,
     ) -> Dict[str, str]:
         """Legacy method name for backward compatibility."""
         return self.generate_modules(template_context, behavior_profile)
 
     def generate_pcileech_modules(
-        self, template_context: Dict[str, Any], behavior_profile: Optional[Any] = None
+        self,
+        template_context: Dict[str, Any],
+        behavior_profile: Optional[Any] = None,
     ) -> Dict[str, str]:
         """Direct access to PCILeech module generation for backward compatibility.
 
@@ -397,6 +479,7 @@ class SystemVerilogGenerator:
         log_info_safe(self.logger, "Cleared SystemVerilog generator cache")
 
     # Additional backward compatibility methods
+
     def generate_advanced_systemverilog(
         self, regs: List[Dict], variance_model: Optional[Any] = None
     ) -> str:
@@ -447,7 +530,8 @@ class SystemVerilogGenerator:
             },
             "generation_metadata": {
                 "generator_version": __version__,
-                "timestamp": "2024-01-01T00:00:00Z",
+                # Dynamic build timestamp (UTC)
+                "timestamp": utc_timestamp(),
             },
             "device_type": "GENERIC",
             "device_class": "CONSUMER",

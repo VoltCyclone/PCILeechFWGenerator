@@ -12,46 +12,36 @@ from typing import Dict
 # Import local modules
 from .constants import (  # Standard capability size constants; Extended capability size constants
     EXT_CAP_SIZE_ACCESS_CONTROL_SERVICES,
-    EXT_CAP_SIZE_ADVANCED_ERROR_REPORTING, EXT_CAP_SIZE_DEFAULT,
-    EXT_CAP_SIZE_DOWNSTREAM_PORT_CONTAINMENT, EXT_CAP_SIZE_RESIZABLE_BAR,
-    EXTENDED_CAPABILITY_NAMES, PCI_EXT_CAP_ALIGNMENT, PCI_EXT_CAP_START,
-    PCI_EXT_CONFIG_SPACE_END, STANDARD_CAPABILITY_NAMES, STD_CAP_SIZE_DEFAULT,
-    STD_CAP_SIZE_MSI, STD_CAP_SIZE_MSI_X, STD_CAP_SIZE_PCI_EXPRESS,
-    STD_CAP_SIZE_POWER_MANAGEMENT, TWO_BYTE_HEADER_CAPABILITIES)
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PCICapabilityID, PCIExtCapabilityID, PruningAction)
+    EXT_CAP_SIZE_ADVANCED_ERROR_REPORTING,
+    EXT_CAP_SIZE_DEFAULT,
+    EXT_CAP_SIZE_DOWNSTREAM_PORT_CONTAINMENT,
+    EXT_CAP_SIZE_RESIZABLE_BAR,
+    EXTENDED_CAPABILITY_NAMES,
+    PCI_EXT_CAP_ALIGNMENT,
+    PCI_EXT_CAP_START,
+    PCI_EXT_CONFIG_SPACE_END,
+    STANDARD_CAPABILITY_NAMES,
+    STD_CAP_SIZE_DEFAULT,
+    STD_CAP_SIZE_MSI,
+    STD_CAP_SIZE_MSI_X,
+    STD_CAP_SIZE_PCI_EXPRESS,
+    STD_CAP_SIZE_POWER_MANAGEMENT,
+    TWO_BYTE_HEADER_CAPABILITIES,
+)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    EmulationCategory,
+    PCICapabilityID,
+    PCIExtCapabilityID,
+    PruningAction,
+)
 
 # Global logger for this module
 module_logger = logging.getLogger(__name__)
 
-# Import project utilities or use fallbacks
-try:
-    from string_utils import log_info_safe, safe_format
-except ImportError:
-    # Fallback implementations for standalone use
-    def log_info_safe(log_instance, template, **kwargs):
-        """
-        Safe logging of info messages with string formatting.
-
-        Args:
-            log_instance: Logger instance
-            template: Message template with placeholders
-            **kwargs: Values for template placeholders
-        """
-        log_instance.info(template.format(**kwargs))
-
-    def safe_format(template, **kwargs):
-        """
-        Safe string formatting that won't raise exceptions.
-
-        Args:
-            template: String template with placeholders
-            **kwargs: Values for template placeholders
-
-        Returns:
-            Formatted string
-        """
-        return template.format(**kwargs)
+# Project string utilities (no fallbacks – central source of truth)
+from string_utils import log_info_safe, safe_format
 
 
 logger = logging.getLogger(__name__)

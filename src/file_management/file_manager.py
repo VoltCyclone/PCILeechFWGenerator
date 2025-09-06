@@ -14,10 +14,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ..device_clone.constants import (PCILEECH_BUILD_SCRIPT,
-                                      PCILEECH_PROJECT_SCRIPT)
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format, safe_print_format)
+from ..device_clone.constants import PCILEECH_BUILD_SCRIPT, PCILEECH_PROJECT_SCRIPT
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    safe_print_format,
+)
+from ..__version__ import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -503,7 +509,7 @@ class FileManager:
             "board": board,
             "device_info": device_info,
             "build_timestamp": time.time(),
-            "build_version": "1.0.0",
+            "build_version": __version__,
             "features": {
                 "advanced_sv": False,  # Will be updated by caller if needed
                 "manufacturing_variance": False,  # Will be updated by caller if needed

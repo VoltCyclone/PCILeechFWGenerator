@@ -20,8 +20,13 @@ from typing import List, Optional
 
 # Import project logging and string utilities
 from ..log_config import get_logger
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    utc_timestamp,
+)
 
 ###############################################################################
 # Configuration constants - override with environment vars if desired.
@@ -55,7 +60,13 @@ def _run(
 ) -> _sp.CompletedProcess:
     """Run *cmd* and return the completed process, raising on error."""
     log_debug_safe(_logger, "Running {cmd} (cwd={cwd})", cmd=cmd, cwd=cwd)
-    return _sp.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True, text=True)
+    return _sp.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        check=True,
+        text=True,
+    )
 
 
 def _git_available() -> bool:
@@ -130,11 +141,18 @@ class RepoManager:
             path = mapping[board_type]
         except KeyError as exc:
             raise RuntimeError(
-                f"Unknown board type '{board_type}'.  Known types: {', '.join(mapping)}"
+                (
+                    "Unknown board type '{bt}'.  Known types: {known}".format(
+                        bt=board_type, known=", ".join(mapping)
+                    )
+                )
             ) from exc
         if not path.exists():
             raise RuntimeError(
-                f"Board directory {path} does not exist.  Repository may be incomplete."
+                (
+                    "Board directory {p} does not exist.  Repository may be "
+                    "incomplete."
+                ).format(p=path)
             )
         return path
 
@@ -236,7 +254,7 @@ class RepoManager:
 
         try:
             _run(["git", "-C", str(path), "pull", "--rebase", "--autostash"])
-            stamp.write_text(_dt.datetime.now().isoformat())
+            stamp.write_text(utc_timestamp())
         except Exception as exc:
             log_warning_safe(_logger, "Git pull failed: {error}", error=exc)
 
@@ -263,7 +281,7 @@ class RepoManager:
                     ["git", "clone", "--depth", "1", repo_url, str(dst)],
                     cwd=dst.parent,
                 )
-                (dst / ".last_update").write_text(_dt.datetime.now().isoformat())
+                (dst / ".last_update").write_text(utc_timestamp())
                 return
             except Exception as exc:
                 # Remove failed clone directory if it exists
@@ -324,7 +342,7 @@ def read_combined_xdc(board_type: str, *, repo_root: Optional[Path] = None) -> s
 def is_repository_accessible(
     board_type: Optional[str] = None, *, repo_root: Optional[Path] = None
 ) -> bool:
-    """Check if the repository is accessible and optionally if a specific board exists.
+    """Check repo accessibility; optionally verify a specific board exists.
 
     Args:
         board_type: Optional board type to check for specific board accessibility
