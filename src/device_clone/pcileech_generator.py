@@ -1360,15 +1360,7 @@ class PCILeechGenerator:
             # is enforced below. Keep it short to avoid drift.
             unified_header = "# Generated PCILeech TCL Script"
 
-        # ------------------------------------------------------------------
-        # Hardened fallback TCL context construction.
-        # The normal path (TCLBuilder/BuildContext) already supplies
-        # device/board/device_config/board_config/etc. When we land here it
-        # means that higher level builder integration failed. We must still
-        # meet the template security contract (no missing required vars) and
-        # preserve donor uniqueness: never inject fabricated IDs if the
-        # upstream dynamic identifiers are absent. Fail fast instead.
-        # ------------------------------------------------------------------
+        # Fallback TCL context construction with strict validation - fails fast if required device IDs are missing.
         vid = context.get("vendor_id")
         did = context.get("device_id")
         if not vid or not did:  # Strict: cannot proceed without both
