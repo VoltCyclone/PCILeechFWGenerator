@@ -61,13 +61,23 @@ def test_present_build_and_synthesis_templates_succeed(
     gen = PCILeechGenerator(cfg)
 
     scripts = gen._generate_default_tcl_scripts(
-        {"header": "H"}
+        {
+            "header": "H",
+            "vendor_id": "0x1234",
+            "device_id": "0x5678",
+            "revision_id": "0x01",
+            "class_code": "0x020000",
+            "board_name": "test_board",
+        }
     )  # type: ignore[arg-type]
 
     assert "build.tcl" in scripts
     assert "synthesis.tcl" in scripts
     assert "puts {BUILD}" in scripts["build.tcl"]
     assert "puts {SYNTH}" in scripts["synthesis.tcl"]
+    # Basic security keys presence: device_signature rendered in header_comment
+    assert "1234" in scripts["build.tcl"]  # vendor id
+    assert "5678" in scripts["build.tcl"]  # device id
     # Ensure no legacy fallback markers accidentally appear
     # Heuristic legacy pattern should not appear (ensures no inline fallback)
     assert not re.search(r"create_project .*auto", scripts["build.tcl"])
@@ -83,4 +93,6 @@ def test_missing_synthesis_template_raises(tmp_path: Path):
     gen = PCILeechGenerator(cfg)
 
     with pytest.raises(PCILeechGenerationError, match=r"synthesis.*template.*missing"):
-        gen._generate_default_tcl_scripts({})  # type: ignore[arg-type]
+        gen._generate_default_tcl_scripts(
+            {"vendor_id": "0x1234", "device_id": "0x5678"}
+        )  # type: ignore[arg-type]

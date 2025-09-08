@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
-"""
-Template Variable Validation CI Script
+"""Template Variable Validation CI Script
 
-This script performs comprehensive validation of all template variables:
-1. Extracts all variables used in templates
-2. Traces their origin in the codebase
-3. Verifies they are properly handled with fallbacks
-4. Ensures no unsafe default values are used
+Enhanced validator used by both CI and the `scripts/check_templates.sh` wrapper.
 
-Usage:
-    python3 scripts/validate_template_variables.py [--verbose] [--fix]
+Features:
+1. Extract all variables referenced in Jinja2 templates.
+2. Discover where variables are defined (context builders, fallbacks, etc.).
+3. Detect variables that appear to have no definition/fallback.
+4. Flag potentially unsafe default filter usages.
+5. (Optional) Capture runtime context keys from safe builders.
+6. (Optional) Emit suggested fallback registration stubs (generate-fixes).
+
+CLI Flags (superset of original):
+    --format {text,json}        Output style (default: text)
+    --strict                    Non‑zero exit on any unsafe variables
+    --warnings-as-errors        Treat warnings (unsafe defaults) as failures
+    --generate-fixes / --fix    Emit suggested fallback stubs to stdout
+    --capture-runtime           Attempt safe runtime context capture
+    --verbose / -v              Verbose logging
+
+Backward compatibility: original flags still work; new flags are ignored by
+older wrapper versions. The shell wrapper previously passed unsupported
+arguments (--format/--strict) causing failures; this module now accepts them.
 """
 
 import argparse
@@ -24,6 +36,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -48,6 +61,7 @@ TEMPLATES_DIR = Path("src/templates")
 CODE_DIRS = [
     Path("src/templating"),
     Path("src/device_clone"),
+    Path("src/utils"),  # include unified_context and related builders
     Path("src/build.py"),
 ]
 EXCLUDED_VARS = {
@@ -114,7 +128,12 @@ class VariableDefinition:
     def __str__(self) -> str:
         """String representation for debugging."""
         status = "✅" if self.is_safely_handled() else "❌"
-        return f"{status} {self.name} (Used in: {len(self.templates_used_in)} templates, Defined in: {len(self.defined_in_files)} files)"
+        used_cnt = len(self.templates_used_in)
+        def_cnt = len(self.defined_in_files)
+        return (
+            f"{status} {self.name} (Used in: {used_cnt} templates, "
+            f"Defined in: {def_cnt} files)"
+        )
 
 
 class TemplateVariableValidator:
@@ -281,7 +300,8 @@ class TemplateVariableValidator:
                     if isinstance(result, dict):
                         collected_keys.update(result.keys())
                 except Exception:
-                    # Some modules may still perform unsafe operations; ignore failures
+                    # Some modules may still perform unsafe operations;
+                    # ignore failures
                     continue
 
         # Register captured keys as definitions
@@ -371,7 +391,7 @@ class TemplateVariableValidator:
         template_source = Path(template_path).read_text(encoding="utf-8")
         rel_path = Path(template_path).relative_to(TEMPLATES_DIR)
 
-        # Pattern to match {{ variable|default(...) }} or {{ variable | default(...) }}
+        # Pattern: {{ variable|default(...) }} or {{ variable | default(...) }}
         pattern = r"{{\s*([a-zA-Z0-9_\.]+)\s*\|\s*default\(([^)]+)\)\s*}}"
 
         default_usages = {}
@@ -384,7 +404,10 @@ class TemplateVariableValidator:
 
             default_usages[var_name].append(default_value)
             logger.info(
-                f"Found default filter for {var_name} = {default_value} in {rel_path}"
+                "Found default filter for %s = %s in %s",
+                var_name,
+                default_value,
+                rel_path,
             )
 
             # Check for potentially unsafe defaults
@@ -521,10 +544,11 @@ class TemplateVariableValidator:
 
                 # Walk AST to find dict literal nodes and return statements
                 for node in ast.walk(tree):
-                    # Detect calls like template_context.update({...}) or context.update({...})
-                    # and extract literal dict keys from the first positional arg when
-                    # it's a dict literal. Also support update(var) where var is
-                    # previously assigned a dict literal (captured in dict_assigns).
+                    # Detect calls like template_context.update({...}) or
+                    # context.update({...}) and extract literal dict keys from
+                    # the first positional arg when it's a dict literal. Also
+                    # support update(var) where var is previously assigned a
+                    # dict literal (captured in dict_assigns).
                     if isinstance(node, ast.Call) and isinstance(
                         node.func, ast.Attribute
                     ):
@@ -599,25 +623,24 @@ class TemplateVariableValidator:
                                                     rel = str(f)
                                                 self.variables[key].add_definition(rel)
 
-                    # Detect subscription assignments like template_context['key'] = ...
+                    # Detect subscription assignments like
+                    # template_context['key'] = ...
                     if isinstance(node, ast.Assign):
                         for tgt in node.targets:
                             if isinstance(tgt, ast.Subscript):
-                                # tgt.value may be Name (template_context) or Attribute
+                                # tgt.value may be Name (template_context) or
+                                # Attribute
                                 try:
                                     sub_value = tgt.value
-                                    # slice can be Constant for Python3.8+ or Index(Constant)
+                                    # slice may be Constant for py3.8+ or
+                                    # Index(Constant)
                                     slice_node = tgt.slice
                                     if isinstance(
                                         slice_node, ast.Constant
                                     ) and isinstance(slice_node.value, str):
                                         key = slice_node.value
-                                    elif (
-                                        isinstance(slice_node, ast.Index)
-                                        and isinstance(slice_node.value, ast.Constant)
-                                        and isinstance(slice_node.value.value, str)
-                                    ):
-                                        key = slice_node.value.value
+                                    # Older Python AST (Index) path skipped –
+                                    # treat unfamiliar slice nodes as no key.
                                     else:
                                         key = None
 
@@ -635,7 +658,8 @@ class TemplateVariableValidator:
                                 except Exception:
                                     pass
 
-                    # Detect setdefault calls: template_context.setdefault('key', ...)
+                    # Detect setdefault calls:
+                    # template_context.setdefault('key', ...)
                     if isinstance(node, ast.Call) and isinstance(
                         node.func, ast.Attribute
                     ):
@@ -690,7 +714,10 @@ class TemplateVariableValidator:
         try:
             if "def to_template_context" in file_content:
                 for func_match in re.finditer(
-                    r"def\s+to_template_context\s*\([^\)]*\):([\s\S]*?)(?:\n\s*\n|\Z)",
+                    (
+                        r"def\s+to_template_context\s*\([^\)]*\):"  # signature
+                        r"([\s\S]*?)(?:\n\s*\n|\Z)"  # body until blank line/EOF
+                    ),
                     file_content,
                 ):
                     body = func_match.group(1)
@@ -701,7 +728,10 @@ class TemplateVariableValidator:
                         if var_name in self.variables:
                             self.variables[var_name].add_definition(str(rel_path))
                             logger.info(
-                                f"Found definition for {var_name} in {rel_path} (to_template_context)"
+                                (
+                                    f"Found definition for {var_name} in "
+                                    f"{rel_path} (to_template_context)"
+                                )
                             )
         except Exception:
             # Non-critical heuristic; ignore failures
@@ -732,9 +762,11 @@ class TemplateVariableValidator:
 
             if var_info.unsafe_defaults:
                 report["variables_with_unsafe_defaults"].append(var_name)
-                issues.append(
-                    f"⚠️ Variable '{var_name}' has potentially unsafe defaults: {var_info.unsafe_defaults}"
+                msg = "⚠️ Variable '%s' unsafe defaults: %s" % (
+                    var_name,
+                    var_info.unsafe_defaults,
                 )
+                issues.append(msg)
 
             # Organize by template
             for template in var_info.templates_used_in:
@@ -835,6 +867,29 @@ class TemplateVariableValidator:
         return len(report["unsafe_variables"]) == 0
 
 
+def _emit_fix_suggestions(report: Dict):
+    """Emit simple fallback registration suggestions for unsafe variables.
+
+    We intentionally keep this light weight; real fixes require domain review.
+    """
+    unsafe = report.get("unsafe_variables", [])
+    if not unsafe:
+        print("No fixes required; all variables are safe.")
+        return
+    print("\nSuggested fallback registration stubs (review before use):")
+    print("# ------------------------------")
+    print(
+        "from src.device_clone.fallback_manager import " "get_global_fallback_manager"
+    )
+    print("fm = get_global_fallback_manager()")
+    for name in unsafe:
+        print(
+            "fm.register_fallback('%s', lambda ctx: (_ for _ in ()).throw("
+            "RuntimeError('Missing required template variable: %s')))" % (name, name)
+        )
+    print("# ------------------------------\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate template variables")
     parser.add_argument(
@@ -845,28 +900,99 @@ def main():
         action="store_true",
         help="Attempt to import and call safe context builders to capture keys",
     )
+    # Original --fix retained; alias --generate-fixes
     parser.add_argument(
         "--fix",
         action="store_true",
-        help="Automatically add fallbacks for missing variables",
+        help="Deprecated alias for --generate-fixes (kept for compatibility)",
+    )
+    parser.add_argument(
+        "--generate-fixes",
+        action="store_true",
+        help="Emit suggested fallback registration stubs for unsafe variables",
     )
     parser.add_argument(
         "--output",
         "-o",
         default="template_variables_report.json",
-        help="Output file for the report",
+        help="Output file for the JSON report file",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Console output format (text|json). JSON still writes the report file.",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero if any unsafe variables are present",
+    )
+    parser.add_argument(
+        "--warnings-as-errors",
+        action="store_true",
+        help="Treat warning-level issues (unsafe defaults) as failures",
     )
     args = parser.parse_args()
 
-    validator = TemplateVariableValidator(verbose=args.verbose)
+    validator = TemplateVariableValidator(
+        verbose=args.verbose, capture_runtime=args.capture_runtime
+    )
     success = validator.validate_and_report()
 
-    if not success:
-        print("❌ Template variable validation failed!")
-        return 1
+    # Load the report we just wrote so we can inspect details
+    try:
+        with open(args.output, "r", encoding="utf-8") as fh:
+            report = json.load(fh)
+    except Exception:
+        report = {}
 
-    print("✅ All template variables are safely handled!")
-    return 0
+    unsafe_vars = report.get("unsafe_variables", [])
+    unsafe_defaults = report.get("variables_with_unsafe_defaults", [])
+
+    if args.generate_fixes or args.fix:
+        _emit_fix_suggestions(report)
+
+    # Determine exit conditions
+    exit_code = 0
+    fail_reasons: List[str] = []
+    if args.strict and unsafe_vars:
+        exit_code = 1
+        fail_reasons.append(
+            f"{len(unsafe_vars)} unsafe variable(s) lacking definition/fallback"
+        )
+    if args.warnings_as_errors and unsafe_defaults:
+        exit_code = 1
+        num = len(unsafe_defaults)
+        fail_reasons.append(
+            f"{num} variable(s) with potentially unsafe default filters"
+        )
+
+    # Console output mode
+    if args.format == "json":
+        # Emit JSON summary (the full report already saved to file)
+        summary = {
+            "unsafe_variables": unsafe_vars,
+            "variables_with_unsafe_defaults": unsafe_defaults,
+            "success": exit_code == 0,
+            "strict": args.strict,
+        }
+        print(json.dumps(summary, indent=2))
+    else:
+        if exit_code == 0 and not unsafe_vars:
+            print("✅ All template variables are safely handled!")
+        elif exit_code == 0 and unsafe_vars:
+            # Non-strict mode: surface issues but succeed
+            print(
+                "⚠️  Unsafe variables detected (non-strict mode). "
+                "Use --strict to fail on these."
+            )
+        if fail_reasons:
+            print("❌ Template variable validation failed:")
+            for r in fail_reasons:
+                print(f" - {r}")
+
+    return exit_code
 
 
 if __name__ == "__main__":

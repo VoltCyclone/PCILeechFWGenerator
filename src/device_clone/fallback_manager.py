@@ -15,14 +15,28 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Callable, Dict, Final, List, Optional, Protocol, Set,
-                    Tuple, TypeVar, Union)
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Final,
+    List,
+    Optional,
+    Protocol,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
 
-from ..utils.validation_constants import (DEVICE_IDENTIFICATION_FIELDS,
-                                          SENSITIVE_TOKENS)
+from ..utils.validation_constants import DEVICE_IDENTIFICATION_FIELDS, SENSITIVE_TOKENS
 
 # Type variable for return type of handler functions
 T = TypeVar("T")
@@ -105,6 +119,9 @@ class FallbackManager:
         "max_lanes": 1,
         "supports_msi": True,
         "supports_msix": False,
+        # Control whether PM sideband interface signals are exposed. Safe
+        # default is False (feature disabled) so templates gate logic cleanly.
+        "expose_pm_sideband": False,
         # Low-risk template-only fallbacks to reduce false positives during
         # static template validation. These are non-device-unique defaults
         # (empty/zero) and do not violate donor-uniqueness principles.
@@ -595,8 +612,7 @@ class FallbackManager:
         # consumers still receive TemplateObjects rather than plain dicts.
         if original_was_template_object:
             try:
-                from src.utils.unified_context import \
-                    ensure_template_compatibility
+                from src.utils.unified_context import ensure_template_compatibility
 
                 return ensure_template_compatibility(context)
             except Exception:

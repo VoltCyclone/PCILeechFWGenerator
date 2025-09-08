@@ -8,25 +8,36 @@ using the template system, integrating with constants and build helpers.
 
 import logging
 import shutil
+
 # Use absolute imports for better compatibility
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Dict, List, Optional, Protocol, Union,
-                    runtime_checkable)
+from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.exceptions import (DeviceConfigError, TCLBuilderError,
-                            TemplateNotFoundError, XDCConstraintError)
+from src.exceptions import (
+    DeviceConfigError,
+    TCLBuilderError,
+    TemplateNotFoundError,
+    XDCConstraintError,
+)
 from src.import_utils import safe_import, safe_import_class
+
 # String utilities (always use these)
-from src.string_utils import (generate_tcl_header_comment, get_project_name,
-                              log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    get_project_name,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
@@ -117,8 +128,25 @@ class BuildContext:
         if not self.board_name:
             raise ValueError("board_name is required and cannot be empty")
 
-    def to_template_context(self) -> Dict[str, Any]:
-        """Convert build context to template context dictionary with all required variables."""
+    def to_template_context(self, strict: bool = False) -> Dict[str, Any]:
+        """Convert build context to template context dictionary with all
+        required variables.
+
+        Args:
+            strict: If True, raises ValueError if any implicit defaults
+                are used
+
+        Returns:
+            Dictionary containing template context with metadata about
+            defaults used
+        """
+        # Initialize context metadata to track default usage
+        context_metadata = {
+            "strict_mode": strict,
+            "defaults_used": {},
+            "explicit_values": {},
+        }
+
         # Enhanced subsystem ID handling with proper defaults
         subsys_vendor_id = getattr(self, "subsys_vendor_id", None) or self.vendor_id
         subsys_device_id = getattr(self, "subsys_device_id", None) or self.device_id
@@ -128,6 +156,50 @@ class BuildContext:
         device_id = self.device_id or 0x8168  # Default to RTL8168
         revision_id = self.revision_id or 0x15  # Default revision
         class_code = self.class_code or 0x020000  # Default to Ethernet controller
+
+        # Track which values were defaulted vs explicitly provided
+        if self.vendor_id is None:
+            context_metadata["defaults_used"]["vendor_id"] = 0x10EC
+        else:
+            context_metadata["explicit_values"]["vendor_id"] = self.vendor_id
+
+        if self.device_id is None:
+            context_metadata["defaults_used"]["device_id"] = 0x8168
+        else:
+            context_metadata["explicit_values"]["device_id"] = self.device_id
+
+        if self.revision_id is None:
+            context_metadata["defaults_used"]["revision_id"] = 0x15
+        else:
+            context_metadata["explicit_values"]["revision_id"] = self.revision_id
+
+        if self.class_code is None:
+            context_metadata["defaults_used"]["class_code"] = 0x020000
+        else:
+            context_metadata["explicit_values"]["class_code"] = self.class_code
+
+        if getattr(self, "subsys_vendor_id", None) is None:
+            context_metadata["defaults_used"]["subsys_vendor_id"] = self.vendor_id
+        else:
+            context_metadata["explicit_values"][
+                "subsys_vendor_id"
+            ] = self.subsys_vendor_id
+
+        if getattr(self, "subsys_device_id", None) is None:
+            context_metadata["defaults_used"]["subsys_device_id"] = self.device_id
+        else:
+            context_metadata["explicit_values"][
+                "subsys_device_id"
+            ] = self.subsys_device_id
+
+        # In strict mode, reject any implicit defaults
+        if strict and context_metadata["defaults_used"]:
+            default_keys = list(context_metadata["defaults_used"].keys())
+            raise ValueError(
+                f"Strict mode enabled: Cannot use implicit defaults for "
+                f"{default_keys}. Please provide explicit values for these "
+                "fields."
+            )
 
         # Generate device signature for security compliance
         device_signature = safe_format(
@@ -304,6 +376,8 @@ class BuildContext:
             "pcileech_ip_dir": self.pcileech_ip_dir,
             "batch_mode": self.batch_mode,
             "constraint_files": [],  # Add empty constraint files list
+            # Context metadata for introspection and strict mode validation
+            "context_metadata": context_metadata,
         }
 
 
@@ -338,8 +412,10 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from file_management.repo_manager import (get_xdc_files,
-                                                      is_repository_accessible)
+            from file_management.repo_manager import (
+                get_xdc_files,
+                is_repository_accessible,
+            )
 
             if not is_repository_accessible(board_name):
                 raise XDCConstraintError("Repository is not accessible")
@@ -558,9 +634,11 @@ class TCLBuilder:
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from build_helpers import (batch_write_tcl_files,
-                                       create_fpga_strategy_selector,
-                                       validate_fpga_part)
+            from build_helpers import (
+                batch_write_tcl_files,
+                create_fpga_strategy_selector,
+                validate_fpga_part,
+            )
 
             self.batch_write_tcl_files = batch_write_tcl_files
             self.fpga_strategy_selector = create_fpga_strategy_selector()

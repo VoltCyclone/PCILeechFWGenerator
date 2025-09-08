@@ -23,7 +23,15 @@ import traceback
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Generator,
+    TypedDict,
+)
 
 
 # Import existing infrastructure components
@@ -40,10 +48,15 @@ from src.device_clone.pcileech_context import (
     PCILeechContextBuilder,
     VFIODeviceManager,
 )
+from src.device_clone.constants import DEFAULT_FPGA_PART
 from src.device_clone.writemask_generator import WritemaskGenerator
 
+
 from src.error_utils import extract_root_cause
-from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
+from src.exceptions import (
+    PCILeechGenerationError,
+    PlatformCompatibilityError,
+)
 
 from src.pci_capability.msix_bar_validator import (
     validate_msix_bar_configuration,
@@ -63,14 +76,19 @@ from src.templating import (
     TemplateRenderer,
     TemplateRenderError,
 )
-from src.utils.attribute_access import has_attr, safe_get_attr
+from src.templating.tcl_builder import format_hex_id
+from src.device_clone.device_info_lookup import lookup_device_info
+
 
 logger = logging.getLogger(__name__)
 
 # Data sizing constants for MSI-X handling
+# NOTE: Core sizing constants kept here for backward import compatibility.
 MSIX_ENTRY_SIZE = 16  # bytes per MSI-X table entry
 DWORD_SIZE = 4  # bytes per 32-bit word
 DWORDS_PER_MSIX_ENTRY = MSIX_ENTRY_SIZE // DWORD_SIZE
+
+# (Removed MSIXData TypedDict to avoid typing friction with dynamic dict usage)
 
 
 @dataclass
@@ -158,6 +176,29 @@ class PCILeechGenerator:
             raise PCILeechGenerationError(
                 safe_format("Failed to initialize PCILeech generator: {err}", err=e)
             ) from e
+
+    # ------------------------------------------------------------------
+    # Internal validation helper (reduces repetitive fail-fast patterns)
+    # ------------------------------------------------------------------
+
+    def _require(self, condition: bool, message: str, **context: Any) -> None:
+        """Fail fast with a consistent error + log when condition is false.
+
+        This keeps enforcement localized and aligns with the donor uniqueness
+        policy – no silent fallbacks. Uses PCILeechGenerationError so callers
+        inherit existing exception handling semantics.
+        """
+        if condition:
+            return
+        # Log first (explicit prefix for quick grep in logs)
+        log_error_safe(
+            self.logger,
+            "Build aborted: {msg} | ctx={ctx}",
+            msg=message,
+            ctx=context,
+            prefix="PCIL",
+        )
+        raise PCILeechGenerationError(message)
 
     # ------------------------------------------------------------------
     # Timestamp helper (legacy compatibility for tests expecting _get_timestamp)
@@ -251,7 +292,10 @@ class PCILeechGenerator:
             if msix_data:
                 table_capture = self._capture_msix_table_entries(msix_data)
                 if table_capture:
-                    msix_data.update(table_capture)
+                    if "table_entries" in table_capture:
+                        msix_data["table_entries"] = table_capture["table_entries"]
+                    if "table_init_hex" in table_capture:
+                        msix_data["table_init_hex"] = table_capture["table_init_hex"]
 
             # 4. Early MSI-X/BAR validation (context not yet built; pass minimal)
             try:
@@ -295,18 +339,15 @@ class PCILeechGenerator:
                 systemverilog_modules, firmware_components
             )
 
-            generation_result = {
-                "device_bdf": self.config.device_bdf,
-                "generation_timestamp": self._get_timestamp(),
-                "behavior_profile": behavior_profile,
-                "config_space_data": config_space_data,
-                "msix_data": msix_data,
-                "template_context": template_context,
-                "systemverilog_modules": systemverilog_modules,
-                "firmware_components": firmware_components,
-                "tcl_scripts": tcl_scripts,
-                "generation_metadata": self._build_generation_metadata(),
-            }
+            generation_result = self._assemble_generation_result(
+                behavior_profile,
+                config_space_data,
+                msix_data,
+                template_context,
+                systemverilog_modules,
+                firmware_components,
+                tcl_scripts,
+            )
 
             log_info_safe(
                 self.logger,
@@ -317,17 +358,72 @@ class PCILeechGenerator:
 
         except PlatformCompatibilityError:
             raise
-        except Exception as e:
-            log_error_safe(
-                self.logger,
-                "PCILeech firmware generation failed: {error}",
-                error=str(e),
-                prefix="PCIL",
-            )
-            root_cause = extract_root_cause(e)
-            raise PCILeechGenerationError(
-                "Firmware generation failed", root_cause=root_cause
-            ) from e
+        except Exception as e:  # Keep broad catch for top-level wrapper
+            raise self._handle_generation_exception(e)
+
+    # ------------------------------------------------------------------
+    # Small extracted helpers (low-risk, no behavioral changes)
+    # ------------------------------------------------------------------
+
+    def _assemble_generation_result(
+        self,
+        behavior_profile: Optional[BehaviorProfile],
+        config_space_data: Dict[str, Any],
+        msix_data: Optional[Dict[str, Any]],
+        template_context: Dict[str, Any],
+        systemverilog_modules: Dict[str, str],
+        firmware_components: Dict[str, Any],
+        tcl_scripts: Dict[str, str],
+    ) -> Dict[str, Any]:
+        return {
+            "device_bdf": self.config.device_bdf,
+            "generation_timestamp": self._get_timestamp(),
+            "behavior_profile": behavior_profile,
+            "config_space_data": config_space_data,
+            "msix_data": msix_data,
+            "template_context": template_context,
+            "systemverilog_modules": systemverilog_modules,
+            "firmware_components": firmware_components,
+            "tcl_scripts": tcl_scripts,
+            "generation_metadata": self._build_generation_metadata(),
+        }
+
+    def _handle_generation_exception(self, e: Exception) -> PCILeechGenerationError:
+        log_error_safe(
+            self.logger,
+            "PCILeech firmware generation failed: {error}",
+            error=str(e),
+            prefix="PCIL",
+        )
+        root_cause = extract_root_cause(e)
+        return PCILeechGenerationError(
+            "Firmware generation failed", root_cause=root_cause
+        )
+
+    # ------------------------------------------------------------------
+    # Lightweight context manager for consistent step logging/handling
+    # ------------------------------------------------------------------
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _generation_step(
+        self, step: str, allow_fallback: bool = False
+    ) -> Generator[None, None, None]:
+        log_info_safe(self.logger, "Starting {step}", step=step, prefix="PCIL")
+        try:
+            yield
+            log_info_safe(self.logger, "Completed {step}", step=step, prefix="PCIL")
+        except Exception as e:  # pragma: no cover (control flow wrapper)
+            if allow_fallback and self.fallback_manager.confirm_fallback(step, str(e)):
+                log_warning_safe(
+                    self.logger,
+                    "{step} failed, continuing with fallback: {err}",
+                    step=step,
+                    err=str(e),
+                    prefix="PCIL",
+                )
+                return
+            raise
 
     def _capture_device_behavior(self) -> Optional[BehaviorProfile]:
         """
@@ -343,6 +439,7 @@ class PCILeechGenerator:
             log_info_safe(
                 self.logger,
                 "Behavior profiling disabled, skipping device behavior capture",
+                prefix="MSIX",
             )
             return None
 
@@ -420,12 +517,29 @@ class PCILeechGenerator:
         )
 
         try:
-            # Read configuration space
             config_space_bytes = self.config_space_manager.read_vfio_config_space()
             return self._process_config_space_bytes(config_space_bytes)
-
+        except (OSError, IOError) as e:
+            log_error_safe(
+                self.logger,
+                "Config space read failed (IO): {error}",
+                error=str(e),
+                prefix="MSIX",
+            )
+            raise PCILeechGenerationError(
+                safe_format("Configuration space read failed: {err}", err=e)
+            ) from e
+        except ValueError as e:
+            log_error_safe(
+                self.logger,
+                "Config space value error: {error}",
+                error=str(e),
+                prefix="MSIX",
+            )
+            raise PCILeechGenerationError(
+                safe_format("Configuration space parse failed: {err}", err=e)
+            ) from e
         except Exception as e:
-            # Configuration space is critical for device identity - MUST FAIL
             log_error_safe(
                 self.logger,
                 (
@@ -507,30 +621,30 @@ class PCILeechGenerator:
             Raises:
                 PCILeechGenerationError: If critical fields are missing
         """
-        # Extract device information using ConfigSpaceManager
-        device_info = self.config_space_manager.extract_device_info(config_space_bytes)
+        # Initial extraction (fast, local)
+        base_info = self.config_space_manager.extract_device_info(config_space_bytes)
 
-        # Validate critical fields (vendor_id and device_id)
-        # ConfigSpaceManager should always extract these, but validate just in case
-        if not device_info.get("vendor_id"):
-            if len(config_space_bytes) >= 2:
-                device_info["vendor_id"] = int.from_bytes(
-                    config_space_bytes[0:2], "little"
-                )
-            else:
-                raise PCILeechGenerationError(
-                    "Cannot determine vendor ID - device identity unknown"
-                )
+        # Centralized enrichment + fallback policy (avoid duplicated parsing logic)
+        try:
+            device_info = lookup_device_info(
+                bdf=self.config.device_bdf,
+                partial_info=base_info,
+                from_config_manager=True,
+            )
+        except Exception as e:  # Fallback to base if lookup path fails
+            log_warning_safe(
+                self.logger,
+                "DeviceInfoLookup failed, using base extracted info: {err}",
+                err=str(e),
+                prefix="MSIX",
+            )
+            device_info = base_info
 
-        if not device_info.get("device_id"):
-            if len(config_space_bytes) >= 4:
-                device_info["device_id"] = int.from_bytes(
-                    config_space_bytes[2:4], "little"
-                )
-            else:
-                raise PCILeechGenerationError(
-                    "Cannot determine device ID - device identity unknown"
-                )
+        # Fail fast if still missing critical identifiers
+        if not device_info.get("vendor_id") or not device_info.get("device_id"):
+            raise PCILeechGenerationError(
+                "Cannot determine device identity (vendor_id/device_id missing)"
+            )
 
         # Build configuration space data structure
         config_space_data = {
@@ -630,6 +744,7 @@ class PCILeechGenerator:
             vectors=msix_info["table_size"],
             bir=msix_info["table_bir"],
             offset=msix_info["table_offset"],
+            prefix="MSIX",
         )
 
         return msix_data
@@ -645,7 +760,7 @@ class PCILeechGenerator:
         """
         Build comprehensive template context from all data sources.
 
-        This method now acts as a thin orchestration layer, delegating all the
+        This is a thin orchestration layer, delegating all the
         actual context building work to PCILeechContextBuilder.
 
         Args:
@@ -661,7 +776,9 @@ class PCILeechGenerator:
         Raises:
             PCILeechGenerationError: If context building fails
         """
-        log_info_safe(self.logger, "Building comprehensive template context")
+        log_info_safe(
+            self.logger, "Building comprehensive template context", prefix="PCIL"
+        )
 
         try:
             # Initialize context builder
@@ -901,31 +1018,19 @@ class PCILeechGenerator:
             # Cache the generated modules for use in writemask generation
             self._cached_systemverilog_modules = modules
 
+            msix_ctx = template_context.get("msix_data") or {}
+            init_hex = msix_ctx.get("table_init_hex", "")
+            entries_list = msix_ctx.get("table_entries", []) or []
+            init_len = len(init_hex) if isinstance(init_hex, str) else 0
             log_info_safe(
                 self.logger,
                 (
-                    "Generated {count} SystemVerilog modules | "
-                    "Pre-render msix_data: init_hex_len={ihl}, entries={entries}"
+                    "Generated {count} SystemVerilog modules | msix init_len={ihl} "
+                    "entries={entries}"
                 ),
                 count=len(modules),
-                ihl=(
-                    len(
-                        (template_context.get("msix_data") or {}).get(
-                            "table_init_hex", ""
-                        )
-                    )
-                    if isinstance(
-                        (template_context.get("msix_data") or {}).get("table_init_hex"),
-                        str,
-                    )
-                    else 0
-                ),
-                entries=(
-                    len(
-                        (template_context.get("msix_data") or {}).get("table_entries")
-                        or []
-                    )
-                ),
+                ihl=init_len,
+                entries=len(entries_list),
                 prefix="PCIL",
             )
 
@@ -1126,12 +1231,11 @@ class PCILeechGenerator:
                 # Device information - NO FALLBACKS for critical IDs
                 "device": {
                     "vendor_id": template_context["vendor_id"],
-                    "revision_id": template_context.get(
-                        "revision_id", "00"
-                    ),  # Less critical, can have fallback
-                    "class_code": template_context.get(
-                        "class_code"
-                    ),  # Should be present but not using fallback
+                    "device_id": template_context.get("device_id"),
+                    "revision_id": template_context.get("revision_id", "00"),
+                    "class_code": template_context.get("class_code"),
+                    "subsys_vendor_id": template_context.get("subsys_vendor_id"),
+                    "subsys_device_id": template_context.get("subsys_device_id"),
                 },
                 # Board information
                 "board": {
@@ -1189,10 +1293,6 @@ class PCILeechGenerator:
                 "Timing constraints template build path unavailable (ImportError); "
                 "refusing generic defaults"
             )
-
-    # NOTE: Legacy _generate_default_timing_constraints removed intentionally.
-    # Timing constraints must originate from the explicit constraints template;
-    # no generic timing emission path is permitted.
 
     def _generate_pin_constraints(self, context: Dict[str, Any]) -> str:
         """Generate pin location constraints based on board."""
@@ -1263,9 +1363,6 @@ class PCILeechGenerator:
             )
 
         return constraints
-
-    # NOTE: Removed _generate_default_constraints: any absence of the TCL builder
-    # now results in an immediate error to surface configuration issues early.
 
     def _generate_tcl_scripts(self, template_context: Dict[str, Any]) -> Dict[str, str]:
         """Generate TCL build scripts."""
@@ -1342,10 +1439,6 @@ class PCILeechGenerator:
 
         renderer = TemplateRenderer(getattr(self.config, "template_dir", None))
 
-        # Minimal strict context. All dynamic identifiers already validated upstream.
-        # Build a single standardized header using central utilities instead of
-        # duplicating hard-coded strings. Tests reference both 'header' and
-        # legacy 'header_comment'.
         try:
             from src.string_utils import generate_tcl_header_comment
 
@@ -1361,6 +1454,78 @@ class PCILeechGenerator:
             # is enforced below. Keep it short to avoid drift.
             unified_header = "# Generated PCILeech TCL Script"
 
+        # Fallback TCL context construction with strict validation.
+        # Fails fast if required device IDs are missing.
+        vid = context.get("vendor_id")
+        did = context.get("device_id")
+        if not vid or not did:  # Strict: cannot proceed without both
+            raise PCILeechGenerationError(
+                safe_format(
+                    (
+                        "Fallback TCL generation aborted: missing vendor_id/"
+                        "device_id (vid={vid} did={did})"
+                    ),
+                    vid=vid,
+                    did=did,
+                )
+            )
+
+        subsys_vid = context.get("subsystem_vendor_id") or vid
+        subsys_did = context.get("subsystem_device_id") or did
+        revision_id = context.get("revision_id") or context.get("revision")
+        class_code = context.get("class_code")
+
+        device_block = {
+            "vendor_id": format_hex_id(vid, 4),
+            "device_id": format_hex_id(did, 4),
+            "revision_id": format_hex_id(revision_id, 2),
+            "class_code": format_hex_id(class_code, 6),
+            "subsys_vendor_id": format_hex_id(subsys_vid, 4),
+            "subsys_device_id": format_hex_id(subsys_did, 4),
+        }
+
+        device_signature = safe_format(
+            "{vid}:{did}:{rid}",
+            vid=device_block["vendor_id"],
+            did=device_block["device_id"],
+            rid=device_block["revision_id"],
+        )
+
+        # Provide structured configs mirroring normal builder output so that
+        # any template expecting device_config/board_config remains satisfied.
+        device_config = {
+            **device_block,
+            "identification": {
+                "vendor_id": device_block["vendor_id"],
+                "device_id": device_block["device_id"],
+                "class_code": device_block["class_code"],
+                "subsystem_vendor_id": device_block["subsys_vendor_id"],
+                "subsystem_device_id": device_block["subsys_device_id"],
+            },
+            "registers": {"revision_id": device_block["revision_id"]},
+        }
+
+        board_block = {
+            "name": context.get("board_name", context.get("board", "unknown")),
+            "fpga_part": fpga_part,
+            "fpga_family": context.get("fpga_family", "7series"),
+            "pcie_ip_type": context.get("pcie_ip_type", "7x"),
+            "supports_msi": bool(context.get("supports_msi", False)),
+            "supports_msix": bool(context.get("supports_msix", False)),
+            "max_lanes": context.get("max_lanes", 1),
+        }
+
+        msix_cfg = context.get("msix_config") or {
+            "enabled": False,
+            "table_size": 0,
+            "vectors": 0,
+            "table_bir": 0,
+            "table_offset": 0x0,
+            "pba_bir": 0,
+            "pba_offset": 0x0,
+            "is_supported": False,
+        }
+
         tpl_context: Dict[str, Any] = {
             # Provide both legacy 'header_comment' and internal 'header'.
             "header_comment": unified_header,
@@ -1371,12 +1536,14 @@ class PCILeechGenerator:
             # it directly in addition to nested under board for backward
             # compatibility with existing templates.
             "fpga_family": context.get("fpga_family", "7series"),
-            "board": {
-                "name": context.get("board_name", context.get("board", "unknown")),
-                "fpga_part": fpga_part,
-                "fpga_family": context.get("fpga_family", "7series"),
-            },
-            "build": {"jobs": 4},
+            "board": board_block,
+            "board_config": board_block,
+            "device": device_block,
+            "device_config": device_config,
+            "device_signature": device_signature,
+            "msix_config": msix_cfg,
+            "constraint_files": [],
+            "build": {"jobs": 4, "batch_mode": True, "timeout": 3600},
             "batch_mode": True,
             "synthesis_strategy": "Flow_PerfOptimized_high",
             "implementation_strategy": "Performance_Explore",
@@ -1452,7 +1619,11 @@ class PCILeechGenerator:
             Writemask COE content or None if generation fails
         """
         try:
-            log_info_safe(self.logger, "Generating writemask COE file", prefix="WRMASK")
+            log_info_safe(
+                self.logger,
+                "Generating writemask COE file",
+                prefix="WRMASK",
+            )
 
             # Initialize writemask generator
             writemask_gen = WritemaskGenerator()
@@ -1606,23 +1777,10 @@ class PCILeechGenerator:
             )
             # Normalize to string if ints
 
-            def _to_hex_str(val: Any, width: int) -> Optional[str]:
-                try:
-                    if val is None:
-                        return None
-                    if isinstance(val, int):
-                        # Build format spec without f-string interpolation
-                        spec = "0" + str(width) + "x"
-                        return format(val, spec)
-                    s = str(val).lower().replace("0x", "")
-                    return s
-                except Exception:
-                    return None
-
-            vid_str = _to_hex_str(vid_hex, 4)
-            did_str = _to_hex_str(did_hex, 4)
+            vid_str = format_hex_id(vid_hex, 4)
+            did_str = format_hex_id(did_hex, 4)
             # class_code may be 2 or 3 bytes; keep as-is string
-            cls_str = _to_hex_str(cls_hex, 6)
+            cls_str = format_hex_id(cls_hex, 6)
 
             # Generate hex content
             hex_content = formatter.format_config_space_to_hex(
@@ -1694,16 +1852,32 @@ class PCILeechGenerator:
                     return None
             return None
 
+        def _attempt_extract(container: Any) -> Optional[bytes]:
+            """Attempt ordered extraction of raw config space bytes from a dict.
+
+            The canonical preference order is:
+              1. raw_config_space
+              2. raw_data
+              3. config_space_hex
+
+            Args:
+                container: Potential dict holding config space representations.
+
+            Returns:
+                Bytes if successfully coerced, else None.
+            """
+            if not isinstance(container, dict):
+                return None
+            for _k in ("raw_config_space", "raw_data", "config_space_hex"):
+                b = _coerce_to_bytes(container.get(_k))
+                if b:
+                    return b
+            return None
+
         raw: Optional[bytes] = None
 
         # 1) Top-level config_space_data (preferred rich structure)
-        csd = template_context.get("config_space_data")
-        if isinstance(csd, dict):
-            raw = (
-                _coerce_to_bytes(csd.get("raw_config_space"))
-                or _coerce_to_bytes(csd.get("raw_data"))
-                or _coerce_to_bytes(csd.get("config_space_hex"))
-            )
+        raw = _attempt_extract(template_context.get("config_space_data"))
 
         # 2) Direct raw keys
         if raw is None:
@@ -1713,25 +1887,13 @@ class PCILeechGenerator:
 
         # 3) Nested config_space dict
         if raw is None:
-            cfg = template_context.get("config_space")
-            if isinstance(cfg, dict):
-                raw = (
-                    _coerce_to_bytes(cfg.get("raw_data"))
-                    or _coerce_to_bytes(cfg.get("raw_config_space"))
-                    or _coerce_to_bytes(cfg.get("config_space_hex"))
-                )
+            raw = _attempt_extract(template_context.get("config_space"))
 
         # 4) Legacy path: device_config -> config_space_data
         if raw is None:
             device_cfg = template_context.get("device_config")
             if isinstance(device_cfg, dict) and "config_space_data" in device_cfg:
-                nested = device_cfg.get("config_space_data")
-                if isinstance(nested, dict):
-                    raw = (
-                        _coerce_to_bytes(nested.get("raw_config_space"))
-                        or _coerce_to_bytes(nested.get("raw_data"))
-                        or _coerce_to_bytes(nested.get("config_space_hex"))
-                    )
+                raw = _attempt_extract(device_cfg.get("config_space_data"))
 
         # 5) Heuristic scan of dict-like entries
         if raw is None:
@@ -1740,12 +1902,9 @@ class PCILeechGenerator:
                     continue
                 k = str(key).lower()
                 if "config" in k or "raw" in k:
-                    raw = (
-                        _coerce_to_bytes(value.get("raw_config_space"))
-                        or _coerce_to_bytes(value.get("raw_data"))
-                        or _coerce_to_bytes(value.get("config_space_hex"))
-                    )
-                    if raw:
+                    candidate = _attempt_extract(value)
+                    if candidate:
+                        raw = candidate
                         log_info_safe(
                             self.logger,
                             "Found config space candidate key '{key}'",
