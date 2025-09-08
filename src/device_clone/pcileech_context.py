@@ -91,6 +91,7 @@ def require(condition: bool, message: str, **context) -> None:
         log_error_safe(
             logger,
             safe_format("Build aborted: {msg} | ctx={ctx}", msg=message, ctx=context),
+            prefix="PCIL",
         )
         raise SystemExit(2)
 
@@ -399,7 +400,9 @@ class VFIODeviceManager:
 
             return self._device_fd, self._container_fd
         except Exception as e:
-            log_error_safe(self.logger, f"Failed to open VFIO device: {e}")
+            log_error_safe(
+                self.logger, f"Failed to open VFIO device: {e}", prefix="VFIO"
+            )
             raise
 
     def close(self):
@@ -420,7 +423,9 @@ class VFIODeviceManager:
             try:
                 self.open()
             except (OSError, PermissionError, FileNotFoundError) as e:
-                log_error_safe(self.logger, f"VFIO device open failed: {e}")
+                log_error_safe(
+                    self.logger, f"VFIO device open failed: {e}", prefix="VFIO"
+                )
                 return None
 
         info = VfioRegionInfo()
@@ -448,7 +453,7 @@ class VFIODeviceManager:
 
             return result
         except OSError as e:
-            log_error_safe(self.logger, f"VFIO region info failed: {e}")
+            log_error_safe(self.logger, f"VFIO region info failed: {e}", prefix="VFIO")
             # Clean up if we opened the FDs here
             if opened_here:
                 self.close()
@@ -479,7 +484,11 @@ class VFIODeviceManager:
             try:
                 self.open()
             except Exception as e:
-                log_error_safe(self.logger, f"VFIO device open failed: {e}")
+                log_error_safe(
+                    self.logger,
+                    f"VFIO device open failed: {e}",
+                    prefix="VFIO",
+                )
                 return None
 
         try:
@@ -502,6 +511,7 @@ class VFIODeviceManager:
                     index=index,
                     offset=offset,
                     size=region_size,
+                    prefix="VFIO",
                 )
                 return None
 
@@ -541,7 +551,11 @@ class VFIODeviceManager:
             ) as mm:
                 return bytes(mm[delta : delta + read_len])
         except OSError as e:
-            log_error_safe(self.logger, f"VFIO read_region_slice failed: {e}")
+            log_error_safe(
+                self.logger,
+                f"VFIO read_region_slice failed: {e}",
+                prefix="VFIO",
+            )
             return None
         finally:
             if opened_here:
@@ -596,7 +610,11 @@ class PCILeechContextBuilder:
 
         def handle_error(msg, exc=None):
             root_cause = extract_root_cause(exc) if exc else None
-            log_error_safe(self.logger, f"{msg}: {root_cause if root_cause else ''}")
+            log_error_safe(
+                self.logger,
+                f"{msg}: {root_cause if root_cause else ''}",
+                prefix="PCIL",
+            )
             raise ContextError(msg, root_cause=root_cause)
 
         try:
@@ -1166,6 +1184,7 @@ class PCILeechContextBuilder:
                     index=index,
                     error=str(e),
                 ),
+                prefix="VFIO",
             )
             raise
 
@@ -1673,7 +1692,11 @@ class PCILeechContextBuilder:
             return builder.create_board_config(**board_config)
 
         except Exception as e:
-            log_error_safe(self.logger, f"Failed to build board configuration: {e}")
+            log_error_safe(
+                self.logger,
+                f"Failed to build board configuration: {e}",
+                prefix="PCIL",
+            )
             # Return a minimal board config to prevent template validation failure
             return builder.create_board_config(
                 board_name="generic",
