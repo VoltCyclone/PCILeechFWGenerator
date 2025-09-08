@@ -391,7 +391,7 @@ class TemplateVariableValidator:
         template_source = Path(template_path).read_text(encoding="utf-8")
         rel_path = Path(template_path).relative_to(TEMPLATES_DIR)
 
-    # Pattern: {{ variable|default(...) }} or {{ variable | default(...) }}
+        # Pattern: {{ variable|default(...) }} or {{ variable | default(...) }}
         pattern = r"{{\s*([a-zA-Z0-9_\.]+)\s*\|\s*default\(([^)]+)\)\s*}}"
 
         default_usages = {}
@@ -477,9 +477,7 @@ class TemplateVariableValidator:
 
         for code_dir in CODE_DIRS:
             if code_dir.is_file():
-                    self._search_file_for_definitions(
-                        code_dir, patterns, fallback_patterns
-                    )
+                self._search_file_for_definitions(code_dir, patterns, fallback_patterns)
             else:
                 for code_file in code_dir.glob("**/*.py"):
                     self._search_file_for_definitions(
@@ -570,9 +568,7 @@ class TemplateVariableValidator:
                                                     )
                                                 except Exception:
                                                     rel = str(f)
-                                                self.variables[key].add_definition(
-                                                    rel
-                                                )
+                                                self.variables[key].add_definition(rel)
                                 elif isinstance(arg, ast.Name):
                                     # arg refers to a variable name assigned earlier
                                     varname = arg.id
@@ -625,9 +621,7 @@ class TemplateVariableValidator:
                                                     )
                                                 except Exception:
                                                     rel = str(f)
-                                                self.variables[key].add_definition(
-                                                    rel
-                                                )
+                                                self.variables[key].add_definition(rel)
 
                     # Detect subscription assignments like
                     # template_context['key'] = ...
@@ -768,9 +762,9 @@ class TemplateVariableValidator:
 
             if var_info.unsafe_defaults:
                 report["variables_with_unsafe_defaults"].append(var_name)
-                msg = (
-                    "⚠️ Variable '%s' unsafe defaults: %s"
-                    % (var_name, var_info.unsafe_defaults)
+                msg = "⚠️ Variable '%s' unsafe defaults: %s" % (
+                    var_name,
+                    var_info.unsafe_defaults,
                 )
                 issues.append(msg)
 
@@ -885,15 +879,13 @@ def _emit_fix_suggestions(report: Dict):
     print("\nSuggested fallback registration stubs (review before use):")
     print("# ------------------------------")
     print(
-        "from src.device_clone.fallback_manager import "
-        "get_global_fallback_manager"
+        "from src.device_clone.fallback_manager import " "get_global_fallback_manager"
     )
     print("fm = get_global_fallback_manager()")
     for name in unsafe:
         print(
             "fm.register_fallback('%s', lambda ctx: (_ for _ in ()).throw("
-            "RuntimeError('Missing required template variable: %s')))"
-            % (name, name)
+            "RuntimeError('Missing required template variable: %s')))" % (name, name)
         )
     print("# ------------------------------\n")
 

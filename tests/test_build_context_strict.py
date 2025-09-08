@@ -60,7 +60,7 @@ def test_strict_mode_with_explicit_values():
         revision_id=0x10,
         class_code=0x030000,
         subsys_vendor_id=0x1234,
-        subsys_device_id=0x5678
+        subsys_device_id=0x5678,
     )
     tc = ctx.to_template_context(strict=True)
     # Should work fine with all explicit values
