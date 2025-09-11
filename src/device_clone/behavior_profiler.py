@@ -1222,7 +1222,7 @@ class BehaviorProfiler:
         patterns = [TimingPattern(**pattern) for pattern in data["timing_patterns"]]
 
         profile = BehaviorProfile(
-            device_bdf=data["device_bdf"],
+            device_bdf=data.get("device_bdf", data.get("device_bd")),
             capture_duration=data["capture_duration"],
             total_accesses=data["total_accesses"],
             register_accesses=accesses,
