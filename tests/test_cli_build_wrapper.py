@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit test        with mock.patch("pathlib.Path.absolute",
-                         return_value=Path("/local/project")), \
-             mock.patch("sys.path", []):for CLI build wrapper module.
+Unit tests for the CLI build wrapper module, focusing on Python path setup and directory detection logic.
 """
 
 import os
