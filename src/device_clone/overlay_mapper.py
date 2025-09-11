@@ -16,9 +16,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from src.string_utils import log_debug_safe, safe_format
-
 from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+from src.string_utils import log_debug_safe, safe_format
 
 logger = logging.getLogger(__name__)
 

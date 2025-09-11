@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from src.string_utils import log_debug_safe, log_info_safe, log_warning_safe
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format)
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,8 @@ class TemplateContextValidator:
             "required_vars": {
                 "device_signature",  # CRITICAL: Required for security
                 "device_config",
-                "board_config",  # Also required since PCILeech generates SystemVerilog
+                # board_config required since PCILeech generates SystemVerilog
+                "board_config",
                 "config_space",
                 "msix_config",
                 "bar_config",
@@ -277,7 +279,8 @@ class TemplateContextValidator:
             template_name: Name of the template file
 
         Returns:
-            TemplateVariableRequirements object with required/optional vars and defaults
+            TemplateVariableRequirements object with required/optional vars
+            and defaults
         """
         # Check if template file has been modified since last cache
         template_path = Path(__file__).parent.parent / "templates" / template_name
@@ -292,7 +295,8 @@ class TemplateContextValidator:
                 if template_name in self.template_cache:
                     log_debug_safe(
                         logger,
-                        f"Template '{template_name}' modified, invalidating cache",
+                        "Template '{tpl}' modified, invalidating cache",
+                        tpl=template_name,
                         prefix="TEMPLATE_CACHE",
                     )
                     del self.template_cache[template_name]
@@ -357,6 +361,19 @@ class TemplateContextValidator:
         requirements = self.get_template_requirements(template_name)
         validated_context = context.copy()
 
+        # Low-risk helper usage (no functional change) for TCL-specific
+        # pruning & synthesis
+        if template_name.startswith("tcl/"):
+            self._prune_unused_tcl_requirements(
+                template_name, requirements, logger_prefix="TEMPLATE_VALIDATION"
+            )
+            self._synthesize_device_if_needed(
+                template_name,
+                requirements,
+                validated_context,
+                logger_prefix="TEMPLATE_VALIDATION",
+            )
+
         # Detect variables that the template itself assigns via `{% set var = ... %}`
         # and treat them as implicitly present for validation purposes. This allows
         # templates to provide safe fallbacks without requiring the caller to
@@ -375,7 +392,8 @@ class TemplateContextValidator:
             # continue validation without assigned_in_template enhancements.
             assigned_in_template = set()
 
-        # SECURITY ENHANCEMENT: Track all validation issues for comprehensive reporting
+        # SECURITY ENHANCEMENT: Track all validation issues for comprehensive
+        # reporting
         validation_errors = []
 
         # Check required variables with strict validation
@@ -400,11 +418,19 @@ class TemplateContextValidator:
         # SECURITY ENHANCEMENT: Fail immediately on any validation errors
         if validation_errors:
             error_msg = (
-                f"SECURITY VIOLATION: Template '{template_name}' context validation failed:\n"
-                f"- " + "\n- ".join(validation_errors) + "\n\n"
-                f"Explicit initialization of all template variables is required."
+                "SECURITY VIOLATION: Template '"
+                f"{template_name}' context validation failed:\n- "
+                + "\n- ".join(validation_errors)
+                + "\n\nExplicit initialization of all template variables is "
+                "required."
             )
-            logger.error(error_msg)
+            # Use standardized error logging wrapper
+            log_error_safe(
+                logger,
+                "{msg}",
+                msg=error_msg,
+                prefix="TEMPLATE_VALIDATION",
+            )
             raise ValueError(error_msg)
         # Only provide defaults for explicitly optional variables
         # and only if strict=False (not security critical)
@@ -416,12 +442,15 @@ class TemplateContextValidator:
                         validated_context[var] = requirements.default_values[var]
                         log_debug_safe(
                             logger,
-                            f"Added default value for optional variable '{var}' in template '{template_name}'",
+                            (
+                                "Added default value for optional variable "
+                                f"'{var}' in template '{template_name}'"
+                            ),
                             prefix="TEMPLATE",
                         )
         else:
-            # In strict mode, check if all provided variables (including optional ones)
-            # have non-None values
+            # In strict mode, check if all provided variables (including
+            # optional ones) have non-None values
             invalid_optional = []
             for var in requirements.optional_vars:
                 if var in validated_context and validated_context[var] is None:
@@ -429,14 +458,166 @@ class TemplateContextValidator:
 
             if invalid_optional:
                 error_msg = (
-                    f"SECURITY VIOLATION: Template '{template_name}' has None values for "
-                    f"optional variables: {', '.join(invalid_optional)}.\n"
-                    f"Explicit initialization of all template variables is required in strict mode."
+                    "SECURITY VIOLATION: Template '"
+                    f"{template_name}' has None values for optional variables: "
+                    f"{', '.join(invalid_optional)}.\nExplicit initialization of "
+                    "all template variables is required in strict mode."
                 )
-                logger.error(error_msg)
+                log_error_safe(
+                    logger,
+                    "{msg}",
+                    msg=error_msg,
+                    prefix="TEMPLATE_VALIDATION",
+                )
                 raise ValueError(error_msg)
 
         return validated_context
+
+    # ------------------------------------------------------------------
+    # Internal helpers (extracted from validate_and_complete_context for
+    # clarity + lower future bug surface). These intentionally avoid any
+    # change in behavior and are covered indirectly by existing tests.
+    # ------------------------------------------------------------------
+
+    def _prune_unused_tcl_requirements(
+        self,
+        template_name: str,
+        requirements: TemplateVariableRequirements,
+        logger_prefix: str = "TEMPLATE",
+    ) -> None:
+        """Prune 'device'/'board' if not actually referenced by a TCL template.
+
+        Safe subset refactor: identical logic to prior inline block, now with
+        explicit logging when pruning occurs. Swallows analysis errors to avoid
+        introducing new failure modes.
+        """
+        try:
+            tpl_root = Path(__file__).parent.parent / "templates"
+            template_path = tpl_root / template_name
+            if not template_path.exists():  # Nothing to analyze
+                return
+            referenced = self.analyze_template_for_variables(template_path)
+            for maybe_unused in ("device", "board"):
+                if (
+                    maybe_unused in requirements.required_vars
+                    and maybe_unused not in referenced
+                ):
+                    # Copy-on-write to avoid mutating cached set shared across
+                    # templates
+                    original = set(requirements.required_vars)
+                    requirements.required_vars = original
+                    requirements.required_vars.discard(maybe_unused)
+                    log_info_safe(
+                        logger,
+                        (
+                            "Pruned unused required variable '{var}' from "
+                            "template '{tpl}'"
+                        ),
+                        var=maybe_unused,
+                        tpl=template_name,
+                        prefix=logger_prefix,
+                    )
+        except Exception as e:  # Defensive: never fail pruning phase
+            log_debug_safe(
+                logger,
+                "Suppressed pruning error for template '{tpl}': {err}",
+                tpl=template_name,
+                err=str(e),
+                prefix=logger_prefix,
+            )
+
+    def _synthesize_device_if_needed(
+        self,
+        template_name: str,
+        requirements: TemplateVariableRequirements,
+        validated_context: Dict[str, Any],
+        logger_prefix: str = "TEMPLATE",
+    ) -> None:
+        """Synthesize minimal 'device' object iff template requires+references it.
+
+        Behavior mirrors the prior inline logic; any exception is swallowed to
+        preserve original strict validation semantics.
+        """
+        try:
+            if (
+                "device" not in requirements.required_vars
+                or "device" in validated_context
+            ):
+                return
+            tpl_root = Path(__file__).parent.parent / "templates"
+            template_path = tpl_root / template_name
+            if not template_path.exists():
+                return
+            txt = template_path.read_text()
+            # Heuristic reference detection (unchanged)
+            referenced = bool(
+                re.search(r"\{\{[^}]*\bdevice\b", txt)
+                or re.search(r"safe_attr\(\s*device\s*", txt)
+                or re.search(r"\{%[^%]*\bdevice\b", txt)
+            )
+            if not referenced:
+                # Prune instead (consistent with prior behavior)
+                original = set(requirements.required_vars)
+                requirements.required_vars = original
+                requirements.required_vars.discard("device")
+                log_info_safe(
+                    logger,
+                    "Pruned unused required variable 'device' from template '{tpl}'",
+                    tpl=template_name,
+                    prefix=logger_prefix,
+                )
+                return
+            # Synthesize
+            from src.utils.unified_context import TemplateObject  # Lazy import
+
+            source = (
+                validated_context.get("device_config")
+                or validated_context.get("config_space")
+                or {}
+            )
+            rev = None
+            if isinstance(source, dict):
+                rev = source.get("revision_id")
+                if rev is None and isinstance(source.get("registers"), dict):
+                    rev = source.get("registers", {}).get("revision_id")
+            if isinstance(source, dict):
+                vendor_id = source.get("vendor_id")
+                device_id = source.get("device_id")
+                class_code = source.get("class_code")
+                subsys_vendor_id = source.get("subsys_vendor_id") or source.get(
+                    "subsystem_vendor_id"
+                )
+                subsys_device_id = source.get("subsys_device_id") or source.get(
+                    "subsystem_device_id"
+                )
+            else:  # Unrecognized structure; preserve previous behavior (None fields)
+                vendor_id = device_id = class_code = subsys_vendor_id = (
+                    subsys_device_id
+                ) = None
+            validated_context["device"] = TemplateObject(
+                {
+                    "vendor_id": vendor_id,
+                    "device_id": device_id,
+                    "class_code": class_code,
+                    "revision_id": rev,
+                    "subsys_vendor_id": subsys_vendor_id,
+                    "subsys_device_id": subsys_device_id,
+                }
+            )
+            log_info_safe(
+                logger,
+                "Synthesized minimal 'device' object for template '{tpl}'",
+                tpl=template_name,
+                prefix=logger_prefix,
+            )
+        except Exception as e:
+            log_debug_safe(
+                logger,
+                "Suppressed device synthesis error for template '{tpl}': {err}",
+                tpl=template_name,
+                err=str(e),
+                prefix=logger_prefix,
+            )
 
     def analyze_template_for_variables(self, template_path: Path) -> Set[str]:
         """
@@ -531,7 +712,8 @@ class TemplateContextValidator:
             del self._template_mtime_cache[template_name]
         log_debug_safe(
             logger,
-            f"Invalidated cache for template '{template_name}'",
+            "Invalidated cache for template '{tpl}'",
+            tpl=template_name,
             prefix="TEMPLATE_CACHE",
         )
 

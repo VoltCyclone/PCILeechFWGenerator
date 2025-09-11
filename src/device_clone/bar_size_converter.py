@@ -1,5 +1,3 @@
-from src.exceptions import ContextError
-
 #!/usr/bin/env python3
 """
 BAR Size Conversion Utility for PCILeech
@@ -13,6 +11,9 @@ import logging
 from typing import Optional, Tuple, Union
 
 from src.device_clone.constants import BAR_SIZE_CONSTANTS
+from src.exceptions import ContextError
+from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                          log_warning_safe, safe_format)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,10 @@ def extract_bar_size(bar: dict) -> int:
     size = bar.get("size", 0)
     if size == 0 or size >= 4294967296:
         raise ContextError(
-            f"Invalid BAR size: size={size} (BAR size cannot be zero or >= 4GB)"
+            safe_format(
+                "Invalid BAR size: size={size} (BAR size cannot be zero or >= 4GB)",
+                size=size,
+            )
         )
     return size
 
@@ -103,19 +107,27 @@ class BarSizeConverter:
 
         # Validate size is power of 2
         if size & (size - 1) != 0:
-            raise ValueError(f"BAR size must be a power of 2, got {size}")
+            raise ValueError(
+                safe_format("BAR size must be a power of 2, got {size}", size=size)
+            )
 
         if bar_type.lower() == "io":
             # Validate I/O BAR size
             if size < BAR_SIZE_CONSTANTS["MIN_IO_SIZE"]:
                 raise ValueError(
-                    f"I/O BAR size must be at least {BAR_SIZE_CONSTANTS['MIN_IO_SIZE']} bytes, "
-                    f"got {size}"
+                    safe_format(
+                        "I/O BAR size must be at least {min_size} bytes, got {size}",
+                        min_size=BAR_SIZE_CONSTANTS["MIN_IO_SIZE"],
+                        size=size,
+                    )
                 )
             if size > BAR_SIZE_CONSTANTS["MAX_IO_SIZE"]:
                 raise ValueError(
-                    f"I/O BAR size cannot exceed {BAR_SIZE_CONSTANTS['MAX_IO_SIZE']} bytes, "
-                    f"got {size}"
+                    safe_format(
+                        "I/O BAR size cannot exceed {max_size} bytes, got {size}",
+                        max_size=BAR_SIZE_CONSTANTS["MAX_IO_SIZE"],
+                        size=size,
+                    )
                 )
             # Create size mask with lower 2 bits set for I/O type
             size_mask = ~(size - 1)
@@ -124,8 +136,12 @@ class BarSizeConverter:
             # Validate memory BAR size
             if size < BAR_SIZE_CONSTANTS["MIN_MEMORY_SIZE"]:
                 raise ValueError(
-                    f"Memory BAR size must be at least {BAR_SIZE_CONSTANTS['MIN_MEMORY_SIZE']} bytes, "
-                    f"got {size}"
+                    safe_format(
+                        "Memory BAR size must be at least {min_size} bytes, "
+                        "got {size}",
+                        min_size=BAR_SIZE_CONSTANTS["MIN_MEMORY_SIZE"],
+                        size=size,
+                    )
                 )
             # Create size mask
             size_mask = ~(size - 1)
@@ -225,7 +241,10 @@ class BarSizeConverter:
         bar_size = inverted & -inverted
         if bar_size <= 0 or bar_size >= 2**32:
             raise ContextError(
-                f"Invalid BAR size: {bar_size} (BAR size cannot be zero or >= 4GB)"
+                safe_format(
+                    "Invalid BAR size: {size} (BAR size cannot be zero or >= 4GB)",
+                    size=bar_size,
+                )
             )
         return bar_size
 
@@ -282,7 +301,14 @@ class BarSizeConverter:
         try:
             # Validate the size
             if not cls.validate_bar_size(size, bar_type):
-                logger.warning(f"Invalid BAR size {size} for {bar_type} BAR")
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Invalid BAR size {size} for {bar_type} BAR",
+                        size=size,
+                        bar_type=bar_type,
+                    ),
+                )
                 size = 0  # Disable invalid BARs
 
             # Convert to encoding
@@ -295,7 +321,10 @@ class BarSizeConverter:
             }
 
         except Exception as e:
-            logger.error(f"Error converting BAR for shadow space: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Error converting BAR for shadow space: {error}", error=e),
+            )
             return {
                 "encoded_value": 0,
                 "size": 0,

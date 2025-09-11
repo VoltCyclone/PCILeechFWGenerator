@@ -7,12 +7,16 @@ format error messages in a more user-friendly way, and categorize errors
 to provide actionable feedback to users.
 """
 
+import json
 import logging
+import os
+import platform
 import re
 import sys
 import traceback
+from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 class ErrorCategory(Enum):
@@ -191,7 +195,9 @@ def _build_msix_suggestion(error_text: str) -> str:
                 "config space access via VFIO (device bound to vfio-pci)."
             )
         )
-        tips.append(("Confirm the device isn't in a low-power state (avoid D3cold)."))
+        tips.append(
+            ("Confirm the device isn't in a low-power state " "(avoid D3cold).")
+        )
 
     # Invalid table size
     if "invalid msi-x table size" in text or re.search(r"table size .*must be", text):
@@ -414,3 +420,120 @@ def is_user_fixable_error(exception: Exception) -> bool:
     ]
 
     return category in user_fixable_categories
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Structured Issue Report Generation
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def build_issue_report(
+    exception: Exception,
+    *,
+    context: Optional[str] = None,
+    build_args: Optional[List[str]] = None,
+    extra_metadata: Optional[Dict[str, Any]] = None,
+    include_traceback: bool = False,
+) -> Dict[str, Any]:
+    """Create a structured dict describing the failure suitable for users to
+    attach to GitHub issues.
+
+    This intentionally avoids including potentially sensitive dynamic donor
+    identifiers (serial numbers, raw config space dumps, BAR addresses). Callers
+    must pass only safe, non-unique metadata via extra_metadata.
+
+    Fields:
+      schema_version: For forward compatibility.
+      timestamp_utc: ISO-8601 timestamp.
+      error: Root error data (category, root_cause, suggestion, chain).
+      environment: Minimal environment diagnostics (python version, platform,
+        argv subset, cwd, git info if available).
+      build: Provided build_args and sanitized config summary (if any).
+      context: Optional human context string.
+      user_actionable: Boolean indicating if likely user-fixable.
+    """
+    category, suggestion = categorize_error(exception)
+    root_cause = extract_root_cause(exception)
+    chain = extract_exception_chain(exception)
+
+    # Attempt git metadata (best effort, never fatal)
+    git_meta: Dict[str, str] = {}
+    try:
+        import subprocess  # local import to keep import cost low
+
+        def _git(cmd: List[str]) -> str:
+            return (
+                subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+            )
+
+        if os.path.exists(".git"):
+            git_meta["commit"] = _git(["git", "rev-parse", "HEAD"])[:12]
+            git_meta["branch"] = _git(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            git_meta["dirty"] = (
+                "1" if _git(["git", "status", "--porcelain"]) != "" else "0"
+            )
+    except Exception:
+        # Ignore any git failures silently; not essential
+        pass
+
+    env_info = {
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "implementation": platform.python_implementation(),
+        "executable": sys.executable,
+        "cwd": os.getcwd(),
+    }
+    if git_meta:
+        # Safe to nest; keep types consistent (dict[str, Any])
+        env_info["git"] = git_meta  # type: ignore[assignment]
+
+    report: Dict[str, Any] = {
+        "schema_version": 1,
+        "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+        "error": {
+            "category": category.value,
+            "root_cause": root_cause,
+            "suggestion": suggestion,
+            "exception_chain": chain,
+        },
+        "environment": env_info,
+        "build": {"args": build_args or []},
+        "context": context or "",
+        "user_actionable": is_user_fixable_error(exception),
+    }
+
+    if include_traceback:
+        report["error"]["traceback"] = "".join(
+            traceback.format_exception(
+                type(exception), exception, exception.__traceback__
+            )
+        )
+
+    if extra_metadata:
+        # Only merge shallow keys; caller responsible for sanitization
+        report.setdefault("extra", {}).update(extra_metadata)
+
+    return report
+
+
+def write_issue_report(
+    path: Union[str, os.PathLike], report: Dict[str, Any]
+) -> Tuple[bool, Optional[str]]:
+    """Write issue report JSON to disk. Returns (success, error_message)."""
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, indent=2, sort_keys=True)
+        return True, None
+    except Exception as e:  # pragma: no cover - best effort
+        return False, str(e)
+
+
+def format_issue_report_human_hint(path: Optional[str], report: Dict[str, Any]) -> str:
+    """Return a short human friendly message pointing user to the issue report."""
+    root = report.get("error", {}).get("root_cause", "<unknown>")
+    cat = report.get("error", {}).get("category", "<unknown>")
+    loc = path if path else "(stdout)"
+    return "Build failed (category: %s). Root cause: %s\n" % (cat, root) + (
+        f"Issue report saved to: {loc}\n"
+        "Attach this JSON when opening a GitHub issue."
+    )

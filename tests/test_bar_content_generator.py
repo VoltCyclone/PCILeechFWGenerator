@@ -2,9 +2,12 @@
 """
 Unit tests for BarContentGenerator (BAR entropy and uniqueness).
 """
-import pytest
-from src.device_clone.bar_content_generator import BarContentGenerator, BarContentType
 import hashlib
+
+import pytest
+
+from src.device_clone.bar_content_generator import (BarContentGenerator,
+                                                    BarContentType)
 
 
 def test_bar_content_entropy_and_uniqueness():

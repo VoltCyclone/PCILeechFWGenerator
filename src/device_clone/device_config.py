@@ -388,19 +388,31 @@ class DeviceConfiguration:
 def validate_hex_id(value: str, bit_width: int = 16) -> int:
     """Validate and convert hex ID string to integer.
 
-    Accepts strings like '0x10ec' or '10ec' and enforces bit-width limits.
+    Accepts strings like '0x10ec', '10ec', or decimal strings like '4332'.
+    Auto-detects base: hex if starts with 0x or contains A-F, decimal otherwise.
     """
     if isinstance(value, int):
-        return value
+        int_value = value
+    else:
+        s = value.strip()
+        if s.startswith(("0x", "0X")):
+            s = s[2:]
+            base = 16
+        elif re.match(r"^\d+$", s):
+            # Only decimal digits, treat as decimal
+            base = 10
+        elif re.match(r"^[0-9A-Fa-f]+$", s):
+            # Contains hex characters, treat as hex
+            base = 16
+        else:
+            raise ValueError(f"Invalid format: {value}")
 
-    s = value.strip()
-    if s.startswith(("0x", "0X")):
-        s = s[2:]
+        int_value = int(s, base)
 
-    if not re.match(r"^[0-9A-Fa-f]+$", s):
-        raise ValueError(f"Invalid hex format: {value}")
+    # Check for negative values
+    if int_value < 0:
+        raise ValueError(f"Value {int_value} out of range for {bit_width}-bit field")
 
-    int_value = int(s, 16)
     max_value = (1 << bit_width) - 1
     if not (0 <= int_value <= max_value):
         raise ValueError(
@@ -440,6 +452,7 @@ class DeviceConfigManager:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
     @staticmethod
     def _log_preconfigured_config_warning(config_file: Path, file_type: str) -> None:
         """Emit standardized warning for preconfigured device profiles.
@@ -547,13 +560,15 @@ class DeviceConfigManager:
         )
 
         registers = PCIeRegisters(
-            command=data["registers"].get("command", 0x0006),
-            status=data["registers"].get("status", 0x0210),
-            revision_id=data["registers"].get("revision_id", 0x01),
-            cache_line_size=data["registers"].get("cache_line_size", 0x10),
-            latency_timer=data["registers"].get("latency_timer", 0x00),
-            header_type=data["registers"].get("header_type", 0x00),
-            bist=data["registers"].get("bist", 0x00),
+            command=convert_to_int(data["registers"].get("command", 0x0006)),
+            status=convert_to_int(data["registers"].get("status", 0x0210)),
+            revision_id=convert_to_int(data["registers"].get("revision_id", 0x01)),
+            cache_line_size=convert_to_int(
+                data["registers"].get("cache_line_size", 0x10)
+            ),
+            latency_timer=convert_to_int(data["registers"].get("latency_timer", 0x00)),
+            header_type=convert_to_int(data["registers"].get("header_type", 0x00)),
+            bist=convert_to_int(data["registers"].get("bist", 0x00)),
         )
 
         active_device_data = data["capabilities"].get("active_device", {})
@@ -569,33 +584,39 @@ class DeviceConfigManager:
 
         active_device = ActiveDeviceConfig(
             enabled=_coerce_scalar(active_device_data.get("enabled", False)),
-            timer_period=_coerce_scalar(active_device_data.get("timer_period", 100000)),
+            timer_period=convert_to_int(
+                _coerce_scalar(active_device_data.get("timer_period", 100000))
+            ),
             timer_enable=_coerce_scalar(active_device_data.get("timer_enable", True)),
             interrupt_mode=_coerce_scalar(
                 active_device_data.get("interrupt_mode", "msi")
             ),
-            interrupt_vector=_coerce_scalar(
-                active_device_data.get("interrupt_vector", 0)
+            interrupt_vector=convert_to_int(
+                _coerce_scalar(active_device_data.get("interrupt_vector", 0))
             ),
-            priority=_coerce_scalar(active_device_data.get("priority", 15)),
-            msi_vector_width=_coerce_scalar(
-                active_device_data.get("msi_vector_width", 5)
+            priority=convert_to_int(
+                _coerce_scalar(active_device_data.get("priority", 15))
+            ),
+            msi_vector_width=convert_to_int(
+                _coerce_scalar(active_device_data.get("msi_vector_width", 5))
             ),
             msi_64bit_addr=_coerce_scalar(
                 active_device_data.get("msi_64bit_addr", False)
             ),
-            num_interrupt_sources=_coerce_scalar(
-                active_device_data.get("num_interrupt_sources", 8)
+            num_interrupt_sources=convert_to_int(
+                _coerce_scalar(active_device_data.get("num_interrupt_sources", 8))
             ),
-            default_source_priority=_coerce_scalar(
-                active_device_data.get("default_source_priority", 8)
+            default_source_priority=convert_to_int(
+                _coerce_scalar(active_device_data.get("default_source_priority", 8))
             ),
         )
 
         capabilities = DeviceCapabilities(
-            max_payload_size=data["capabilities"].get("max_payload_size", 256),
-            msi_vectors=data["capabilities"].get("msi_vectors", 1),
-            msix_vectors=data["capabilities"].get("msix_vectors", 0),
+            max_payload_size=convert_to_int(
+                data["capabilities"].get("max_payload_size", 256)
+            ),
+            msi_vectors=convert_to_int(data["capabilities"].get("msi_vectors", 1)),
+            msix_vectors=convert_to_int(data["capabilities"].get("msix_vectors", 0)),
             supports_msi=data["capabilities"].get("supports_msi", True),
             supports_msix=data["capabilities"].get("supports_msix", False),
             supports_power_management=data["capabilities"].get(
@@ -604,10 +625,14 @@ class DeviceConfigManager:
             supports_advanced_error_reporting=data["capabilities"].get(
                 "supports_advanced_error_reporting", False
             ),
-            link_width=data["capabilities"].get("link_width", 1),
+            link_width=convert_to_int(data["capabilities"].get("link_width", 1)),
             link_speed=data["capabilities"].get("link_speed", "2.5GT/s"),
-            ext_cfg_cap_ptr=data["capabilities"].get("ext_cfg_cap_ptr", 0x100),
-            ext_cfg_xp_cap_ptr=data["capabilities"].get("ext_cfg_xp_cap_ptr", 0x100),
+            ext_cfg_cap_ptr=convert_to_int(
+                data["capabilities"].get("ext_cfg_cap_ptr", 0x100)
+            ),
+            ext_cfg_xp_cap_ptr=convert_to_int(
+                data["capabilities"].get("ext_cfg_xp_cap_ptr", 0x100)
+            ),
             active_device=active_device,
         )
 

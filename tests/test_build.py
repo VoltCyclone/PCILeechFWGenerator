@@ -32,6 +32,7 @@ from src.build import (  # Exception classes; Data classes; Manager classes; Mai
     FileOperationsManager, FirmwareBuilder, ModuleChecker, ModuleImportError,
     MSIXData, MSIXManager, MSIXPreloadError, PCILeechBuildError,
     VivadoIntegrationError, _display_summary, main, parse_args)
+from src.error_utils import build_issue_report
 
 # ============================================================================
 # Fixtures
@@ -211,6 +212,152 @@ def test_configuration_error():
     assert isinstance(error, PCILeechBuildError)
 
 
+# =========================================================================
+# Issue report generation
+# =========================================================================
+
+
+def test_build_issue_report_basic():
+    """Ensure build_issue_report returns required keys and is JSON serializable."""
+    try:
+        raise ValueError("Synthetic failure for report")
+    except Exception as exc:  # noqa: PIE786
+        report = build_issue_report(
+            exc,
+            context="unit-test",
+            build_args=["--bdf", "0000:03:00.0", "--board", "pcileech_35t325_x4"],
+            extra_metadata={"selected_board": "pcileech_35t325_x4"},
+            include_traceback=True,
+        )
+
+    # Required top-level keys
+    for key in [
+        "schema_version",
+        "timestamp_utc",
+        "error",
+        "environment",
+        "build",
+        "user_actionable",
+    ]:
+        assert key in report
+
+    # Error section basics
+    assert report["error"]["root_cause"] == "Synthetic failure for report"
+    assert isinstance(report["error"].get("exception_chain"), list)
+
+    # JSON serializable
+    serialized = json.dumps(report)
+    assert "Synthetic failure" in serialized
+
+
+def test_reproduction_command_basic():
+    """Reproduction command includes core args; omits issue-report flags."""
+    # Local import to avoid circular import during test collection
+    from src.build import _build_reproduction_command
+
+    args = argparse.Namespace(
+        bdf="0000:03:00.0",
+        board="pcileech_35t325_x4",
+        profile=45,
+        donor_template="donor.json",
+        output_template="out_template.json",
+        vivado=True,
+        vivado_path="/tools/Xilinx/2025.1/Vivado",
+        vivado_jobs=8,  # non-default so it should appear
+        vivado_timeout=7200,  # non-default so it should appear
+        preload_msix=False,  # triggers --no-preload-msix flag
+        enable_error_injection=True,
+        issue_report_json="failure.json",  # should be excluded
+        print_issue_report=True,  # should be excluded
+        no_repro_hint=False,
+        output="output",  # not used in repro command currently
+    )
+
+    cmd = _build_reproduction_command(args)
+
+    # Must include core mandatory flags & values
+    assert "--bdf 0000:03:00.0" in cmd
+    assert "--board pcileech_35t325_x4" in cmd
+    assert "--profile 45" in cmd
+    assert "--donor-template donor.json" in cmd
+    assert "--output-template out_template.json" in cmd
+    assert "--vivado" in cmd
+    assert "--vivado-path /tools/Xilinx/2025.1/Vivado" in cmd
+    assert "--vivado-jobs 8" in cmd
+    assert "--vivado-timeout 7200" in cmd
+    assert "--no-preload-msix" in cmd
+    assert "--enable-error-injection" in cmd
+
+    # Must not include issue reporting flags
+    assert "issue-report" not in cmd
+    assert "print-issue-report" not in cmd
+
+
+def test_reproduction_command_defaults_minimal():
+    """Ensure defaults omitted; msix preload enabled doesn't add extra flag."""
+    from src.build import _build_reproduction_command
+
+    args = argparse.Namespace(
+        bdf="0000:04:00.0",
+        board="pcileech_35t325_x4",
+        profile=30,  # default
+        donor_template=None,
+        output_template=None,
+        vivado=False,
+        vivado_path=None,
+        vivado_jobs=4,  # default -> should be omitted
+        vivado_timeout=3600,  # default -> should be omitted
+        preload_msix=True,  # default -> should not add --no-preload-msix
+        enable_error_injection=False,
+        issue_report_json=None,
+        print_issue_report=False,
+        no_repro_hint=False,
+        output="output",
+    )
+
+    cmd = _build_reproduction_command(args)
+
+    assert cmd.startswith("python3 -m src.build")
+    assert "--bdf 0000:04:00.0" in cmd
+    assert "--board pcileech_35t325_x4" in cmd
+    # Default values should not introduce these flags
+    assert "--vivado-jobs" not in cmd
+    assert "--vivado-timeout" not in cmd
+    assert "--no-preload-msix" not in cmd
+    assert "--enable-error-injection" not in cmd
+
+
+def test_reproduction_command_suppressed(mock_logger):
+    """Ensure reproduction hint is not logged when --no-repro-hint flag is set."""
+    from src.build import _maybe_emit_issue_report
+
+    args = argparse.Namespace(
+        bdf="0000:05:00.0",
+        board="pcileech_35t325_x4",
+        profile=30,
+        donor_template=None,
+        output_template=None,
+        vivado=False,
+        vivado_path=None,
+        vivado_jobs=4,
+        vivado_timeout=3600,
+        preload_msix=True,
+        enable_error_injection=False,
+        issue_report_json=None,
+        print_issue_report=False,
+        no_repro_hint=True,  # suppression active
+        output="output",
+    )
+
+    # Invoke with synthetic failure
+    _maybe_emit_issue_report(ValueError("boom"), mock_logger, args)
+
+    # Ensure no reproduction hint logged
+    if hasattr(mock_logger, "info"):
+        for call in mock_logger.info.call_args_list:
+            assert "Reproduce with:" not in (call.args[0] if call.args else "")
+
+
 # ============================================================================
 # Test Data Classes
 # ============================================================================
@@ -339,7 +486,11 @@ def test_module_checker_handle_import_error():
     checker = ModuleChecker([])
 
     # Mock _gather_diagnostics
-    with mock.patch.object(checker, "_gather_diagnostics", return_value="Diagnostics"):
+    with mock.patch.object(
+        checker,
+        "_gather_diagnostics",
+        return_value="Diagnostics",
+    ):
         with pytest.raises(ModuleImportError) as excinfo:
             checker._handle_import_error("test_module", ImportError("Test error"))
 
@@ -392,7 +543,10 @@ def test_msix_manager_preload_data_success(valid_bdf, mock_logger):
 
     with mock.patch("os.path.exists", return_value=True), mock.patch.object(
         manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
-    ), mock.patch("src.build.parse_msix_capability", return_value={"table_size": 16}):
+    ), mock.patch(
+        "src.build.parse_msix_capability",
+        return_value={"table_size": 16},
+    ):
 
         result = manager.preload_data()
 
@@ -644,7 +798,7 @@ def test_file_operations_manager_write_systemverilog_modules(temp_dir, mock_logg
 def test_file_operations_manager_write_systemverilog_modules_parallel(
     temp_dir, mock_logger
 ):
-    """Test FileOperationsManager.write_systemverilog_modules() with parallel writes."""
+    """Test parallel SystemVerilog module writes."""
     manager = FileOperationsManager(temp_dir, True, 4, mock_logger)
 
     # Create test modules
@@ -664,7 +818,7 @@ def test_file_operations_manager_write_systemverilog_modules_parallel(
 def test_file_operations_manager_write_systemverilog_modules_sequential_single(
     temp_dir, mock_logger
 ):
-    """Test FileOperationsManager.write_systemverilog_modules() with single file (sequential)."""
+    """Test sequential write path with single file."""
     manager = FileOperationsManager(temp_dir, True, 4, mock_logger)
 
     # Create test modules with only one file
@@ -958,6 +1112,7 @@ def test_file_operations_manager_json_serialize_default(temp_dir, mock_logger):
     manager = FileOperationsManager(temp_dir, True, 4, mock_logger)
 
     # Test with object that has __dict__
+
     class TestObject:
         def __init__(self):
             self.attr1 = "value1"
@@ -968,6 +1123,7 @@ def test_file_operations_manager_json_serialize_default(temp_dir, mock_logger):
     assert result == {"attr1": "value1", "attr2": "value2"}
 
     # Test with object that doesn't have __dict__
+
     class TestObject2:
         __slots__ = ["attr1", "attr2"]
 

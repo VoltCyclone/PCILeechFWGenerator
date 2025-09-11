@@ -33,12 +33,10 @@ except ImportError:
     from src.shell import Shell
 
 from ..string_utils import log_info_safe, log_warning_safe
-from .build_constants import (
-    DEFAULT_ACTIVE_INTERRUPT_MODE,
-    DEFAULT_ACTIVE_INTERRUPT_VECTOR,
-    DEFAULT_ACTIVE_PRIORITY,
-    DEFAULT_ACTIVE_TIMER_PERIOD,
-)
+from .build_constants import (DEFAULT_ACTIVE_INTERRUPT_MODE,
+                              DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+                              DEFAULT_ACTIVE_PRIORITY,
+                              DEFAULT_ACTIVE_TIMER_PERIOD)
 from .container import BuildConfig, run_build  # new unified runner
 from .version_checker import add_version_args, check_and_notify
 
@@ -353,7 +351,8 @@ def main(argv: Optional[List[str]] = None):
         flash_bin(Path(args.firmware))
 
     elif args.cmd == "donor-template":
-        from ..device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from ..device_clone.donor_info_template import \
+            DonorInfoTemplateGenerator
 
         if args.with_comments:
             # Generate template with comments (for documentation)

@@ -5,16 +5,14 @@ If required TCL templates are missing, generation must raise a
 `PCILeechGenerationError` (or a subclass) and MUST NOT silently
 produce placeholder / legacy inline script content.
 """
-from pathlib import Path
 import re
+from pathlib import Path
 
 import pytest
 
-from src.device_clone.pcileech_generator import (
-    PCILeechGenerationConfig,
-    PCILeechGenerator,
-    PCILeechGenerationError,
-)
+from src.device_clone.pcileech_generator import (PCILeechGenerationConfig,
+                                                 PCILeechGenerationError,
+                                                 PCILeechGenerator)
 
 
 def _mk_cfg(tmp: Path, **over):

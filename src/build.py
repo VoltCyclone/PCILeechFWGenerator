@@ -23,29 +23,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from src.device_clone import device_config
+from src.templating.template_context_validator import \
+    clear_global_template_cache
+from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                          log_warning_safe, safe_format)
 
 # Import board functions from the correct module
-from .device_clone.board_config import get_pcileech_board_config, validate_board
+from .device_clone.board_config import (get_pcileech_board_config,
+                                        validate_board)
 from .device_clone.constants import PRODUCTION_DEFAULTS
-
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (
-    ConfigurationError,
-    FileOperationError,
-    ModuleImportError,
-    MSIXPreloadError,
-    PCILeechBuildError,
-    PlatformCompatibilityError,
-    VivadoIntegrationError,
-)
+from .exceptions import (ConfigurationError, FileOperationError,
+                         ModuleImportError, MSIXPreloadError,
+                         PCILeechBuildError, PlatformCompatibilityError,
+                         VivadoIntegrationError)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -69,15 +62,35 @@ REQUIRED_MODULES = [
 SPECIAL_FILE_EXTENSIONS = {".coe", ".hex"}
 SYSTEMVERILOG_EXTENSION = ".sv"
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Data Classes and Configuration Management
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Type Definitions and Protocols
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+# Local lightweight helpers to deduplicate recurring hex/int normalization
+# patterns within this module only (not part of public API surface).
+
+
+def _as_int(value: Union[int, str], field: str) -> int:
+    """Normalize numeric identifier that may be int or hex string."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v.startswith("0x"):
+            v = v[2:]
+        return int(v, 16)
+    raise TypeError(safe_format("Unsupported type for {field}", field=field))
+
+
+def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
+    """Optional version of _as_int returning None when not parseable."""
+    if value in (None, ""):
+        return None
+    try:
+        return _as_int(value, "optional_field")
+    except Exception:  # pragma: no cover
+        return None
 
 
 @dataclass
@@ -134,6 +147,8 @@ class FileWriter(Protocol):
 # ──────────────────────────────────────────────────────────────────────────────
 # Module Import Checker
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 class ModuleChecker:
     """Handles checking and validation of required modules."""
 
@@ -263,6 +278,8 @@ class ModuleChecker:
 # ──────────────────────────────────────────────────────────────────────────────
 # MSI-X Manager
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 class MSIXManager:
     """Manages MSI-X capability data preloading and injection."""
 
@@ -456,6 +473,8 @@ class MSIXManager:
 # ──────────────────────────────────────────────────────────────────────────────
 # File Operations Manager
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 class FileOperationsManager:
     """Manages file operations with optional parallel processing."""
 
@@ -543,7 +562,12 @@ class FileOperationsManager:
         file_path = self.output_dir / filename
         try:
             with open(file_path, "w", buffering=BUFFER_SIZE) as f:
-                json.dump(data, f, indent=indent, default=self._json_serialize_default)
+                json.dump(
+                    data,
+                    f,
+                    indent=indent,
+                    default=self._json_serialize_default,
+                )
         except Exception as e:
             raise FileOperationError(
                 f"Failed to write JSON file {filename}: {e}"
@@ -665,6 +689,8 @@ class FileOperationsManager:
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration Manager
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 class ConfigurationManager:
     """Manages build configuration and validation."""
 
@@ -730,7 +756,8 @@ class ConfigurationManager:
             DeviceConfiguration instance
 
         Raises:
-            ConfigurationError: If required device configuration is missing or invalid
+            ConfigurationError: If required device configuration is missing
+                or invalid
         """
         device_config = template_context.get("device_config")
         pcie_config = template_context.get("pcie_config", {})
@@ -755,8 +782,8 @@ class ConfigurationManager:
             value = device_config.get(field)
             if value is None:
                 raise ConfigurationError(
-                    f"{display_name} is missing from device configuration. "
-                    f"Cannot generate device-specific firmware without valid {display_name}."
+                    "Cannot generate device-specific firmware without "
+                    f"valid {display_name}."
                 )
 
             # Check for invalid/generic values that could create non-unique firmware
@@ -764,19 +791,14 @@ class ConfigurationManager:
                 int_value = int(value, 16) if isinstance(value, str) else value
                 if int_value == 0:
                     raise ConfigurationError(
-                        f"{display_name} is zero (0x{int_value:04X}), which indicates "
-                        f"invalid device configuration. This would create generic firmware."
+                        f"{display_name} is zero (0x{int_value:04X}), which "
+                        "indicates "
+                        "a generic or uninitialized value. Use a real device "
                     )
 
         # Additional validation for vendor/device ID pairs that are known generics
-        vendor_id = device_config["vendor_id"]
-        device_id = device_config["device_id"]
-
-        # Convert to int if string
-        if isinstance(vendor_id, str):
-            vendor_id = int(vendor_id, 16)
-        if isinstance(device_id, str):
-            device_id = int(device_id, 16)
+        vendor_id = _as_int(device_config["vendor_id"], "vendor_id")
+        device_id = _as_int(device_config["device_id"], "device_id")
 
         # Check for common generic vendor/device combinations
         generic_combinations = [
@@ -793,19 +815,14 @@ class ConfigurationManager:
                     f"non-unique firmware. Use a real device for cloning."
                 )
 
+        revision_id = _as_int(device_config["revision_id"], "revision_id")
+        class_code = _as_int(device_config["class_code"], "class_code")
+
         return DeviceConfiguration(
             vendor_id=vendor_id,
             device_id=device_id,
-            revision_id=(
-                int(device_config["revision_id"], 16)
-                if isinstance(device_config["revision_id"], str)
-                else device_config["revision_id"]
-            ),
-            class_code=(
-                int(device_config["class_code"], 16)
-                if isinstance(device_config["class_code"], str)
-                else device_config["class_code"]
-            ),
+            revision_id=revision_id,
+            class_code=class_code,
             requires_msix=has_msix,
             pcie_lanes=pcie_config.get("max_lanes", 1),
         )
@@ -850,6 +867,8 @@ class ConfigurationManager:
 # ──────────────────────────────────────────────────────────────────────────────
 # Main Firmware Builder
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 class FirmwareBuilder:
     """
     This class orchestrates the firmware generation process using
@@ -973,14 +992,18 @@ class FirmwareBuilder:
             vivado_info = find_vivado_installation()
             if not vivado_info:
                 raise VivadoIntegrationError(
-                    "Vivado not found in PATH. Use --vivado-path to specify installation directory."
+                    "Vivado not found in PATH. Use --vivado-path to specify "
+                    "installation directory."
                 )
             # Extract root path from executable path
-            # e.g., /tools/Xilinx/2025.1/Vivado/bin/vivado -> /tools/Xilinx/2025.1/Vivado
+            # e.g., /tools/Xilinx/2025.1/Vivado/bin/vivado ->
+            #       /tools/Xilinx/2025.1/Vivado
             vivado_exe_path = Path(vivado_info["executable"])
             vivado_path = str(vivado_exe_path.parent.parent)
             log_info_safe(
-                self.logger, "Auto-detected Vivado at: {path}", path=vivado_path
+                self.logger,
+                "Auto-detected Vivado at: {path}",
+                path=vivado_path,
             )
 
         # Create and run VivadoRunner
@@ -1004,10 +1027,8 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (
-            PCILeechGenerationConfig,
-            PCILeechGenerator,
-        )
+        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
+                                                      PCILeechGenerator)
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1032,7 +1053,8 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import \
+                DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
@@ -1084,7 +1106,7 @@ class FirmwareBuilder:
                 "num_vectors": 0,
             },
         )
-        # Explicitly include msix_data key (None by default) for callers that rely on it
+        # Include msix_data key (None by default) for callers that rely on it
         tc.setdefault("msix_data", None)
 
         # Inject config space hex/COE into template context if missing
@@ -1113,12 +1135,37 @@ class FirmwareBuilder:
                 # Inject into template context
                 if "template_context" in result:
                     result["template_context"]["config_space_hex"] = config_space_hex
-                    # Optionally also inject as config_space_coe for template compatibility
+                    # Also inject config_space_coe for template compatibility
                     result["template_context"]["config_space_coe"] = config_space_hex
         except Exception as e:
             # Log but do not fail build if hex generation fails
             log_warning_safe(
                 self.logger, "Config space hex generation failed: {err}", err=str(e)
+            )
+
+        # Emit audit file of top-level template context keys to verify propagation.
+        try:
+            ctx = result.get("template_context", {}) or {}
+            keys = sorted(ctx.keys())
+            audit = {
+                "context_key_count": len(keys),
+                "context_keys": keys,
+                "generated_at": time.time(),
+            }
+            audit_path = self.config.output_dir / "template_context_keys.json"
+            with open(audit_path, "w") as f:
+                json.dump(audit, f, indent=2)
+            log_debug_safe(
+                self.logger,
+                "Template context audit written ({count} keys) → {path}",
+                count=len(keys),
+                path=str(audit_path),
+            )
+        except Exception as e:
+            log_debug_safe(
+                self.logger,
+                "Template context audit skipped: {err}",
+                err=str(e),
             )
 
         return result
@@ -1181,21 +1228,9 @@ class FirmwareBuilder:
         """Generate TCL scripts for Vivado."""
         ctx = result["template_context"]
         device_config = ctx["device_config"]
-
-        # Extract subsystem IDs from template context
-        subsys_vendor_id = device_config.get("subsystem_vendor_id")
-        subsys_device_id = device_config.get("subsystem_device_id")
-
-        # Convert hex strings to integers if needed
-        if isinstance(subsys_vendor_id, str) and subsys_vendor_id.startswith("0x"):
-            subsys_vendor_id = int(subsys_vendor_id, 16)
-        elif isinstance(subsys_vendor_id, str):
-            subsys_vendor_id = int(subsys_vendor_id, 16)
-
-        if isinstance(subsys_device_id, str) and subsys_device_id.startswith("0x"):
-            subsys_device_id = int(subsys_device_id, 16)
-        elif isinstance(subsys_device_id, str):
-            subsys_device_id = int(subsys_device_id, 16)
+        # Extract optional subsystem IDs
+        subsys_vendor_id = _optional_int(device_config.get("subsystem_vendor_id"))
+        subsys_device_id = _optional_int(device_config.get("subsystem_device_id"))
 
         self.tcl.build_all_tcl_scripts(
             board=self.config.board,
@@ -1234,7 +1269,8 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import \
+            DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1275,6 +1311,8 @@ class FirmwareBuilder:
 # ──────────────────────────────────────────────────────────────────────────────
 # CLI Functions
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     """
     Parse command line arguments.
@@ -1286,25 +1324,24 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         Parsed arguments namespace
     """
     parser = argparse.ArgumentParser(
-        description="PCILeech FPGA Firmware Builder - Improved Modular Edition",
+        description=("PCILeech FPGA Firmware Builder - Improved Modular Edition"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Basic build
-  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4
-  
-  # Build with Vivado integration
-  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 --vivado
-  
-  # Build with custom Vivado settings
-  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 --vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8
-  
-  # Build with behavior profiling
-  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 --profile 60
-  
-  # Build without MSI-X preloading
-  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 --no-preload-msix
-        """,
+        epilog=(
+            "Examples:\n"
+            "  # Basic build\n"
+            "  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4\n\n"
+            "  # Build with Vivado integration\n"
+            "  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 --vivado\n\n"
+            "  # Build with custom Vivado settings\n"
+            "  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 "
+            "--vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8\n\n"
+            "  # Build with behavior profiling\n"
+            "  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 "
+            "--profile 60\n\n"
+            "  # Build without MSI-X preloading\n"
+            "  %(prog)s --bdf 0000:03:00.0 --board pcileech_35t325_x4 "
+            "--no-preload-msix\n"
+        ),
     )
 
     parser.add_argument(
@@ -1322,7 +1359,10 @@ Examples:
         type=int,
         default=DEFAULT_PROFILE_DURATION,
         metavar="SECONDS",
-        help=f"Capture behavior profile for N seconds (default: {DEFAULT_PROFILE_DURATION}, 0 to disable)",
+        help=(
+            "Capture behavior profile for N seconds (default: "
+            f"{DEFAULT_PROFILE_DURATION}, 0 to disable)"
+        ),
     )
     parser.add_argument(
         "--vivado", action="store_true", help="Run Vivado build after generation"
@@ -1349,7 +1389,10 @@ Examples:
     )
     parser.add_argument(
         "--vivado-path",
-        help="Manual path to Vivado installation directory (e.g., /tools/Xilinx/2025.1/Vivado)",
+        help=(
+            "Manual path to Vivado installation directory (e.g., "
+            "/tools/Xilinx/2025.1/Vivado)"
+        ),
     )
     parser.add_argument(
         "--vivado-jobs",
@@ -1373,12 +1416,38 @@ Examples:
         ),
     )
 
+    parser.add_argument(
+        "--issue-report-json",
+        metavar="PATH",
+        help=(
+            "If the build fails, write a structured machine-readable JSON error "
+            "report to PATH (for GitHub issues)."
+        ),
+    )
+
+    parser.add_argument(
+        "--print-issue-report",
+        action="store_true",
+        help=(
+            "On failure emit the structured JSON issue report to stdout "
+            "(in addition to normal logging)."
+        ),
+    )
+
+    parser.add_argument(
+        "--no-repro-hint",
+        action="store_true",
+        help="Suppress the reproduction command hint on failure.",
+    )
+
     return parser.parse_args(argv)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main Entry Point
 # ──────────────────────────────────────────────────────────────────────────────
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """
     Main entry point for the PCILeech firmware builder.
@@ -1403,6 +1472,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger = get_logger("pcileech_builder")
 
     try:
+        # Reset template validation caches unless explicitly disabled.
+        # Avoid stale state in long-lived local processes.
+        if not os.environ.get("PCILEECH_DISABLE_TEMPLATE_CACHE_RESET"):
+            clear_global_template_cache()
+            log_debug_safe(logger, "Template validation cache reset at build start")
         # Check required modules
         module_checker = ModuleChecker(REQUIRED_MODULES)
         module_checker.check_all()
@@ -1437,6 +1511,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except ModuleImportError as e:
         # Module import errors are fatal and should show diagnostics
         print(f"[FATAL] {e}", file=sys.stderr)
+        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 2
 
     except PlatformCompatibilityError as e:
@@ -1445,11 +1520,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         log_info_safe(
             logger, "Build skipped due to platform compatibility: {err}", err=str(e)
         )
+        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 1
 
     except ConfigurationError as e:
         # Configuration errors indicate user error
         log_error_safe(logger, "Configuration error: {err}", err=str(e))
+        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 1
 
     except PCILeechBuildError as e:
@@ -1457,6 +1534,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         log_error_safe(logger, "Build failed: {err}", err=str(e))
         if logger.isEnabledFor(logging.DEBUG):
             log_debug_safe(logger, "Full traceback while handling build error")
+        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 1
 
     except KeyboardInterrupt:
@@ -1481,6 +1559,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # Unexpected errors
             log_error_safe(logger, "Unexpected error: {err}", err=str(e))
             log_debug_safe(logger, "Full traceback for unexpected error")
+        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 1
 
 
@@ -1528,3 +1607,116 @@ def _display_summary(artifacts: List[str], output_dir: Path) -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Issue report helper
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _maybe_emit_issue_report(
+    exc: Exception, logger: logging.Logger, args: Optional[argparse.Namespace]
+) -> None:
+    """Emit structured issue report if user requested it via CLI flags.
+
+    Safe best-effort; never raises.
+    """
+    if not args:
+        return
+    want_file = getattr(args, "issue_report_json", None)
+    want_stdout = getattr(args, "print_issue_report", False)
+    # Always compute repro command (unless user disabled) even if no JSON requested
+    repro_disabled = getattr(args, "no_repro_hint", False)
+    repro_cmd = None
+    if not repro_disabled:
+        repro_cmd = _build_reproduction_command(args)
+
+    try:
+        from src.error_utils import (build_issue_report,
+                                     format_issue_report_human_hint,
+                                     write_issue_report)
+
+        report = None
+        if want_file or want_stdout:
+            build_args = [a for a in sys.argv[1:]]
+            report = build_issue_report(
+                exc,
+                context="firmware-build",
+                build_args=build_args,
+                extra_metadata={
+                    "selected_board": getattr(args, "board", None),
+                    "bdf": getattr(args, "bdf", None),
+                },
+                include_traceback=logger.isEnabledFor(logging.DEBUG),
+            )
+
+        if report is not None:
+            path_used = None
+            if want_file:
+                ok, err = write_issue_report(want_file, report)
+                if not ok:
+                    log_warning_safe(
+                        logger,
+                        "Failed to write issue report JSON: {err}",
+                        err=err,
+                    )
+                else:
+                    path_used = want_file
+
+            if want_stdout:
+                print(json.dumps(report, indent=2, sort_keys=True))
+
+            hint = format_issue_report_human_hint(path_used, report)
+            log_info_safe(logger, hint.rstrip())
+
+        if repro_cmd:
+            log_info_safe(
+                logger,
+                "Reproduce with: {cmd}",
+                cmd=repro_cmd,
+            )
+    except Exception as emit_err:  # pragma: no cover - best effort
+        log_warning_safe(
+            logger,
+            "Issue report generation failed: {err}",
+            err=str(emit_err),
+        )
+
+
+def _build_reproduction_command(args: argparse.Namespace) -> str:
+    """Build a reproduction command from original arguments.
+
+    Sensitive values are kept because reproduction requires them; users can
+    manually redact if desired. Output paths are normalized.
+    """
+    parts: List[str] = ["python3", "-m", "src.build"]
+    # Map a subset of meaningful args; iterate through known flags to preserve order
+
+    def _add(flag: str, value: Optional[str]) -> None:
+        if value is None:
+            return
+        parts.append(flag)
+        parts.append(str(value))
+
+    _add("--bdf", getattr(args, "bdf", None))
+    _add("--board", getattr(args, "board", None))
+    if getattr(args, "profile", None) is not None:
+        _add("--profile", getattr(args, "profile"))
+    if getattr(args, "donor_template", None):
+        _add("--donor-template", getattr(args, "donor_template"))
+    if getattr(args, "output_template", None):
+        _add("--output-template", getattr(args, "output_template"))
+    if getattr(args, "vivado", False):
+        parts.append("--vivado")
+    if getattr(args, "vivado_path", None):
+        _add("--vivado-path", getattr(args, "vivado_path"))
+    if getattr(args, "vivado_jobs", None) not in (None, 4):
+        _add("--vivado-jobs", getattr(args, "vivado_jobs"))
+    if getattr(args, "vivado_timeout", None) not in (None, 3600):
+        _add("--vivado-timeout", getattr(args, "vivado_timeout"))
+    if not getattr(args, "preload_msix", True):
+        parts.append("--no-preload-msix")
+    if getattr(args, "enable_error_injection", False):
+        parts.append("--enable-error-injection")
+    # Intentionally exclude issue-report flags from reproduction command
+    return " ".join(parts)

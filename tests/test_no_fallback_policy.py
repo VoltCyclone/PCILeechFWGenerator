@@ -42,7 +42,10 @@ class TestNoFallbackPolicy:
             }
         }
 
-        with pytest.raises(ConfigurationError, match="Vendor ID is missing"):
+        with pytest.raises(
+            ConfigurationError,
+            match="Cannot generate device-specific firmware without valid Vendor ID",
+        ):
             self.config_manager.extract_device_config(template_context, False)
 
     def test_missing_device_id_raises_error(self):
@@ -55,7 +58,10 @@ class TestNoFallbackPolicy:
             }
         }
 
-        with pytest.raises(ConfigurationError, match="Device ID is missing"):
+        with pytest.raises(
+            ConfigurationError,
+            match="Cannot generate device-specific firmware without valid Device ID",
+        ):
             self.config_manager.extract_device_config(template_context, False)
 
     def test_zero_vendor_id_raises_error(self):

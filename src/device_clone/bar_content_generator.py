@@ -1,9 +1,9 @@
+import hashlib
 import math
 import secrets
-import hashlib
 import struct
-from typing import Optional, Dict, Any
 from enum import Enum
+from typing import Any, Dict, Optional
 
 
 class BarContentType(Enum):

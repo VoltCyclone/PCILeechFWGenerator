@@ -400,6 +400,66 @@ class TestTemplateContextValidator:
             "Explicit initialization of all template variables is required" in error_msg
         )
 
+    def test_tcl_prunes_unused_device_requirement(self):
+        """TCL template without 'device' usage should prune 'device' requirement."""
+        # Create a temporary TCL template inside the real templates directory so
+        # the validator can locate and analyze it.
+        templates_dir = Path(__file__).parent.parent / "src" / "templates" / "tcl"
+        temp_name = "test_no_device_usage_temp.j2"
+        temp_path = templates_dir / temp_name
+        try:
+            temp_path.write_text(
+                """
+                # Simple TCL template without device references
+                puts "Board name: {{ board.name | default('UNKNOWN') }}"
+                {% set local_var = 1 %}
+                """.strip()
+            )
+
+            context = {"board": {"name": "ACME"}}
+            # 'device' intentionally omitted; should not raise due to pruning.
+            validated = self.validator.validate_and_complete_context(
+                f"tcl/{temp_name}", context, strict=True
+            )
+            assert "device" not in validated
+            # Ensure original board data preserved
+            assert validated["board"]["name"] == "ACME"
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+            # Invalidate any cached requirements for this temp template
+            from src.templating.template_context_validator import \
+                invalidate_global_template
+
+            invalidate_global_template(f"tcl/{temp_name}")
+
+    def test_tcl_synthesizes_device_when_missing(self):
+        """TCL template referencing 'device' synthesizes minimal object if absent."""
+        template_name = "tcl/header.j2"
+        context = {
+            "board": {"name": "ACME"},
+            # Provide device_config so synthesis has source data
+            "device_config": {
+                "vendor_id": "1234",
+                "device_id": "5678",
+                "class_code": "0x020000",
+                "revision_id": "01",
+                "subsys_vendor_id": "ABCD",
+                "subsys_device_id": "EFGH",
+            },
+        }
+        validated = self.validator.validate_and_complete_context(
+            template_name, context, strict=True
+        )
+        # Device synthesized
+        assert "device" in validated
+        dev = validated["device"]
+        # Attribute access (TemplateObject) or dict fallback
+        vendor = getattr(dev, "vendor_id", None) or dev.get("vendor_id")
+        device_id = getattr(dev, "device_id", None) or dev.get("device_id")
+        assert vendor == "1234"
+        assert device_id == "5678"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

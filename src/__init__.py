@@ -11,8 +11,8 @@ from .__version__ import __version__
 # CLI functionality
 from .cli import BuildConfig, VFIOBinder, flash_firmware, run_build
 # Device cloning functionality - flattened imports
-from .device_clone import (BehaviorProfile,  # Device clone suite
-                           BehaviorProfiler, ConfigSpaceManager,
+from .device_clone import BehaviorProfile  # Device clone suite
+from .device_clone import (BehaviorProfiler, ConfigSpaceManager,
                            DeviceConfigManager, DeviceConfiguration,
                            PCILeechGenerationConfig, PCILeechGenerator,
                            get_board_info, validate_board)

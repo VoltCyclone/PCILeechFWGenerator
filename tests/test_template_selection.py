@@ -7,14 +7,12 @@ resolves so we can assert the selection logic without needing real templates.
 
 import tempfile
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 import pytest
 
-from src.device_clone.pcileech_generator import (
-    PCILeechGenerationConfig,
-    PCILeechGenerator,
-)
+from src.device_clone.pcileech_generator import (PCILeechGenerationConfig,
+                                                 PCILeechGenerator)
 
 # Common dummy context (validator is patched to just echo it back)
 MIN_CONTEXT: Dict[str, Any] = {}
