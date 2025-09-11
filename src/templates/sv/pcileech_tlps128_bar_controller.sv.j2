@@ -134,6 +134,24 @@ module pcileech_tlps128_bar_controller #(
     localparam [7:0] PCILEECH_CMD_EXEC      = 8'h06;
     localparam [7:0] PCILEECH_CMD_STATUS    = 8'h07;
     
+    // PCI Command Register Bit Fields
+    localparam int CMD_REG_IO_SPACE_ENABLE     = 0;
+    localparam int CMD_REG_MEMORY_SPACE_ENABLE = 1;
+    localparam int CMD_REG_BUS_MASTER_ENABLE   = 2;
+    localparam int CMD_REG_SPECIAL_CYCLE_EN    = 3;
+    localparam int CMD_REG_MEM_WRITE_INV_EN    = 4;
+    localparam int CMD_REG_VGA_PALETTE_SNOOP   = 5;
+    localparam int CMD_REG_PARITY_ERR_RESP     = 6;
+    localparam int CMD_REG_IDSEL_STEPPING      = 7;
+    localparam int CMD_REG_SERR_ENABLE         = 8;
+    localparam int CMD_REG_FAST_BACK2BACK_EN   = 9;
+    localparam int CMD_REG_INTERRUPT_DISABLE   = 10;
+    
+    // PCI Command Register Reserved Fields
+    localparam [4:0] CMD_REG_RESERVED_15_11    = 5'h00;  // Bits 15:11
+    localparam [3:0] CMD_REG_RESERVED_9_6      = 4'h0;   // Bits 9:6
+    localparam       CMD_REG_RESERVED_0        = 1'h0;   // Bit 0 (I/O Space Enable)
+    
     // Memory Region Selectors
     typedef enum logic [3:0] {
         REGION_DEVICE_CTRL,
@@ -227,6 +245,9 @@ module pcileech_tlps128_bar_controller #(
     // Configuration Space Shadow
     logic               cfg_shadow_access;
     logic [31:0]        cfg_shadow_data;
+    
+    // Debug monitoring
+    logic [31:0]        prev_pcileech_command;
     
     // ========================================================================
     // Command Register Bit Extraction
@@ -708,8 +729,13 @@ module pcileech_tlps128_bar_controller #(
             cfg_ext_read_data_valid = 1'b1;
             case (cfg_ext_register_number)
                 10'h000: cfg_ext_read_data = 32'h{{ get_device_id(device_config, device, config_space, device_id_int) }}{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }};
-                10'h001: cfg_ext_read_data = {16'h{{ "%04X" % (config_space.status | default(0x0010) | int) }}, 5'h00, cfg_interrupt_disable_dynamic, 4'h0, 
-                                             cfg_bus_master_enable_dynamic, cfg_memory_space_enable_dynamic, 1'h0};  // Dynamic command register
+                10'h001: cfg_ext_read_data = {16'h{{ "%04X" % (config_space.status | default(0x0010) | int) }}, 
+                                             CMD_REG_RESERVED_15_11, 
+                                             cfg_interrupt_disable_dynamic, 
+                                             CMD_REG_RESERVED_9_6, 
+                                             cfg_bus_master_enable_dynamic, 
+                                             cfg_memory_space_enable_dynamic, 
+                                             CMD_REG_RESERVED_0};  // Dynamic command register
                 10'h002: cfg_ext_read_data = 32'h{{ "%06X%02X" % ((config_space.class_code | int), (config_space.revision_id | int)) }};
                 10'h040: cfg_ext_read_data = pcileech_ctrl_reg; // PCILeech control register
                 10'h041: cfg_ext_read_data = pcileech_stat_reg; // PCILeech status register
@@ -789,6 +815,9 @@ module pcileech_tlps128_bar_controller #(
         device_ctrl_mem[0] = 32'h00000001; // Enable PCILeech by default
         device_ctrl_mem[1] = {% if device_signature %}{{ device_signature }}{% else %}{{ "ERROR_MISSING_DEVICE_SIGNATURE" }}{% endif %};
         device_ctrl_mem[2] = {{ device_config.firmware_version | default('32\'h00010000') }};
+        
+        // Initialize debug monitoring
+        prev_pcileech_command = 32'h0;
     end
     
     // Debug tasks for software models
@@ -835,7 +864,6 @@ module pcileech_tlps128_bar_controller #(
         end
         
         // Monitor command register bit changes
-        static logic [31:0] prev_pcileech_command = 32'h0;
         if (pcileech_command != prev_pcileech_command) begin
             $display("[PCILeech BAR Controller] Command register changed: 0x%08X -> 0x%08X at time %0t",
                      prev_pcileech_command, pcileech_command, $time);

@@ -261,8 +261,20 @@ module tlps128_bar_top
     logic [3:0]                 interrupt_debug_state;
 
     // ========================================================================
-    // TLP Frontend Module
+    // Command Register Bit Extraction
     // ========================================================================
+    
+    // Extract command register bits from pcileech_command input
+    logic cfg_bus_master_enable_dynamic;
+    logic cfg_memory_space_enable_dynamic;
+    logic cfg_interrupt_disable_dynamic;
+    
+    always_comb begin
+        // Extract individual bits from pcileech_command (PCI command register format)
+        cfg_bus_master_enable_dynamic = pcileech_command[2];     // Bit 2: Bus Master Enable
+        cfg_memory_space_enable_dynamic = pcileech_command[1];   // Bit 1: Memory Space Enable
+        cfg_interrupt_disable_dynamic = pcileech_command[10];    // Bit 10: Interrupt Disable
+    end
     
     tlp_frontend #(
         .COMPLETER_ID(16'h0000),  // Should be parameterized from device config
@@ -426,9 +438,9 @@ module tlps128_bar_top
         .device_status(device_status_int),
         
         // Configuration Interface
-        .cfg_bus_master_enable(1'b1),  // Assume enabled
-        .cfg_memory_space_enable(1'b1),
-        .cfg_interrupt_disable(1'b0),
+        .cfg_bus_master_enable(cfg_bus_master_enable_dynamic),  // Dynamic from pcileech_command
+        .cfg_memory_space_enable(cfg_memory_space_enable_dynamic),
+        .cfg_interrupt_disable(cfg_interrupt_disable_dynamic),
         
         // Status Inputs
         .error_status(error_status_int),
@@ -777,7 +789,7 @@ module tlps128_bar_top
         if (cfg_ext_read_received) begin
             unique case (cfg_ext_register_number)
                 10'h000: cfg_ext_read_data = {DEVICE_CONFIG.device_id, DEVICE_CONFIG.vendor_id};
-                10'h001: cfg_ext_read_data = 32'h00100000;  // Status/Command
+                10'h001: cfg_ext_read_data = {16'h0010, pcileech_command[15:0]};  // Status/Command with dynamic command
                 default: cfg_ext_read_data = 32'h00000000;
             endcase
         end
@@ -824,6 +836,16 @@ module tlps128_bar_top
             $display("[TLP BAR Top] Completion sent: status=%0d at time %0t",
                      completion_header.completion_status,
                      $time);
+        end
+        
+        // Monitor command register bit changes
+        static logic [31:0] prev_pcileech_command = 32'h0;
+        if (pcileech_command != prev_pcileech_command) begin
+            $display("[TLP BAR Top] Command register changed: 0x%08X -> 0x%08X at time %0t",
+                     prev_pcileech_command, pcileech_command, $time);
+            $display("[TLP BAR Top]   Bus Master: %b, Memory Space: %b, Interrupt Disable: %b",
+                     cfg_bus_master_enable_dynamic, cfg_memory_space_enable_dynamic, cfg_interrupt_disable_dynamic);
+            prev_pcileech_command = pcileech_command;
         end
     end
 `endif

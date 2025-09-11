@@ -402,11 +402,11 @@ def validate_hex_id(value: Any, bit_width: int = 16) -> int:
     if s.startswith(("0x", "0X")):
         s = s[2:]
         base = 16
-    elif re.match(r"^\d+$", s):
-        # Only decimal digits, treat as decimal
+    elif re.match(r"^-?\d+$", s):
+        # Decimal digits with optional leading minus, treat as decimal
         base = 10
-    elif re.match(r"^[0-9A-Fa-f]+$", s):
-        # Contains hex characters, treat as hex
+    elif re.match(r"^-?[0-9A-Fa-f]+$", s):
+        # Contains hex characters with optional leading minus, treat as hex
         base = 16
     else:
         raise ValueError(f"Invalid format: {value}")
