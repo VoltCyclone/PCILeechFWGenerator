@@ -25,8 +25,12 @@ except ImportError:
     yaml = None
     YAML_AVAILABLE = False
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,8 +235,10 @@ class DeviceCapabilities:
     def validate(self) -> None:
         """Validate capability values."""
         # Import here to avoid circular dependency
-        from src.device_clone.payload_size_config import (PayloadSizeConfig,
-                                                          PayloadSizeError)
+        from src.device_clone.payload_size_config import (
+            PayloadSizeConfig,
+            PayloadSizeError,
+        )
 
         # Validate payload size using the new payload size configuration
         try:
@@ -385,29 +391,27 @@ class DeviceConfiguration:
         }
 
 
-def validate_hex_id(value: str, bit_width: int = 16) -> int:
-    """Validate and convert hex ID string to integer.
+def validate_hex_id(value: Any, bit_width: int = 16) -> int:
+    """
+    Validate and convert hex ID string to integer.
 
     Accepts strings like '0x10ec', '10ec', or decimal strings like '4332'.
     Auto-detects base: hex if starts with 0x or contains A-F, decimal otherwise.
     """
-    if isinstance(value, int):
-        int_value = value
+    s = str(value).strip()
+    if s.startswith(("0x", "0X")):
+        s = s[2:]
+        base = 16
+    elif re.match(r"^\d+$", s):
+        # Only decimal digits, treat as decimal
+        base = 10
+    elif re.match(r"^[0-9A-Fa-f]+$", s):
+        # Contains hex characters, treat as hex
+        base = 16
     else:
-        s = value.strip()
-        if s.startswith(("0x", "0X")):
-            s = s[2:]
-            base = 16
-        elif re.match(r"^\d+$", s):
-            # Only decimal digits, treat as decimal
-            base = 10
-        elif re.match(r"^[0-9A-Fa-f]+$", s):
-            # Contains hex characters, treat as hex
-            base = 16
-        else:
-            raise ValueError(f"Invalid format: {value}")
+        raise ValueError(f"Invalid format: {value}")
 
-        int_value = int(s, base)
+    int_value = int(s, base)
 
     # Check for negative values
     if int_value < 0:
