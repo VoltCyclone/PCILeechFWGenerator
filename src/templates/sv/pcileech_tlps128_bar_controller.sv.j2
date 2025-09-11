@@ -229,6 +229,22 @@ module pcileech_tlps128_bar_controller #(
     logic [31:0]        cfg_shadow_data;
     
     // ========================================================================
+    // Command Register Bit Extraction
+    // ========================================================================
+    
+    // Extract command register bits from pcileech_command input
+    logic cfg_bus_master_enable_dynamic;
+    logic cfg_memory_space_enable_dynamic;
+    logic cfg_interrupt_disable_dynamic;
+    
+    always_comb begin
+        // Extract individual bits from pcileech_command (PCI command register format)
+        cfg_bus_master_enable_dynamic = pcileech_command[2];     // Bit 2: Bus Master Enable
+        cfg_memory_space_enable_dynamic = pcileech_command[1];   // Bit 1: Memory Space Enable
+        cfg_interrupt_disable_dynamic = pcileech_command[10];    // Bit 10: Interrupt Disable
+    end
+    
+    // ========================================================================
     // TLP Parsing and Decoding
     // ========================================================================
     
@@ -692,7 +708,8 @@ module pcileech_tlps128_bar_controller #(
             cfg_ext_read_data_valid = 1'b1;
             case (cfg_ext_register_number)
                 10'h000: cfg_ext_read_data = 32'h{{ get_device_id(device_config, device, config_space, device_id_int) }}{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }};
-                10'h001: cfg_ext_read_data = 32'h{{ "%04X%04X" % ((config_space.status | default(0x0010) | int), (config_space.command | default(0x0000) | int)) }};
+                10'h001: cfg_ext_read_data = {16'h{{ "%04X" % (config_space.status | default(0x0010) | int) }}, 5'h00, cfg_interrupt_disable_dynamic, 4'h0, 
+                                             cfg_bus_master_enable_dynamic, cfg_memory_space_enable_dynamic, 1'h0};  // Dynamic command register
                 10'h002: cfg_ext_read_data = 32'h{{ "%06X%02X" % ((config_space.class_code | int), (config_space.revision_id | int)) }};
                 10'h040: cfg_ext_read_data = pcileech_ctrl_reg; // PCILeech control register
                 10'h041: cfg_ext_read_data = pcileech_stat_reg; // PCILeech status register
@@ -815,6 +832,16 @@ module pcileech_tlps128_bar_controller #(
         end
         if (current_state == STATE_ERROR_HANDLE) begin
             $display("[PCILeech BAR Controller] Error condition detected at time %0t", $time);
+        end
+        
+        // Monitor command register bit changes
+        static logic [31:0] prev_pcileech_command = 32'h0;
+        if (pcileech_command != prev_pcileech_command) begin
+            $display("[PCILeech BAR Controller] Command register changed: 0x%08X -> 0x%08X at time %0t",
+                     prev_pcileech_command, pcileech_command, $time);
+            $display("[PCILeech BAR Controller]   Bus Master: %b, Memory Space: %b, Interrupt Disable: %b",
+                     cfg_bus_master_enable_dynamic, cfg_memory_space_enable_dynamic, cfg_interrupt_disable_dynamic);
+            prev_pcileech_command = pcileech_command;
         end
     end
 `endif
