@@ -793,7 +793,7 @@ class ConfigurationManager:
                     raise ConfigurationError(
                         f"{display_name} is zero (0x{int_value:04X}), which "
                         "indicates "
-                        "a generic or uninitialized value. Use a real device "
+                        "a generic or uninitialized value. Use a real device for cloning."
                     )
 
         # Additional validation for vendor/device ID pairs that are known generics
