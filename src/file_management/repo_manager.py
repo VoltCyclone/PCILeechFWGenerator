@@ -3,7 +3,14 @@
 
 This utility clones, updates, and queries board‑specific files from the
 `pcileech-fpga` repository.  It is written to be imported by other tools but can
-also be executed directly to verify that the repository is present on the local
+also be executed directly to ve        try:
+            last = _dt.datetime.fromisoformat(stamp.read_text().strip())
+            # Ensure both datetimes are timezone-aware for comparison
+            now = _dt.datetime.now(_dt.timezone.utc)
+            if last.tzinfo is None:
+                # If parsed datetime is naive, assume it's UTC
+                last = last.replace(tzinfo=_dt.timezone.utc)
+            need_update = (now - last).days >= UPDATE_INTERVAL_DAYSfy that the repository is present on the local
 machine.
 It provides methods to ensure the repository is cloned, check for updates, and
 retrieve board paths and XDC files for various PCILeech boards.
@@ -15,13 +22,20 @@ import os as _os
 import shutil as _shutil
 import subprocess as _sp
 import time as _time
+
 from pathlib import Path
+
 from typing import List, Optional
 
-# Import project logging and string utilities
 from ..log_config import get_logger
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, utc_timestamp)
+
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    utc_timestamp,
+)
 
 ###############################################################################
 # Configuration constants - override with environment vars if desired.
@@ -229,7 +243,12 @@ class RepoManager:
         if stamp.exists():
             try:
                 last = _dt.datetime.fromisoformat(stamp.read_text().strip())
-                need_update = (_dt.datetime.now() - last).days >= UPDATE_INTERVAL_DAYS
+                # Ensure both datetimes are timezone-aware for comparison
+                now = _dt.datetime.now(_dt.timezone.utc)
+                if last.tzinfo is None:
+                    # If parsed datetime is naive, assume it's UTC
+                    last = last.replace(tzinfo=_dt.timezone.utc)
+                need_update = (now - last).days >= UPDATE_INTERVAL_DAYS
             except ValueError:
                 pass  # treat malformed stamp as out‑of‑date
         if not need_update:

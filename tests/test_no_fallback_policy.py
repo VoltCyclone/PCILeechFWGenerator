@@ -92,36 +92,98 @@ class TestNoFallbackPolicy:
         with pytest.raises(ConfigurationError, match="Device ID is zero"):
             self.config_manager.extract_device_config(template_context, False)
 
-    def test_generic_xilinx_ids_rejected(self):
-        """Test that generic Xilinx test IDs are rejected."""
+    def test_generic_xilinx_ids_allowed(self):
+        """Test that previously hardcoded generic IDs are now allowed (following project principles)."""
         template_context = {
             "device_config": {
-                "vendor_id": 0x10EE,  # Xilinx
-                "device_id": 0x7021,  # Generic test device
+                "vendor_id": 0x10EE,  # Xilinx - previously hardcoded as generic
+                "device_id": 0x7021,  # Generic test device - previously hardcoded as generic
                 "revision_id": 0x01,
                 "class_code": 0x020000,
             }
         }
 
-        with pytest.raises(
-            ConfigurationError, match="Detected generic vendor/device ID combination"
-        ):
+        # Should not raise an exception - we no longer hardcode generic combinations
+        device_config = self.config_manager.extract_device_config(
+            template_context, False
+        )
+
+        assert device_config.vendor_id == 0x10EE
+        assert device_config.device_id == 0x7021
+
+    def test_generic_placeholder_ids_allowed(self):
+        """Test that common placeholder IDs are now allowed (following project principles)."""
+        template_context = {
+            "device_config": {
+                "vendor_id": 0x1234,  # Placeholder - previously hardcoded as generic
+                "device_id": 0x5678,  # Placeholder - previously hardcoded as generic
+                "revision_id": 0x01,
+                "class_code": 0x020000,
+            }
+        }
+
+        # Should not raise an exception - we no longer hardcode generic combinations
+        device_config = self.config_manager.extract_device_config(
+            template_context, False
+        )
+
+        assert device_config.vendor_id == 0x1234
+        assert device_config.device_id == 0x5678
+
+    def test_zero_vendor_id_rejected(self):
+        """Test that zero vendor ID is rejected."""
+        template_context = {
+            "device_config": {
+                "vendor_id": 0x0000,  # Invalid zero value
+                "device_id": 0x1533,
+                "revision_id": 0x01,
+                "class_code": 0x020000,
+            }
+        }
+
+        with pytest.raises(ConfigurationError, match="Vendor ID is zero"):
             self.config_manager.extract_device_config(template_context, False)
 
-    def test_generic_placeholder_ids_rejected(self):
-        """Test that common placeholder IDs are rejected."""
+    def test_ffff_vendor_id_rejected(self):
+        """Test that FFFF vendor ID is rejected."""
         template_context = {
             "device_config": {
-                "vendor_id": 0x1234,  # Placeholder
-                "device_id": 0x5678,  # Placeholder
+                "vendor_id": 0xFFFF,  # Invalid FFFF value
+                "device_id": 0x1533,
                 "revision_id": 0x01,
                 "class_code": 0x020000,
             }
         }
 
-        with pytest.raises(
-            ConfigurationError, match="Detected generic vendor/device ID combination"
-        ):
+        with pytest.raises(ConfigurationError, match="FFFF values indicate invalid"):
+            self.config_manager.extract_device_config(template_context, False)
+
+    def test_zero_device_id_rejected(self):
+        """Test that zero device ID is rejected."""
+        template_context = {
+            "device_config": {
+                "vendor_id": 0x8086,
+                "device_id": 0x0000,  # Invalid zero value
+                "revision_id": 0x01,
+                "class_code": 0x020000,
+            }
+        }
+
+        with pytest.raises(ConfigurationError, match="Device ID is zero"):
+            self.config_manager.extract_device_config(template_context, False)
+
+    def test_ffff_device_id_rejected(self):
+        """Test that FFFF device ID is rejected."""
+        template_context = {
+            "device_config": {
+                "vendor_id": 0x8086,
+                "device_id": 0xFFFF,  # Invalid FFFF value
+                "revision_id": 0x01,
+                "class_code": 0x020000,
+            }
+        }
+
+        with pytest.raises(ConfigurationError, match="FFFF values indicate invalid"):
             self.config_manager.extract_device_config(template_context, False)
 
     def test_valid_device_config_succeeds(self):
