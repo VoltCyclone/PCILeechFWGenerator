@@ -922,6 +922,10 @@ class FirmwareBuilder:
         # Store device configuration for later use
         self._device_config: Optional[DeviceConfiguration] = None
 
+    def _phase(self, message: str, **kwargs) -> None:
+        """Uniform phase logging helper to reduce repetition."""
+        log_info_safe(self.logger, message, **kwargs)
+
     def build(self) -> List[str]:
         """
         Run the full firmware generation flow.
@@ -939,22 +943,26 @@ class FirmwareBuilder:
             # Step 2: Preload MSI-X data if requested
             msix_data = self._preload_msix()
 
+            self._phase("➤ Generating PCILeech firmware …")
             # Step 3: Generate PCILeech firmware
-            log_info_safe(self.logger, "➤ Generating PCILeech firmware …")
             generation_result = self._generate_firmware(donor_template)
 
             # Step 3: Inject preloaded MSI-X data if available
             self._inject_msix(generation_result, msix_data)
 
+            self._phase("➤ Writing SystemVerilog modules …")
             # Step 4: Write SystemVerilog modules
             self._write_modules(generation_result)
 
+            self._phase("➤ Generating behavior profile …")
             # Step 5: Generate behavior profile if requested
             self._generate_profile()
 
+            self._phase("➤ Generating TCL scripts …")
             # Step 6: Generate TCL scripts
             self._generate_tcl_scripts(generation_result)
 
+            self._phase("➤ Saving device information …")
             # Step 7: Save device information
             self._save_device_info(generation_result)
 
@@ -963,6 +971,7 @@ class FirmwareBuilder:
 
             # Step 9: Generate donor template if requested
             if self.config.output_template:
+                self._phase("➤ Writing donor template …")
                 self._generate_donor_template(generation_result)
 
             # Return list of artifacts

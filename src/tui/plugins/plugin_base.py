@@ -5,7 +5,7 @@ Defines the base interface for plugins in the PCILeech TUI application.
 """
 
 import abc
-from typing import Any, Dict, List, Optional, Protocol, Type, Union
+from typing import Any, Dict, List, Optional, Protocol
 
 
 class DeviceAnalyzer(Protocol):
@@ -78,93 +78,55 @@ class ConfigValidator(Protocol):
 
 
 class PCILeechPlugin(abc.ABC):
+    """Base class for PCILeech TUI plugins.
+
+    Required implementations:
+      - get_name()
+      - get_version()
+      - get_description()
+
+    Optional overrides may return None. Lifecycle defaults are explicit
+    no-ops (not bare 'pass').
     """
-    Base class for PCILeech TUI plugins.
-
-    All plugins must inherit from this class and implement its required methods.
-    """
 
     @abc.abstractmethod
-    def get_name(self) -> str:
-        """
-        Get the name of the plugin.
-
-        Returns:
-            Plugin name
-        """
-        pass
+    def get_name(self) -> str:  # pragma: no cover - interface contract
+        """Return plugin name (must be unique)."""
+        raise NotImplementedError("Plugin must implement get_name().")
 
     @abc.abstractmethod
-    def get_version(self) -> str:
-        """
-        Get the version of the plugin.
-
-        Returns:
-            Plugin version
-        """
-        pass
+    def get_version(self) -> str:  # pragma: no cover - interface contract
+        """Return semantic version string."""
+        raise NotImplementedError("Plugin must implement get_version().")
 
     @abc.abstractmethod
-    def get_description(self) -> str:
-        """
-        Get a description of the plugin.
-
-        Returns:
-            Plugin description
-        """
-        pass
+    def get_description(self) -> str:  # pragma: no cover - interface contract
+        """Return short human-readable description."""
+        raise NotImplementedError("Plugin must implement get_description().")
 
     def get_device_analyzer(self) -> Optional[DeviceAnalyzer]:
-        """
-        Get a device analyzer component if the plugin provides one.
-
-        Returns:
-            DeviceAnalyzer or None if not provided
-        """
+        """Optional device analyzer component (override if provided)."""
         return None
 
     def get_build_hook(self) -> Optional[BuildHook]:
-        """
-        Get a build hook component if the plugin provides one.
-
-        Returns:
-            BuildHook or None if not provided
-        """
+        """Optional build hook component (override if provided)."""
         return None
 
     def get_config_validator(self) -> Optional[ConfigValidator]:
-        """
-        Get a configuration validator component if the plugin provides one.
-
-        Returns:
-            ConfigValidator or None if not provided
-        """
+        """Optional config validator component (override if provided)."""
         return None
 
-    def initialize(self, app_context: Dict[str, Any]) -> bool:
-        """
-        Initialize the plugin with application context.
-
-        Args:
-            app_context: Application context dictionary
-
-        Returns:
-            Boolean indicating initialization success
-        """
+    def initialize(self, app_context: Dict[str, Any]) -> bool:  # pragma: no cover
+        """Initialize plugin with application context (override for setup)."""
         return True
 
-    def shutdown(self) -> None:
-        """Clean up resources when the plugin is being unloaded."""
-        pass
+    def shutdown(self) -> None:  # pragma: no cover
+        """Hook for cleanup; override if plugin allocates resources."""
+        return None
 
 
 class SimplePlugin(PCILeechPlugin):
-    """
-    A simplified base class for creating plugins with minimal boilerplate.
-
-    Inherit from this class and override only the specific methods needed
-    for your plugin functionality.
-    """
+    """Helper base class for minimal plugins (supply components via ctor)."""
 
     def __init__(
         self,
@@ -174,18 +136,7 @@ class SimplePlugin(PCILeechPlugin):
         device_analyzer: Optional[DeviceAnalyzer] = None,
         build_hook: Optional[BuildHook] = None,
         config_validator: Optional[ConfigValidator] = None,
-    ):
-        """
-        Initialize a simple plugin with provided components.
-
-        Args:
-            name: Plugin name
-            version: Plugin version
-            description: Plugin description
-            device_analyzer: Optional device analyzer component
-            build_hook: Optional build hook component
-            config_validator: Optional configuration validator component
-        """
+    ) -> None:
         self._name = name
         self._version = version
         self._description = description
@@ -194,25 +145,19 @@ class SimplePlugin(PCILeechPlugin):
         self._config_validator = config_validator
 
     def get_name(self) -> str:
-        """Get the plugin name."""
         return self._name
 
     def get_version(self) -> str:
-        """Get the plugin version."""
         return self._version
 
     def get_description(self) -> str:
-        """Get the plugin description."""
         return self._description
 
     def get_device_analyzer(self) -> Optional[DeviceAnalyzer]:
-        """Get the device analyzer component if provided."""
         return self._device_analyzer
 
     def get_build_hook(self) -> Optional[BuildHook]:
-        """Get the build hook component if provided."""
         return self._build_hook
 
     def get_config_validator(self) -> Optional[ConfigValidator]:
-        """Get the configuration validator component if provided."""
         return self._config_validator
