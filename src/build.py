@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
 from src.device_clone import device_config
+from src.utils.log_phases import PhaseLogger
 from src.templating.template_context_validator import clear_global_template_cache
 from string_utils import (
     log_debug_safe,
@@ -893,18 +894,11 @@ class FirmwareBuilder:
         config_manager: Optional[ConfigurationManager] = None,
         logger: Optional[logging.Logger] = None,
     ):
-        """
-        Initialize the firmware builder with dependency injection.
-
-        Args:
-            config: Build configuration
-            msix_manager: Optional MSI-X manager (creates default if None)
-            file_manager: Optional file operations manager (creates default if None)
-            config_manager: Optional configuration manager (creates default if None)
-            logger: Optional logger instance
-        """
+        """Initialize the firmware builder with dependency injection."""
+        # Core configuration & logger
         self.config = config
         self.logger = logger or get_logger(self.__class__.__name__)
+        self._phases = PhaseLogger(self.logger)
 
         # Initialize managers (dependency injection with defaults)
         self.msix_manager = msix_manager or MSIXManager(config.bdf, self.logger)
@@ -922,9 +916,9 @@ class FirmwareBuilder:
         # Store device configuration for later use
         self._device_config: Optional[DeviceConfiguration] = None
 
-    def _phase(self, message: str, **kwargs) -> None:
-        """Uniform phase logging helper to reduce repetition."""
-        log_info_safe(self.logger, message, **kwargs)
+    def _phase(self, message: str) -> None:
+        """Backward-compatible shim for previous phase logging."""
+        self._phases.begin(message)
 
     def build(self) -> List[str]:
         """
@@ -943,26 +937,26 @@ class FirmwareBuilder:
             # Step 2: Preload MSI-X data if requested
             msix_data = self._preload_msix()
 
-            self._phase("➤ Generating PCILeech firmware …")
+            self._phase("Generating PCILeech firmware …")
             # Step 3: Generate PCILeech firmware
             generation_result = self._generate_firmware(donor_template)
 
             # Step 3: Inject preloaded MSI-X data if available
             self._inject_msix(generation_result, msix_data)
 
-            self._phase("➤ Writing SystemVerilog modules …")
+            self._phase("Writing SystemVerilog modules …")
             # Step 4: Write SystemVerilog modules
             self._write_modules(generation_result)
 
-            self._phase("➤ Generating behavior profile …")
+            self._phase("Generating behavior profile …")
             # Step 5: Generate behavior profile if requested
             self._generate_profile()
 
-            self._phase("➤ Generating TCL scripts …")
+            self._phase("Generating TCL scripts …")
             # Step 6: Generate TCL scripts
             self._generate_tcl_scripts(generation_result)
 
-            self._phase("➤ Saving device information …")
+            self._phase("Saving device information …")
             # Step 7: Save device information
             self._save_device_info(generation_result)
 
@@ -971,7 +965,7 @@ class FirmwareBuilder:
 
             # Step 9: Generate donor template if requested
             if self.config.output_template:
-                self._phase("➤ Writing donor template …")
+                self._phase("Writing donor template …")
                 self._generate_donor_template(generation_result)
 
             # Return list of artifacts

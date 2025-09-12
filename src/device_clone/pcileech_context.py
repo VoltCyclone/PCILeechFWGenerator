@@ -418,7 +418,7 @@ class VFIODeviceManager:
         self._container_fd = None
 
     def get_region_info(self, index: int) -> Optional[Dict[str, Any]]:
-        """Get VFIO region information."""
+        """Get VFIO region information (with transient retry)."""
         opened_here = self._device_fd is None
         if opened_here:
             try:
@@ -437,7 +437,16 @@ class VFIODeviceManager:
             if self._device_fd is None:
                 raise ContextError("Device FD not available")
 
-            fcntl.ioctl(self._device_fd, VFIO_DEVICE_GET_REGION_INFO, info, True)
+            from src.utils.vfio_retry import retry_vfio_ioctl
+
+            def _do_ioctl():
+                # self._device_fd is validated above; inline assert for type checkers
+                assert self._device_fd is not None
+                return fcntl.ioctl(
+                    self._device_fd, VFIO_DEVICE_GET_REGION_INFO, info, True
+                )
+
+            retry_vfio_ioctl(_do_ioctl, label="vfio-region-info", logger=self.logger)
 
             result = {
                 "index": info.index,
@@ -461,7 +470,7 @@ class VFIODeviceManager:
             return None
 
     def read_region_slice(self, index: int, offset: int, size: int) -> Optional[bytes]:
-        """Read a slice of a VFIO region safely using mmap.
+        """Read a slice of a VFIO region safely using mmap (with transient retry).
 
         This handles page alignment requirements by mapping a page-aligned range
         and slicing out the requested bytes.
@@ -499,7 +508,15 @@ class VFIODeviceManager:
             info.index = index
             if self._device_fd is None:
                 raise ContextError("Device FD not available")
-            fcntl.ioctl(self._device_fd, VFIO_DEVICE_GET_REGION_INFO, info, True)
+            from src.utils.vfio_retry import retry_vfio_ioctl
+
+            def _do_ioctl():
+                assert self._device_fd is not None
+                return fcntl.ioctl(
+                    self._device_fd, VFIO_DEVICE_GET_REGION_INFO, info, True
+                )
+
+            retry_vfio_ioctl(_do_ioctl, label="vfio-region-info", logger=self.logger)
 
             region_size = int(info.size)
             region_off = int(info.offset)
