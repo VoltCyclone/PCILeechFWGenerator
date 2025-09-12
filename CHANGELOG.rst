@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 
 ## 📑 Table of Contents
 
+- [Version 0.13.20 (2025-09-12)](#version-01320-2025-09-12)
 - [Version 0.13.19 (2025-09-11)](#version-01319-2025-09-11)
 - [Version 0.13.18 (2025-09-10)](#version-01318-2025-09-10)
 - [Version 0.13.17 (2025-09-08)](#version-01317-2025-09-08)
@@ -30,6 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 - [Version 0.13.5 (2025-08-22)](#version-0135-2025-08-22)
 - [Version 0.13.4 (2025-08-16)](#version-0134-2025-08-16)
 - [Version 0.5.8 (2025-06-09)](#020---2025-06-09)
+
+---
+## Version 0.13.20 (2025-09-12)
+
+### Other
+
+- ..
+- ..
+- ..
+- :arrow_up:(deps): Bump codecov/codecov-action from 4 to 5 (#324).
+- :arrow_up:(deps): Bump actions/github-script from 7 to 8 (#369).
 
 ---
 ## Version 0.13.19 (2025-09-11)
