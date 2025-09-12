@@ -3,15 +3,7 @@
 
 This utility clones, updates, and queries board‑specific files from the
 `pcileech-fpga` repository.  It is written to be imported by other tools but can
-also be executed directly to ve        try:
-            last = _dt.datetime.fromisoformat(stamp.read_text().strip())
-            # Ensure both datetimes are timezone-aware for comparison
-            now = _dt.datetime.now(_dt.timezone.utc)
-            if last.tzinfo is None:
-                # If parsed datetime is naive, assume it's UTC
-                last = last.replace(tzinfo=_dt.timezone.utc)
-            need_update = (now - last).days >= UPDATE_INTERVAL_DAYSfy that the repository is present on the local
-machine.
+also be executed directly to verify that the repository is present on the local
 It provides methods to ensure the repository is cloned, check for updates, and
 retrieve board paths and XDC files for various PCILeech boards.
 """
