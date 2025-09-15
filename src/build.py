@@ -18,37 +18,24 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from src.device_clone import device_config
+from src.templating.template_context_validator import \
+    clear_global_template_cache
 from src.utils.log_phases import PhaseLogger
-from src.templating.template_context_validator import clear_global_template_cache
-from string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                          log_warning_safe, safe_format)
 
 # Import board functions from the correct module
-from .device_clone.board_config import get_pcileech_board_config, validate_board
 from .device_clone.constants import PRODUCTION_DEFAULTS
-
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (
-    ConfigurationError,
-    FileOperationError,
-    ModuleImportError,
-    MSIXPreloadError,
-    PCILeechBuildError,
-    PlatformCompatibilityError,
-    VivadoIntegrationError,
-)
+from .exceptions import (ConfigurationError, FileOperationError,
+                         ModuleImportError, MSIXPreloadError,
+                         PCILeechBuildError, PlatformCompatibilityError,
+                         VivadoIntegrationError)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -337,6 +324,7 @@ class MSIXManager:
                             "  • Loaded MSI-X from {path} ({vectors} vectors)",
                             path=msix_json_path,
                             vectors=msix_info.get("table_size", 0),
+                            prefix="MSIX",
                         )
                         return MSIXData(
                             preloaded=True,
@@ -352,6 +340,7 @@ class MSIXManager:
                     self.logger,
                     "MSI-X JSON ingestion skipped: {err}",
                     err=str(e),
+                    prefix="MSIX",
                 )
 
             config_space_path = CONFIG_SPACE_PATH_TEMPLATE.format(self.bdf)
@@ -359,6 +348,7 @@ class MSIXManager:
                 log_warning_safe(
                     self.logger,
                     "Config space not accessible via sysfs, skipping MSI-X preload",
+                    prefix="MSIX",
                 )
                 return MSIXData(preloaded=False)
 
@@ -371,6 +361,7 @@ class MSIXManager:
                     self.logger,
                     "  • Found MSI-X capability: {vectors} vectors",
                     vectors=msix_info["table_size"],
+                    prefix="MSIX",
                 )
                 return MSIXData(
                     preloaded=True,
@@ -381,16 +372,21 @@ class MSIXManager:
             else:
                 # No MSI-X capability found -> treat as not preloaded so callers
                 # don't assume hardware MSI-X values are available.
-                log_info_safe(self.logger, "  • No MSI-X capability found")
+                log_info_safe(
+                    self.logger, "  • No MSI-X capability found", prefix="MSIX"
+                )
                 return MSIXData(preloaded=False, msix_info=None)
 
         except Exception as e:
-            log_warning_safe(self.logger, "MSI-X preload failed: {err}", err=str(e))
+            log_warning_safe(
+                self.logger, "MSI-X preload failed: {err}", err=str(e), prefix="MSIX"
+            )
             if self.logger.isEnabledFor(logging.DEBUG):
                 log_debug_safe(
                     self.logger,
                     "MSI-X preload exception details: {err}",
                     err=str(e),
+                    prefix="MSIX",
                 )
             return MSIXData(preloaded=False)
 
@@ -405,7 +401,7 @@ class MSIXManager:
         if not self._should_inject(msix_data):
             return
 
-        log_info_safe(self.logger, "  • Using preloaded MSI-X data")
+        log_info_safe(self.logger, "  • Using preloaded MSI-X data", prefix="MSIX")
 
         # msix_info is guaranteed to be non-None by _should_inject
         if msix_data.msix_info is not None:
@@ -570,6 +566,12 @@ class FileOperationsManager:
             FileOperationError: If writing fails
         """
         file_path = self.output_dir / filename
+        log_info_safe(
+            self.logger,
+            "Writing JSON file: {filename}",
+            filename=filename,
+            prefix="BUILD",
+        )
         try:
             with open(file_path, "w", buffering=BUFFER_SIZE) as f:
                 json.dump(
@@ -578,6 +580,12 @@ class FileOperationsManager:
                     indent=indent,
                     default=self._json_serialize_default,
                 )
+            log_info_safe(
+                self.logger,
+                "Successfully wrote JSON file: {filename}",
+                filename=filename,
+                prefix="BUILD",
+            )
         except Exception as e:
             raise FileOperationError(
                 f"Failed to write JSON file {filename}: {e}"
@@ -595,9 +603,21 @@ class FileOperationsManager:
             FileOperationError: If writing fails
         """
         file_path = self.output_dir / filename
+        log_info_safe(
+            self.logger,
+            "Writing text file: {filename}",
+            filename=filename,
+            prefix="BUILD",
+        )
         try:
             with open(file_path, "w", buffering=BUFFER_SIZE) as f:
                 f.write(content)
+            log_info_safe(
+                self.logger,
+                "Successfully wrote text file: {filename}",
+                filename=filename,
+                prefix="BUILD",
+            )
         except Exception as e:
             raise FileOperationError(
                 f"Failed to write text file {filename}: {e}"
@@ -1041,12 +1061,8 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-
-        from .device_clone.pcileech_generator import (
-            PCILeechGenerationConfig,
-            PCILeechGenerator,
-        )
-
+        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
+                                                      PCILeechGenerator)
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1072,7 +1088,8 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import \
+                DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
@@ -1158,7 +1175,10 @@ class FirmwareBuilder:
         except Exception as e:
             # Log but do not fail build if hex generation fails
             log_warning_safe(
-                self.logger, "Config space hex generation failed: {err}", err=str(e)
+                self.logger,
+                "Config space hex generation failed: {err}",
+                err=str(e),
+                prefix="BUILD",
             )
 
         # Emit audit file of top-level template context keys to verify propagation.
@@ -1178,12 +1198,14 @@ class FirmwareBuilder:
                 "Template context audit written ({count} keys) → {path}",
                 count=len(keys),
                 path=str(audit_path),
+                prefix="BUILD",
             )
         except Exception as e:
             log_debug_safe(
                 self.logger,
                 "Template context audit skipped: {err}",
                 err=str(e),
+                prefix="BUILD",
             )
 
         return result
@@ -1195,7 +1217,9 @@ class FirmwareBuilder:
         except Exception:
             # Helper not available; keep quiet in production paths
             log_info_safe(
-                self.logger, "VFIO binding recheck skipped: helper unavailable"
+                self.logger,
+                "VFIO binding recheck skipped: helper unavailable",
+                prefix="VFIO",
             )
             return
 
@@ -1205,6 +1229,7 @@ class FirmwareBuilder:
             "VFIO binding recheck passed: bdf={bdf} group={group}",
             bdf=self.config.bdf,
             group=str(group_id),
+            prefix="VFIO",
         )
 
     def _inject_msix(self, result: Dict[str, Any], msix_data: MSIXData) -> None:
@@ -1222,6 +1247,7 @@ class FirmwareBuilder:
             "  • Wrote {count} SystemVerilog modules: {files}",
             count=len(sv_files),
             files=", ".join(sv_files),
+            prefix="BUILD",
         )
         if special_files:
             log_info_safe(
@@ -1229,6 +1255,7 @@ class FirmwareBuilder:
                 "  • Wrote {count} special files: {files}",
                 count=len(special_files),
                 files=", ".join(special_files),
+                prefix="BUILD",
             )
 
     def _generate_profile(self) -> None:
@@ -1239,7 +1266,9 @@ class FirmwareBuilder:
             )
             self.file_manager.write_json("behavior_profile.json", profile)
             log_info_safe(
-                self.logger, "  • Saved behavior profile → behavior_profile.json"
+                self.logger,
+                "  • Saved behavior profile → behavior_profile.json",
+                prefix="BUILD",
             )
 
     def _generate_tcl_scripts(self, result: Dict[str, Any]) -> None:
@@ -1265,6 +1294,7 @@ class FirmwareBuilder:
         log_info_safe(
             self.logger,
             "  • Emitted Vivado scripts → vivado_project.tcl, vivado_build.tcl",
+            prefix="BUILD",
         )
 
     def _save_device_info(self, result: Dict[str, Any]) -> None:
@@ -1287,7 +1317,8 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import \
+            DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1322,6 +1353,7 @@ class FirmwareBuilder:
                 self.logger,
                 "  • Generated donor info template → {name}",
                 name=output_path.name,
+                prefix="BUILD",
             )
 
 
@@ -1524,7 +1556,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             builder.run_vivado()
 
         # Display summary
-        _display_summary(artifacts, config.output_dir)
+        _display_summary(artifacts, config.output_dir, logger=logger)
 
         return 0
 
@@ -1559,7 +1591,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     except KeyboardInterrupt:
         # User interrupted
-        log_warning_safe(logger, "Build interrupted by user")
+        log_warning_safe(logger, "Build interrupted by user", prefix="BUILD")
         return 130
 
     except Exception as e:
@@ -1577,13 +1609,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
         else:
             # Unexpected errors
-            log_error_safe(logger, "Unexpected error: {err}", err=str(e))
-            log_debug_safe(logger, "Full traceback for unexpected error")
+            log_error_safe(
+                logger, "Unexpected error: {err}", err=str(e), prefix="BUILD"
+            )
+            log_debug_safe(
+                logger, "Full traceback for unexpected error", prefix="BUILD"
+            )
         _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 1
 
 
-def _display_summary(artifacts: List[str], output_dir: Path) -> None:
+def _display_summary(
+    artifacts: List[str], output_dir: Path, logger: logging.Logger
+) -> None:
     """
     Display a summary of generated artifacts.
 
@@ -1591,7 +1629,9 @@ def _display_summary(artifacts: List[str], output_dir: Path) -> None:
         artifacts: List of artifact paths
         output_dir: Output directory path
     """
-    print(f"\nGenerated artifacts in {output_dir}:")
+    log_info_safe(
+        logger, "\nGenerated artifacts in {dir}", dir=str(output_dir), prefix="SUMMARY"
+    )
 
     # Group artifacts by type
     sv_files = [a for a in artifacts if a.endswith(".sv")]
@@ -1600,38 +1640,40 @@ def _display_summary(artifacts: List[str], output_dir: Path) -> None:
     other_files = [a for a in artifacts if a not in sv_files + tcl_files + json_files]
 
     if sv_files:
-        print(f"\n  SystemVerilog modules ({len(sv_files)}):")
+        log_info_safe(
+            logger,
+            "\n  SystemVerilog modules ({count}):",
+            count=len(sv_files),
+            prefix="SUMMARY",
+        )
         for f in sorted(sv_files):
-            print(f"    - {f}")
+            log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")
 
     if tcl_files:
-        print(f"\n  TCL scripts ({len(tcl_files)}):")
+        log_info_safe(
+            logger, "\n  TCL scripts ({count}):", count=len(tcl_files), prefix="SUMMARY"
+        )
         for f in sorted(tcl_files):
-            print(f"    - {f}")
+            log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")
 
     if json_files:
-        print(f"\n  JSON files ({len(json_files)}):")
+        log_info_safe(
+            logger, "\n  JSON files ({count}):", count=len(json_files), prefix="SUMMARY"
+        )
         for f in sorted(json_files):
-            print(f"    - {f}")
+            log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")
 
     if other_files:
-        print(f"\n  Other files ({len(other_files)}):")
+        log_info_safe(
+            logger,
+            "\n  Other files ({count}):",
+            count=len(other_files),
+            prefix="SUMMARY",
+        )
         for f in sorted(other_files):
-            print(f"    - {f}")
+            log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")
 
-    print(f"\nTotal: {len(artifacts)} files")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Script Entry Point
-# ──────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    sys.exit(main())
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Issue report helper
-# ──────────────────────────────────────────────────────────────────────────────
+    log_info_safe(logger, "\nTotal: {n} files", n=len(artifacts), prefix="SUMMARY")
 
 
 def _maybe_emit_issue_report(
@@ -1645,18 +1687,15 @@ def _maybe_emit_issue_report(
         return
     want_file = getattr(args, "issue_report_json", None)
     want_stdout = getattr(args, "print_issue_report", False)
-    # Always compute repro command (unless user disabled) even if no JSON requested
     repro_disabled = getattr(args, "no_repro_hint", False)
     repro_cmd = None
     if not repro_disabled:
         repro_cmd = _build_reproduction_command(args)
 
     try:
-        from src.error_utils import (
-            build_issue_report,
-            format_issue_report_human_hint,
-            write_issue_report,
-        )
+        from src.error_utils import (build_issue_report,
+                                     format_issue_report_human_hint,
+                                     write_issue_report)
 
         report = None
         if want_file or want_stdout:
@@ -1712,7 +1751,6 @@ def _build_reproduction_command(args: argparse.Namespace) -> str:
     manually redact if desired. Output paths are normalized.
     """
     parts: List[str] = ["python3", "-m", "src.build"]
-    # Map a subset of meaningful args; iterate through known flags to preserve order
 
     def _add(flag: str, value: Optional[str]) -> None:
         if value is None:
@@ -1740,5 +1778,11 @@ def _build_reproduction_command(args: argparse.Namespace) -> str:
         parts.append("--no-preload-msix")
     if getattr(args, "enable_error_injection", False):
         parts.append("--enable-error-injection")
-    # Intentionally exclude issue-report flags from reproduction command
     return " ".join(parts)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Script Entry Point
+# ──────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    sys.exit(main())

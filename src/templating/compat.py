@@ -17,8 +17,6 @@ from typing import Any, Dict, Optional
 
 from string_utils import log_warning_safe, safe_format
 
-from .advanced_sv_generator import AdvancedSVGenerator
-from .sv_context_builder import SVContextBuilder
 # Import the new implementations
 from .systemverilog_generator import MSIXHelper, SystemVerilogGenerator
 
@@ -119,6 +117,7 @@ def read_actual_msix_table_legacy(
         logger,
         "Legacy MSI-X table reading not implemented. "
         "Use device_clone.msix_capability for hardware access.",
+        prefix="TEMPLATING",
     )
     return None
 

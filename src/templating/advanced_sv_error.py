@@ -57,6 +57,7 @@ class ErrorHandlingConfig:
     timeout_cycles: int = 1048576  # ~10ms at 100MHz
 
 
+@dataclass
 class ErrorHandlingGenerator:
     """Generator for advanced error handling SystemVerilog logic."""
 

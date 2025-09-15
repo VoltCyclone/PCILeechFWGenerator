@@ -11,27 +11,15 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from string_utils import log_info_safe, log_warning_safe
 
-# Define error class here to avoid cyclic import with src.build
+from ..log_config import get_logger
+
+
 class VivadoIntegrationError(Exception):
     """Exception raised when Vivado integration fails."""
 
     pass
-
-
-# Import logger utility function
-def get_logger(name: str) -> logging.Logger:
-    """Get a configured logger instance."""
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    return logger
 
 
 class VivadoRunner:
@@ -97,7 +85,7 @@ class VivadoRunner:
             if Path(indicator).exists():
                 return True
 
-        # Check /proc/1/environ for container=podman
+        # Check /proc/1/environ for container markers
         try:
             with open("/proc/1/environ", "rb") as f:
                 environ = f.read().decode("utf-8", errors="ignore")
@@ -110,13 +98,13 @@ class VivadoRunner:
 
     def _run_vivado_on_host(self) -> None:
         """Drop out of container and run Vivado on the host system."""
-        import os
-        import subprocess
-
-        self.logger.info("Dropping out of container to run Vivado on host")
+        log_info_safe(
+            self.logger,
+            "Dropping out of container to run Vivado on host",
+            prefix="VIVADO",
+        )
 
         # Prepare the host command to run Vivado
-        # We need to tell the host where to find our files and what to run
         host_output_dir = Path("/app/output")  # This should be mounted from host
         host_vivado_path = os.environ.get(
             "HOST_VIVADO_PATH", "/tools/Xilinx/2025.1/Vivado"
@@ -149,12 +137,24 @@ echo "Vivado synthesis completed on host"
             # Make script executable (owner only)
             os.chmod(host_script, 0o700)
 
-            self.logger.info(f"Created host execution script: {host_script}")
-            self.logger.info("To complete Vivado synthesis, run this on the host:")
-            self.logger.info(f"  chmod +x {host_script} && {host_script}")
+            log_info_safe(
+                self.logger,
+                "Created host execution script: {path}",
+                path=str(host_script),
+                prefix="VIVADO",
+            )
+            log_info_safe(
+                self.logger,
+                "To complete Vivado synthesis, run this on the host:",
+                prefix="VIVADO",
+            )
+            log_info_safe(
+                self.logger,
+                "  chmod +x {path} && {path}",
+                path=str(host_script),
+                prefix="VIVADO",
+            )
 
-            # For now, we'll exit here and let the user run Vivado manually
-            # In the future, we could potentially use nsenter or similar to execute on host
             raise VivadoIntegrationError(
                 "Container detected. Vivado must be run on host. "
                 f"Please execute: {host_script}"
@@ -173,18 +173,29 @@ echo "Vivado synthesis completed on host"
         """
         # Check if we're running in a container
         if self._is_running_in_container():
-            self.logger.info(
-                "Container detected - dropping out to host for Vivado execution"
+            log_info_safe(
+                self.logger,
+                "Container detected - dropping out to host for Vivado execution",
+                prefix="VIVADO",
             )
             self._run_vivado_on_host()
             return
 
-        self.logger.info(f"Starting Vivado build for board: {self.board}")
-        self.logger.info(f"Output directory: {self.output_dir}")
+        log_info_safe(
+            self.logger,
+            "Starting Vivado build for board: {board}",
+            board=self.board,
+            prefix="VIVADO",
+        )
+        log_info_safe(
+            self.logger,
+            "Output directory: {dir}",
+            dir=str(self.output_dir),
+            prefix="VIVADO",
+        )
 
         # Import these functions dynamically to avoid circular dependencies
         try:
-            # Delay these imports to avoid circular dependencies
             from .pcileech_build_integration import integrate_pcileech_build
             from .vivado_error_reporter import run_vivado_with_error_reporting
         except ImportError as e:
@@ -197,11 +208,19 @@ echo "Vivado synthesis completed on host"
                 self.output_dir,
                 device_config=self.device_config,
             )
-            self.logger.info(f"Using integrated build script: {build_script}")
+            log_info_safe(
+                self.logger,
+                "Using integrated build script: {path}",
+                path=str(build_script),
+                prefix="VIVADO",
+            )
             build_tcl = build_script
         except Exception as e:
-            self.logger.warning(
-                f"Failed to use integrated build, falling back to generated scripts: {e}"
+            log_warning_safe(
+                self.logger,
+                "Failed to use integrated build, falling back to generated scripts: {err}",
+                err=str(e),
+                prefix="VIVADO",
             )
             build_tcl = self.output_dir / "vivado_build.tcl"
 
@@ -225,7 +244,11 @@ echo "Vivado synthesis completed on host"
                 f"See error report: {report}"
             )
 
-        self.logger.info("Vivado implementation finished successfully ✓")
+        log_info_safe(
+            self.logger,
+            "Vivado implementation finished successfully ✓",
+            prefix="VIVADO",
+        )
 
     def get_vivado_info(self) -> Dict[str, str]:
         """Get information about the Vivado installation.
@@ -247,19 +270,8 @@ def create_vivado_runner(
     vivado_path: str,
     device_config: Optional[Dict[str, Any]] = None,
     logger: Optional[logging.Logger] = None,
-) -> VivadoRunner:
-    """Factory function to create a VivadoRunner instance.
-
-    Args:
-        board: Target board name
-        output_dir: Output directory for build artifacts
-        vivado_path: Path to Vivado installation
-        device_config: Optional device configuration
-        logger: Optional logger instance
-
-    Returns:
-        Configured VivadoRunner instance
-    """
+) -> "VivadoRunner":
+    """Factory function to create a VivadoRunner instance."""
     return VivadoRunner(
         board=board,
         output_dir=output_dir,

@@ -9,14 +9,18 @@ based on the pmcsr_stub.sv module design.
 Simplified Power Management feature for the PCILeechFWGenerator project.
 """
 
+
 from dataclasses import dataclass
 from typing import Optional
 
 from ..string_utils import generate_sv_header_comment
 from ..utils.validation_constants import POWER_TRANSITION_CYCLES
-# Import PowerState and TransitionCycles from central features module
 from .advanced_sv_features import PowerState, TransitionCycles
 from .template_renderer import TemplateRenderer
+
+# Import PowerState and TransitionCycles from central features module
+
+
 
 
 @dataclass

@@ -1,9 +1,9 @@
 """Context builder for SystemVerilog generation."""
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
-from src.string_utils import log_error_safe, log_warning_safe
+from src.string_utils import log_warning_safe
 
 from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
                                      PCILEECH_DEFAULT, TemplateObject,
@@ -198,6 +198,7 @@ class SVContextBuilder:
                     vid=vendor_id,
                     did=device_id,
                 ),
+                prefix="TEMPLATING",
             )
             raise SystemExit(2)
 
@@ -264,7 +265,9 @@ class SVContextBuilder:
             context["power_management"] = self._ensure_template_object(power_ctx)
             context["power_config"] = self._ensure_template_object(vars(power_config))
         except Exception as e:
-            log_warning_safe(self.logger, f"Failed to build power context: {e}")
+            log_warning_safe(
+                self.logger, f"Failed to build power context: {e}", prefix="TEMPLATING"
+            )
             context["power_management"] = TemplateObject(
                 {"has_interface_signals": False}
             )

@@ -115,7 +115,7 @@ def enrich_context_with_driver(
     truncated = False
 
     try:
-        module_name = resolve_driver_module(vendor_id, device_id)
+        module_name = resolve_driver_module(vendor_id, device_id)  # type: ignore
         log_info_safe(
             logger,
             safe_format(
@@ -128,10 +128,10 @@ def enrich_context_with_driver(
         )
 
         if ensure_sources:
-            ksrc = ensure_kernel_source()
+            ksrc = ensure_kernel_source()  # type: ignore
             if ksrc and module_name:
                 try:
-                    paths = find_driver_sources(ksrc, module_name)
+                    paths = find_driver_sources(ksrc, module_name)  # type: ignore
                     if len(paths) > max_sources:
                         truncated = True
                         paths = paths[:max_sources]

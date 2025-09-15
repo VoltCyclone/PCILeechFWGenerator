@@ -131,7 +131,7 @@ build_package() {
     log_info "Building package distributions..."
     
     # Build wheel and source distribution
-    python -m build
+    python3 -m build
     
     # Check distributions
     twine check dist/*
@@ -156,8 +156,8 @@ test_installation() {
     pip install dist/*.whl
     
     # Test imports
-    python -c "import src; print(f'Package version: {src.__version__}')"
-    python -c "from src.tui.main import PCILeechTUI; print('TUI import successful')"
+    python3 -c "import src; print(f'Package version: {src.__version__}')"
+    python3 -c "from src.tui.main import PCILeechTUI; print('TUI import successful')"
     
     # Test console scripts
     pcileech-generate --help > /dev/null || echo "CLI help test completed"
