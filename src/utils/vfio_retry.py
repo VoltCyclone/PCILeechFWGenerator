@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Callable, Iterable, Optional, Tuple, TypeVar
 
-from string_utils import log_error_safe, log_warning_safe, safe_format
+from string_utils import log_error_safe, log_warning_safe
 
 T = TypeVar("T")
 
