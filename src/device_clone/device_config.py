@@ -25,12 +25,8 @@ except ImportError:
     yaml = None
     YAML_AVAILABLE = False
 
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe)
 
 logger = logging.getLogger(__name__)
 
@@ -235,10 +231,8 @@ class DeviceCapabilities:
     def validate(self) -> None:
         """Validate capability values."""
         # Import here to avoid circular dependency
-        from src.device_clone.payload_size_config import (
-            PayloadSizeConfig,
-            PayloadSizeError,
-        )
+        from src.device_clone.payload_size_config import (PayloadSizeConfig,
+                                                          PayloadSizeError)
 
         # Validate payload size using the new payload size configuration
         try:

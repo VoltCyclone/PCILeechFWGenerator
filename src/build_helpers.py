@@ -24,6 +24,10 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Union
 
+# Project logging helpers (use these instead of direct logger calls)
+from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                          log_warning_safe)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -38,7 +42,7 @@ def add_src_to_path() -> None:
         raise RuntimeError(f"Expected src directory not found: {src}")
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
-        logger.debug("Added %s to PYTHONPATH", src)
+        log_debug_safe(logger, "Added {src} to PYTHONPATH", prefix="BUILD", src=src)
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +59,12 @@ def select_pcie_ip_core(fpga_part: str) -> str:
         return "pcie_7x"  # larger Artix‑7 / Kintex‑7
     if part.startswith("xczu"):
         return "pcie_ultrascale"  # Zynq UltraScale+
-    logger.warning("Unknown FPGA part '%s' - defaulting to pcie_7x", fpga_part)
+    log_warning_safe(
+        logger,
+        "Unknown FPGA part '{fpga_part}' - defaulting to pcie_7x",
+        prefix="BUILD",
+        fpga_part=fpga_part,
+    )
     return "pcie_7x"
 
 
@@ -105,8 +114,11 @@ def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
         for prefix, fn in strategies.items():
             if part.startswith(prefix):
                 return fn(fpga_part)
-        logger.warning(
-            "No dedicated strategy for '%s' - using generic defaults", fpga_part
+        log_warning_safe(
+            logger,
+            "No dedicated strategy for '{fpga_part}' - using generic defaults",
+            prefix="BUILD",
+            fpga_part=fpga_part,
         )
         return artix75_or_kintex(fpga_part)  # sensible generic
 
@@ -129,7 +141,9 @@ def write_tcl_file(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf‑8")
     tcl_files.append(str(path))
-    logger.info("Generated %s", description)
+    log_info_safe(
+        logger, "Generated {description}", prefix="BUILD", description=description
+    )
 
 
 def batch_write_tcl_files(
@@ -147,7 +161,13 @@ def batch_write_tcl_files(
     for name, content in tcl_contents.items():
         write_tcl_file(content, out / name, tcl_files, name)
         successes += 1
-    logger.info("Batch TCL write complete: %d/%d files", successes, len(tcl_contents))
+    log_info_safe(
+        logger,
+        "Batch TCL write complete: {successes}/{total} files",
+        prefix="BUILD",
+        successes=successes,
+        total=len(tcl_contents),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -160,5 +180,10 @@ def validate_fpga_part(fpga_part: str) -> bool:
     prefixes = ("xc7a", "xc7k", "xc7v", "xczu", "xck", "xcvu")
     ok = bool(fpga_part) and fpga_part.lower().startswith(prefixes)
     if not ok:
-        logger.error("Invalid or unsupported FPGA part: %s", fpga_part)
+        log_error_safe(
+            logger,
+            "Invalid or unsupported FPGA part: {fpga_part}",
+            prefix="BUILD",
+            fpga_part=fpga_part,
+        )
     return ok

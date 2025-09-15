@@ -9,12 +9,10 @@ counters, and device-specific logic generation using Jinja2 templates.
 Advanced SystemVerilog Generation feature for the PCILeechFWGenerator project.
 """
 
-import random
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-# Import device configuration system
 from ..device_clone import DeviceConfiguration as NewDeviceConfiguration
 from ..device_clone import VarianceModel
 from ..device_clone.manufacturing_variance import DeviceClass
@@ -27,6 +25,7 @@ from . import TemplateRenderer, TemplateRenderError
 # Import centralized enums and constants
 from .advanced_sv_features import LinkState, PowerState
 
+# Import device configuration system
 
 class ErrorType(Enum):
     """PCIe error types."""

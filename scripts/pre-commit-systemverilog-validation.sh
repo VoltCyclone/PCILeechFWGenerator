@@ -17,11 +17,11 @@ if [ ! -f "scripts/validate_systemverilog_templates.py" ]; then
 fi
 
 # Run SystemVerilog template validation
-python scripts/validate_systemverilog_templates.py
+python3 scripts/validate_systemverilog_templates.py
 template_result=$?
 
 # Run project SystemVerilog configuration validation
-python scripts/validate_project_systemverilog.py
+python3 scripts/validate_project_systemverilog.py
 project_result=$?
 
 if [ $template_result -ne 0 ] || [ $project_result -ne 0 ]; then

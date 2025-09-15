@@ -97,6 +97,7 @@ class PerformanceCounterConfig:
     msi_threshold: int = 1000  # MSI interrupt threshold for perf_stub
 
 
+@dataclass
 class PerformanceCounterGenerator:
     """Generator for advanced performance counter SystemVerilog logic."""
 

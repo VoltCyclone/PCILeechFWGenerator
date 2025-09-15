@@ -8,11 +8,11 @@ free beyond logging.
 from __future__ import annotations
 
 import errno
-import time
 import logging
-from typing import Callable, Iterable, Tuple, TypeVar, Optional
+import time
+from typing import Callable, Iterable, Optional, Tuple, TypeVar
 
-from string_utils import log_warning_safe, log_error_safe, safe_format
+from string_utils import log_error_safe, log_warning_safe
 
 T = TypeVar("T")
 

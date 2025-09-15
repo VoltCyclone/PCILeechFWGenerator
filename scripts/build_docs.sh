@@ -97,7 +97,7 @@ if [ "$CLEAN" = true ]; then
     echo "  Cleaning existing API docs..."
 fi
 
-python scripts/generate_api_docs.py \
+python3 scripts/generate_api_docs.py \
     --source src \
     --output site/docs \
     --use-mkdocstrings \

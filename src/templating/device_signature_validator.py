@@ -77,7 +77,7 @@ def ensure_valid_device_signature(context: Dict[str, Any]) -> None:
     if not is_valid:
         log_error_safe(
             logger,
-            f"CRITICAL: Invalid device_signature: {error_message}",
+            "CRITICAL: Invalid device_signature: {error_message}",
             prefix="SECURITY",
         )
         raise ValueError(f"CRITICAL: Invalid device_signature: {error_message}")

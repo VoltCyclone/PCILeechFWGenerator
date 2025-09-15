@@ -91,9 +91,6 @@ class FallbackManager:
         DEFAULT_FALLBACKS: Safe fallback values for non-critical variables
     """
 
-    # Use centralized sensitive tokens from validation_constants
-    # SENSITIVE_TOKENS is now imported
-
     DEFAULT_FALLBACKS: Final[Dict[str, Any]] = {
         "board.name": "",
         "board.fpga_part": "",
@@ -108,9 +105,6 @@ class FallbackManager:
         # Control whether PM sideband interface signals are exposed. Safe
         # default is False (feature disabled) so templates gate logic cleanly.
         "expose_pm_sideband": False,
-        # Low-risk template-only fallbacks to reduce false positives during
-        # static template validation. These are non-device-unique defaults
-        # (empty/zero) and do not violate donor-uniqueness principles.
         "ROM_BAR_INDEX": 0,
         "ROM_HEX_FILE": "",
         "ROM_SIZE": 0,
@@ -163,7 +157,6 @@ class FallbackManager:
         """
         # Support both old and new initialization styles
         if isinstance(config_path, FallbackConfig):
-            # New API: first arg is FallbackConfig
             self.config = config_path
         else:
             # Legacy API: individual parameters
@@ -181,18 +174,10 @@ class FallbackManager:
         self._variables: Dict[str, VariableMetadata] = {}
         self._critical_vars: Set[str] = set()
         self._default_registered_keys: Set[str] = set()
-
-        # Legacy compatibility: expose _fallbacks as a property-like dict
         self._fallbacks: Dict[str, Any] = {}
         self._default_handlers: Dict[str, Callable[[], Any]] = {}
-
-        # Performance cache
         self._path_cache: Dict[str, List[str]] = {}
-
-        # Initialize defaults
         self._register_default_fallbacks()
-
-        # Load external config if provided
         if self.config.config_path:
             self.load_from_config(str(self.config.config_path))
 
@@ -217,7 +202,6 @@ class FallbackManager:
             )
             return False
 
-        # Apply mode-based policy
         if self.config.mode == FallbackMode.NONE:
             log_warning_safe(
                 logger,
@@ -237,7 +221,6 @@ class FallbackManager:
             )
             return True
 
-        # PROMPT mode - allow in non-interactive contexts
         log_info_safe(
             logger,
             "Fallback permitted (mode=prompt) for {key}: {reason}",
@@ -272,27 +255,18 @@ class FallbackManager:
         """Register default critical variables that should never have fallbacks."""
         critical_vars: List[str] = []
 
-        # Use explicit device identification fields as critical both
-        # in their namespaced (device.xxx) and unprefixed forms. This
-        # prevents registering static fallbacks for vendor/device ids
-        # which must be generated dynamically from hardware.
         for field in DEVICE_IDENTIFICATION_FIELDS:
-            # namespaced
             critical_vars.append(f"device.{field}")
-            # unprefixed (many modules use top-level keys like "vendor_id")
             critical_vars.append(field)
 
-        # Also include other sensitive tokens under both names to be safe
         for token in SENSITIVE_TOKENS:
             if token == "bars":
                 critical_vars.extend(["bars", "device.bars"])
             else:
-                # avoid duplicating entries already added via DEVICE_IDENTIFICATION_FIELDS
                 if token not in DEVICE_IDENTIFICATION_FIELDS:
                     critical_vars.append(f"device.{token}")
                     critical_vars.append(token)
 
-        # Deduplicate while preserving order
         seen: Set[str] = set()
         deduped: List[str] = []
         for v in critical_vars:
@@ -343,15 +317,11 @@ class FallbackManager:
             # Missing intermediate part
             if part not in current:
                 if create_missing:
-                    # Create a template-compatible empty mapping when the
-                    # parent is TemplateObject-like so templates don't get
-                    # plain dicts inserted in their place.
                     try:
                         from src.utils.unified_context import TemplateObject
 
                         current[part] = TemplateObject({})
                     except Exception:
-                        # Fallback to plain dict if TemplateObject import fails
                         current[part] = {}
                 else:
                     return None, None, False
