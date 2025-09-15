@@ -68,6 +68,7 @@ def retry_vfio_call(
                         label=label,
                         eno=eno,
                         msg=str(e),
+                        prefix="VFIO",
                     )
                 raise
 
@@ -80,6 +81,7 @@ def retry_vfio_call(
                 attempt=attempt + 1,
                 max_attempts=retries + 1,
                 sleep=delay,
+                prefix="VFIO",
             )
             time.sleep(delay)
             attempt += 1

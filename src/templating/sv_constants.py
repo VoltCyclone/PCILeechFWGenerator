@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Set
 # Reuse shared validation constants instead of redefining overlapping values
 from src.utils import validation_constants as VC
 
+from src.utils import context_error_messages as CEM
+
 
 class SVConstants:
     """SystemVerilog generation constants."""
@@ -186,54 +188,20 @@ class SVValidation:
     """Validation messages for SystemVerilog generation."""
 
     ERROR_MESSAGES: Dict[str, str] = {
-        "undefined_var": (
-            "{context}: Missing required template variables. Ensure {object} "
-            "has all required attributes. Details: {error}"
-        ),
-        "template_not_found": (
-            "{context}: Template file not found. Ensure the template exists at "
-            "'{path}' or check template_dir. Details: {error}"
-        ),
-        "missing_device_config": (
-            "Device configuration is required for safe firmware generation. "
-            "Please provide a valid DeviceSpecificLogic object."
-        ),
-        "invalid_device_type": (
-            "Invalid device_type: {value}. Must be a DeviceType enum. Please "
-            "use values from DeviceType class."
-        ),
-        "invalid_device_class": (
-            "Invalid device_class: {value}. Must be a DeviceClass enum. Please "
-            "use values from DeviceClass class."
-        ),
-        "invalid_numeric_param": (
-            "{param} = {value} is out of valid range [{min}, {max}]."
-        ),
-        "no_template_context": ("Template context is required for {operation}"),
-        "context_not_dict": ("Template context must be a dictionary, got {type_name}"),
-        "missing_critical_field": (
-            "device_config is missing from template context. This is required "
-            "for safe PCILeech firmware generation."
-        ),
-        "device_config_not_dict": (
-            "device_config must be a dictionary, got {type_name}. Cannot "
-            "proceed with firmware generation."
-        ),
-        "missing_device_signature": (
-            "CRITICAL: device_signature is missing from template context. "
-            "This field is required for firmware security and uniqueness."
-        ),
-        "empty_device_signature": (
-            "CRITICAL: device_signature is None or empty. A valid device "
-            "signature is required to prevent generic firmware generation."
-        ),
-        "validation_failed": (
-            "Template context validation failed with {count} critical errors:\n"
-            "{errors}\n\nCannot proceed with firmware generation."
-        ),
-        "missing_behavior_profile": (
-            "Behavior profile is required for register extraction"
-        ),
+        "undefined_var": CEM.UNDEFINED_VAR,
+        "template_not_found": CEM.TEMPLATE_NOT_FOUND,
+        "missing_device_config": CEM.MISSING_DEVICE_CONFIG,
+        "invalid_device_type": CEM.INVALID_DEVICE_TYPE,
+        "invalid_device_class": CEM.INVALID_DEVICE_CLASS,
+        "invalid_numeric_param": CEM.INVALID_NUMERIC_PARAM,
+        "no_template_context": CEM.TEMPLATE_CONTEXT_REQUIRED,
+        "context_not_dict": CEM.TEMPLATE_CONTEXT_NOT_DICT,
+        "missing_critical_field": CEM.MISSING_CRITICAL_FIELD_DEVICE_CONFIG,
+        "device_config_not_dict": CEM.DEVICE_CONFIG_NOT_DICT,
+        "missing_device_signature": CEM.MISSING_DEVICE_SIGNATURE,
+        "empty_device_signature": CEM.EMPTY_DEVICE_SIGNATURE,
+        "validation_failed": CEM.TEMPLATE_VALIDATION_FAILED,
+        "missing_behavior_profile": CEM.MISSING_BEHAVIOR_PROFILE,
     }
 
 

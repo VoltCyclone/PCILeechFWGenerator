@@ -17,15 +17,26 @@ from src.__version__ import __version__
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
 from src.error_utils import format_user_friendly_error
-from src.string_utils import (generate_sv_header_comment, log_error_safe,
-                              log_info_safe, utc_timestamp)
+from src.string_utils import (
+    generate_sv_header_comment,
+    log_error_safe,
+    log_info_safe,
+    utc_timestamp,
+)
 
-from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
-                                     PCILEECH_DEFAULT, TemplateObject,
-                                     UnifiedContextBuilder,
-                                     normalize_config_to_dict)
-from .advanced_sv_features import (AdvancedSVFeatureGenerator,
-                                   ErrorHandlingConfig, PerformanceConfig)
+from ..utils.unified_context import (
+    DEFAULT_TIMING_CONFIG,
+    MSIX_DEFAULT,
+    PCILEECH_DEFAULT,
+    TemplateObject,
+    UnifiedContextBuilder,
+    normalize_config_to_dict,
+)
+from .advanced_sv_features import (
+    AdvancedSVFeatureGenerator,
+    ErrorHandlingConfig,
+    PerformanceConfig,
+)
 from .advanced_sv_power import PowerManagementConfig
 from .sv_constants import SVConstants, SVTemplates, SVValidation
 from .sv_context_builder import SVContextBuilder
@@ -566,6 +577,7 @@ class SystemVerilogGenerator:
             # Defer importing VFIO helpers and perform device FD acquisition first so
             # unit tests that patch get_device_fd can intercept and return mock FDs.
             import mmap
+
             # Local os import kept near usage
             import os
 
@@ -577,6 +589,7 @@ class SystemVerilogGenerator:
                     logger,
                     "VFIO helpers not available: {error}",
                     error=str(e),
+                    prefix="RDMSIX",
                 )
                 return None
 
@@ -584,6 +597,7 @@ class SystemVerilogGenerator:
                 logger,
                 "Reading MSI-X table for {vectors} vectors",
                 vectors=num_vectors,
+                prefix="RDMSIX",
             )
 
             # Get device file descriptors - need a device BDF
@@ -595,7 +609,7 @@ class SystemVerilogGenerator:
                 device_fd, container_fd = vfio_helpers.get_device_fd(device_bdf)
             except ImportError:
                 # VFIO helper not available in this environment
-                log_error_safe(logger, "VFIO module not available")
+                log_error_safe(logger, "VFIO module not available", prefix="RDMSIX")
                 return None
             except Exception as e:
                 # Non-fatal acquisition error - log and return None
@@ -603,6 +617,7 @@ class SystemVerilogGenerator:
                     logger,
                     "Failed to acquire VFIO device fds: {error}",
                     error=str(e),
+                    prefix="RDMSIX",
                 )
                 return None
 
@@ -619,6 +634,7 @@ class SystemVerilogGenerator:
                         logger,
                         "VFIO binding verification failed: {error}",
                         error=str(e),
+                        prefix="RDMSIX",
                     )
             except Exception:
                 # Swallow any unexpected errors from binding verification
@@ -656,6 +672,7 @@ class SystemVerilogGenerator:
                         logger,
                         "Error closing device_fd: {error}",
                         error=str(e),
+                        prefix="GEN",
                     )
                 try:
                     os.close(container_fd)
@@ -665,17 +682,21 @@ class SystemVerilogGenerator:
                         logger,
                         "Error closing container_fd: {error}",
                         error=str(e),
+                        prefix="GEN",
                     )
 
         except ImportError:
-            log_error_safe(logger, "VFIO module not available")
+            log_error_safe(logger, "VFIO module not available", prefix="GEN")
             return None
         except OSError:
-            log_error_safe(logger, "Failed to read MSI-X table")
+            log_error_safe(logger, "Failed to read MSI-X table", prefix="GEN")
             return None
         except Exception as e:
             log_error_safe(
-                logger, "Unexpected error reading MSI-X table: {error}", error=str(e)
+                logger,
+                "Unexpected error reading MSI-X table: {error}",
+                error=str(e),
+                prefix="GEN",
             )
             return None
 
@@ -695,9 +716,44 @@ class SystemVerilogGenerator:
         # Accept multiple indicators of a previously verified VFIO session.
         has_direct = bool(vfio_context.get("vfio_device"))
         was_verified = bool(vfio_context.get("vfio_binding_verified"))
+
+        # Additional environment-aware detection to reduce false negatives in
+        # local builds where VFIO is active but flags weren't propagated.
+        if not has_direct:
+            try:
+                import os
+
+                if os.path.exists("/dev/vfio/vfio"):
+                    has_direct = True
+                else:
+                    # Consider presence of any VFIO IOMMU group device as evidence
+                    if os.path.isdir("/dev/vfio"):
+                        for name in os.listdir("/dev/vfio"):
+                            if name.isdigit():
+                                has_direct = True
+                                break
+            except Exception:
+                # Keep best-effort behavior; do not fail detection
+                pass
+
+        # Allow an explicit override for environments where VFIO probing isn't
+        # possible but integration generation should proceed (e.g. CI or
+        # constrained sandboxes).
+        try:
+            import os as _os
+
+            skip_check = _os.getenv("PCILEECH_SKIP_VFIO_CHECK", "").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+        except Exception:
+            skip_check = False
+
         # Only a raw path without a verified flag is insufficient; tests rely on
-        # this to trigger the error condition when no active VFIO evidence.
-        if not (has_direct or was_verified):
+        # this to trigger the error condition when no active VFIO evidence. Keep
+        # original contract unless our extended detection or override applies.
+        if not (has_direct or was_verified or skip_check):
             raise TemplateRenderError("VFIO device access failed")
 
         # Build a minimal template context satisfying template contract.
