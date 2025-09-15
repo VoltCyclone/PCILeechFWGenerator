@@ -27,15 +27,6 @@ from .advanced_sv_features import LinkState, PowerState
 
 # Import device configuration system
 
-
-
-
-
-
-
-
-
-
 class ErrorType(Enum):
     """PCIe error types."""
 
