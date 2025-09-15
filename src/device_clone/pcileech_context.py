@@ -18,7 +18,7 @@ from datetime import datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import (TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict,
+from typing import (TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict,
                     Union, cast)
 
 from src.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
