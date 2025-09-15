@@ -5,17 +5,30 @@ subsystem IDs, class code, revision, and donor artifacts (VPD/Option ROM).
 """
 
 import hashlib
+
 import logging
+
 from typing import Any, Dict, List, Optional, Union
 
-from src.device_clone.device_config import DeviceClass, DeviceType
-from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
-from src.utils.context_error_messages import (OPTION_ROM_MISSING_SIZE,
-                                              ROM_SIZE_MISMATCH,
-                                              VPD_REQUIRED_MISSING)
+from src.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.utils.context_error_messages import (
+    OPTION_ROM_MISSING_SIZE,
+    ROM_SIZE_MISMATCH,
+    VPD_REQUIRED_MISSING,
+)
 
 from .sv_constants import SV_CONSTANTS, SV_VALIDATION
+
+from src.utils.validation_constants import (
+    DEVICE_IDENTIFICATION_FIELDS,
+    DEVICE_ID_FIELD_WIDTHS,
+)
+
 from .template_renderer import TemplateRenderError
 
 
@@ -105,14 +118,7 @@ class SVValidator:
             TemplateRenderError: If validation fails
         """
         # Require full set of identifiers (avoid silent fallbacks)
-        required_fields = [
-            "vendor_id",
-            "device_id",
-            "subsystem_vendor_id",
-            "subsystem_device_id",
-            "class_code",
-            "revision_id",
-        ]
+        required_fields = DEVICE_IDENTIFICATION_FIELDS
         missing_fields: List[str] = []
         invalid_fields: List[str] = []
 
@@ -121,27 +127,12 @@ class SVValidator:
             if not value:
                 missing_fields.append(field)
             else:
-                # Validate widths: vendor/device/subsystem IDs are 4 hex chars,
-                # class_code is 6, revision_id is 2
-                if field in (
-                    "vendor_id",
-                    "device_id",
-                    "subsystem_vendor_id",
-                    "subsystem_device_id",
-                ):
-                    if not isinstance(value, str) or len(value) != 4:
+                # Validate hex-widths using centralized constants
+                expected_width = DEVICE_ID_FIELD_WIDTHS.get(field)
+                if expected_width is not None:
+                    if not isinstance(value, str) or len(value) != expected_width:
                         invalid_fields.append(
-                            f"{field}='{value}' (must be 4-character hex string)"
-                        )
-                elif field == "class_code":
-                    if not isinstance(value, str) or len(value) != 6:
-                        invalid_fields.append(
-                            f"{field}='{value}' (must be 6-character hex string)"
-                        )
-                elif field == "revision_id":
-                    if not isinstance(value, str) or len(value) != 2:
-                        invalid_fields.append(
-                            f"{field}='{value}' (must be 2-character hex string)"
+                            f"{field}='{value}' (must be {expected_width}-character hex string)"
                         )
 
         if missing_fields or invalid_fields:
@@ -157,7 +148,7 @@ class SVValidator:
                 f"{details}. Cannot generate safe firmware without proper "
                 "device identification."
             )
-            log_error_safe(self.logger, error_msg)
+            log_error_safe(self.logger, error_msg, prefix="VALID")
             raise TemplateRenderError(error_msg)
 
     def _validate_donor_artifacts(self, context: Any) -> None:
@@ -188,7 +179,7 @@ class SVValidator:
                 hasattr(vpd_data, "__len__") and len(vpd_data) == 0
             ):
                 error_msg = VPD_REQUIRED_MISSING
-                log_error_safe(self.logger, error_msg)
+                log_error_safe(self.logger, error_msg, prefix="VALID")
                 raise TemplateRenderError(error_msg)
 
         # Option ROM checks
@@ -226,7 +217,7 @@ class SVValidator:
                         size=rom_size,
                         dlen=(data_len if data_len is not None else -1),
                     )
-                    log_error_safe(self.logger, error_msg)
+                    log_error_safe(self.logger, error_msg, prefix="VALID")
                     raise TemplateRenderError(error_msg)
 
                 # Compute checksum if not present and attach for downstream consumers
@@ -247,10 +238,14 @@ class SVValidator:
                                     "Computed ROM checksum: {csum}",
                                     csum=digest[:16],
                                 ),
+                                prefix="VALID",
                             )
                     except Exception:
-                        # Non-fatal: checksum computation failure should not
-                        # proceed silently if required elsewhere
+                        log_error_safe(
+                            self.logger,
+                            "Failed to compute ROM checksum",
+                            prefix="VALID",
+                        )
                         pass
 
     def validate_numeric_range(
@@ -398,7 +393,9 @@ class SVValidator:
 
         # Log warnings
         for warning in warnings:
-            log_warning_safe(self.logger, f"Template validation warning: {warning}")
+            log_warning_safe(
+                self.logger, f"Template validation warning: {warning}", prefix="VALID"
+            )
 
         # Raise error if any critical issues found
         if errors:
@@ -406,5 +403,5 @@ class SVValidator:
                 count=len(errors),
                 errors="\n".join(f"  - {error}" for error in errors),
             )
-            log_error_safe(self.logger, error_msg)
+            log_error_safe(self.logger, error_msg, prefix="VALID")
             raise TemplateRenderError(error_msg)

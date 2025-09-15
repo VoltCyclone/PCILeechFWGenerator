@@ -54,6 +54,16 @@ DEVICE_IDENTIFICATION_FIELDS: Final[List[str]] = [
     "revision_id",
 ]
 
+# Hex widths for device identification fields (characters in hex string)
+DEVICE_ID_FIELD_WIDTHS: Final[Dict[str, int]] = {
+    "vendor_id": 4,
+    "device_id": 4,
+    "subsystem_vendor_id": 4,
+    "subsystem_device_id": 4,
+    "class_code": 6,
+    "revision_id": 2,
+}
+
 # Board configuration fields that are essential for FPGA targeting
 ESSENTIAL_BOARD_CONFIG_FIELDS: Final[List[str]] = [
     "name",

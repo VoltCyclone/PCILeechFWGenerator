@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 Enhanced error recovery mechanisms for PCILeech operations.
 
@@ -9,9 +11,17 @@ failure scenarios in firmware generation.
 import functools
 import logging
 import time
+
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional
+
+from string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +51,7 @@ class RetryConfig:
 class PCILeechErrorRecovery:
     """Intelligent error recovery for PCILeech operations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.error_patterns = self._build_error_patterns()
         self.recovery_actions = self._build_recovery_actions()
 
@@ -106,51 +116,22 @@ class PCILeechErrorRecovery:
         }
 
     def categorize_error(self, error: Exception) -> ErrorCategory:
-        """Categorize an error for appropriate recovery strategy.
-
-        Args:
-            error: The exception to categorize
-
-        Returns:
-            Error category for recovery strategy
-        """
+        """Categorize an error for appropriate recovery strategy."""
         error_str = str(error).lower()
-
         for pattern, category in self.error_patterns.items():
             if pattern.lower() in error_str:
                 return category
-
-        # Default to recoverable for unknown errors
         return ErrorCategory.RECOVERABLE
 
     def should_retry(self, error: Exception, attempt: int, max_attempts: int) -> bool:
-        """Determine if an operation should be retried.
-
-        Args:
-            error: The exception that occurred
-            attempt: Current attempt number (1-based)
-            max_attempts: Maximum number of attempts
-
-        Returns:
-            True if operation should be retried
-        """
+        """Determine if an operation should be retried."""
         if attempt >= max_attempts:
             return False
-
         category = self.categorize_error(error)
-
-        # Only retry transient and some recoverable errors
         return category in [ErrorCategory.TRANSIENT, ErrorCategory.RECOVERABLE]
 
     def get_recovery_suggestions(self, error: Exception) -> list:
-        """Get recovery suggestions for an error.
-
-        Args:
-            error: The exception to get suggestions for
-
-        Returns:
-            List of recovery suggestions
-        """
+        """Get recovery suggestions for an error."""
         category = self.categorize_error(error)
         return self.recovery_actions.get(category, [])
 
@@ -159,33 +140,32 @@ def retry_with_recovery(
     retry_config: Optional[RetryConfig] = None,
     error_recovery: Optional[PCILeechErrorRecovery] = None,
 ):
-    """Decorator for retrying operations with intelligent error recovery.
-
-    Args:
-        retry_config: Configuration for retry behavior
-        error_recovery: Error recovery instance
-    """
+    """Decorator for retrying operations with intelligent error recovery."""
     if retry_config is None:
         retry_config = RetryConfig()
     if error_recovery is None:
         error_recovery = PCILeechErrorRecovery()
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable):
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_exception = None
-
+            last_exception: Optional[Exception] = None
             for attempt in range(1, retry_config.max_attempts + 1):
                 try:
                     return func(*args, **kwargs)
-
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - broad by design here
                     last_exception = e
-
                     if not error_recovery.should_retry(
                         e, attempt, retry_config.max_attempts
                     ):
-                        logger.error(f"Operation failed (non-retryable): {e}")
+                        log_error_safe(
+                            logger,
+                            safe_format(
+                                "Operation failed (non-retryable): {err}", err=e
+                            ),
+                            prefix="RECOV",
+                        )
                         raise
 
                     if attempt < retry_config.max_attempts:
@@ -196,28 +176,43 @@ def retry_with_recovery(
                             retry_config.exponential_backoff,
                             retry_config.jitter,
                         )
-
-                        logger.warning(
-                            f"Operation failed (attempt {attempt}/{retry_config.max_attempts}): {e}. "
-                            f"Retrying in {delay:.1f}s..."
+                        log_warning_safe(
+                            logger,
+                            safe_format(
+                                "Operation failed (attempt {attempt}/{max_attempts}): {err}. Retrying in {delay:.1f}s...",
+                                attempt=attempt,
+                                max_attempts=retry_config.max_attempts,
+                                err=e,
+                                delay=delay,
+                            ),
+                            prefix="RECOV",
                         )
                         time.sleep(delay)
                     else:
-                        logger.error(
-                            f"Operation failed after {retry_config.max_attempts} attempts: {e}"
+                        log_error_safe(
+                            logger,
+                            safe_format(
+                                "Operation failed after {max_attempts} attempts: {err}",
+                                max_attempts=retry_config.max_attempts,
+                                err=e,
+                            ),
+                            prefix="RECOV",
                         )
-
-                        # Provide recovery suggestions
                         suggestions = error_recovery.get_recovery_suggestions(e)
                         if suggestions:
-                            logger.info("Recovery suggestions:")
+                            log_info_safe(
+                                logger, "Recovery suggestions:", prefix="RECOV"
+                            )
                             for suggestion in suggestions:
-                                logger.info(f"  - {suggestion}")
+                                log_info_safe(
+                                    logger,
+                                    safe_format("  - {s}", s=suggestion),
+                                    prefix="RECOV",
+                                )
 
-            if last_exception:
+            if last_exception is not None:
                 raise last_exception
-            else:
-                raise RuntimeError("Operation failed after all retry attempts")
+            raise RuntimeError("Operation failed after all retry attempts")
 
         return wrapper
 
@@ -232,23 +227,10 @@ def _calculate_delay(
     jitter: bool,
 ) -> float:
     """Calculate delay for retry attempt."""
-    if exponential_backoff:
-        delay = base_delay * (2 ** (attempt - 1))
-    else:
-        delay = base_delay
-
+    delay = base_delay * (2 ** (attempt - 1)) if exponential_backoff else base_delay
     delay = min(delay, max_delay)
-
     if jitter:
         import random
 
         delay *= 0.5 + random.random() * 0.5  # 50-100% of calculated delay
-
     return delay
-
-
-# Example usage decorator
-@retry_with_recovery(RetryConfig(max_attempts=5, base_delay=2.0))
-def example_vfio_operation():
-    """Example function that might fail and need retry."""
-    pass
