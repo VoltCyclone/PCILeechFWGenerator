@@ -26,8 +26,7 @@ from src.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
                                     VFIO_REGION_INFO_FLAG_READ,
                                     VFIO_REGION_INFO_FLAG_WRITE,
                                     VfioRegionInfo)
-from src.device_clone.bar_content_generator import (BarContentGenerator,
-                                                    BarContentType)
+from src.device_clone.bar_content_generator import BarContentGenerator
 from src.device_clone.bar_size_converter import extract_bar_size
 from src.device_clone.behavior_profiler import BehaviorProfile
 from src.device_clone.board_config import get_pcileech_board_config
