@@ -52,8 +52,7 @@ from src.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
 from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
                               safe_format)
 
-from ..utils.validation_constants import (DEVICE_IDENTIFICATION_FIELDS,
-                                          REQUIRED_CONTEXT_SECTIONS)
+from ..utils.validation_constants import REQUIRED_CONTEXT_SECTIONS
 
 # NOTE: Don't import VFIO helper callables at module import time. Tests
 # commonly patch the functions on the `src.cli.vfio_helpers` module. To
