@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PCILeech Firmware Generator - Unified Entry Point with Requirements Enforcement
+PCILeech Firmware Generator - Unified Entry Point
 
 This is the single entry point for all PCILeech functionality with automatic
 dependency checking and installation.
@@ -22,9 +22,12 @@ sys.path.insert(0, str(project_root / "src"))
 
 def get_version():
     """Get the current version from the version file."""
-    from src.__version__ import __title__, __version__
+    try:
+        from src.__version__ import __title__, __version__
 
-    return f"{__title__} v{__version__}"
+        return f"{__title__} v{__version__}"
+    except ImportError:
+        return "PCILeech Firmware Generator (version unknown)"
 
 
 class RequirementsError(Exception):
@@ -112,6 +115,9 @@ def check_and_install_requirements():
 
 def is_package_available(package_name):
     """Check if a package is available for import."""
+    if not package_name:
+        return False
+
     # Handle package name mappings (PyPI name vs import name)
     import_mappings = {
         "pyyaml": "yaml",
@@ -129,6 +135,8 @@ def is_package_available(package_name):
     }
 
     import_name = import_mappings.get(package_name.lower(), package_name)
+    if not import_name:
+        return False
 
     try:
         importlib.import_module(import_name)
@@ -272,28 +280,18 @@ def get_available_boards():
     """Get list of available board configurations."""
     try:
         from src.device_clone.board_config import list_supported_boards
-        from src.device_clone.constants import BOARD_FALLBACKS as _FALLBACKS
 
         boards = list_supported_boards()
-        return sorted(boards) if boards else _FALLBACKS
+        return sorted(boards) if boards else get_fallback_boards()
     except Exception:
-        # Single fallback path (avoid re‑duplicating the list here)
-        try:
-            from src.device_clone.constants import \
-                BOARD_FALLBACKS as _FALLBACKS
+        return get_fallback_boards()
 
-            return _FALLBACKS
-        except Exception:
-            return [
-                "pcileech_35t325_x4",
-                "pcileech_35t325_x1",
-                "pcileech_35t484_x1",
-                "pcileech_75t484_x1",
-                "pcileech_100t484_x1",
-                "pcileech_enigma_x1",
-                "pcileech_squirrel",
-                "pcileech_pciescreamer_xc7a35",
-            ]
+
+def get_fallback_boards():
+    """Get fallback board list when discovery fails."""
+    from src.device_clone.constants import BOARD_FALLBACKS
+
+    return list(BOARD_FALLBACKS)
 
 
 def check_sudo():
@@ -375,6 +373,9 @@ def rebuild_vfio_constants():
 
 def create_parser():
     """Create the main argument parser with subcommands."""
+    # Determine script name for auto-command detection
+    script_name = Path(sys.argv[0]).name
+
     parser = argparse.ArgumentParser(
         prog="pcileech",
         description="PCILeech Firmware Generator - Unified Entry Point",
@@ -422,6 +423,15 @@ Environment Variables:
         action="store_true",
         help="Skip automatic requirements checking",
     )
+
+    # Auto-detect command from script name for console scripts
+    auto_command = None
+    if script_name == "pcileech-build":
+        auto_command = "build"
+    elif script_name == "pcileech-tui":
+        auto_command = "tui"
+    elif script_name == "pcileech-generate":
+        auto_command = "build"  # generate is just an alias for build
 
     # Create subparsers for different modes
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -536,6 +546,10 @@ Environment Variables:
     )
     donor_parser.add_argument("--validate", help="Validate an existing donor info file")
 
+    # Set auto-detected command as default
+    if auto_command and not any(arg in sys.argv for arg in subparsers.choices):
+        parser.set_defaults(command=auto_command)
+
     return parser
 
 
@@ -561,6 +575,20 @@ def main():
         setup_logging(level=logging.INFO)
 
     logger = get_logger(__name__)
+
+    # Handle console script auto-command detection
+    if not args.command:
+        script_name = Path(sys.argv[0]).name
+        if script_name == "pcileech-build":
+            args.command = "build"
+        elif script_name == "pcileech-tui":
+            args.command = "tui"
+        elif script_name == "pcileech-generate":
+            args.command = "build"
+        else:
+            # No command specified, show help
+            parser.print_help()
+            return 1
 
     # Check sudo requirements for hardware operations
     if args.command in ["build", "check"] and not check_sudo():

@@ -51,9 +51,9 @@ testing = [
 
 [project.scripts]
 pcileech = "pcileech:main"
-pcileech-generate = "generate_cli:main"
-pcileech-build = "build_cli:main"
-pcileech-tui = "tui_cli:main"
+pcileech-generate = "pcileech:main"
+pcileech-build = "pcileech:main"
+pcileech-tui = "pcileech:main"
 
 [tool.setuptools_scm]
 # For smarter version schemes and other configuration options,

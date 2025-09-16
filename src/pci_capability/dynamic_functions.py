@@ -299,6 +299,7 @@ def analyze_device_function_type(
                     device_type=device_type,
                     class_code=class_code,
                 ),
+                prefix="DEVICE_CLASSIFY",
             )
             return device_type.value
 
@@ -317,6 +318,7 @@ def analyze_device_function_type(
                 device_id=device_id,
                 device_type=device_type,
             ),
+            prefix="DEVICE_CLASSIFY",
         )
         return device_type.value
 
@@ -331,6 +333,7 @@ def analyze_device_function_type(
                 vendor_id=vendor_id,
                 device_id=device_id,
             ),
+            prefix="DEVICE_CLASSIFY",
         )
     else:
         log_debug_safe(
@@ -341,6 +344,7 @@ def analyze_device_function_type(
                 device_id=device_id,
                 device_type=device_type,
             ),
+            prefix="DEVICE_CLASSIFY",
         )
 
     return device_type.value
@@ -384,6 +388,7 @@ def create_simulated_device_capabilities(
                     vendor_id=vendor_id,
                     device_id=device_id,
                 ),
+                prefix="DEVICE_CLASSIFY",
             )
         else:
             function_type = analyze_device_function_type(
@@ -397,6 +402,7 @@ def create_simulated_device_capabilities(
                     device_id=device_id,
                     function_type=function_type,
                 ),
+                prefix="DEVICE_CLASSIFY",
             )
 
         # Generate capabilities based on function type
@@ -420,6 +426,7 @@ def create_simulated_device_capabilities(
                     vendor_id=vendor_id,
                     device_id=device_id,
                 ),
+                prefix="DEVICE_CLASSIFY",
             )
 
         # Add metadata
@@ -449,6 +456,7 @@ def create_simulated_device_capabilities(
                 did=device_id,
                 error=str(e),
             ),
+            prefix="DEVICE_CAPABILITY",
         )
         # Return minimal safe configuration
         return _create_generic_device_capabilities(vendor_id, device_id, class_code)

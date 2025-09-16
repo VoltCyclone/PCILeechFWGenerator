@@ -392,48 +392,56 @@ class TemplateContextValidator:
             # continue validation without assigned_in_template enhancements.
             assigned_in_template = set()
 
-        # SECURITY ENHANCEMENT: Track all validation issues for comprehensive
-        # reporting
+        # Check required variables with appropriate strictness
         validation_errors = []
-
-        # Check required variables with strict validation
         missing_required = []
-        for var in requirements.required_vars:
-            # If the template assigns this variable itself, consider it present
-            if var in assigned_in_template:
-                continue
-            if var not in validated_context or validated_context[var] is None:
-                missing_required.append(var)
-                validation_errors.append(
-                    f"Required variable '{var}' is missing or None"
+
+        if strict:
+            for var in requirements.required_vars:
+                if var in assigned_in_template:
+                    continue
+                if var not in validated_context or validated_context[var] is None:
+                    missing_required.append(var)
+                    validation_errors.append(
+                        f"Required variable '{var}' is missing or None"
+                    )
+
+            none_values = []
+            for var, value in validated_context.items():
+                if value is None:
+                    none_values.append(var)
+                    validation_errors.append(f"Variable '{var}' has None value")
+
+            if validation_errors:
+                error_msg = (
+                    "SECURITY VIOLATION: Template '"
+                    f"{template_name}' context validation failed:\n- "
+                    + "\n- ".join(validation_errors)
+                    + "\n\nExplicit initialization of all template variables is "
+                    "required."
                 )
+                # Use standardized error logging wrapper
+                log_error_safe(
+                    logger,
+                    "{msg}",
+                    msg=error_msg,
+                    prefix="TEMPLATE_VALIDATION",
+                )
+                raise ValueError(error_msg)
+        else:
+            # In non-strict mode, only warn about missing required variables
+            for var in requirements.required_vars:
+                if var in assigned_in_template:
+                    continue
+                if var not in validated_context:
+                    log_debug_safe(
+                        logger,
+                        "Required variable '{var}' missing from template '{tmpl}' context, will be handled by Jinja2",
+                        prefix="TEMPLATE_VALIDATION",
+                        var=var,
+                        tmpl=template_name,
+                    )
 
-        # SECURITY ENHANCEMENT: Check for None values in all context variables
-        none_values = []
-        for var, value in validated_context.items():
-            if value is None:
-                none_values.append(var)
-                validation_errors.append(f"Variable '{var}' has None value")
-
-        # SECURITY ENHANCEMENT: Fail immediately on any validation errors
-        if validation_errors:
-            error_msg = (
-                "SECURITY VIOLATION: Template '"
-                f"{template_name}' context validation failed:\n- "
-                + "\n- ".join(validation_errors)
-                + "\n\nExplicit initialization of all template variables is "
-                "required."
-            )
-            # Use standardized error logging wrapper
-            log_error_safe(
-                logger,
-                "{msg}",
-                msg=error_msg,
-                prefix="TEMPLATE_VALIDATION",
-            )
-            raise ValueError(error_msg)
-        # Only provide defaults for explicitly optional variables
-        # and only if strict=False (not security critical)
         if not strict:
             # Add defaults for optional variables only
             for var in requirements.optional_vars:
@@ -449,8 +457,7 @@ class TemplateContextValidator:
                             prefix="TEMPLATE",
                         )
         else:
-            # In strict mode, check if all provided variables (including
-            # optional ones) have non-None values
+
             invalid_optional = []
             for var in requirements.optional_vars:
                 if var in validated_context and validated_context[var] is None:
@@ -472,12 +479,6 @@ class TemplateContextValidator:
                 raise ValueError(error_msg)
 
         return validated_context
-
-    # ------------------------------------------------------------------
-    # Internal helpers (extracted from validate_and_complete_context for
-    # clarity + lower future bug surface). These intentionally avoid any
-    # change in behavior and are covered indirectly by existing tests.
-    # ------------------------------------------------------------------
 
     def _prune_unused_tcl_requirements(
         self,
@@ -549,14 +550,13 @@ class TemplateContextValidator:
             if not template_path.exists():
                 return
             txt = template_path.read_text()
-            # Heuristic reference detection (unchanged)
+            # Heuristic reference detection
             referenced = bool(
                 re.search(r"\{\{[^}]*\bdevice\b", txt)
                 or re.search(r"safe_attr\(\s*device\s*", txt)
                 or re.search(r"\{%[^%]*\bdevice\b", txt)
             )
             if not referenced:
-                # Prune instead (consistent with prior behavior)
                 original = set(requirements.required_vars)
                 requirements.required_vars = original
                 requirements.required_vars.discard("device")
@@ -655,6 +655,7 @@ class TemplateContextValidator:
                 "Failed to analyze template '{path}': {error}",
                 path=template_path,
                 error=str(e),
+                prefix="TEMPLATE_ANALYSIS",
             )
 
         return variables

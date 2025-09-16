@@ -11,17 +11,12 @@ failure scenarios in firmware generation.
 import functools
 import logging
 import time
-
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Dict, Optional
 
-from string_utils import (
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                          safe_format)
 
 logger = logging.getLogger(__name__)
 

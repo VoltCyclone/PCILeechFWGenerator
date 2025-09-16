@@ -25,38 +25,24 @@ from pathlib import Path
 project_root = Path(__file__).parent.absolute()
 sys.path.insert(0, str(project_root))
 
-# Try to import from src, but provide fallbacks if not available
-try:
-    from src.error_utils import log_error_with_root_cause
-    from src.log_config import get_logger, setup_logging
-    from src.string_utils import (log_error_safe, log_info_safe,
-                                  log_warning_safe)
-except ImportError:
-    # Fallback implementations for when running in container or isolated environment
-    def setup_logging(level=logging.INFO):
-        logging.basicConfig(
-            level=level, format="%(asctime)s - %(levelname)s - %(message)s"
+from src.error_utils import log_error_with_root_cause
+from src.log_config import get_logger, setup_logging
+# Import required modules - use actual implementations
+from src.string_utils import log_error_safe, log_info_safe, log_warning_safe
+
+
+def require(condition: bool, message: str, **context) -> None:
+    """Validate condition or exit with error."""
+    logger = get_logger(__name__)
+    if not condition:
+        log_error_safe(
+            logger,
+            "Build aborted: {msg} | ctx={ctx}",
+            prefix="PATCH",
+            msg=message,
+            ctx=context,
         )
-
-    def get_logger(name):
-        return logging.getLogger(name)
-
-    def log_error_safe(logger, msg, prefix="", **kwargs):
-        formatted_msg = msg.format(**kwargs) if kwargs else msg
-        logger.error(f"[{prefix}] {formatted_msg}" if prefix else formatted_msg)
-
-    def log_info_safe(logger, msg, prefix="", **kwargs):
-        formatted_msg = msg.format(**kwargs) if kwargs else msg
-        logger.info(f"[{prefix}] {formatted_msg}" if prefix else formatted_msg)
-
-    def log_warning_safe(logger, msg, prefix="", **kwargs):
-        formatted_msg = msg.format(**kwargs) if kwargs else msg
-        logger.warning(f"[{prefix}] {formatted_msg}" if prefix else formatted_msg)
-
-    def log_error_with_root_cause(logger, msg, exc=None):
-        logger.error(msg)
-        if exc:
-            logger.error(f"Root cause: {str(exc)}")
+        raise SystemExit(2)
 
 
 def compile_and_run_helper():
@@ -76,13 +62,9 @@ def compile_and_run_helper():
 
     log_info_safe(logger, "Compiling vfio_helper...", prefix="PATCH")
     try:
-        subprocess.run(compile_cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(compile_cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
-        log_error_safe(
-            logger, "Compilation failed: {error}", prefix="PATCH", error=str(e)
-        )
-        log_error_safe(logger, "stderr: {stderr}", prefix="PATCH", stderr=e.stderr)
-        sys.exit(1)
+        require(False, "VFIO helper compilation failed", error=str(e), stderr=e.stderr)
 
     # Run the helper to get constants
     log_info_safe(logger, "Extracting VFIO constants...", prefix="PATCH")
@@ -92,20 +74,42 @@ def compile_and_run_helper():
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        log_error_safe(
-            logger, "Helper execution failed: {error}", prefix="PATCH", error=str(e)
-        )
-        log_error_safe(logger, "stderr: {stderr}", prefix="PATCH", stderr=e.stderr)
-        sys.exit(1)
+        require(False, "VFIO helper execution failed", error=str(e), stderr=e.stderr)
 
 
 def parse_constants(output):
     """Parse the helper output into a dictionary of constants."""
     constants = {}
+    logger = get_logger(__name__)
+
+    require(output and output.strip(), "Empty output from VFIO helper")
+
     for line in output.split("\n"):
-        if "=" in line:
+        line = line.strip()
+        if not line or not "=" in line:
+            continue
+
+        try:
             name, value = line.split("=", 1)
-            constants[name.strip()] = int(value.strip())
+            name = name.strip()
+            value_str = value.strip()
+
+            # Validate constant name
+            require(name and name.isidentifier(), "Invalid constant name", name=name)
+
+            # Parse value as integer
+            constants[name] = int(value_str)
+
+        except ValueError as e:
+            log_warning_safe(
+                logger,
+                "Skipping invalid line: {line} - {error}",
+                prefix="PATCH",
+                line=line,
+                error=str(e),
+            )
+            continue
+
     return constants
 
 
@@ -114,11 +118,11 @@ def update_vfio_constants_file(constants):
     logger = get_logger(__name__)
 
     vfio_constants_path = Path("src/cli/vfio_constants.py")
-    if not vfio_constants_path.exists():
-        log_error_safe(
-            logger, "Error: {path} not found!", prefix="PATCH", path=vfio_constants_path
-        )
-        sys.exit(1)
+    require(
+        vfio_constants_path.exists(),
+        "vfio_constants.py not found",
+        path=str(vfio_constants_path),
+    )
 
     # Read the current file
     with open(vfio_constants_path, "r") as f:
@@ -132,7 +136,7 @@ def update_vfio_constants_file(constants):
 
     # Add each constant with its extracted value
     for const_name, const_value in constants.items():
-        new_constants.append(f"{const_name} = {const_value}")
+        new_constants.append("{} = {}".format(const_name, const_value))
 
     # Add any missing constants that weren't in the original file
     missing_constants = {
@@ -162,14 +166,25 @@ def update_vfio_constants_file(constants):
     if re.search(pattern, content, re.DOTALL):
         # Replace existing constants section
         new_content = re.sub(pattern, new_constants_text, content, flags=re.DOTALL)
+        log_info_safe(logger, "Replaced existing constants section", prefix="PATCH")
     else:
-        # If pattern not found, append before __all__ section
+        # If pattern not found, try to find __all__ section
         all_pattern = r"(# Export all constants\n__all__)"
         if re.search(all_pattern, content):
-            new_content = re.sub(all_pattern, f"{new_constants_text}\n\n\n\\1", content)
+            new_content = re.sub(
+                all_pattern, "{}\n\n\n\\1".format(new_constants_text), content
+            )
+            log_info_safe(
+                logger, "Inserted constants before __all__ section", prefix="PATCH"
+            )
         else:
             # Fallback: append at end
             new_content = content + "\n\n" + new_constants_text
+            log_warning_safe(
+                logger,
+                "Could not find insertion point, appending to end",
+                prefix="PATCH",
+            )
 
     # Write the updated file
     with open(vfio_constants_path, "w") as f:
@@ -200,27 +215,21 @@ def main():
     log_info_safe(logger, "=" * 50, prefix="PATCH")
 
     # Check if we're in the right directory
-    if not Path("src/cli/vfio_constants.py").exists():
-        log_error_safe(logger, "Must run from project root directory", prefix="PATCH")
-        log_error_safe(
-            logger, "Expected to find: src/cli/vfio_constants.py", prefix="PATCH"
-        )
-        sys.exit(1)
+    require(
+        Path("src/cli/vfio_constants.py").exists(),
+        "Must run from project root directory - expected to find src/cli/vfio_constants.py",
+    )
 
     # Check if helper source exists
-    if not Path("vfio_helper.c").exists():
-        log_error_safe(
-            logger, "vfio_helper.c not found in current directory", prefix="PATCH"
-        )
-        sys.exit(1)
+    require(
+        Path("vfio_helper.c").exists(), "vfio_helper.c not found in current directory"
+    )
 
     # Extract constants from kernel
     output = compile_and_run_helper()
     constants = parse_constants(output)
 
-    if not constants:
-        log_error_safe(logger, "No constants extracted from helper", prefix="PATCH")
-        sys.exit(1)
+    require(bool(constants), "No constants extracted from helper output")
 
     # Update the Python file
     update_vfio_constants_file(constants)
