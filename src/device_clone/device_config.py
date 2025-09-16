@@ -15,7 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..utils.validation_constants import KNOWN_DEVICE_TYPES
+from ..utils.validation_constants import (DEVICE_CAPABILITY_ERROR_MESSAGES,
+                                          KNOWN_DEVICE_TYPES)
 
 try:
     import yaml
@@ -26,7 +27,7 @@ except ImportError:
     YAML_AVAILABLE = False
 
 from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+                              log_warning_safe, safe_format)
 
 logger = logging.getLogger(__name__)
 
@@ -241,38 +242,61 @@ class DeviceCapabilities:
             raise ValueError(str(e))
 
         if not (1 <= self.msi_vectors <= 32):
-            raise ValueError(f"Invalid MSI vector count: {self.msi_vectors}")
+            raise ValueError(
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["invalid_msi_vector_count"],
+                    msi_vectors=self.msi_vectors,
+                )
+            )
 
         if not (0 <= self.msix_vectors <= 2048):
-            raise ValueError(f"Invalid MSI-X vector count: {self.msix_vectors}")
+            raise ValueError(
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["invalid_msix_vector_count"],
+                    msix_vectors=self.msix_vectors,
+                )
+            )
 
         valid_link_widths = [1, 2, 4, 8, 16]
         if self.link_width not in valid_link_widths:
-            raise ValueError(f"Invalid link width: x{self.link_width}")
+            raise ValueError(
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["invalid_link_width"],
+                    link_width=self.link_width,
+                )
+            )
 
         # Validate extended configuration space pointers
         if not (0x100 <= self.ext_cfg_cap_ptr <= 0xFFC):
             raise ValueError(
-                f"Invalid extended config capability pointer: "
-                f"0x{self.ext_cfg_cap_ptr:03X}"
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["invalid_ext_cfg_cap_ptr"],
+                    ext_cfg_cap_ptr=self.ext_cfg_cap_ptr,
+                )
             )
 
         if not (0x100 <= self.ext_cfg_xp_cap_ptr <= 0xFFC):
             raise ValueError(
-                f"Invalid extended config express capability pointer: "
-                f"0x{self.ext_cfg_xp_cap_ptr:03X}"
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["invalid_ext_cfg_xp_cap_ptr"],
+                    ext_cfg_xp_cap_ptr=self.ext_cfg_xp_cap_ptr,
+                )
             )
 
         # Ensure pointers are 4-byte aligned
         if self.ext_cfg_cap_ptr % 4 != 0:
             raise ValueError(
-                f"Extended config capability pointer must be 4-byte aligned: "
-                f"0x{self.ext_cfg_cap_ptr:03X}"
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["ext_cfg_cap_ptr_alignment"],
+                    ext_cfg_cap_ptr=self.ext_cfg_cap_ptr,
+                )
             )
         if self.ext_cfg_xp_cap_ptr % 4 != 0:
             raise ValueError(
-                f"Extended config express capability pointer must be "
-                f"4-byte aligned: 0x{self.ext_cfg_xp_cap_ptr:03X}"
+                safe_format(
+                    DEVICE_CAPABILITY_ERROR_MESSAGES["ext_cfg_xp_cap_ptr_alignment"],
+                    ext_cfg_xp_cap_ptr=self.ext_cfg_xp_cap_ptr,
+                )
             )
 
         # Validate active device configuration

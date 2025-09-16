@@ -356,6 +356,7 @@ def enable_verbose_errors(enabled: bool = True) -> None:
         logger,
         "Verbose template errors {status}",
         status="enabled" if enabled else "disabled",
+        prefix="TEMPLATE_ERRORS",
     )
 
 
@@ -366,6 +367,7 @@ def enable_performance_tracking(enabled: bool = True) -> None:
         logger,
         "Template performance tracking {status}",
         status="enabled" if enabled else "disabled",
+        prefix="TEMPLATE_PERF",
     )
 
 

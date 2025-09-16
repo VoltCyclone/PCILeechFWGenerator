@@ -19,6 +19,9 @@ from ..device_clone.constants import \
 from ..exceptions import is_platform_error
 from ..log_config import get_logger
 from ..shell import Shell
+# Import safe logging functions
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe)
 from .build_constants import (DEFAULT_ACTIVE_INTERRUPT_MODE,
                               DEFAULT_ACTIVE_INTERRUPT_VECTOR,
                               DEFAULT_ACTIVE_PRIORITY,
@@ -26,26 +29,6 @@ from .build_constants import (DEFAULT_ACTIVE_INTERRUPT_MODE,
                               DEFAULT_BEHAVIOR_PROFILE_DURATION)
 from .vfio import VFIOBinder  # auto‑fix & diagnostics baked in
 from .vfio import get_current_driver, restore_driver
-
-# Import safe logging functions
-try:
-    from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                                log_warning_safe)
-except ImportError:
-    # Fallback implementations
-
-    def log_info_safe(logger, template, **kwargs):
-        logger.info(template.format(**kwargs))
-
-    def log_error_safe(logger, template, **kwargs):
-        logger.error(template.format(**kwargs))
-
-    def log_warning_safe(logger, template, **kwargs):
-        logger.warning(template.format(**kwargs))
-
-    def log_debug_safe(logger, template, **kwargs):
-        logger.debug(template.format(**kwargs))
-
 
 logger = get_logger(__name__)
 
@@ -688,28 +671,3 @@ def run_build(cfg: BuildConfig) -> None:
         else:
             # Re-raise other runtime errors
             raise
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# CLI entry for humans / CI
-# ──────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    import argparse
-
-    p = argparse.ArgumentParser(description="VFIO‑aware Podman build wrapper")
-    p.add_argument("bdf", help="PCIe BDF, e.g. 0000:03:00.0")
-    p.add_argument("board", help="Target board string")
-    p.add_argument("--advanced-sv", action="store_true")
-    p.add_argument("--enable-variance", action="store_true")
-    p.add_argument("--auto-fix", action="store_true")
-    args = p.parse_args()
-
-    cfg = BuildConfig(
-        bdf=args.bdf,
-        board=args.board,
-        advanced_sv=args.advanced_sv,
-        enable_variance=args.enable_variance,
-        auto_fix=args.auto_fix,
-    )
-
-    run_build(cfg)

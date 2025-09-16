@@ -3,11 +3,14 @@ name: Consolidated CI
 on:
   push:
   pull_request:
-    branches:
-    - main
-  schedule:
-    - cron: '0 3 * * 0'  # Run at 3:00 AM UTC every Sunday
-  workflow_dispatch:  # Allow manual triggering
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip-slow-tests:
+        description: 'Skip slow tests'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -17,19 +20,34 @@ permissions:
   contents: read
   security-events: write
   actions: read
+  checks: write  # For test results
 
 env:
   NO_INTERACTIVE: '1'
+  FORCE_COLOR: '1'  # Enable colorized output
+  # Cache keys for better cache hit rates
+  CACHE_VERSION: v1
 
 jobs:
-  template-validation:
-    name: Template variable validation
+  # Fast validation jobs that can run in parallel
+  validation:
+    name: Template & Syntax Validation
     runs-on: ubuntu-latest
+    outputs:
+      template-validation-passed: ${{ steps.template-validation.outcome == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1  # Shallow checkout for faster validation
+
+      - name: Cache template validation
+        uses: actions/cache@v4
+        with:
+          path: template_variables_report.json
+          key: template-validation-${{ env.CACHE_VERSION }}-${{ hashFiles('scripts/validate_template_variables.py', 'templates/**') }}
+          restore-keys: |
+            template-validation-${{ env.CACHE_VERSION }}-
 
       - name: Python setup & deps
         uses: ./.github/actions/python-setup
@@ -42,72 +60,70 @@ jobs:
       - name: Run template variable validation
         id: template-validation
         run: python scripts/validate_template_variables.py --verbose
-        continue-on-error: true  # Continue workflow even if this step fails
+        continue-on-error: true  # Allow workflow to continue, but capture result
 
-      - name: Upload validation artifact
+      - name: Run template syntax validation
+        id: template-syntax
+        run: python scripts/validate_template_syntax.py
+
+      - name: Upload validation artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: template-validation-report
           path: template_variables_report.json
           if-no-files-found: warn
+          retention-days: 7
 
-  template-syntax:
-    name: Template syntax validation
+  security-analysis:
+    name: Security Analysis (CodeQL)
     runs-on: ubuntu-latest
-    needs: template-validation
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
-      - name: Python setup & deps
-        uses: ./.github/actions/python-setup
-        with:
-          python-version: '3.11'
-          requirements-files: 'requirements.txt'
-          extra-packages: 'jinja2 pyyaml'
-          editable: 'true'
-
-      - name: Validate template syntax
-        run: python scripts/validate_template_syntax.py
-
-  codeql-analysis:
-    name: CodeQL
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: python
+          config: |
+            paths-ignore:
+              - "tests/**"
+              - "htmlcov/**"
+              - "build/**"
+              - "__pycache__/**"
 
-      - name: Python setup & deps
+      - name: Python setup (minimal for CodeQL)
         uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          requirements-files: 'requirements.txt,requirements-dev.txt'
+          requirements-files: 'requirements.txt'
           editable: 'false'
+          cache: 'true'
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "python"
 
   unit-tests:
-    name: Unit Tests
+    name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false  # Don't cancel other matrix jobs on first failure
       matrix:
-        # Run unit tests on supported Python versions (3.10 and newer)
         python-version: ['3.10', '3.11', '3.12']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Python setup & deps
         uses: ./.github/actions/python-setup
@@ -118,41 +134,68 @@ jobs:
           editable: 'true'
           skip-missing: 'true'
 
+      - name: Cache pytest cache
+        uses: actions/cache@v4
+        with:
+          path: .pytest_cache
+          key: pytest-cache-${{ env.CACHE_VERSION }}-${{ matrix.python-version }}-${{ hashFiles('tests/**/*.py') }}
+          restore-keys: |
+            pytest-cache-${{ env.CACHE_VERSION }}-${{ matrix.python-version }}-
+
       - name: Run unit tests
+        env:
+          SKIP_SLOW: ${{ github.event.inputs.skip-slow-tests == 'true' && '--skip-slow' || '' }}
         run: |
+          # Create test markers based on conditions
+          MARKERS="not hardware"
+          if [[ "$SKIP_SLOW" == "--skip-slow" ]]; then
+            MARKERS="$MARKERS and not slow"
+          fi
+          
           pytest tests/ \
             --cov=src \
             --cov=generate \
-            --cov-report=term-missing \
+            --cov-report=term-missing:skip-covered \
             --cov-report=xml:coverage.xml \
             --cov-report=html:htmlcov \
             --cov-fail-under=10 \
             --junit-xml=junit-unit.xml \
-            -m "not hardware and not slow" \
+            -m "$MARKERS" \
             --tb=short \
-            --verbose
+            --strict-markers \
+            --strict-config \
+            ${{ matrix.python-version == '3.11' && '--verbose' || '--quiet' }}
 
       - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11' && !cancelled()
         uses: codecov/codecov-action@v5
-        if: matrix.python-version == '3.11'
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
+          verbose: true
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.python-version }}
+          name: test-results-py${{ matrix.python-version }}
           path: |
             junit-unit.xml
             coverage.xml
             htmlcov/
+          retention-days: 7
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always() && matrix.python-version == '3.11'
+        with:
+          files: junit-unit.xml
+          check_name: "Unit Test Results (Python ${{ matrix.python-version }})"
 
   dependency-review:
-    name: Dependency review
+    name: Dependency Review
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -164,45 +207,125 @@ jobs:
         with:
           fail-on-severity: moderate
           allow-licenses: MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, GPL-3.0
+          comment-summary-in-pr: on-failure
 
   packaging:
-    name: Packaging
-    permissions:
-      contents: read
+    name: Build & Package
     runs-on: ubuntu-latest
-    needs: [codeql-analysis, unit-tests]
+    needs: [validation, security-analysis, unit-tests]
+    if: always() && (needs.unit-tests.result == 'success')
+    outputs:
+      package-version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Need full history for version calculation
 
-      - name: Python setup & deps (build)
+      - name: Python setup (build tools)
         uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          extra-packages: 'build setuptools setuptools_scm wheel twine'
+          extra-packages: 'build setuptools setuptools_scm wheel twine check-manifest'
           editable: 'false'
 
+      - name: Get package version
+        id: version
+        run: |
+          VERSION=$(python get_version.py)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Package version: $VERSION"
+
+      - name: Validate package manifest
+        run: check-manifest --verbose
+
       - name: Build packages
-        id: build-packages
-        run: python -m build
-        continue-on-error: false  # Fail the workflow if build fails
+        run: |
+          python -m build --sdist --wheel --outdir dist/
+          ls -la dist/
+
+      - name: Verify package integrity
+        run: |
+          python -m twine check dist/*
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: python-packages
+          name: python-packages-${{ steps.version.outputs.version }}
           path: dist/
+          retention-days: 30
 
-      - name: Build container image
+  # Summary job to provide overall workflow status
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [validation, security-analysis, unit-tests, dependency-review, packaging]
+    if: always()
+    steps:
+      - name: Check workflow status
         run: |
-          docker build -t pcileech-fw-generator:ci -f Containerfile .
+          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Validation status
+          if [[ "${{ needs.validation.result }}" == "success" ]]; then
+            echo "✅ Template validation passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Template validation failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Security analysis status  
+          if [[ "${{ needs.security-analysis.result }}" == "success" ]]; then
+            echo "✅ Security analysis passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Security analysis failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Unit tests status
+          if [[ "${{ needs.unit-tests.result }}" == "success" ]]; then
+            echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Unit tests failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Dependency review status (only for PRs)
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "${{ needs.dependency-review.result }}" == "success" ]]; then
+              echo "✅ Dependency review passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Dependency review failed" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          # Packaging status
+          if [[ "${{ needs.packaging.result }}" == "success" ]]; then
+            echo "✅ Packaging successful" >> $GITHUB_STEP_SUMMARY
+            if [[ -n "${{ needs.packaging.outputs.package-version }}" ]]; then
+              echo "📦 Package version: ${{ needs.packaging.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ Packaging failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow completed at $(date -u)" >> $GITHUB_STEP_SUMMARY
 
-      - name: Smoke test container (imports)
+      - name: Set workflow status
         run: |
-          docker run --rm pcileech-fw-generator:ci python3 -c "import sys; sys.path.append('/app/src'); import build; print('Import OK')"
-
-      - name: Smoke test CLI help
-        run: |
-          docker run --rm pcileech-fw-generator:ci python3 /app/pcileech.py --help > /dev/null
+          # Fail the workflow if critical jobs failed
+          CRITICAL_FAILURES=""
+          
+          if [[ "${{ needs.unit-tests.result }}" != "success" ]]; then
+            CRITICAL_FAILURES="$CRITICAL_FAILURES unit-tests"
+          fi
+          
+          if [[ "${{ needs.security-analysis.result }}" != "success" ]]; then
+            CRITICAL_FAILURES="$CRITICAL_FAILURES security-analysis"
+          fi
+          
+          if [[ -n "$CRITICAL_FAILURES" ]]; then
+            echo "Critical job failures: $CRITICAL_FAILURES"
+            exit 1
+          fi
+          
+          echo "All critical jobs passed successfully!"

@@ -79,6 +79,7 @@ class PCILeechBuildIntegration:
             logger,
             "Preparing build environment for {board_name}",
             board_name=board_name,
+            prefix="BUILD",
         )
 
         # Create board-specific output directory
@@ -126,9 +127,12 @@ class PCILeechBuildIntegration:
                     logger,
                     "Copied XDC file: {xdc_file_name}",
                     xdc_file_name=xdc_file.name,
+                    prefix="BUILD",
                 )
         except Exception as e:
-            log_warning_safe(logger, "Failed to copy XDC files: {error}", error=e)
+            log_warning_safe(
+                logger, "Failed to copy XDC files: {error}", error=e, prefix="BUILD"
+            )
 
         return copied_files
 
@@ -159,6 +163,7 @@ class PCILeechBuildIntegration:
                     "Failed to copy source file {src_file}: {error}",
                     src_file=str(src_file),
                     error=e,
+                    prefix="BUILD",
                 )
 
         # Also copy core PCILeech files
@@ -168,13 +173,19 @@ class PCILeechBuildIntegration:
             try:
                 shutil.copy2(filepath, dest_path)
                 copied_files.append(dest_path)
-                log_info_safe(logger, "Copied core file: {filename}", filename=filename)
+                log_info_safe(
+                    logger,
+                    "Copied core file: {filename}",
+                    filename=filename,
+                    prefix="BUILD",
+                )
             except Exception as e:
                 log_warning_safe(
                     logger,
                     "Failed to copy core file {filename}: {error}",
                     filename=filename,
                     error=e,
+                    prefix="BUILD",
                 )
 
         return copied_files
@@ -210,10 +221,13 @@ class PCILeechBuildIntegration:
                 logger,
                 "Using existing build script: {script_name}",
                 script_name=existing_script.name,
+                prefix="BUILD",
             )
         else:
             # Generate build scripts using TCLBuilder
-            log_info_safe(logger, "Generating build scripts using TCLBuilder")
+            log_info_safe(
+                logger, "Generating build scripts using TCLBuilder", prefix="BUILD"
+            )
             build_scripts.update(
                 self._generate_build_scripts(board_config, scripts_dir)
             )
@@ -259,7 +273,12 @@ class PCILeechBuildIntegration:
             return scripts
 
         except Exception as e:
-            log_error_safe(logger, "Failed to generate build scripts: {error}", error=e)
+            log_error_safe(
+                logger,
+                "Failed to generate build scripts: {error}",
+                error=e,
+                prefix="BUILD",
+            )
             return {}
 
     def create_unified_build_script(
@@ -437,12 +456,13 @@ def integrate_pcileech_build(
         )
         if warnings:
             for warning in warnings:
-                log_warning_safe(logger, "{warning}", warning=warning)
+                log_warning_safe(logger, "{warning}", warning=warning, prefix="BUILD")
         if not is_compatible:
             log_error_safe(
                 logger,
                 "Board {board_name} may not be fully compatible with device configuration",
                 board_name=board_name,
+                prefix="BUILD",
             )
 
     return integration.create_unified_build_script(board_name, device_config)

@@ -161,6 +161,7 @@ class MSIXCapabilityHandler:
                     offset=offset,
                     e=e,
                 ),
+                prefix="PCI_CAP",
             )
             return None
 
@@ -263,6 +264,7 @@ class MSIXCapabilityHandler:
                     offset=offset,
                     new_table_size=new_table_size,
                 ),
+                prefix="PCI_CAP",
             )
             return None
 

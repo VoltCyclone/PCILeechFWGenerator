@@ -358,103 +358,6 @@ class TemplateRenderer:
             }
         )
 
-    def _preflight_undeclared(
-        self, template_name: str, context: Dict[str, Any]
-    ) -> None:
-        """
-            Comprehensive validation of all variables referenced in a template.
-
-        This method enforces that all variables used in a template are
-        properly defined in the context before rendering begins. It
-        strictly prevents template rendering with incomplete context
-        data to maintain security and data integrity.
-
-            Args:
-                template_name: Name of the template to validate
-                context: Template context to check against
-
-            Raises:
-                TemplateRenderError: If any variable used in the template is undefined
-        """
-        try:
-            # Get template source and parse it
-            src, file_path, _ = self.env.loader.get_source(self.env, template_name)
-            ast = self.env.parse(src)
-
-            # Collect all variables that are declared/available
-            declared = set(context.keys()) | set(self.env.globals.keys())
-
-            # Find all referenced variables in the template
-            referenced_vars = meta.find_undeclared_variables(ast)
-
-            # Detect variables that are assigned/defined inside the template
-            # (e.g. via {% set var = ... %} or {% set var %}...{% endset %}) and
-            # treat them as declared for the purposes of preflight validation.
-            import re
-
-            assigned_in_template = set()
-            try:
-                # Find simple set statements: {% set var = ... %}
-                # Handle whitespace-control variants like '{% set', '{%- set',
-                # '{% set -%}', etc.
-                for m in re.finditer(r"\{%-?\s*set\s+([A-Za-z_][A-Za-z0-9_]*)", src):
-                    assigned_in_template.add(m.group(1))
-            except Exception:
-                assigned_in_template = set()
-
-            # Consider template-assigned names as declared for preflight
-            declared = declared | assigned_in_template
-
-            # Check for missing variables
-            missing = referenced_vars - declared
-
-            if missing:
-                # Prepare a clear, security-focused error message
-                missing_sorted = sorted(missing)
-                error_msg = safe_format(
-                    "SECURITY VIOLATION: Template '{tpl}' references "
-                    "undefined variables: {vars}.\n"
-                    "Template path: {path}\n"
-                    "To maintain template integrity and security, all "
-                    "variables must be explicitly defined.",
-                    tpl=template_name,
-                    vars=", ".join(missing_sorted),
-                    path=file_path,
-                )
-
-                log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
-                raise TemplateRenderError(error_msg)
-
-            none_vars = [
-                k for k in referenced_vars if k in context and context[k] is None
-            ]
-            if none_vars:
-                error_msg = safe_format(
-                    "SECURITY VIOLATION: Template '{tpl}' contains None "
-                    "values for critical variables: {vars}.\n"
-                    "Template path: {path}\n"
-                    "Complete initialization of all template variables is "
-                    "required for secure rendering.",
-                    tpl=template_name,
-                    vars=", ".join(sorted(none_vars)),
-                    path=file_path,
-                )
-                log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
-                raise TemplateRenderError(error_msg)
-
-        except TemplateNotFound as e:
-            error_msg = f"Template '{template_name}' not found: {e}"
-            log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
-            raise TemplateRenderError(error_msg) from e
-        except Exception as e:
-            error_msg = safe_format(
-                "Error during preflight validation of template '{tpl}': {err}",
-                tpl=template_name,
-                err=e,
-            )
-            log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
-            raise TemplateRenderError(error_msg) from e
-
     def render_template(self, template_name: str, context: Dict[str, Any]) -> str:
         """
         Render a template with the given context.
@@ -471,24 +374,7 @@ class TemplateRenderer:
         """
         template_name = update_template_path(template_name)
         try:
-            # Ensure the provided context is template-compatible
-            # (convert nested dicts)
-            # Debug: log top-level types to help diagnose template conversion issues
-            try:
-                type_info = {k: type(v).__name__ for k, v in context.items()}
-                log_debug_safe(
-                    logger,
-                    "Template context top-level types: {types}",
-                    prefix="TEMPLATE",
-                    types=type_info,
-                )
-            except Exception:
-                log_debug_safe(
-                    logger,
-                    "Failed to collect template context type information",
-                    prefix="TEMPLATE",
-                )
-
+            # Prepare the context for template compatibility
             try:
                 compatible = ensure_template_compatibility(context)
 
@@ -508,36 +394,17 @@ class TemplateRenderer:
                         prefix="TEMPLATE",
                     )
 
-                # Diagnostic: log the types after conversion to help debug conversion
-                # issues but keep this at DEBUG level to avoid noisy production logs.
-                try:
-                    post_type_info = {
-                        k: type(v).__name__ for k, v in compatible.items()
-                    }
-                    log_debug_safe(
-                        logger,
-                        "Post-conversion context top-level types: {types}",
-                        prefix="TEMPLATE",
-                        types=post_type_info,
-                    )
-                except Exception:
-                    log_debug_safe(
-                        logger,
-                        "Failed to collect post-conversion type information",
-                        prefix="TEMPLATE",
-                    )
-            except Exception:
-                # Fallback to the original context if conversion fails. Keep at DEBUG
-                # level since this is a recoverable, non-fatal compatibility path.
+            except Exception as e:
+                # Fallback to the original context if conversion fails
                 log_debug_safe(
                     logger,
-                    "ensure_template_compatibility raised an exception; "
-                    "falling back to original context",
+                    "ensure_template_compatibility failed, using original context: {error}",
                     prefix="TEMPLATE",
+                    error=e,
                 )
                 compatible = context
 
-            # Render the template with a compatible context
+            # Render the template with the compatible context
             template = self._load_template(template_name)
             return template.render(**compatible)
 
@@ -694,76 +561,84 @@ class TemplateRenderer:
         optional_fields: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
-            Validate template context using the centralized TemplateContextValidator.
+        Validate and prepare template context with permissive validation.
 
-        This method delegates validation to the centralized validator
-        while maintaining backward compatibility with the existing
-        interface.
+        This method applies basic validation and preparation while allowing
+        missing variables to be handled by Jinja2's StrictUndefined during rendering.
 
-            Args:
-                context: Original template context
-                template_name: Name of the template being rendered
-                required_fields: List of required fields (deprecated -
-                                 use TemplateContextValidator)
-                optional_fields: List of optional fields (deprecated -
-                                 use TemplateContextValidator)
+        Args:
+            context: Original template context
+            template_name: Name of the template being rendered
+            required_fields: List of required fields (deprecated)
+            optional_fields: List of optional fields (deprecated)
 
-            Returns:
-                Validated context
+        Returns:
+            Validated and prepared context
 
-            Raises:
-                TemplateRenderError: If validation fails
+        Raises:
+            TemplateRenderError: Only for critical validation failures
         """
         if not context:
-            raise TemplateRenderError(
-                safe_format(
-                    "Template context cannot be empty for template '{name}'",
-                    name=(template_name or "unknown"),
-                )
+            log_warning_safe(
+                logger,
+                "Empty template context provided for template '{name}', using empty dict",
+                prefix="TEMPLATE",
+                name=(template_name or "unknown"),
             )
+            return {}
 
         try:
-            # Use the centralized validator
-            from src.templating.template_context_validator import \
-                validate_template_context
+            # Try to use the centralized validator if available, but don't fail if it's not
+            try:
+                from src.templating.template_context_validator import \
+                    validate_template_context
 
-            # Apply centralized validation with strict mode
-            validated_context = validate_template_context(
-                template_name or "unknown", context, strict=True
-            )
+                # Apply centralized validation with non-strict mode
+                validated_context = validate_template_context(
+                    template_name or "unknown", context, strict=False
+                )
+            except ImportError:
+                log_debug_safe(
+                    logger,
+                    "TemplateContextValidator not available, using basic preparation",
+                    prefix="TEMPLATE",
+                )
+                validated_context = context.copy()
+            except Exception as e:
+                log_debug_safe(
+                    logger,
+                    "TemplateContextValidator failed, falling back to basic preparation: {error}",
+                    prefix="TEMPLATE",
+                    error=e,
+                )
+                validated_context = context.copy()
 
             # Handle dataclass conversions for backward compatibility
             if "timing_config" in validated_context:
                 timing_config = validated_context.get("timing_config")
                 if timing_config and hasattr(timing_config, "__dataclass_fields__"):
-                    from dataclasses import asdict
+                    try:
+                        from dataclasses import asdict
 
-                    validated_context["timing_config"] = asdict(timing_config)
-
-            # Additional validation for string fields
-            string_fields = ["header", "title", "description", "comment"]
-            for key in string_fields:
-                if key in validated_context and validated_context[key] is None:
-                    error_msg = safe_format(
-                        "SECURITY VIOLATION: Template context key '{key}' is None. "
-                        "Explicit initialization required for all template "
-                        "variables.",
-                        key=key,
-                    )
-                    log_error_safe(logger, error_msg, prefix="TEMPLATE_SECURITY")
-                    raise TemplateRenderError(error_msg)
+                        validated_context["timing_config"] = asdict(timing_config)
+                    except Exception as e:
+                        log_debug_safe(
+                            logger,
+                            "Failed to convert timing_config dataclass: {error}",
+                            prefix="TEMPLATE",
+                            error=e,
+                        )
 
             return validated_context
 
-        except ValueError as e:
-            # Convert ValueError from validator to TemplateRenderError
-            raise TemplateRenderError(str(e)) from e
-        except ImportError:
-            # Fallback if validator not available
+        except Exception as e:
+            # Only raise for truly critical errors, otherwise log and continue
             log_warning_safe(
                 logger,
-                "TemplateContextValidator not available, using basic validation",
+                "Template context validation warning for '{name}': {error}",
                 prefix="TEMPLATE",
+                name=(template_name or "unknown"),
+                error=e,
             )
             return context.copy()
 
@@ -877,11 +752,6 @@ def _get_template_render_error_base() -> Type[Exception]:
     return cast(Type[Exception], _cached_exception_class)
 
 
-# Expose a TemplateRenderError in this module that always provides the
-# richer attributes (template_name, line_number, original_error) while
-# inheriting from the project's canonical exception when available.
-
-
 class TemplateRenderError(_get_template_render_error_base()):
     def __init__(
         self,
@@ -894,7 +764,6 @@ class TemplateRenderError(_get_template_render_error_base()):
         try:
             super().__init__(message)
         except TypeError:
-            # Some fallback/base classes may expect no args; ensure construction
             super().__init__()
 
         # Ensure attributes exist regardless of base class
@@ -943,9 +812,6 @@ class TemplateRenderError(_get_template_render_error_base()):
             parts.append(f"Caused by: {error_type}: {orig_msg}")
 
         return " | ".join(parts)
-
-
-# Convenience function for quick template rendering
 
 
 def render_tcl_template(

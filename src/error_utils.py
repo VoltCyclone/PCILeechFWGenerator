@@ -244,7 +244,7 @@ def _build_msix_suggestion(error_text: str) -> str:
     )
     tips.append(
         (
-            "Use 'pcileech.py check --device <BDF>' or run 'vfio_check.py' to "
+            "Use 'pcileech check --device <BDF>' to "
             "validate VFIO setup (produces vfio_diagnostics.log)."
         )
     )
