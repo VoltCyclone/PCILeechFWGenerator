@@ -17,15 +17,26 @@ from src.__version__ import __version__
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
 from src.error_utils import format_user_friendly_error
-from src.string_utils import (generate_sv_header_comment, log_error_safe,
-                              log_info_safe, utc_timestamp)
+from src.string_utils import (
+    generate_sv_header_comment,
+    log_error_safe,
+    log_info_safe,
+    utc_timestamp,
+)
 
-from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
-                                     PCILEECH_DEFAULT, TemplateObject,
-                                     UnifiedContextBuilder,
-                                     normalize_config_to_dict)
-from .advanced_sv_features import (AdvancedSVFeatureGenerator,
-                                   ErrorHandlingConfig, PerformanceConfig)
+from ..utils.unified_context import (
+    DEFAULT_TIMING_CONFIG,
+    MSIX_DEFAULT,
+    PCILEECH_DEFAULT,
+    TemplateObject,
+    UnifiedContextBuilder,
+    normalize_config_to_dict,
+)
+from .advanced_sv_features import (
+    AdvancedSVFeatureGenerator,
+    ErrorHandlingConfig,
+    PerformanceConfig,
+)
 from .advanced_sv_power import PowerManagementConfig
 from .sv_constants import SVConstants, SVTemplates, SVValidation
 from .sv_context_builder import SVContextBuilder
@@ -381,29 +392,22 @@ class SystemVerilogGenerator:
             enhanced_context.setdefault("device_specific_config", {})
 
             device_config = enhanced_context.get("device_config", {})
-            if hasattr(device_config, "__class__") and "TemplateObject" in str(
-                device_config.__class__
-            ):
-                # Convert TemplateObject to dict and add missing attributes
-                device_config_dict = {}
+            if isinstance(device_config, TemplateObject):
+                # Properly convert TemplateObject to dict (preserves fields like class_code)
                 try:
-                    # Copy existing attributes if possible
-                    if hasattr(device_config, "__dict__"):
-                        device_config_dict.update(device_config.__dict__)
-                    # Add known required attributes
-                    device_config_dict.setdefault("enable_advanced_features", False)
-                    device_config_dict.setdefault("enable_perf_counters", False)
-                    enhanced_context["device_config"] = device_config_dict
+                    device_config_dict = device_config.to_dict()
                 except Exception:
-                    # Fallback to minimal dict with required attributes
-                    enhanced_context["device_config"] = {
-                        "enable_advanced_features": False,
-                        "enable_perf_counters": False,
-                    }
+                    device_config_dict = {}
+                # Ensure expected boolean flags exist without clobbering identifiers
+                device_config_dict.setdefault("enable_advanced_features", False)
+                device_config_dict.setdefault("enable_perf_counters", False)
+                enhanced_context["device_config"] = device_config_dict
             elif isinstance(device_config, dict):
+                # Ensure expected boolean flags exist without altering identifiers
                 device_config.setdefault("enable_advanced_features", False)
                 device_config.setdefault("enable_perf_counters", False)
             else:
+                # Fallback minimal structure; keep generation resilient
                 enhanced_context["device_config"] = {
                     "enable_advanced_features": False,
                     "enable_perf_counters": False,
@@ -463,8 +467,40 @@ class SystemVerilogGenerator:
         )
 
     def clear_cache(self) -> None:
-        """Clear the LRU cache for device-specific ports generation."""
-        self.module_generator.generate_device_specific_ports.cache_clear()
+        """Clear any internal caches used by the generator.
+
+        Tries to clear an LRU cache on generate_device_specific_ports if present,
+        otherwise falls back to clearing internal dict-based caches. Also clears
+        the template renderer cache when available. This method must not raise.
+        """
+        try:
+            # Prefer clearing an LRU cache if the method is decorated
+            func = getattr(
+                self.module_generator, "generate_device_specific_ports", None
+            )
+            cache_clear = getattr(func, "cache_clear", None)
+            if callable(cache_clear):
+                cache_clear()
+        except Exception:
+            # Never fail cache clearing
+            pass
+
+        # Fallback: clear internal dict caches if present
+        try:
+            if hasattr(self.module_generator, "_ports_cache"):
+                self.module_generator._ports_cache.clear()
+            if hasattr(self.module_generator, "_module_cache"):
+                self.module_generator._module_cache.clear()
+        except Exception:
+            pass
+
+        # Clear renderer cache if supported
+        try:
+            if hasattr(self.renderer, "clear_cache"):
+                self.renderer.clear_cache()
+        except Exception:
+            pass
+
         log_info_safe(self.logger, "Cleared SystemVerilog generator cache")
 
     # Additional backward compatibility methods
@@ -566,6 +602,7 @@ class SystemVerilogGenerator:
             # Defer importing VFIO helpers and perform device FD acquisition first so
             # unit tests that patch get_device_fd can intercept and return mock FDs.
             import mmap
+
             # Local os import kept near usage
             import os
 

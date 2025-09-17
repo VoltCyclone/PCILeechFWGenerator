@@ -4,12 +4,21 @@ import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.string_utils import (generate_sv_header_comment, log_debug_safe,
-                              log_error_safe, log_info_safe, log_warning_safe)
-from src.utils.attribute_access import (get_attr_or_raise, has_attr,
-                                        safe_get_attr)
+from src.string_utils import (
+    generate_sv_header_comment,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
+from src.utils.attribute_access import (
+    get_attr_or_raise,
+    has_attr,
+    safe_get_attr,
+)
 
 from .sv_constants import SV_CONSTANTS, SV_TEMPLATES, SV_VALIDATION
+
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
 
@@ -35,6 +44,7 @@ class SVModuleGenerator:
         self.templates = SV_TEMPLATES
         self.messages = SV_VALIDATION.ERROR_MESSAGES
         self._module_cache = {}
+        self._ports_cache = {}
 
     def generate_pcileech_modules(
         self, context: Dict[str, Any], behavior_profile: Optional[Any] = None
@@ -156,7 +166,6 @@ class SVModuleGenerator:
 
         return modules
 
-    @lru_cache(maxsize=32)
     def generate_device_specific_ports(
         self, device_type: str, device_class: str, cache_key: str = ""
     ) -> str:
@@ -171,6 +180,15 @@ class SVModuleGenerator:
         Returns:
             Generated SystemVerilog port declarations
         """
+        cache_token = cache_key or ""
+        cache_key_tuple: Tuple[str, str, str] = (
+            str(device_type),
+            str(device_class),
+            str(cache_token),
+        )
+        if cache_key_tuple in self._ports_cache:
+            return self._ports_cache[cache_key_tuple]
+
         context = {
             "device_type": device_type,
             "device_class": device_class,
@@ -195,6 +213,8 @@ class SVModuleGenerator:
                 dclass=device_class,
                 length=len(rendered) if rendered else 0,
             )
+            # Save to cache and return
+            self._ports_cache[cache_key_tuple] = rendered
             return rendered
 
         except TemplateRenderError as e:
@@ -255,6 +275,16 @@ class SVModuleGenerator:
         )
         modules["pcileech_fifo"] = self.renderer.render_template(
             self.templates.PCILEECH_FIFO, context
+        )
+
+        # Device configuration module
+        log_debug_safe(
+            self.logger,
+            "Rendering core template: device_config",
+            prefix=self.prefix,
+        )
+        modules["device_config"] = self.renderer.render_template(
+            self.templates.DEVICE_CONFIG, context
         )
 
         # Top-level wrapper
