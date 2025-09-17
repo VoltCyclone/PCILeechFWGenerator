@@ -14,37 +14,14 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
 
-try:
-    from src.string_utils import (log_debug_safe, log_error_safe,
-                                  log_info_safe, log_warning_safe)
-except ImportError:
-    # Fallback for when string_utils is not available
-    def log_info_safe(logger, template, **kwargs):
-        logger.info(template.format(**kwargs))
-
-    def log_warning_safe(logger, template, **kwargs):
-        logger.warning(template.format(**kwargs))
-
-    def log_error_safe(logger, template, **kwargs):
-        logger.error(template.format(**kwargs))
-
-    def log_debug_safe(logger, template, **kwargs):
-        logger.debug(template.format(**kwargs))
-
-
-# Import device configuration system
-try:
-    from src.device_clone.device_config import (DeviceConfiguration,
-                                                get_device_config)
-except ImportError:
-    # Fallback if device config is not available
-    DeviceConfiguration = None
-
-    def get_device_config(
-        profile_name: str,
-    ) -> Optional[Any]:
-        return None
+from src.device_clone.device_config import DeviceConfiguration, get_device_config
 
 
 logger = logging.getLogger(__name__)
@@ -245,14 +222,24 @@ class ConfigSpaceManager:
             )
 
             if run_vfio_diagnostics:
-                log_info_safe(logger, "Running VFIO diagnostics for troubleshooting...")
+                log_info_safe(
+                    logger,
+                    "Running VFIO diagnostics for troubleshooting...",
+                    prefix="VFIO",
+                )
                 run_vfio_diagnostics(self.bdf)
             else:
-                log_warning_safe(logger, "VFIO diagnostics function not found")
+                log_warning_safe(
+                    logger, "VFIO diagnostics function not found", prefix="VFIO"
+                )
         except ImportError:
-            log_warning_safe(logger, "VFIO diagnostics module not available")
+            log_warning_safe(
+                logger, "VFIO diagnostics module not available", prefix="VFIO"
+            )
         except Exception as e:
-            log_warning_safe(logger, "VFIO diagnostics failed: {error}", error=e)
+            log_warning_safe(
+                logger, "VFIO diagnostics failed: {error}", error=e, prefix="VFIO"
+            )
 
     def read_vfio_config_space(self, strict: Optional[bool] = None) -> bytes:
         """
@@ -293,6 +280,7 @@ class ConfigSpaceManager:
                 logger,
                 "Binding device {bdf} to VFIO for configuration space access",
                 bdf=self.bdf,
+                prefix="VFIO",
             )
 
             with VFIOBinder(self.bdf) as vfio_device_path:
@@ -300,6 +288,7 @@ class ConfigSpaceManager:
                     logger,
                     "Successfully bound to VFIO device {vfio_device_path}",
                     vfio_device_path=vfio_device_path,
+                    prefix="VFIO",
                 )
 
                 config_space = self._read_sysfs_config_space()
@@ -1105,8 +1094,7 @@ class ConfigSpaceManager:
                 )
                 bar_info.size = size_found
                 # Generate proper encoding for the size
-                from src.device_clone.bar_size_converter import \
-                    BarSizeConverter
+                from src.device_clone.bar_size_converter import BarSizeConverter
 
                 try:
                     bar_info.size_encoding = BarSizeConverter.size_to_encoding(

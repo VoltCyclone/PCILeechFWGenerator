@@ -16,10 +16,13 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
 from src.string_utils import log_debug_safe, safe_format
+from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+from src.device_clone.bar_size_converter import BarSizeConverter
 
-logger = logging.getLogger(__name__)
+# Module-level logger is intentionally omitted; use instance-level loggers only.
+
+
 
 
 class RegisterType(IntEnum):
@@ -30,6 +33,8 @@ class RegisterType(IntEnum):
     MIXED = 2  # Some bits RW, others RO
     RW1C = 3  # Write-1-to-clear bits
     SPECIAL = 4  # Special handling required
+
+
 
 
 @dataclass
@@ -128,8 +133,7 @@ class PCIeRegisterDefinitions:
         15: ("Detected Parity Error", True, True),  # RW1C
     }
 
-    # Generate Status register mask from bit definitions
-
+    
     @classmethod
     def get_status_mask(cls) -> int:
         """Generate status register mask from bit definitions."""
@@ -311,9 +315,14 @@ class OverlayMapper:
                     else:
                         mask = entry.mask
 
-                    if (
+                    # Include RW1C registers even if the mask is 0xFFFFFFFF
+                    # since they require special write handling. For others,
+                    # only include partially writable masks.
+                    should_include = entry.register_type == RegisterType.RW1C or (
                         mask != 0x00000000 and mask != 0xFFFFFFFF
-                    ):  # Only add if partially writable
+                    )
+
+                    if should_include:
                         overlay_map.append((offset, mask))
                         processed_offsets.add(offset)
                         log_debug_safe(
@@ -330,12 +339,11 @@ class OverlayMapper:
         # Process capability-specific registers
         for cap_id, cap_offset in capabilities.items():
             overlay_entries = self._get_capability_overlay_entries(cap_id, cap_offset)
-            for offset, mask, description in overlay_entries:
-                if (
-                    offset not in processed_offsets
-                    and mask != 0x00000000
-                    and mask != 0xFFFFFFFF
-                ):
+            for offset, mask, description, reg_type in overlay_entries:
+                is_partial = mask not in (0x00000000, 0xFFFFFFFF)
+                should_include = reg_type == RegisterType.RW1C or is_partial
+
+                if offset not in processed_offsets and should_include:
                     overlay_map.append((offset, mask))
                     processed_offsets.add(offset)
                     log_debug_safe(
@@ -347,6 +355,7 @@ class OverlayMapper:
                             offset=offset,
                             mask=mask,
                         ),
+                        prefix="OVERLAY",
                     )
 
         # Sort by offset for consistent ordering
@@ -368,29 +377,40 @@ class OverlayMapper:
         dword_idx = offset // 4
         bar_value = config_space.get(dword_idx, 0)
 
-        # Check if this is an I/O BAR
+        # If BAR is disabled/unimplemented, no overlay is needed
+        if bar_value == 0:
+            return 0x00000000
+
+        # If this offset corresponds to the upper dword of a 64-bit BAR,
+        # its entire 32 bits are address and are writable; no overlay entry needed.
+        # Detect by inspecting the preceding BAR's type bits.
+        if offset >= 0x14:
+            prev_idx = (offset - 4) // 4
+            prev_val = config_space.get(prev_idx, 0)
+            # previous must be a memory BAR and 64-bit type (bits [2:1] == 0b10)
+            if (prev_val & 0x1) == 0 and ((prev_val >> 1) & 0x3) == 0x2:
+                return 0xFFFFFFFF
+
+        # I/O vs Memory BAR handling for lower dword (or standalone 32-bit)
         if bar_value & 0x1:
-            # I/O BAR - bits [31:2] are address, bits [1:0] are flags
-            return 0xFFFFFFFC
+            # I/O BAR - bits [31:2] address, [1:0] flags (RO)
+            base_mask = 0xFFFFFFFC
+            # Try to infer alignment-based size from the programmed base
+            size = BarSizeConverter.address_to_size(bar_value, "io")
+            if size and size > 0:
+                return base_mask & ~(size - 1)
+            return base_mask
         else:
-            # Memory BAR
-            # Check if 64-bit BAR
-            is_64bit = (bar_value & 0x6) == 0x4
-            is_prefetchable = bool(bar_value & 0x8)
-
-            # For memory BARs, the size bits are read-only
-            # We need to determine the size to know which bits are writable
-            # This is typically done by writing all 1s and reading back
-            # For now, we'll use a conservative approach
-
-            # Lower bits are read-only (size indication)
-            # Upper bits are writable (base address)
-            # Bits [3:0] are always read-only for memory BARs
-            return 0xFFFFFFF0
+            # Memory BAR - bits [31:4] address, [3:0] attribute/RO
+            base_mask = 0xFFFFFFF0
+            size = BarSizeConverter.address_to_size(bar_value, "memory")
+            if size and size > 0:
+                return base_mask & ~(size - 1)
+            return base_mask
 
     def _get_capability_overlay_entries(
         self, cap_id: str, cap_offset: int
-    ) -> List[Tuple[int, int, str]]:
+    ) -> List[Tuple[int, int, str, RegisterType]]:
         """
         Get overlay entries for a specific capability.
 
@@ -399,9 +419,9 @@ class OverlayMapper:
             cap_offset: Offset of the capability in config space
 
         Returns:
-            List of (offset, mask, description) tuples
+            List of (offset, mask, description, register_type) tuples
         """
-        entries = []
+        entries: List[Tuple[int, int, str, RegisterType]] = []
 
         # Convert cap_id to integer
         try:
@@ -409,59 +429,87 @@ class OverlayMapper:
         except ValueError:
             return entries
 
-        # Power Management
-        if cap_id_int == 0x01:
+        # Heuristic: offsets >= 0x100 indicate extended capabilities space
+        is_extended = cap_offset >= 0x100
+
+        # Standard PCI capabilities
+        if not is_extended and cap_id_int == 0x01:
             for (
                 rel_offset,
                 entry,
             ) in self.definitions.PM_CAPABILITY_REGISTERS.items():
                 if entry.register_type in (RegisterType.MIXED, RegisterType.RW1C):
                     entries.append(
-                        (cap_offset + rel_offset, entry.mask, entry.description)
+                        (
+                            cap_offset + rel_offset,
+                            entry.mask,
+                            entry.description,
+                            entry.register_type,
+                        )
                     )
 
         # MSI
-        elif cap_id_int == 0x05:
+        elif not is_extended and cap_id_int == 0x05:
             for (
                 rel_offset,
                 entry,
             ) in self.definitions.MSI_CAPABILITY_REGISTERS.items():
                 if entry.register_type in (RegisterType.MIXED, RegisterType.RW1C):
                     entries.append(
-                        (cap_offset + rel_offset, entry.mask, entry.description)
+                        (
+                            cap_offset + rel_offset,
+                            entry.mask,
+                            entry.description,
+                            entry.register_type,
+                        )
                     )
 
         # MSI-X
-        elif cap_id_int == 0x11:
+        elif not is_extended and cap_id_int == 0x11:
             for (
                 rel_offset,
                 entry,
             ) in self.definitions.MSIX_CAPABILITY_REGISTERS.items():
                 if entry.register_type in (RegisterType.MIXED, RegisterType.RW1C):
                     entries.append(
-                        (cap_offset + rel_offset, entry.mask, entry.description)
+                        (
+                            cap_offset + rel_offset,
+                            entry.mask,
+                            entry.description,
+                            entry.register_type,
+                        )
                     )
 
         # PCIe
-        elif cap_id_int == 0x10:
+        elif not is_extended and cap_id_int == 0x10:
             for (
                 rel_offset,
                 entry,
             ) in self.definitions.PCIE_CAPABILITY_REGISTERS.items():
                 if entry.register_type in (RegisterType.MIXED, RegisterType.RW1C):
                     entries.append(
-                        (cap_offset + rel_offset, entry.mask, entry.description)
+                        (
+                            cap_offset + rel_offset,
+                            entry.mask,
+                            entry.description,
+                            entry.register_type,
+                        )
                     )
 
         # AER (Extended capability)
-        elif cap_id == "0x0001":
+        elif is_extended and cap_id_int == 0x0001:
             for (
                 rel_offset,
                 entry,
             ) in self.definitions.AER_CAPABILITY_REGISTERS.items():
                 if entry.register_type in (RegisterType.MIXED, RegisterType.RW1C):
                     entries.append(
-                        (cap_offset + rel_offset, entry.mask, entry.description)
+                        (
+                            cap_offset + rel_offset,
+                            entry.mask,
+                            entry.description,
+                            entry.register_type,
+                        )
                     )
 
         return entries
