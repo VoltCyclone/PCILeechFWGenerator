@@ -30,7 +30,9 @@ from .validation_constants import (CRITICAL_TEMPLATE_CONTEXT_KEYS,
                                    DEFAULT_TEMPERATURE_COEFFICIENT,
                                    DEFAULT_VOLTAGE_VARIATION,
                                    DEVICE_CLASS_MAPPINGS, KNOWN_DEVICE_TYPES,
-                                   POWER_TRANSITION_CYCLES)
+                                   POWER_TRANSITION_CYCLES,
+                                   CORE_DEVICE_IDS,
+                                   SUBSYSTEM_ID_FIELDS)
 
 # Type aliases for clarity
 HexString = str
@@ -618,23 +620,28 @@ class UnifiedContextBuilder:
         Raises:
             ConfigurationError: If validation fails
         """
-        # Validate required fields
+        # Validate required fields using centralized constants
         self.validate_required_fields(
             {"vendor_id": vendor_id, "device_id": device_id},
-            ["vendor_id", "device_id"],
+            CORE_DEVICE_IDS,
         )
 
         # Identity policy: enforce donor-provided fields in strict mode
         if self.strict_identity:
-            missing_strict: List[str] = []
-            if not subsystem_vendor_id:
-                missing_strict.append("subsystem_vendor_id")
-            if not subsystem_device_id:
-                missing_strict.append("subsystem_device_id")
-            if not class_code:
-                missing_strict.append("class_code")
-            if not revision_id:
-                missing_strict.append("revision_id")
+            # Enforce donor-provided fields without defaults
+            strict_required = list(SUBSYSTEM_ID_FIELDS) + [
+                "class_code",
+                "revision_id",
+            ]
+            provided = {
+                "subsystem_vendor_id": subsystem_vendor_id,
+                "subsystem_device_id": subsystem_device_id,
+                "class_code": class_code,
+                "revision_id": revision_id,
+            }
+            missing_strict: List[str] = [
+                key for key in strict_required if not provided.get(key)
+            ]
             if missing_strict:
                 msg = safe_format(
                     STRICT_MODE_MISSING,

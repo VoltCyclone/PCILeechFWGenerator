@@ -11,6 +11,11 @@ from typing import Any, Dict, List, Optional
 
 from src.log_config import get_logger
 from string_utils import log_debug_safe, utc_timestamp
+from src.utils.error_messages import (
+    META_ERR_IMPORTLIB_METADATA,
+    META_ERR_READ_VERSION_FILE,
+    META_ERR_SETTOOLS_SCM,
+)
 
 # Internal package version resolution to avoid cyclic imports
 
@@ -46,12 +51,7 @@ def _get_package_version() -> str:
             if "__version__" in version_dict:
                 return version_dict["__version__"]
     except Exception as e:
-        log_debug_safe(
-            logger,
-            "Error reading __version__.py: {err}",
-            err=str(e),
-            prefix="META",
-        )
+        log_debug_safe(logger, META_ERR_READ_VERSION_FILE, err=str(e), prefix="META")
 
     # Try setuptools_scm
     try:
@@ -59,12 +59,7 @@ def _get_package_version() -> str:
 
         return get_version(root="../..")
     except Exception as e:
-        log_debug_safe(
-            logger,
-            "Error getting version from setuptools_scm: {err}",
-            err=str(e),
-            prefix="META",
-        )
+        log_debug_safe(logger, META_ERR_SETTOOLS_SCM, err=str(e), prefix="META")
 
     # Try importlib.metadata (Python 3.8+)
     try:
@@ -72,12 +67,7 @@ def _get_package_version() -> str:
 
         return version("PCILeechFWGenerator")
     except Exception as e:
-        log_debug_safe(
-            logger,
-            "Error getting version from importlib.metadata: {err}",
-            err=str(e),
-            prefix="META",
-        )
+        log_debug_safe(logger, META_ERR_IMPORTLIB_METADATA, err=str(e), prefix="META")
 
     return DEFAULT_VERSION
 

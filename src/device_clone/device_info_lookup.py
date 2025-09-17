@@ -15,11 +15,24 @@ from typing import Any, Dict, Optional
 
 # Import DeviceConfiguration first to avoid cyclic import
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+from src.utils.validation_constants import (
+    CORE_DEVICE_ID_FIELDS,
+    CORE_DEVICE_IDS,
+)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
+from src.device_clone.device_config import DeviceIdentification
 
 # Import config_space_manager dynamically when needed to avoid circular dependencies
 logger = logging.getLogger(__name__)
+
+# Use centralized core device ID fields; treat revision_id as optional for
+# "critical" fast-path checks to preserve prior behavior.
+critical_field_keys = [k for k in CORE_DEVICE_ID_FIELDS if k != "revision_id"]
 
 
 class DeviceInfoLookup:
@@ -49,25 +62,18 @@ class DeviceInfoLookup:
         # Start with provided partial info or empty dict
         device_info = partial_info.copy() if partial_info else {}
 
-        # Check if we need to extract from config space
-        # We extract if either:
-        # 1. We're not being called from ConfigSpaceManager (normal path)
-        # 2. We're missing critical fields even though we're from ConfigSpaceManager
         missing_critical_fields = not all(
             key in device_info and device_info[key] is not None
-            for key in ["vendor_id", "device_id", "class_code"]
+            for key in critical_field_keys
         )
 
         invalid_fields = any(
             key in device_info
             and (
                 device_info[key] is None
-                or (
-                    key in ["vendor_id", "device_id"]
-                    and device_info[key] in [0, 0xFFFF]
-                )
+                or (key in CORE_DEVICE_IDS and device_info[key] in [0, 0xFFFF])
             )
-            for key in ["vendor_id", "device_id", "class_code"]
+            for key in critical_field_keys
         )
 
         needs_extraction = (
@@ -86,8 +92,7 @@ class DeviceInfoLookup:
             )
 
             # Dynamically import ConfigSpaceManager to avoid circular dependency
-            from src.device_clone.config_space_manager import \
-                ConfigSpaceManager
+            from src.device_clone.config_space_manager import ConfigSpaceManager
 
             manager = ConfigSpaceManager(self.bdf)
             try:
@@ -108,10 +113,7 @@ class DeviceInfoLookup:
                         for k, v in extracted_info.items()
                         if k not in device_info
                         or device_info[k] is None
-                        or (
-                            k in ["vendor_id", "device_id"]
-                            and device_info[k] in [0, 0xFFFF]
-                        )
+                        or (k in CORE_DEVICE_IDS and device_info[k] in [0, 0xFFFF])
                     }
                 )
             except Exception as e:
@@ -191,6 +193,7 @@ class DeviceInfoLookup:
         # Optionally validate using DeviceIdentification
         try:
             # Convert values to integers in case they're strings
+
             def to_int(value):
                 """Convert a value to int, accepting hex strings with or without 0x.
 
@@ -235,10 +238,11 @@ class DeviceInfoLookup:
         return device_info
 
     # Legacy compatibility methods for tests
+
     def _has_required_fields(self, info: Dict[str, Any]) -> bool:
         """Check if device info has all required fields."""
         # Use core device identification fields
-        required_fields = ["vendor_id", "device_id", "class_code", "revision_id"]
+        required_fields = CORE_DEVICE_ID_FIELDS
         return all(
             field in info and info[field] is not None for field in required_fields
         )
@@ -379,10 +383,7 @@ class DeviceInfoLookup:
             if (
                 key not in merged
                 or merged[key] is None
-                or (
-                    key in ["vendor_id", "device_id"]
-                    and merged[key] in [0x0000, 0xFFFF]
-                )
+                or (key in CORE_DEVICE_IDS and merged[key] in [0x0000, 0xFFFF])
             ):
                 merged[key] = value
 
