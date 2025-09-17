@@ -12,8 +12,13 @@ from typing import Optional, Tuple, Union
 
 from src.device_clone.constants import BAR_SIZE_CONSTANTS
 from src.exceptions import ContextError
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe, safe_format)
+from string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +313,7 @@ class BarSizeConverter:
                         size=size,
                         bar_type=bar_type,
                     ),
+                    prefix="BAR",
                 )
                 size = 0  # Disable invalid BARs
 
@@ -324,6 +330,7 @@ class BarSizeConverter:
             log_error_safe(
                 logger,
                 safe_format("Error converting BAR for shadow space: {error}", error=e),
+                prefix="BAR",
             )
             return {
                 "encoded_value": 0,
