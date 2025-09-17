@@ -2,7 +2,7 @@
 
 ## CI/CD Status
 
-[![CI](https://github.com/voltcyclone/PCILeechFWGenerator/workflows/CI/badge.svg?branch=main)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
+[![CI](https://github.com/VoltCyclone/PCILeechFWGenerator/workflows/CI/badge.svg?branch=main)](https://github.com/VoltCyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
 [![SystemVerilog Validation](https://img.shields.io/badge/SystemVerilog-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
 [![Unit Tests](https://img.shields.io/badge/Unit%20Tests-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
 [![TUI Tests](https://img.shields.io/badge/TUI%20Tests-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
@@ -13,11 +13,11 @@
 ## Quality Metrics
 
 [![codecov](https://codecov.io/gh/ramseymcgrath/PCILeechFWGenerator/graph/badge.svg?token=JVX3C1WL86)](https://codecov.io/gh/ramseymcgrath/PCILeechFWGenerator)
-[![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions)
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://github.com/voltcyclone/PCILeechFWGenerator)
+[![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen)](https://github.com/VoltCyclone/PCILeechFWGenerator/actions)
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://github.com/ramseymcgrath/PCILeechFWGenerator)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.txt)
-[![Latest Release](https://img.shields.io/github/v/release/ramseymcgrath/PCILeechFWGenerator?include_prereleases)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
-[![Downloads](https://img.shields.io/github/downloads/ramseymcgrath/PCILeechFWGenerator/total)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
+[![Latest Release](https://img.shields.io/github/v/release/VoltCyclone/PCILeechFWGenerator?include_prereleases)](https://github.com/VoltCyclone/PCILeechFWGenerator/releases)
+[![Downloads](https://img.shields.io/github/downloads/VoltCyclone/PCILeechFWGenerator/total)](https://github.com/VoltCyclone/PCILeechFWGenerator/releases)
 
 ## Build Artifacts
 
@@ -60,59 +60,53 @@ sudo modprobe vfio vfio-pci
 
 ### Requirements
 
-- **Python ≥ 3.9**
+- **Python ≥ 3.8**
 - **Donor PCIe card** (any inexpensive NIC, sound, or capture card)
 - **Linux OS** (You need this)
 
 ### Optional Requirements
 
-- **Podman** (_not Docker_ - required for proper PCIe device mounting) You use podman or run the python locally. *You must use linux for either option
-- **DMA board** (pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1) You don't need to flash your firmware with this tooling but you can.
-- **Vivado Studio** (2022.2+ for synthesis and bitstream generation) You can use a locally generated Vivado project or insert the files into an existing one.
+- **Podman** (optional, for container workflows) or run locally on Linux
+- **DMA board** (pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1)
+- **Xilinx Vivado** (2020.1+ for synthesis and bitstream generation)
 
 
 ### Basic Usage
 
 ```bash
 # Interactive TUI (recommended for first-time users)
-sudo python3 pcileech.py tui
+sudo pcileech tui
 
 # CLI interface for scripted builds
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board pcileech_35t325_x1
+sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1
 
 # CLI build with custom Vivado settings
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
+sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
     --vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8 --vivado-timeout 7200
 
 # Check VFIO configuration
-sudo python3 pcileech.py check --device 0000:03:00.0
+sudo pcileech check --device 0000:03:00.0
 
 # Flash firmware to device
-sudo python3 pcileech.py flash output/firmware.bin
+sudo pcileech flash output/firmware.bin
 
-# Check for updates
-./cli --check-version
-
-# Skip automatic version check
-./cli build --skip-version-check --bdf 0000:03:00.0 --board pcileech_35t325_x1
+# Show version
+pcileech version
 ```
 
-### Version Updates
+### Version
 
-The tool automatically checks for newer versions when you run it. You can:
-- **Disable automatic checks**: Set `PCILEECH_DISABLE_UPDATE_CHECK=1` environment variable
-- **Force a version check**: Run `./cli --check-version`
-- **Skip check for one run**: Use `--skip-version-check` flag
+Use `pcileech version` to print the current version and package info.
 
 
 ### Development from Repository
 
 ```bash
-git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
+git clone https://github.com/VoltCyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-sudo -E python3 pcileech.py tui
+sudo -E pcileech tui
 ```
 
 ## Troubleshooting
@@ -132,14 +126,14 @@ sudo python3 pcileech.py check --device 0000:03:00.0 --interactive
 
 ## Direct Documentation Links
 
-- **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** - Comprehensive troubleshooting and diagnostic guide
-- **[Device Cloning Process](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** - Complete guide to the cloning workflow
-- **[Firmware Uniqueness](https://pcileechfwgenerator.voltcyclone.info/firmware-uniqueness)** - How authenticity is achieved
-- **[Manual Donor Dump](https://pcileechfwgenerator.voltcyclone.info/manual-donor-dump)** - Step-by-step manual extraction
-- **[PCILeech Configuration](https://pcileechfwgenerator.voltcyclone.info/pcileech-configuration)** - Key configuration parameters explained
-- **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)** - Contributing and development guide
-- **[TUI Documentation](https://pcileechfwgenerator.voltcyclone.info/tui-readme)** - Interactive interface guide
-- **[Config space info](https://pcileechfwgenerator.voltcyclone.info/config-space-shadow)** - Config space shadow info
+- **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)**
+- **[Device Cloning](https://pcileechfwgenerator.voltcyclone.info/device-cloning)**
+- **[Firmware Uniqueness](https://pcileechfwgenerator.voltcyclone.info/firmware-uniqueness)**
+- **[Manual Donor Dump](https://pcileechfwgenerator.voltcyclone.info/manual-donor-dump)**
+- **[Template Architecture](https://pcileechfwgenerator.voltcyclone.info/template-architecture)**
+- **[Development Guide](https://pcileechfwgenerator.voltcyclone.info/development)**
+- **[TUI Interface](https://pcileechfwgenerator.voltcyclone.info/tui-readme)**
+- **[Config Space Shadow](https://pcileechfwgenerator.voltcyclone.info/config-space-shadow)**
 
 ## Cleanup & Safety
 
@@ -153,7 +147,7 @@ sudo python3 pcileech.py check --device 0000:03:00.0 --interactive
 
 ## Docs
 
-Docs are managed in the [site repo](github.com/voltcyclone/pcileechfwgenerator-site) and served by cloudflare.
+Docs live in `site/docs` (MkDocs + Material). Build locally with `site/build.sh` or `mkdocs build` from `site/`. Published to Cloudflare Pages at <https://pcileechfwgenerator.voltcyclone.info>.
 
 ## Acknowledgments
 
@@ -162,7 +156,7 @@ Docs are managed in the [site repo](github.com/voltcyclone/pcileechfwgenerator-s
 
 ## License
 
-This project is licensed under the Apache License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.
 
 ## Legal Notice
 
