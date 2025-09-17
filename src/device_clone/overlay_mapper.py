@@ -23,8 +23,6 @@ from src.device_clone.bar_size_converter import BarSizeConverter
 # Module-level logger is intentionally omitted; use instance-level loggers only.
 
 
-
-
 class RegisterType(IntEnum):
     """Types of register write behavior."""
 
@@ -33,8 +31,6 @@ class RegisterType(IntEnum):
     MIXED = 2  # Some bits RW, others RO
     RW1C = 3  # Write-1-to-clear bits
     SPECIAL = 4  # Special handling required
-
-
 
 
 @dataclass
@@ -133,7 +129,6 @@ class PCIeRegisterDefinitions:
         15: ("Detected Parity Error", True, True),  # RW1C
     }
 
-    
     @classmethod
     def get_status_mask(cls) -> int:
         """Generate status register mask from bit definitions."""
