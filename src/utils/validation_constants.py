@@ -8,17 +8,6 @@ variable tracking, and security checks.
 
 from typing import Dict, Final, List, Tuple
 
-# Critical template context keys that must be present for safe firmware generation
-CRITICAL_TEMPLATE_CONTEXT_KEYS: Final[List[str]] = [
-    "vendor_id",
-    "device_id",
-    "device_type",
-    "device_class",
-    "active_device_config",
-    "generation_metadata",
-    "board_config",
-]
-
 # Required context sections for PCILeech context completeness validation
 REQUIRED_CONTEXT_SECTIONS: Final[List[str]] = [
     "device_config",
@@ -27,32 +16,53 @@ REQUIRED_CONTEXT_SECTIONS: Final[List[str]] = [
     "interrupt_config",
 ]
 
-# Sensitive tokens that indicate variables should never have fallbacks
-# These are used by the fallback manager to identify critical hardware identifiers
-SENSITIVE_TOKENS: Final[Tuple[str, ...]] = (
-    "vendor_id",
-    "device_id",
-    "revision_id",
-    "class_code",
-    "bars",
-    "subsys",
-    # Common sensitive tokens - avoid exposing these in fallbacks
-    "token",
-    "secret",
-    "password",
-    "credential",
-    "key",
-)
+# Minimal essential identifiers for strict gating
+CORE_DEVICE_IDS: Final[List[str]] = ["vendor_id", "device_id"]
 
-# Device identification fields that are required for all device configurations
-DEVICE_IDENTIFICATION_FIELDS: Final[List[str]] = [
-    "vendor_id",
-    "device_id",
-    "subsystem_vendor_id",
-    "subsystem_device_id",
+# Core device ID fields frequently validated together (no subsystem IDs)
+# Keep order stable and reuse wherever possible.
+CORE_DEVICE_ID_FIELDS: Final[List[str]] = CORE_DEVICE_IDS + [
     "class_code",
     "revision_id",
 ]
+
+# Subsystem identifier fields grouped once for reuse
+SUBSYSTEM_ID_FIELDS: Final[List[str]] = [
+    "subsystem_vendor_id",
+    "subsystem_device_id",
+]
+
+# Device identification fields that are required for all device configurations
+# Preserve the canonical ordering expected by tests and templates.
+DEVICE_IDENTIFICATION_FIELDS: Final[List[str]] = (
+    CORE_DEVICE_IDS + SUBSYSTEM_ID_FIELDS + ["class_code", "revision_id"]
+)
+
+# Critical template context keys that must be present for safe firmware generation
+# Built from core IDs to avoid duplication.
+CRITICAL_TEMPLATE_CONTEXT_KEYS: Final[List[str]] = CORE_DEVICE_IDS + [
+    "device_type",
+    "device_class",
+    "active_device_config",
+    "generation_metadata",
+    "board_config",
+]
+
+# Sensitive tokens that indicate variables should never have fallbacks
+# Built from core device ID fields and additional security-related tokens.
+SENSITIVE_TOKENS: Final[Tuple[str, ...]] = tuple(
+    CORE_DEVICE_ID_FIELDS
+    + [
+        "bars",
+        "subsys",
+        # Common sensitive tokens - avoid exposing these in fallbacks
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "key",
+    ]
+)
 
 # Hex widths for device identification fields (characters in hex string)
 DEVICE_ID_FIELD_WIDTHS: Final[Dict[str, int]] = {

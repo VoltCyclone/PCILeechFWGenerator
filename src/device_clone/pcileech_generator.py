@@ -25,26 +25,30 @@ from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, TypedDict
 
 # Import existing infrastructure components
-from src.device_clone.behavior_profiler import (BehaviorProfile,
-                                                BehaviorProfiler)
+from src.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
 from src.device_clone.config_space_manager import ConfigSpaceManager
 from src.device_clone.constants import DEFAULT_FPGA_PART
 from src.device_clone.device_info_lookup import lookup_device_info
-from src.device_clone.msix_capability import (parse_msix_capability,
-                                              validate_msix_configuration)
-from src.device_clone.pcileech_context import (PCILeechContextBuilder,
-                                               VFIODeviceManager)
+from src.device_clone.msix_capability import (
+    parse_msix_capability,
+    validate_msix_configuration,
+)
+from src.device_clone.pcileech_context import PCILeechContextBuilder, VFIODeviceManager
 from src.device_clone.writemask_generator import WritemaskGenerator
 from src.error_utils import extract_root_cause
 from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
-from src.pci_capability.msix_bar_validator import \
-    validate_msix_bar_configuration
+from src.pci_capability.msix_bar_validator import validate_msix_bar_configuration
+
 # Import from centralized locations
-from src.string_utils import (generate_tcl_header_comment, log_error_safe,
-                              log_info_safe, log_warning_safe, safe_format,
-                              utc_timestamp)
-from src.templating import (AdvancedSVGenerator, TemplateRenderer,
-                            TemplateRenderError)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    utc_timestamp,
+)
+from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
 from src.templating.tcl_builder import format_hex_id
 
 logger = logging.getLogger(__name__)
@@ -130,8 +134,7 @@ class PCILeechGenerator:
         self.logger = logging.getLogger(__name__)
 
         # Initialize shared/global fallback manager
-        from src.device_clone.fallback_manager import \
-            get_global_fallback_manager
+        from src.device_clone.fallback_manager import get_global_fallback_manager
 
         self.fallback_manager = get_global_fallback_manager(
             mode=config.fallback_mode, allowed_fallbacks=config.allowed_fallbacks
@@ -797,8 +800,9 @@ class PCILeechGenerator:
         """
         try:
             # Import the centralized validator
-            from src.templating.template_context_validator import \
-                validate_template_context
+            from src.templating.template_context_validator import (
+                validate_template_context,
+            )
 
             # Derive template name dynamically.
             # Priority order:
@@ -1168,8 +1172,11 @@ class PCILeechGenerator:
         """Generate constraint files."""
         try:
             # Import TCL builder components
-            from src.templating.tcl_builder import (BuildContext, TCLBuilder,
-                                                    TCLScriptType)
+            from src.templating.tcl_builder import (
+                BuildContext,
+                TCLBuilder,
+                TCLScriptType,
+            )
             from src.templating.template_renderer import TemplateRenderer
 
             # Create template renderer
@@ -1646,8 +1653,9 @@ class PCILeechGenerator:
                         )
                     else:
                         # Generate new content as last resort
-                        from src.templating.systemverilog_generator import \
-                            AdvancedSVGenerator
+                        from src.templating.systemverilog_generator import (
+                            AdvancedSVGenerator,
+                        )
 
                         sv_gen = AdvancedSVGenerator(
                             template_dir=self.config.template_dir
@@ -1815,23 +1823,24 @@ class PCILeechGenerator:
             return None
 
         def _attempt_extract(container: Any) -> Optional[bytes]:
-            """Attempt ordered extraction of raw config space bytes from a dict.
+            """Attempt ordered extraction of raw config space bytes from a mapping-like.
 
-            The canonical preference order is:
+            Accepts plain dicts and TemplateObject/Mapping-like containers. Preference:
               1. raw_config_space
               2. raw_data
               3. config_space_hex
-
-            Args:
-                container: Potential dict holding config space representations.
-
-            Returns:
-                Bytes if successfully coerced, else None.
             """
-            if not isinstance(container, dict):
+            # Support TemplateObject from unified_context
+            # Accept dict-like or TemplateObject that exposes .get()
+            get = getattr(container, "get", None)
+            if not callable(get):
                 return None
             for _k in ("raw_config_space", "raw_data", "config_space_hex"):
-                b = _coerce_to_bytes(container.get(_k))
+                try:
+                    v = get(_k)
+                except Exception:
+                    v = None
+                b = _coerce_to_bytes(v)
                 if b:
                     return b
             return None

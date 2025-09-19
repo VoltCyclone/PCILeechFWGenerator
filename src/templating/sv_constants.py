@@ -163,6 +163,7 @@ class SVTemplates:
         "systemverilog/pcileech_tlps128_bar_controller.sv.j2"
     )
     PCILEECH_FIFO: str = "systemverilog/pcileech_fifo.sv.j2"
+    DEVICE_CONFIG: str = "systemverilog/device_config.sv.j2"
     TOP_LEVEL_WRAPPER: str = "systemverilog/top_level_wrapper.sv.j2"
     PCILEECH_CFGSPACE: str = "systemverilog/pcileech_cfgspace.coe.j2"
     MSIX_CAPABILITY_REGISTERS: str = "systemverilog/msix_capability_registers.sv.j2"

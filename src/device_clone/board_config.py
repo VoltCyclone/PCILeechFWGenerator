@@ -10,8 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.file_management.board_discovery import (BoardDiscovery,
-                                                 discover_all_boards)
+from src.file_management.board_discovery import BoardDiscovery, discover_all_boards
 from src.string_utils import log_debug_safe, log_info_safe
 
 logger = logging.getLogger(__name__)
@@ -72,6 +71,7 @@ def get_fpga_part(board: str, repo_root: Optional[Path] = None) -> str:
         "Board {board} mapped to FPGA part {fpga_part}",
         board=board,
         fpga_part=fpga_part,
+        prefix="BOARD",
     )
     return fpga_part
 

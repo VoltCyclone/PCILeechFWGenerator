@@ -14,23 +14,34 @@ from datetime import datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import (Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar,
-                    Union)
+from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
 
 from src.error_utils import extract_root_cause
 from src.utils.context_error_messages import (
-    MISSING_IDENTIFIERS, STRICT_MODE_MISSING,
-    TEMPLATE_CONTEXT_VALIDATION_FAILED)
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe, safe_format)
+    MISSING_IDENTIFIERS,
+    STRICT_MODE_MISSING,
+    TEMPLATE_CONTEXT_VALIDATION_FAILED,
+)
+from string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
-from .validation_constants import (CRITICAL_TEMPLATE_CONTEXT_KEYS,
-                                   DEFAULT_COUNTER_WIDTH,
-                                   DEFAULT_PROCESS_VARIATION,
-                                   DEFAULT_TEMPERATURE_COEFFICIENT,
-                                   DEFAULT_VOLTAGE_VARIATION,
-                                   DEVICE_CLASS_MAPPINGS, KNOWN_DEVICE_TYPES,
-                                   POWER_TRANSITION_CYCLES)
+from .validation_constants import (
+    CRITICAL_TEMPLATE_CONTEXT_KEYS,
+    DEFAULT_COUNTER_WIDTH,
+    DEFAULT_PROCESS_VARIATION,
+    DEFAULT_TEMPERATURE_COEFFICIENT,
+    DEFAULT_VOLTAGE_VARIATION,
+    DEVICE_CLASS_MAPPINGS,
+    KNOWN_DEVICE_TYPES,
+    POWER_TRANSITION_CYCLES,
+    CORE_DEVICE_IDS,
+    SUBSYSTEM_ID_FIELDS,
+)
 
 # Type aliases for clarity
 HexString = str
@@ -618,23 +629,28 @@ class UnifiedContextBuilder:
         Raises:
             ConfigurationError: If validation fails
         """
-        # Validate required fields
+        # Validate required fields using centralized constants
         self.validate_required_fields(
             {"vendor_id": vendor_id, "device_id": device_id},
-            ["vendor_id", "device_id"],
+            CORE_DEVICE_IDS,
         )
 
         # Identity policy: enforce donor-provided fields in strict mode
         if self.strict_identity:
-            missing_strict: List[str] = []
-            if not subsystem_vendor_id:
-                missing_strict.append("subsystem_vendor_id")
-            if not subsystem_device_id:
-                missing_strict.append("subsystem_device_id")
-            if not class_code:
-                missing_strict.append("class_code")
-            if not revision_id:
-                missing_strict.append("revision_id")
+            # Enforce donor-provided fields without defaults
+            strict_required = list(SUBSYSTEM_ID_FIELDS) + [
+                "class_code",
+                "revision_id",
+            ]
+            provided = {
+                "subsystem_vendor_id": subsystem_vendor_id,
+                "subsystem_device_id": subsystem_device_id,
+                "class_code": class_code,
+                "revision_id": revision_id,
+            }
+            missing_strict: List[str] = [
+                key for key in strict_required if not provided.get(key)
+            ]
             if missing_strict:
                 msg = safe_format(
                     STRICT_MODE_MISSING,
@@ -1066,10 +1082,6 @@ class UnifiedContextBuilder:
                 "enable_crc_check": False,
                 # Performance configuration
                 "enable_perf_counters": True,
-                # Sampling logic defaults used by some templates
-                # Keep this non-identity default only in compatibility mode
-                # (strict_identity=False). In strict mode, a caller can pass
-                # sampling_period explicitly via kwargs if needed.
                 "sampling_period": kwargs.get("sampling_period", 1024),
                 # Board configuration
                 "has_option_rom": False,
@@ -1086,8 +1098,7 @@ class UnifiedContextBuilder:
         # -----------------------------------------------------------------
         if device_config.enable_advanced_features:
             try:
-                from src.pci_capability.constants import \
-                    AER_CAPABILITY_VALUES as _AER
+                from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
 
                 aer_ctx = {
                     # Store as integers; template will format as 8-hex digits
@@ -1146,10 +1157,8 @@ class UnifiedContextBuilder:
         )
         context["bars"] = context["bar_config"].get("bars", [])
 
-        # Interrupt configuration
         context["interrupt_config"] = TemplateObject({"vectors": 4})
 
-        # MSI-X configuration (disabled by default; enabled only with real data)
         msix_config = TemplateObject(
             {
                 "table_size": 0,
@@ -1509,8 +1518,7 @@ class UnifiedContextBuilder:
         # even if empty or partial.
         try:
             # Import from shared driver enrichment module to avoid cyclic dependency
-            from src.utils.context_driver_enrichment import \
-                enrich_context_with_driver
+            from src.utils.context_driver_enrichment import enrich_context_with_driver
 
             enrich_context_with_driver(
                 template_context,
