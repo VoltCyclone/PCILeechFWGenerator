@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.templating.template_renderer import (TemplateRenderer,
-                                              TemplateRenderError)
+from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
 
 
 def test_render_string_basic():
@@ -73,8 +72,10 @@ def test_render_many(tmp_path):
 
 
 def test_context_validation_missing_required_key():
-    from src.utils.unified_context import (UnifiedContextBuilder,
-                                           ensure_template_compatibility)
+    from src.utils.unified_context import (
+        UnifiedContextBuilder,
+        ensure_template_compatibility,
+    )
 
     builder = UnifiedContextBuilder()
     # Minimal context missing required keys
@@ -123,8 +124,7 @@ def test_context_validation_none_value():
 
 
 def test_template_renderer_critical_path_failure():
-    from src.templating.template_renderer import (TemplateRenderer,
-                                                  TemplateRenderError)
+    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
 
     renderer = TemplateRenderer(strict=True)
     # Template expects 'name', but context is missing it
@@ -135,7 +135,7 @@ def test_template_renderer_critical_path_failure():
 
 
 def test_enforce_donor_uniqueness_missing_signature():
-    from string_utils import safe_format
+    from src.string_utils import safe_format
 
     # Simulate context missing device_signature
     context = {
@@ -155,7 +155,7 @@ def test_enforce_donor_uniqueness_missing_signature():
 
 
 def test_enforce_donor_uniqueness_invalid_bar():
-    from string_utils import safe_format
+    from src.string_utils import safe_format
 
     # Simulate context with no valid MMIO BARs
     context = {
@@ -218,8 +218,7 @@ def test_template_renderer_integration_complex(tmp_path):
 
 
 def test_template_renderer_fallback_logic(tmp_path):
-    from src.templating.template_renderer import (TemplateRenderer,
-                                                  TemplateRenderError)
+    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
 
     renderer = TemplateRenderer(template_dir=tmp_path)
     # Template with error tag triggers fallback

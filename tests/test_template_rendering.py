@@ -254,7 +254,9 @@ class TestTemplateRendering:
 
         # Create a complete context using the unified builder
         builder = UnifiedContextBuilder()
-        complete_context = builder.create_complete_template_context()
+        complete_context = builder.create_complete_template_context(
+            vendor_id="10ee", device_id="7024"
+        )
 
         # Convert to dict and add specific test data
         context = complete_context.to_dict()
@@ -287,7 +289,9 @@ class TestTemplateRendering:
 
         # Create a complete context using the unified builder
         builder = UnifiedContextBuilder()
-        complete_context = builder.create_complete_template_context()
+        complete_context = builder.create_complete_template_context(
+            vendor_id="10ee", device_id="7024"
+        )
 
         # Convert to dict and add specific test data
         context = complete_context.to_dict()
@@ -314,7 +318,9 @@ class TestTemplateRendering:
 
         # Create a complete context using the unified builder
         builder = UnifiedContextBuilder()
-        complete_context = builder.create_complete_template_context()
+        complete_context = builder.create_complete_template_context(
+            vendor_id="10ee", device_id="7024"
+        )
 
         # Convert to dict and add specific test data
         context = complete_context.to_dict()

@@ -15,7 +15,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
-from string_utils import log_debug_safe, log_error_safe, log_info_safe
+from src.string_utils import log_debug_safe, log_error_safe, log_info_safe
 
 # Create logger for diagnostics
 logger = logging.getLogger(__name__)

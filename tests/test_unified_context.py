@@ -16,11 +16,14 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
-                                       UnifiedDeviceConfig,
-                                       convert_to_template_object,
-                                       ensure_template_compatibility,
-                                       get_package_version)
+from src.utils.unified_context import (
+    TemplateObject,
+    UnifiedContextBuilder,
+    UnifiedDeviceConfig,
+    convert_to_template_object,
+    ensure_template_compatibility,
+)
+from src.utils.version_resolver import get_package_version
 
 
 class TestGetPackageVersion:
@@ -55,7 +58,7 @@ class TestGetPackageVersion:
 
     def test_get_version_setuptools_scm_fallback(self):
         """Test fallback to setuptools_scm."""
-        with patch("src.utils.unified_context.Path") as mock_path:
+        with patch("src.utils.version_resolver.Path") as mock_path:
             mock_path.return_value.parent.parent.__truediv__.return_value.exists.return_value = (
                 False
             )
@@ -69,7 +72,7 @@ class TestGetPackageVersion:
 
     def test_get_version_importlib_fallback(self):
         """Test fallback to importlib.metadata."""
-        with patch("src.utils.unified_context.Path") as mock_path:
+        with patch("src.utils.version_resolver.Path") as mock_path:
             mock_path.return_value.parent.parent.__truediv__.return_value.exists.return_value = (
                 False
             )
@@ -84,7 +87,7 @@ class TestGetPackageVersion:
 
     def test_get_version_final_fallback(self):
         """Test final fallback to default version."""
-        with patch("src.utils.unified_context.Path") as mock_path:
+        with patch("src.utils.version_resolver.Path") as mock_path:
             mock_path.return_value.parent.parent.__truediv__.return_value.exists.return_value = (
                 False
             )
@@ -92,19 +95,20 @@ class TestGetPackageVersion:
             # Mock all import failures
             with patch("setuptools_scm.get_version", side_effect=ImportError):
                 with patch("importlib.metadata.version", side_effect=ImportError):
-                    version = get_package_version()
-                    assert version == "0.5.0"
+                    with patch("subprocess.run", side_effect=Exception("No git")):
+                        version = get_package_version()
+                        assert version == "unknown"
 
     def test_get_version_exception_handling(self):
         """Test exception handling returns default version."""
         with patch(
-            "src.utils.unified_context.Path", side_effect=Exception("Test error")
+            "src.utils.version_resolver.Path", side_effect=Exception("Test error")
         ):
             with patch("setuptools_scm.get_version", side_effect=ImportError):
                 with patch("importlib.metadata.version", side_effect=ImportError):
-                    with patch("src.utils.unified_context.DEFAULT_VERSION", "0.5.0"):
+                    with patch("subprocess.run", side_effect=Exception("No git")):
                         version = get_package_version()
-                        assert version == "0.5.0"
+                        assert version == "unknown"
 
 
 class TestTemplateObject:
@@ -526,14 +530,16 @@ class TestUnifiedContextBuilder:
     def test_create_complete_template_context_unknown_device_type(self):
         """Test complete context with unknown device type."""
         context = self.builder.create_complete_template_context(
-            device_type="unknown_type"
+            vendor_id="10ee", device_id="7024", device_type="unknown_type"
         )
 
         assert context.device_type == "generic"
 
     def test_validate_template_context_success(self):
         """Test successful template context validation."""
-        context = self.builder.create_complete_template_context()
+        context = self.builder.create_complete_template_context(
+            vendor_id="10ee", device_id="7024"
+        )
 
         # Should not raise any exception
         self.builder.validate_template_context(context)

@@ -8,25 +8,36 @@ using the template system, integrating with constants and build helpers.
 
 import logging
 import shutil
+
 # Use absolute imports for better compatibility
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Dict, List, Optional, Protocol, Union,
-                    runtime_checkable)
+from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.exceptions import (DeviceConfigError, TCLBuilderError,
-                            TemplateNotFoundError, XDCConstraintError)
+from src.exceptions import (
+    DeviceConfigError,
+    TCLBuilderError,
+    TemplateNotFoundError,
+    XDCConstraintError,
+)
 from src.import_utils import safe_import, safe_import_class
+
 # String utilities (always use these)
-from src.string_utils import (generate_tcl_header_comment, get_project_name,
-                              log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    get_project_name,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
@@ -401,8 +412,10 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from file_management.repo_manager import (get_xdc_files,
-                                                      is_repository_accessible)
+            from file_management.repo_manager import (
+                get_xdc_files,
+                is_repository_accessible,
+            )
 
             if not is_repository_accessible(board_name):
                 raise XDCConstraintError("Repository is not accessible")
@@ -621,9 +634,11 @@ class TCLBuilder:
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from build_helpers import (batch_write_tcl_files,
-                                       create_fpga_strategy_selector,
-                                       validate_fpga_part)
+            from build_helpers import (
+                batch_write_tcl_files,
+                create_fpga_strategy_selector,
+                validate_fpga_part,
+            )
 
             self.batch_write_tcl_files = batch_write_tcl_files
             self.fpga_strategy_selector = create_fpga_strategy_selector()
@@ -645,7 +660,9 @@ class TCLBuilder:
             self.FPGA_FAMILIES = constants.FPGA_FAMILIES
         except ImportError as e:
             log_warning_safe(
-                self.logger, safe_format("Using fallback constants: {error}", error=e)
+                self.logger,
+                safe_format("Using fallback constants: {error}", error=e),
+                prefix="CONSTANTS",
             )
             fallback = self._create_fallback_constants()
             for attr_name in dir(fallback):
@@ -688,6 +705,7 @@ class TCLBuilder:
             log_warning_safe(
                 self.logger,
                 safe_format("Constraint manager unavailable: {error}", error=e),
+                prefix="CONSTRAINTS",
             )
             self.constraint_manager = None
 
@@ -784,9 +802,12 @@ class TCLBuilder:
         fpga_family = fpga_config.get("family")
         if not fpga_family:
             raise TCLBuilderError(
-                f"Failed to determine FPGA family for part '{fpga_part}'. "
-                f"FPGA family is critical for proper synthesis and implementation. "
-                f"Please ensure the FPGA part is correctly specified."
+                safe_format(
+                    "Failed to determine FPGA family for part '{fpga_part}'. "
+                    "FPGA family is critical for proper synthesis and implementation. "
+                    "Please ensure the FPGA part is correctly specified.",
+                    fpga_part=fpga_part,
+                )
             )
 
         # Extract device configuration values
@@ -1250,6 +1271,7 @@ class TCLBuilder:
                         safe_format(
                             "Generated PCILeech {name} script", name=script_name
                         ),
+                        prefix="TEMPLATE",
                     )
 
                 except Exception as e:
@@ -1260,6 +1282,7 @@ class TCLBuilder:
                             name=script_name,
                             error=e,
                         ),
+                        prefix="TEMPLATE",
                     )
                     # Continue with other scripts even if one fails
 
@@ -1269,6 +1292,7 @@ class TCLBuilder:
                     "Generated {count} PCILeech-enhanced TCL scripts",
                     count=len(scripts),
                 ),
+                prefix="TEMPLATE",
             )
 
         except Exception as e:
@@ -1319,6 +1343,7 @@ class TCLBuilder:
                 log_info_safe(
                     self.logger,
                     safe_format("Saved PCILeech script: {filename}", filename=filename),
+                    prefix="TEMPLATE",
                 )
 
             log_info_safe(
@@ -1328,6 +1353,7 @@ class TCLBuilder:
                     count=len(saved_files),
                     output_dir=output_dir,
                 ),
+                prefix="TEMPLATE",
             )
 
         except Exception as e:

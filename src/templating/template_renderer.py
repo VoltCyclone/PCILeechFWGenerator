@@ -14,9 +14,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 from src.__version__ import __version__
-from src.string_utils import (generate_tcl_header_comment, log_debug_safe,
-                              log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from src.templates.template_mapping import update_template_path
 from src.utils.unified_context import ensure_template_compatibility
 
@@ -25,10 +30,19 @@ from .sv_constants import SV_CONSTANTS
 __import__ = builtins.__import__
 
 try:
-    from jinja2 import (BaseLoader, Environment, FileSystemLoader,
-                        StrictUndefined, Template, TemplateError,
-                        TemplateNotFound, TemplateRuntimeError, Undefined,
-                        meta, nodes)
+    from jinja2 import (
+        BaseLoader,
+        Environment,
+        FileSystemLoader,
+        StrictUndefined,
+        Template,
+        TemplateError,
+        TemplateNotFound,
+        TemplateRuntimeError,
+        Undefined,
+        meta,
+        nodes,
+    )
     from jinja2.bccache import FileSystemBytecodeCache
     from jinja2.ext import Extension
     from jinja2.sandbox import SandboxedEnvironment
@@ -137,9 +151,11 @@ class TemplateRenderer:
 
         log_debug_safe(
             logger,
-            "Template renderer initialized with directory: {template_dir}",
+            safe_format(
+                "Template renderer initialized with directory: {template_dir}",
+                template_dir=self.template_dir,
+            ),
             prefix="TEMPLATE",
-            template_dir=self.template_dir,
         )
 
     def _setup_custom_filters(self):
@@ -184,7 +200,9 @@ class TemplateRenderer:
                 return int(s, base)
             except Exception as e:
                 raise TemplateRenderError(
-                    f"sv_hex: cannot parse int from {value!r}: {e}"
+                    safe_format(
+                        "sv_hex: cannot parse int from {value!r}: {e}", value=value, e=e
+                    )
                 )
 
         def sv_hex(value, width: int = 32) -> str:
@@ -398,9 +416,12 @@ class TemplateRenderer:
                 # Fallback to the original context if conversion fails
                 log_debug_safe(
                     logger,
-                    "ensure_template_compatibility failed, using original context: {error}",
+                    safe_format(
+                        "ensure_template_compatibility failed, using original context: {error}",
+                        prefix="TEMPLATE",
+                        error=e,
+                    ),
                     prefix="TEMPLATE",
-                    error=e,
                 )
                 compatible = context
 
@@ -414,7 +435,6 @@ class TemplateRenderer:
                 template_name=template_name,
                 error=e,
             )
-            log_error_safe(logger, error_msg, prefix="TEMPLATE")
             raise TemplateRenderError(error_msg) from e
         except Exception as e:
             error_msg = safe_format(
@@ -446,17 +466,15 @@ class TemplateRenderer:
             return template.render(**validated)
 
         except TemplateError as e:
-            error_msg = safe_format(
-                "Failed to render string template: {error}", error=e
-            )
-            log_error_safe(logger, error_msg, prefix="TEMPLATE")
-            raise TemplateRenderError(error_msg) from e
+            raise TemplateRenderError(
+                safe_format("Failed to render string template: {error}", error=e)
+            ) from e
         except Exception as e:
-            error_msg = safe_format(
-                "Unexpected error rendering string template: {error}", error=e
-            )
-            log_error_safe(logger, error_msg, prefix="TEMPLATE")
-            raise TemplateRenderError(error_msg) from e
+            raise TemplateRenderError(
+                safe_format(
+                    "Unexpected error rendering string template: {error}", error=e
+                )
+            ) from e
 
     def template_exists(self, template_name: str) -> bool:
         """
@@ -581,17 +599,20 @@ class TemplateRenderer:
         if not context:
             log_warning_safe(
                 logger,
-                "Empty template context provided for template '{name}', using empty dict",
+                safe_format(
+                    "Empty template context provided for template '{name}', using empty dict",
+                    name=(template_name or "unknown"),
+                ),
                 prefix="TEMPLATE",
-                name=(template_name or "unknown"),
             )
             return {}
 
         try:
             # Try to use the centralized validator if available, but don't fail if it's not
             try:
-                from src.templating.template_context_validator import \
-                    validate_template_context
+                from src.templating.template_context_validator import (
+                    validate_template_context,
+                )
 
                 # Apply centralized validation with non-strict mode
                 validated_context = validate_template_context(
@@ -607,9 +628,12 @@ class TemplateRenderer:
             except Exception as e:
                 log_debug_safe(
                     logger,
-                    "TemplateContextValidator failed, falling back to basic preparation: {error}",
+                    safe_format(
+                        "TemplateContextValidator failed, falling back to basic preparation: {error}",
+                        prefix="TEMPLATE",
+                        error=e,
+                    ),
                     prefix="TEMPLATE",
-                    error=e,
                 )
                 validated_context = context.copy()
 
@@ -624,9 +648,11 @@ class TemplateRenderer:
                     except Exception as e:
                         log_debug_safe(
                             logger,
-                            "Failed to convert timing_config dataclass: {error}",
+                            safe_format(
+                                "Failed to convert timing_config dataclass: {error}",
+                                error=e,
+                            ),
                             prefix="TEMPLATE",
-                            error=e,
                         )
 
             return validated_context
@@ -635,10 +661,12 @@ class TemplateRenderer:
             # Only raise for truly critical errors, otherwise log and continue
             log_warning_safe(
                 logger,
-                "Template context validation warning for '{name}': {error}",
+                safe_format(
+                    "Template context validation warning for '{name}': {error}",
+                    name=(template_name or "unknown"),
+                    error=e,
+                ),
                 prefix="TEMPLATE",
-                name=(template_name or "unknown"),
-                error=e,
             )
             return context.copy()
 
@@ -650,8 +678,9 @@ class TemplateRenderer:
 
         # Clear template context validator cache
         try:
-            from src.templating.template_context_validator import \
-                clear_global_template_cache
+            from src.templating.template_context_validator import (
+                clear_global_template_cache,
+            )
 
             clear_global_template_cache()
         except ImportError:
