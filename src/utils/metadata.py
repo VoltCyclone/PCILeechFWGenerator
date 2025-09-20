@@ -11,65 +11,10 @@ from typing import Any, Dict, List, Optional
 
 from src.log_config import get_logger
 from string_utils import log_debug_safe, utc_timestamp
-from src.utils.error_messages import (
-    META_ERR_IMPORTLIB_METADATA,
-    META_ERR_READ_VERSION_FILE,
-    META_ERR_SETTOOLS_SCM,
-)
+from src.utils.version_resolver import get_package_version
+
 
 # Internal package version resolution to avoid cyclic imports
-
-
-def _get_package_version() -> str:
-    """
-    Get the package version dynamically.
-
-    Tries multiple methods to get the version:
-    1. From __version__.py in the src directory
-    2. From setuptools_scm if available
-    3. From importlib.metadata
-    4. Falls back to a default version
-
-    Returns:
-        str: The package version
-    """
-    DEFAULT_VERSION = "0.5.0"
-    from pathlib import Path
-
-    # Module logger for consistent logging
-    logger = get_logger("pcileech_metadata")
-
-    # Try __version__.py first
-    try:
-        src_dir = Path(__file__).parent.parent
-        version_file = src_dir / "__version__.py"
-
-        if version_file.exists():
-            version_dict: Dict[str, str] = {}
-            with open(version_file, "r") as f:
-                exec(f.read(), version_dict)
-            if "__version__" in version_dict:
-                return version_dict["__version__"]
-    except Exception as e:
-        log_debug_safe(logger, META_ERR_READ_VERSION_FILE, err=str(e), prefix="META")
-
-    # Try setuptools_scm
-    try:
-        from setuptools_scm import get_version  # type: ignore
-
-        return get_version(root="../..")
-    except Exception as e:
-        log_debug_safe(logger, META_ERR_SETTOOLS_SCM, err=str(e), prefix="META")
-
-    # Try importlib.metadata (Python 3.8+)
-    try:
-        from importlib.metadata import version
-
-        return version("PCILeechFWGenerator")
-    except Exception as e:
-        log_debug_safe(logger, META_ERR_IMPORTLIB_METADATA, err=str(e), prefix="META")
-
-    return DEFAULT_VERSION
 
 
 def build_generation_metadata(
@@ -103,7 +48,7 @@ def build_generation_metadata(
         Dictionary containing standardized generation metadata
     """
     # Get the canonical version
-    generator_version = _get_package_version()
+    generator_version = get_package_version()
 
     # Default components if not specified
     if components_used is None:

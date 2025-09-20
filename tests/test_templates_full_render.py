@@ -1,7 +1,6 @@
 import pytest
 
-from src.templating.template_renderer import (TemplateRenderer,
-                                              TemplateRenderError)
+from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
 from src.utils.unified_context import UnifiedContextBuilder
 
 
@@ -17,7 +16,9 @@ def test_render_all_templates_with_baseline_context():
 
     # Build a rich baseline context that mirrors what the unified builder provides
     builder = UnifiedContextBuilder()
-    baseline_obj = builder.create_complete_template_context()
+    baseline_obj = builder.create_complete_template_context(
+        vendor_id="10ee", device_id="7024"
+    )
     # Convert TemplateObject to plain dict for rendering
     try:
         baseline = baseline_obj.to_dict()

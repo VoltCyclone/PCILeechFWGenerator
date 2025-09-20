@@ -25,8 +25,13 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Union
 
 # Project logging helpers (use these instead of direct logger calls)
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe)
+from string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +66,12 @@ def select_pcie_ip_core(fpga_part: str) -> str:
         return "pcie_ultrascale"  # Zynq UltraScale+
     log_warning_safe(
         logger,
-        "Unknown FPGA part '{fpga_part}' - defaulting to pcie_7x",
+        safe_format(
+            "Unknown FPGA part '{fpga_part}' - defaulting to pcie_7x",
+            prefix="BUILD",
+            fpga_part=fpga_part,
+        ),
         prefix="BUILD",
-        fpga_part=fpga_part,
     )
     return "pcie_7x"
 
@@ -116,9 +124,12 @@ def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
                 return fn(fpga_part)
         log_warning_safe(
             logger,
-            "No dedicated strategy for '{fpga_part}' - using generic defaults",
+            safe_format(
+                "No dedicated strategy for '{fpga_part}' - using generic defaults",
+                prefix="BUILD",
+                fpga_part=fpga_part,
+            ),
             prefix="BUILD",
-            fpga_part=fpga_part,
         )
         return artix75_or_kintex(fpga_part)  # sensible generic
 
@@ -142,7 +153,9 @@ def write_tcl_file(
     path.write_text(content, encoding="utf‑8")
     tcl_files.append(str(path))
     log_info_safe(
-        logger, "Generated {description}", prefix="BUILD", description=description
+        logger,
+        safe_format("Generated {description}", description=description),
+        prefix="BUILD",
     )
 
 
@@ -163,10 +176,13 @@ def batch_write_tcl_files(
         successes += 1
     log_info_safe(
         logger,
-        "Batch TCL write complete: {successes}/{total} files",
+        safe_format(
+            "Batch TCL write complete: {successes}/{total} files",
+            prefix="BUILD",
+            successes=successes,
+            total=len(tcl_contents),
+        ),
         prefix="BUILD",
-        successes=successes,
-        total=len(tcl_contents),
     )
 
 
@@ -182,8 +198,11 @@ def validate_fpga_part(fpga_part: str) -> bool:
     if not ok:
         log_error_safe(
             logger,
-            "Invalid or unsupported FPGA part: {fpga_part}",
+            safe_format(
+                "Invalid or unsupported FPGA part: {fpga_part}",
+                prefix="BUILD",
+                fpga_part=fpga_part,
+            ),
             prefix="BUILD",
-            fpga_part=fpga_part,
         )
     return ok

@@ -22,6 +22,8 @@ from src.utils.context_error_messages import (
     STRICT_MODE_MISSING,
     TEMPLATE_CONTEXT_VALIDATION_FAILED,
 )
+from src.utils.version_resolver import get_package_version
+
 from string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -46,11 +48,9 @@ from .validation_constants import (
 # Type aliases for clarity
 HexString = str
 ConfigDict = Dict[str, Any]
+logger = logging.getLogger(__name__)
 
 # Constants (initial placeholders; some will be resolved dynamically below)
-DEFAULT_VERSION = "0.5.0"
-DEFAULT_VENDOR_ID = "8086"
-DEFAULT_DEVICE_ID = "1234"
 DEFAULT_CLASS_CODE = "000000"
 # Revision id is safe to randomize per-import to avoid a static value in templates
 # it will be overridden after package-version resolution using a secure RNG
@@ -114,66 +114,15 @@ class InterruptStrategy(Enum):
     MSIX = "msix"
 
 
-def get_package_version() -> str:
-    """
-    Get the package version dynamically.
-
-    Tries multiple methods to get the version:
-    1. From __version__.py in the src directory
-    2. From setuptools_scm if available
-    3. From importlib.metadata
-    4. Falls back to a default version
-
-    Returns:
-        str: The package version
-    """
-    # Try __version__.py first
-    try:
-        src_dir = Path(__file__).parent.parent
-        version_file = src_dir / "__version__.py"
-
-        if version_file.exists():
-            version_dict: Dict[str, str] = {}
-            with open(version_file, "r") as f:
-                exec(f.read(), version_dict)
-            if "__version__" in version_dict:
-                return version_dict["__version__"]
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        log_debug_safe(logger, "Error reading __version__.py: {e}", e=e)
-
-    # Try setuptools_scm
-    try:
-        from setuptools_scm import get_version  # type: ignore
-
-        return get_version(root="../..")
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        log_debug_safe(logger, "Error getting version from setuptools_scm: {e}", e=e)
-
-    # Try importlib.metadata (Python 3.8+)
-    try:
-        from importlib.metadata import version
-
-        return version("PCILeechFWGenerator")
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        log_debug_safe(
-            logger, "Error getting version from importlib.metadata: {e}", e=e
-        )
-
-    return DEFAULT_VERSION
-
-
 # Resolve package version at import time so templates and builders can access it
 try:
     PACKAGE_VERSION = get_package_version()
 except Exception:
     logger = logging.getLogger(__name__)
     log_debug_safe(
-        logger, "Failed to resolve package version during import; using default"
+        logger, "Failed to resolve package version during import; using fallback"
     )
-    PACKAGE_VERSION = DEFAULT_VERSION
+    PACKAGE_VERSION = "unknown"
 
 
 def _random_hex_byte() -> str:
@@ -545,18 +494,18 @@ class UnifiedContextBuilder:
 
     def __init__(
         self,
-        logger: Optional[logging.Logger] = None,
+        custom_logger: Optional[logging.Logger] = None,
         *,
         strict_identity: bool = False,
     ):
         """Initialize the context builder.
 
         Args:
-            logger: Optional logger instance
+            custom_logger: Optional logger instance
             strict_identity: If True, require all device identifiers to be provided
                              and avoid static defaults for critical identifiers
         """
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = custom_logger or logger
         self.config = ContextBuilderConfig()
         self._version_cache: Optional[str] = None
         self.strict_identity = strict_identity
@@ -566,7 +515,9 @@ class UnifiedContextBuilder:
         try:
             int(str(value), 16)
         except ValueError:
-            raise ConfigurationError(f"Invalid hex value for {field_name}: {value}")
+            raise ConfigurationError(
+                safe_format("Invalid hex value for {field_name}: {value}")
+            )
 
     def validate_required_fields(
         self, fields: Dict[str, Any], required: List[str]
@@ -1116,6 +1067,7 @@ class UnifiedContextBuilder:
                 log_warning_safe(
                     self.logger,
                     safe_format("Skipping AER context injection: {rc}", rc=str(e)),
+                    prefix="BUILD",
                 )
 
     def _add_standard_configs(self, context: Dict[str, Any], **kwargs) -> None:
@@ -1449,8 +1401,8 @@ class UnifiedContextBuilder:
 
     def create_complete_template_context(
         self,
-        vendor_id: str = DEFAULT_VENDOR_ID,
-        device_id: str = DEFAULT_DEVICE_ID,
+        vendor_id: Optional[str] = None,
+        device_id: Optional[str] = None,
         device_type: str = "network",
         device_class: str = "enterprise",
         **kwargs,
@@ -1473,8 +1425,13 @@ class UnifiedContextBuilder:
             TemplateObject with complete context
         """
         # Validate and sanitize inputs
-        vendor_id = vendor_id or DEFAULT_VENDOR_ID
-        device_id = device_id or DEFAULT_DEVICE_ID
+        # Fail fast if core identifiers are missing (no hardcoded fallbacks)
+        self.validate_required_fields(
+            {"vendor_id": vendor_id, "device_id": device_id}, CORE_DEVICE_IDS
+        )
+        # At this point types are non-None; narrow for static analysis
+        vendor_id = str(vendor_id)  # type: ignore[arg-type]
+        device_id = str(device_id)  # type: ignore[arg-type]
         device_type = device_type or "network"
         device_class = device_class or "enterprise"
 
@@ -1482,8 +1439,11 @@ class UnifiedContextBuilder:
         if device_type not in KNOWN_DEVICE_TYPES:
             log_warning_safe(
                 self.logger,
-                "Unknown device type '{device_type}', using 'generic'",
-                device_type=device_type,
+                safe_format(
+                    "Unknown device type '{device_type}', using 'generic'",
+                    device_type=device_type,
+                ),
+                prefix="BUILD",
             )
             device_type = "generic"
 
@@ -1530,8 +1490,11 @@ class UnifiedContextBuilder:
         except Exception as e:  # pragma: no cover (defensive path)
             log_warning_safe(
                 self.logger,
-                "Kernel driver enrichment skipped: {e}",
-                e=e,
+                safe_format(
+                    "Kernel driver enrichment skipped: {e}",
+                    e=e,
+                ),
+                prefix="BUILD",
             )
 
         # Validate the context
@@ -1542,6 +1505,7 @@ class UnifiedContextBuilder:
             log_error_safe(
                 self.logger,
                 safe_format(TEMPLATE_CONTEXT_VALIDATION_FAILED, rc=rc),
+                prefix="BUILD",
             )
             # Re-raise the original exception to preserve type/trace
             raise
@@ -1565,7 +1529,10 @@ class UnifiedContextBuilder:
 
         if missing_keys:
             raise ValueError(
-                f"Missing critical template context values: {missing_keys}"
+                safe_format(
+                    "Missing critical template context values: {missing_keys}",
+                    missing_keys=missing_keys,
+                )
             )
 
         # Validate nested configurations
@@ -1579,8 +1546,11 @@ class UnifiedContextBuilder:
                 if not hasattr(context.variance_model, field):
                     log_warning_safe(
                         self.logger,
-                        "Missing variance model field '{field}', using default",
-                        field=field,
+                        safe_format(
+                            "Missing variance model field '{field}', using default",
+                            field=field,
+                        ),
+                        prefix="BUILD",
                     )
 
 
@@ -1628,7 +1598,6 @@ def ensure_template_compatibility(context: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             # Defensive: keep the original value if conversion fails and
             # log at debug level.
-            logger = logging.getLogger(__name__)
             log_debug_safe(
                 logger,
                 safe_format(
@@ -1638,6 +1607,7 @@ def ensure_template_compatibility(context: Dict[str, Any]) -> Dict[str, Any]:
                     typ=type(value).__name__,
                     rc=extract_root_cause(e),
                 ),
+                prefix="BUILD",
             )
             compatible_context[key] = value
 
@@ -1676,6 +1646,7 @@ def normalize_config_to_dict(
                     typ=type(obj).__name__,
                     rc=extract_root_cause(e),
                 ),
+                prefix="BUILD",
             )
             return dict(default or {})
 
@@ -1704,6 +1675,7 @@ def normalize_config_to_dict(
                             typ=type(result).__name__,
                             rc=extract_root_cause(e),
                         ),
+                        prefix="BUILD",
                     )
                     return dict(default or {})
             return dict(default or {})
@@ -1716,6 +1688,7 @@ def normalize_config_to_dict(
                     typ=type(obj).__name__,
                     rc=extract_root_cause(e),
                 ),
+                prefix="BUILD",
             )
             return dict(default or {})
 
@@ -1759,6 +1732,7 @@ def normalize_config_to_dict(
                     typ=type(obj).__name__,
                     rc=extract_root_cause(e),
                 ),
+                prefix="BUILD",
             )
             return dict(default or {})
 

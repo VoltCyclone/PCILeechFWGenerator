@@ -35,11 +35,14 @@ class PhaseLogger:
         log_info_safe(
             self.logger,
             safe_format("{g} {msg}", g=GLYPHS["start"], msg=message or name),
+            prefix="BUILD",
         )
 
     def step(self, message: str):
         log_info_safe(
-            self.logger, safe_format("  {g} {msg}", g=GLYPHS["step"], msg=message)
+            self.logger,
+            safe_format("  {g} {msg}", g=GLYPHS["step"], msg=message),
+            prefix="BUILD",
         )
 
     def success(self, message: Optional[str] = None):
@@ -56,6 +59,7 @@ class PhaseLogger:
                     ok=message or "done",
                     sec=dur,
                 ),
+                prefix="BUILD",
             )
         else:
             log_info_safe(
@@ -66,6 +70,7 @@ class PhaseLogger:
                     name=self._active_name,
                     ok=message or "done",
                 ),
+                prefix="BUILD",
             )
         self._active_name = None
 

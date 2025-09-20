@@ -4,6 +4,8 @@
 Keep messages concise and actionable; format with string_utils.safe_format.
 """
 
+from typing import Final
+
 # Context builder / identifiers
 MISSING_IDENTIFIERS = "Missing required identifier(s): {names}"
 STRICT_MODE_MISSING = (
@@ -69,3 +71,9 @@ TEMPLATE_NOT_FOUND = (
 
 # Behavior profile
 MISSING_BEHAVIOR_PROFILE = "Behavior profile is required for register extraction"
+
+META_ERR_READ_VERSION_FILE: Final[str] = "Error reading __version__.py: {err}"
+META_ERR_SETTOOLS_SCM: Final[str] = "Error getting version from setuptools_scm: {err}"
+META_ERR_IMPORTLIB_METADATA: Final[str] = (
+    "Error getting version from importlib.metadata: {err}"
+)

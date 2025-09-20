@@ -10,6 +10,7 @@ from src.string_utils import (
     log_error_safe,
     log_info_safe,
     log_warning_safe,
+    safe_format,
 )
 from src.utils.attribute_access import (
     get_attr_or_raise,
@@ -242,13 +243,33 @@ class SVModuleGenerator:
                 features="Core PCILeech functionality",
             )
 
-        # Ensure `device` object/dict exists with conservative defaults.
-        # Templates frequently reference `device.device_id` or similar attributes.
-        if "device" not in context or context.get("device") is None:
-            context["device"] = {
-                "vendor_id": context.get("device_config", {}).get("vendor_id", None),
-                "device_id": context.get("device_config", {}).get("device_id", None),
-            }
+        # Require donor-bound device identifiers; don't fabricate or allow None.
+        # Pull from existing device object first, then fall back to device_config.
+        device_cfg = context.get("device_config") or {}
+        device_obj = context.get("device") or {}
+        vid = device_obj.get("vendor_id") or device_cfg.get("vendor_id")
+        did = device_obj.get("device_id") or device_cfg.get("device_id")
+
+        if not vid or not did:
+            # Fail fast with actionable logs; these values must be present.
+            log_error_safe(
+                self.logger,
+                "Missing required device identifiers: vendor_id={vid}, device_id={did}",
+                prefix=self.prefix,
+                vid=str(vid),
+                did=str(did),
+            )
+            raise TemplateRenderError(self.messages.get("missing_device_config"))
+
+        # Normalize `device` in context without mutating original input.
+        if (
+            "device" not in context
+            or context.get("device") is None
+            or context.get("device", {}).get("vendor_id") != vid
+            or context.get("device", {}).get("device_id") != did
+        ):
+            context = dict(context)  # Make a shallow copy before modification
+            context["device"] = {"vendor_id": vid, "device_id": did}
 
         # TLP BAR controller
         log_debug_safe(
@@ -416,9 +437,12 @@ class SVModuleGenerator:
             except Exception as e:
                 log_warning_safe(
                     self.logger,
-                    "Failed to render clock crossing: {error}",
+                    safe_format(
+                        "Failed to render clock crossing: {error}",
+                        prefix=self.prefix,
+                        error=str(e),
+                    ),
                     prefix=self.prefix,
-                    error=str(e),
                 )
 
         return main_module
@@ -643,12 +667,11 @@ class SVModuleGenerator:
                                 # If parsing fails, treat as missing
                                 log_warning_safe(
                                     self.logger,
-                                    (
-                                        "MSI-X entry {index} invalid hex; "
-                                        "filling zeros"
+                                    safe_format(
+                                        "MSI-X entry {index} has invalid hex data; padding to 16 bytes",
+                                        index=i,
                                     ),
                                     prefix=self.prefix,
-                                    index=i,
                                 )
                                 data_bytes = b""
                         else:
@@ -662,13 +685,12 @@ class SVModuleGenerator:
                         if len(data_bytes) != 0:
                             log_warning_safe(
                                 self.logger,
-                                (
-                                    "MSI-X entry {index} is {size} bytes; "
-                                    "padding to 16"
+                                safe_format(
+                                    "MSI-X entry {index} is {size} bytes; padding to 16",
+                                    index=i,
+                                    size=len(data_bytes),
                                 ),
                                 prefix=self.prefix,
-                                index=i,
-                                size=len(data_bytes),
                             )
                         data_bytes = data_bytes.ljust(16, b"\x00")
 

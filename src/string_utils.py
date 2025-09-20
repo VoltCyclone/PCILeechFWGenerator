@@ -8,9 +8,12 @@ cause syntax errors when split across lines.
 """
 
 import logging
+
 import os
+
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.device_clone.constants import VIVADO_PROJECT_NAME
 
@@ -912,3 +915,49 @@ def format_raw_bar_table(bars: List[Any], device_bdf: str) -> str:
     lines.append(bottom_border)
 
     return "\n".join(lines)
+
+
+def format_kv_table(rows: List[Tuple[str, str]], title: str) -> str:
+    """
+    Format a simple key/value table with a banner title.
+
+    Args:
+        rows: List of (key, value) pairs to display
+        title: Title to show in the banner
+
+    Returns:
+        Box-drawn table string
+    """
+    if rows is None:
+        rows = []
+
+    headers = ["Field", "Value"]
+    col_widths = [len(headers[0]), len(headers[1])]
+    for k, v in rows:
+        col_widths[0] = max(col_widths[0], len(str(k)))
+        col_widths[1] = max(col_widths[1], len(str(v)))
+
+    top = "┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐"
+    hdr = (
+        "│ "
+        + f"{headers[0]:<{col_widths[0]}}"
+        + " │ "
+        + f"{headers[1]:<{col_widths[1]}}"
+        + " │"
+    )
+    sep = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
+    lines = [top, hdr, sep]
+    for k, v in rows:
+        k_str = str(k)
+        v_str = str(v)
+        lines.append(
+            "│ "
+            + f"{k_str:<{col_widths[0]}}"
+            + " │ "
+            + f"{v_str:<{col_widths[1]}}"
+            + " │"
+        )
+    bottom = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
+    title_bar = f"── {title} "
+    banner = "┌" + title_bar + "─" * max(0, sum(col_widths) + 5 - len(title_bar)) + "┐"
+    return "\n".join([banner] + lines + [bottom])

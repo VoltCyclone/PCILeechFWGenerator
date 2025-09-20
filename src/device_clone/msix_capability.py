@@ -7,23 +7,37 @@ PCI configuration space and generate SystemVerilog code for MSI-X table replicat
 """
 
 import struct
+
 from typing import Any, Dict, List, Optional, Tuple
 
 # Import project logging and string utilities
 from src.log_config import get_logger
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    safe_print_format,
+    format_raw_bar_table,
+    format_kv_table,
+)
 
 # Import PCI capability infrastructure for extended capabilities support
 try:
     from src.pci_capability.compat import find_cap as pci_find_cap
+
     from src.pci_capability.compat import find_ext_cap
+
     from src.pci_capability.types import CapabilityType
 except ImportError:
     # Fallback for different import paths
     try:
         from pci_capability.compat import find_cap as pci_find_cap
+
         from pci_capability.compat import find_ext_cap
+
         from pci_capability.types import CapabilityType
     except ImportError:
         # Use None to indicate unavailable - will fall back to local implementation
@@ -153,11 +167,12 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
     """
     log_debug_safe(
         logger,
-        "Searching for capability ID 0x{cap_id:02x} in configuration space",
-        cap_id=cap_id,
-    )
-    log_debug_safe(
-        logger, "Configuration space length: {length} characters", length=len(cfg)
+        safe_format(
+            "Searching for capability ID 0x{cap_id:02x} in configuration space, Configuration space length: {length} characters",
+            cap_id=cap_id,
+            length=len(cfg),
+        ),
+        prefix="PCI_CAP",
     )
 
     # Try to use the advanced PCI capability infrastructure first
@@ -168,10 +183,13 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
             if standard_offset is not None:
                 log_debug_safe(
                     logger,
-                    "Found capability ID 0x{cap_id:02x} at ",
-                    " standard offset 0x{offset:02x}",
-                    cap_id=cap_id,
-                    offset=standard_offset,
+                    safe_format(
+                        "Found capability ID 0x{cap_id:02x} at ",
+                        " standard offset 0x{offset:02x}",
+                        cap_id=cap_id,
+                        offset=standard_offset,
+                    ),
+                    prefix="PCI_CAP",
                 )
                 return standard_offset
 
@@ -183,31 +201,43 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
                 if extended_offset is not None:
                     log_debug_safe(
                         logger,
-                        "Found capability ID 0x{cap_id:02x} at "
-                        "extended offset 0x{offset:03x}",
-                        cap_id=cap_id,
-                        offset=extended_offset,
+                        safe_format(
+                            "Found capability ID 0x{cap_id:02x} at "
+                            "extended offset 0x{offset:03x}",
+                            cap_id=cap_id,
+                            offset=extended_offset,
+                        ),
+                        prefix="PCI_CAP",
                     )
                     return extended_offset
 
             # Not found in either space
             log_debug_safe(
-                logger, "Capability ID 0x{cap_id:02x} not found", cap_id=cap_id
+                logger,
+                safe_format("Capability ID 0x{cap_id:02x} not found", cap_id=cap_id),
+                prefix="PCI_CAP",
             )
             return None
 
         except Exception as e:
             log_warning_safe(
                 logger,
-                "Error using advanced PCI capability infrastructure: {error}, "
-                "falling back to local implementation",
-                error=e,
+                safe_format(
+                    "Error using advanced PCI capability infrastructure: {error}, "
+                    "falling back to local implementation",
+                    error=e,
+                ),
+                prefix="PCI_CAP",
             )
             # Fall through to local implementation
 
     # Fallback to local implementation for standard capabilities only
     if not cfg or len(cfg) < 512:  # 256 bytes = 512 hex chars
-        log_warning_safe(logger, "Configuration space is too small (need ≥256 bytes)")
+        log_warning_safe(
+            logger,
+            safe_format("Configuration space is too small (need ≥256 bytes)"),
+            prefix="PCI_CAP",
+        )
         return None
 
     try:
@@ -215,23 +245,37 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         cfg_bytes = hex_to_bytes(cfg)
     except ValueError as e:
         log_error_safe(
-            logger, "Invalid hex string in configuration space: {error}", error=e
+            logger,
+            safe_format("Invalid hex string in configuration space: {error}", error=e),
+            prefix="PCI_CAP",
         )
         return None
 
     # Check if capabilities are supported (Status register bit 4)
     status_offset = 0x06
     if not is_valid_offset(cfg_bytes, status_offset, 2):
-        log_warning_safe(logger, "Status register not found in configuration space")
+        log_warning_safe(
+            logger,
+            safe_format("Status register not found in configuration space"),
+            prefix="PCI_CAP",
+        )
         return None
 
     try:
         status = read_u16_le(cfg_bytes, status_offset)
         if not (status & 0x10):  # Check capabilities bit
-            log_debug_safe(logger, "Device does not support capabilities")
+            log_debug_safe(
+                logger,
+                safe_format("Device does not support capabilities"),
+                prefix="PCI_CAP",
+            )
             return None
     except struct.error:
-        log_warning_safe(logger, "Failed to read status register")
+        log_warning_safe(
+            logger,
+            safe_format("Failed to read status register"),
+            prefix="PCI_CAP",
+        )
         return None
 
     # Get capabilities pointer (offset 0x34)
@@ -367,22 +411,34 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
     # Find MSI-X capability (ID 0x11)
     cap = find_cap(cfg, 0x11)
     if cap is None:
-        log_info_safe(logger, "MSI-X capability not found")
+        log_info_safe(
+            logger,
+            "MSI-X capability not found",
+            prefix="PCI_CAP",
+        )
         return result
-    log_debug_safe(logger, "MSI-X capability found at offset 0x{cap:02x}", cap=cap)
+    log_debug_safe(
+        logger,
+        safe_format("MSI-X capability found at offset 0x{cap:02x}", cap=cap),
+        prefix="PCI_CAP",
+    )
     try:
         # Convert hex string to bytes for efficient processing
         cfg_bytes = hex_to_bytes(cfg)
     except ValueError as e:
         log_error_safe(
-            logger, "Invalid hex string in configuration space: {error}", error=e
+            logger,
+            safe_format("Invalid hex string in configuration space: {error}", error=e),
+            prefix="PCI_CAP",
         )
         return result
 
     # Read Message Control register (offset 2 from capability start)
     msg_ctrl_offset = cap + 2
     if not is_valid_offset(cfg_bytes, msg_ctrl_offset, 2):
-        log_warning_safe(logger, "MSI-X Message Control register is out of bounds")
+        log_warning_safe(
+            logger, "MSI-X Message Control register is out of bounds", prefix="PCI_CAP"
+        )
         return result
 
     try:
@@ -397,7 +453,11 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         # Read Table Offset/BIR register (offset 4 from capability start)
         table_offset_bir_offset = cap + 4
         if not is_valid_offset(cfg_bytes, table_offset_bir_offset, 4):
-            log_warning_safe(logger, "MSI-X Table Offset/BIR register is out of bounds")
+            log_warning_safe(
+                logger,
+                "MSI-X Table Offset/BIR register is out of bounds",
+                prefix="PCI_CAP",
+            )
             return result
 
         table_offset_bir = read_u32_le(cfg_bytes, table_offset_bir_offset)
@@ -411,8 +471,11 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         if not is_valid_offset(cfg_bytes, pba_offset_bir_offset, 4):
             log_warning_safe(
                 logger,
-                "MSI-X PBA Offset/BIR register at 0x{offset:02x} is out of bounds",
-                offset=pba_offset_bir_offset,
+                safe_format(
+                    "MSI-X PBA Offset/BIR register at 0x{offset:02x} is out of bounds",
+                    offset=pba_offset_bir_offset,
+                ),
+                prefix="PCI_CAP",
             )
             return result
 
@@ -437,31 +500,37 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
 
         log_info_safe(
             logger,
-            "MSI-X capability found: {table_size} entries, "
-            "table BIR {table_bir} offset 0x{table_offset:x}, "
-            "PBA BIR {pba_bir} offset 0x{pba_offset:x}",
-            table_size=table_size,
-            table_bir=table_bir,
-            table_offset=table_offset,
-            pba_bir=pba_bir,
-            pba_offset=pba_offset,
+            safe_format(
+                "MSI-X capability found: {table_size} entries, "
+                "table BIR {table_bir} offset 0x{table_offset:x}, "
+                "PBA BIR {pba_bir} offset 0x{pba_offset:x}",
+                table_size=table_size,
+                table_bir=table_bir,
+                table_offset=table_offset,
+                pba_bir=pba_bir,
+                pba_offset=pba_offset,
+            ),
         )
-
         # Check for alignment warnings
         if table_offset & 0x7 != 0:
             log_warning_safe(
                 logger,
-                "MSI-X table offset 0x{table_offset:x} is not 8-byte aligned "
-                "(actual offset: 0x{table_offset:x}, aligned: 0x{aligned:x})",
-                table_offset=table_offset,
-                aligned=table_offset & 0xFFFFFFF8,
+                safe_format(
+                    "MSI-X table offset 0x{table_offset:x} is not 8-byte aligned "
+                    "(actual offset: 0x{table_offset:x}, aligned: 0x{aligned:x})",
+                    table_offset=table_offset,
+                    aligned=table_offset & 0xFFFFFFF8,
+                ),
+                prefix="PCI_CAP",
             )
 
         return result
 
     except struct.error as e:
         log_warning_safe(
-            logger, "Error reading MSI-X capability registers: {error}", error=e
+            logger,
+            safe_format("Error reading MSI-X capability registers: {error}", error=e),
+            prefix="PCI_CAP",
         )
         return result
 
@@ -542,8 +611,7 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
             if bar_value != 0:
 
                 try:
-                    from src.device_clone.bar_size_converter import \
-                        BarSizeConverter
+                    from src.device_clone.bar_size_converter import BarSizeConverter
 
                     size = 0  # Skip BarSizeConverter for config space parsing
                 except ImportError:
@@ -577,13 +645,16 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
             bars.append(bar_info)
             log_debug_safe(
                 logger,
-                "Parsed BAR {index}: {type} @ 0x{address:016x}, "
-                "size=0x{size:x}, 64bit={is_64bit}",
-                index=i,
-                type=bar_type,
-                address=base_addr,
-                size=size,
-                is_64bit=is_64bit,
+                safe_format(
+                    "Parsed BAR {index}: {type} @ 0x{address:016x}, "
+                    "size=0x{size:x}, 64bit={is_64bit}",
+                    index=i,
+                    type=bar_type,
+                    address=base_addr,
+                    size=size,
+                    is_64bit=is_64bit,
+                ),
+                prefix="PCI_CAP",
             )
 
             # Skip next BAR if this was 64-bit (it's the upper half)
@@ -595,9 +666,12 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
         except (struct.error, IndexError) as e:
             log_warning_safe(
                 logger,
-                "Error parsing BAR {index}: {error}",
-                index=i,
-                error=e,
+                safe_format(
+                    "Error parsing BAR {index}: {error}",
+                    index=i,
+                    error=e,
+                ),
+                prefix="PCI_CAP",
             )
             i += 1
 
@@ -624,25 +698,49 @@ def validate_msix_configuration_enhanced(
     if table_size == 0:
         errors.append("MSI-X table size is zero")
     elif table_size > 2048:  # PCIe spec maximum
-        errors.append(f"MSI-X table size {table_size} exceeds maximum of 2048")
+        errors.append(
+            safe_format(
+                "MSI-X table size {table_size} exceeds maximum of 2048",
+                table_size=table_size,
+            )
+        )
 
     # Check BIR validity (must be 0-5 for standard BARs)
     table_bir = msix_info.get("table_bir", 0)
     pba_bir = msix_info.get("pba_bir", 0)
 
     if table_bir > 5:
-        errors.append(f"MSI-X table BIR {table_bir} is invalid (must be 0-5)")
+        errors.append(
+            safe_format(
+                "MSI-X table BIR {table_bir} is invalid (must be 0-5)",
+                table_bir=table_bir,
+            )
+        )
     if pba_bir > 5:
-        errors.append(f"MSI-X PBA BIR {pba_bir} is invalid (must be 0-5)")
+        errors.append(
+            safe_format(
+                "MSI-X PBA BIR {pba_bir} is invalid (must be 0-5)", pba_bir=pba_bir
+            )
+        )
 
     # Check alignment requirements
     table_offset = msix_info.get("table_offset", 0)
     pba_offset = msix_info.get("pba_offset", 0)
 
     if table_offset % 8 != 0:
-        errors.append(f"MSI-X table offset 0x{table_offset:x} is not 8-byte aligned")
+        errors.append(
+            safe_format(
+                "MSI-X table offset 0x{table_offset:x} is not 8-byte aligned",
+                table_offset=table_offset,
+            )
+        )
     if pba_offset % 8 != 0:
-        errors.append(f"MSI-X PBA offset 0x{pba_offset:x} is not 8-byte aligned")
+        errors.append(
+            safe_format(
+                "MSI-X PBA offset 0x{pba_offset:x} is not 8-byte aligned",
+                pba_offset=pba_offset,
+            )
+        )
 
     # Enhanced overlap detection with proper BAR parsing
     if table_bir == pba_bir:
@@ -659,8 +757,11 @@ def validate_msix_configuration_enhanced(
         if target_bar is None:
             log_warning_safe(
                 logger,
-                "Could not find BAR {bir} information for overlap validation",
-                bir=table_bir,
+                safe_format(
+                    "Could not find BAR {bir} information for overlap validation",
+                    bir=table_bir,
+                ),
+                prefix="PCI_CAP",
             )
             # Fall back to basic overlap detection
             table_end = table_offset + (table_size * 16)  # 16 bytes per entry
@@ -678,11 +779,14 @@ def validate_msix_configuration_enhanced(
 
             log_debug_safe(
                 logger,
-                "Validating MSI-X overlap in BAR {bir}: size=0x{size:x}, "
-                "64bit={is_64bit}",
-                bir=table_bir,
-                size=bar_size,
-                is_64bit=bar_is_64bit,
+                safe_format(
+                    "Validating MSI-X overlap in BAR {bir}: size=0x{size:x}, "
+                    "64bit={is_64bit}",
+                    bir=table_bir,
+                    size=bar_size,
+                    is_64bit=bar_is_64bit,
+                ),
+                prefix="PCI_CAP",
             )
 
             # Calculate table and PBA regions with proper 64-bit support
@@ -694,36 +798,41 @@ def validate_msix_configuration_enhanced(
             if bar_size > 0:  # Only validate if we have BAR size information
                 if table_end > bar_size:
                     errors.append(
-                        f"MSI-X table extends beyond BAR {table_bir} "
-                        f"(table ends at 0x{table_end:x}, "
-                        f"BAR size is 0x{bar_size:x})"
+                        safe_format(
+                            "MSI-X table extends beyond BAR {bir} "
+                            "(table ends at 0x{table_end:x}, "
+                            "BAR size is 0x{bar_size:x})",
+                            bir=table_bir,
+                            table_end=table_end,
+                            bar_size=bar_size,
+                        )
                     )
 
                 if pba_end > bar_size:
                     errors.append(
-                        f"MSI-X PBA extends beyond BAR {pba_bir} "
-                        f"(PBA ends at 0x{pba_end:x}, BAR size is 0x{bar_size:x})"
+                        safe_format(
+                            "MSI-X PBA extends beyond BAR {bir} "
+                            "(PBA ends at 0x{pba_end:x}, BAR size is 0x{bar_size:x})",
+                            bir=pba_bir,
+                            pba_end=pba_end,
+                            bar_size=bar_size,
+                        )
                     )
 
             # Check for overlap between table and PBA
             if table_offset < pba_end and table_end > pba_offset:
                 errors.append(
-                    f"MSI-X table (0x{table_offset:x}-0x{table_end:x}) and "
-                    f"PBA (0x{pba_offset:x}-0x{pba_end:x}) "
-                    f"overlap in BAR {table_bir}"
+                    safe_format(
+                        "MSI-X table (0x{table_offset:x}-0x{table_end:x}) and "
+                        "PBA (0x{pba_offset:x}-0x{pba_end:x}) "
+                        "overlap in BAR {bir}",
+                        table_offset=table_offset,
+                        table_end=table_end,
+                        pba_offset=pba_offset,
+                        pba_end=pba_end,
+                        bir=table_bir,
+                    )
                 )
-
-            log_debug_safe(
-                logger,
-                "MSI-X overlap validation complete: "
-                "table=0x{table_offset:x}-0x{table_end:x}, "
-                "pba=0x{pba_offset:x}-0x{pba_end:x}, bar_size=0x{bar_size:x}",
-                table_offset=table_offset,
-                table_end=table_end,
-                pba_offset=pba_offset,
-                pba_end=pba_end,
-                bar_size=bar_size,
-            )
 
     _is_valid = len(errors) == 0
     return _is_valid, errors
@@ -753,20 +862,28 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
     if missing_fields:
         log_error_safe(
             logger,
-            "CRITICAL: Missing required MSI-X fields: {fields}",
-            fields=missing_fields,
+            safe_format(
+                "CRITICAL: Missing required MSI-X fields: {fields}",
+                fields=missing_fields,
+            ),
+            prefix="PCI_CAP",
         )
 
         raise ValueError(
-            f"Cannot generate MSI-X module - "
-            f"missing critical fields: {missing_fields}. "
-            f"MSI-X BAR indices and offsets must come "
-            f"from actual hardware configuration."
+            safe_format(
+                "Cannot generate MSI-X module - "
+                "missing critical fields: {fields}. "
+                "MSI-X BAR indices and offsets must come "
+                "from actual hardware configuration.",
+                fields=missing_fields,
+            )
         )
 
     if msix_info["table_size"] == 0:
         log_debug_safe(
-            logger, "MSI-X: Table size is 0, generating disabled MSI-X module"
+            logger,
+            safe_format("MSI-X: Table size is 0, generating disabled MSI-X module"),
+            prefix="PCI_CAP",
         )
         # Generate a proper disabled module instead of returning a comment
         table_size = 1  # Minimum size for valid SystemVerilog
@@ -786,9 +903,9 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
         # Generate alignment warning if needed
         alignment_warning = ""
         if msix_info["table_offset"] % 8 != 0:
-            alignment_warning = (
-                f"// Warning: MSI-X table offset "
-                f"0x{msix_info['table_offset']:x} is not 8-byte aligned"
+            alignment_warning = safe_format(
+                "// Warning: MSI-X table offset " "0x{offset:x} is not 8-byte aligned",
+                offset=msix_info["table_offset"],
             )
 
     # Prepare template context
@@ -842,16 +959,26 @@ def validate_msix_configuration(
         if table_size == 0:
             errors.append("MSI-X table size is zero")
         elif table_size > 2048:  # PCIe spec maximum
-            errors.append(f"MSI-X table size {table_size} exceeds maximum of 2048")
+            errors.append(
+                safe_format(
+                    "MSI-X table size {size} exceeds maximum of 2048", size=table_size
+                )
+            )
 
         # Check BIR validity (must be 0-5 for standard BARs)
         table_bir = msix_info.get("table_bir", 0)
         pba_bir = msix_info.get("pba_bir", 0)
 
         if table_bir > 5:
-            errors.append(f"MSI-X table BIR {table_bir} is invalid (must be 0-5)")
+            errors.append(
+                safe_format(
+                    "MSI-X table BIR {bir} is invalid (must be 0-5)", bir=table_bir
+                )
+            )
         if pba_bir > 5:
-            errors.append(f"MSI-X PBA BIR {pba_bir} is invalid (must be 0-5)")
+            errors.append(
+                safe_format("MSI-X PBA BIR {bir} is invalid (must be 0-5)", bir=pba_bir)
+            )
 
         # Check alignment requirements
         table_offset = msix_info.get("table_offset", 0)
@@ -859,10 +986,18 @@ def validate_msix_configuration(
 
         if table_offset % 8 != 0:
             errors.append(
-                f"MSI-X table offset 0x{table_offset:x} is not 8-byte aligned"
+                safe_format(
+                    "MSI-X table offset 0x{offset:x} is not 8-byte aligned",
+                    offset=table_offset,
+                )
             )
         if pba_offset % 8 != 0:
-            errors.append(f"MSI-X PBA offset 0x{pba_offset:x} is not 8-byte aligned")
+            errors.append(
+                safe_format(
+                    "MSI-X PBA offset 0x{offset:x} is not 8-byte aligned",
+                    offset=pba_offset,
+                )
+            )
 
         # Basic overlap detection for legacy mode
         if table_bir == pba_bir:
@@ -923,35 +1058,42 @@ if __name__ == "__main__":
         config_space = f.read().strip()
 
     msix_info = parse_msix_capability(config_space)
-    print(f"MSI-X Table Size: {msix_info['table_size']}")
-    print(f"MSI-X Table BIR: {msix_info['table_bir']}")
-    print(f"MSI-X Table Offset: 0x{msix_info['table_offset']:x}")
-    print(f"MSI-X PBA BIR: {msix_info['pba_bir']}")
-    print(f"MSI-X PBA Offset: 0x{msix_info['pba_offset']:x}")
-    print(f"MSI-X Enabled: {msix_info['enabled']}")
-    print(f"MSI-X Function Mask: {msix_info['function_mask']}")
+
+    # Pretty table for MSI-X summary using shared formatter
+
+    msix_rows: List[Tuple[str, str]] = [
+        ("Table Size", str(msix_info.get("table_size", 0))),
+        ("Table BIR", str(msix_info.get("table_bir", 0))),
+        ("Table Offset", f"0x{msix_info.get('table_offset', 0):x}"),
+        ("PBA BIR", str(msix_info.get("pba_bir", 0))),
+        ("PBA Offset", f"0x{msix_info.get('pba_offset', 0):x}"),
+        ("Enabled", "yes" if msix_info.get("enabled", False) else "no"),
+        ("Function Mask", "yes" if msix_info.get("function_mask", False) else "no"),
+    ]
+    print(format_kv_table(msix_rows, title="MSI-X Summary"))
 
     # Enhanced validation with BAR parsing
     is_valid, errors = validate_msix_configuration(msix_info, config_space)
-    print(f"\nValidation Result: {'VALID' if is_valid else 'INVALID'}")
+    safe_print_format(
+        template="Validation Result: {status}",
+        prefix="PCI_CAP",
+        status=("VALID" if is_valid else "INVALID"),
+    )
     if errors:
-        print("Validation Errors:")
-        for error in errors:
-            print(f"  - {error}")
+        # Render errors in a compact table
+        err_rows = [("Issue", e) for e in errors]
+    print(format_kv_table(err_rows, title="Validation Errors"))
 
     # Parse and display BAR information
     bars = parse_bar_info_from_config_space(config_space)
     if bars:
-        print(f"\nParsed BARs ({len(bars)} active):")
-        for bar in bars:
-            BITNESS = "64-bit" if bar["is_64bit"] else "32-bit"
-            PREFETCH = "prefetchable" if bar["prefetchable"] else "non-prefetchable"
-            print(
-                f"  BAR {bar['index']}: {bar['bar_type']} @ "
-                f"0x{bar['address']:016x}, "
-                f"size=0x{bar['size']:x} ({BITNESS}, {PREFETCH})"
-            )
+        safe_print_format(
+            template="Parsed BARs ({count} active):",
+            prefix="PCI_CAP",
+            count=len(bars),
+        )
+        print(format_raw_bar_table(bars, device_bdf="N/A"))
 
     sv_code = generate_msix_table_sv(msix_info)
-    print("\nSystemVerilog Code:")
+    safe_print_format(template="SystemVerilog Code:", prefix="PCI_CAP")
     print(sv_code)

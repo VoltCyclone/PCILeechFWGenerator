@@ -14,9 +14,7 @@ import fcntl
 import logging
 import os
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime
 from enum import Enum
-from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict, Union, cast
 
@@ -261,10 +259,12 @@ class BarConfiguration:
             raise ContextError(f"Invalid BAR index: {self.index}")
         # BAR size must be a positive 32-bit unsigned value
         if self.size <= 0:
-            raise ContextError(f"Invalid BAR size: {self.size}")
+            raise ContextError(safe_format("Invalid BAR size: {size}", size=self.size))
         if self.size > MAX_32BIT_VALUE:
             raise ContextError(
-                f"Invalid BAR size: {self.size} (exceeds 32-bit unsigned)"
+                safe_format(
+                    "Invalid BAR size: {size} (exceeds 32-bit unsigned)", size=self.size
+                )
             )
 
         if self.is_memory and self.bar_type == BAR_TYPE_MEMORY_64BIT:
@@ -384,19 +384,31 @@ class VFIODeviceManager:
                 # are honored by tests.
                 group = vfio_helpers.ensure_device_vfio_binding(self.device_bdf)
                 log_info_safe(
-                    self.logger, f"Device {self.device_bdf} bound to VFIO group {group}"
+                    self.logger,
+                    safe_format(
+                        "Device {device} bound to VFIO group {group}",
+                        device=self.device_bdf,
+                        group=group,
+                    ),
+                    prefix="VFIO",
                 )
             except Exception as e:
                 # Log non-fatally; higher-level callers may re-run the check
                 # and decide to abort the operation if required.
                 log_warning_safe(
-                    self.logger, f"VFIO binding check failed after open: {e}"
+                    self.logger,
+                    safe_format(
+                        "VFIO binding check failed after open: {error}", error=e
+                    ),
+                    prefix="VFIO",
                 )
 
             return self._device_fd, self._container_fd
         except Exception as e:
             log_error_safe(
-                self.logger, f"Failed to open VFIO device: {e}", prefix="VFIO"
+                self.logger,
+                safe_format("Failed to open VFIO device: {error}", error=e),
+                prefix="VFIO",
             )
             raise
 
@@ -419,7 +431,9 @@ class VFIODeviceManager:
                 self.open()
             except (OSError, PermissionError, FileNotFoundError) as e:
                 log_error_safe(
-                    self.logger, f"VFIO device open failed: {e}", prefix="VFIO"
+                    self.logger,
+                    safe_format("VFIO device open failed: {error}", error=e),
+                    prefix="VFIO",
                 )
                 return None
 
@@ -457,7 +471,11 @@ class VFIODeviceManager:
 
             return result
         except OSError as e:
-            log_error_safe(self.logger, f"VFIO region info failed: {e}", prefix="VFIO")
+            log_error_safe(
+                self.logger,
+                safe_format("VFIO region info failed: {error}", error=e),
+                prefix="VFIO",
+            )
             # Clean up if we opened the FDs here
             if opened_here:
                 self.close()
@@ -659,7 +677,11 @@ class PCILeechContextBuilder:
 
         log_info_safe(
             self.logger,
-            f"Context built successfully: {context.get('device_signature', 'unknown')}",
+            safe_format(
+                "Context built successfully: {sig}",
+                sig=context.get("device_signature", "unknown"),
+            ),
+            prefix="PCIL",
         )
         return context
 
@@ -964,6 +986,11 @@ class PCILeechContextBuilder:
             "enable_advanced_features": getattr(
                 self.config, "enable_advanced_features", False
             ),
+            # Ensure templates can check for error injection hooks without crashing
+            # This mirrors CLI/config flag --enable-error-injection handled upstream
+            "enable_error_injection": getattr(
+                self.config, "enable_error_injection", False
+            ),
             "enable_dma_operations": getattr(
                 self.config, "enable_dma_operations", False
             ),
@@ -1144,16 +1171,22 @@ class PCILeechContextBuilder:
         primary_bar = self._select_primary_bar(bar_configs)
         log_info_safe(
             self.logger,
-            f"Primary BAR: index={primary_bar.index}, size={primary_bar.size_mb:.2f}MB",
+            safe_format(
+                "Primary BAR: index={index}, size={size:.2f}MB",
+                index=primary_bar.index,
+                size=primary_bar.size_mb,
+            ),
+            prefix="BAR",
         )
         config = self._build_bar_config_dict(primary_bar, bar_configs)
         # --- BAR content generation integration ---
         # Use device signature if available, else fallback to vendor:device
         device_signature = config_space_data.get("device_signature")
         if not device_signature:
-            device_signature = (
-                f"{config_space_data.get('vendor_id','')}:"
-                f"{config_space_data.get('device_id','')}"
+            device_signature = safe_format(
+                "{vendor}:{device}",
+                vendor=config_space_data.get("vendor_id", ""),
+                device=config_space_data.get("device_id", ""),
             )
         bar_sizes = {b.index: b.size for b in bar_configs if b.size > 0}
         bar_content_gen = BarContentGenerator(device_signature=device_signature)
@@ -1183,7 +1216,13 @@ class PCILeechContextBuilder:
                 if bar_info:
                     bar_configs.append(bar_info)
             except Exception as e:
-                log_warning_safe(self.logger, f"BAR {i} analysis failed: {e}")
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to analyze BAR {index}: {error}", index=i, error=str(e)
+                    ),
+                    prefix="BAR",
+                )
         return bar_configs
 
     def _select_primary_bar(self, bar_configs):
@@ -1211,8 +1250,6 @@ class PCILeechContextBuilder:
         try:
             size = extract_bar_size(region_info)
         except Exception as e:
-            from src.string_utils import log_error_safe, safe_format
-
             log_error_safe(
                 self.logger,
                 safe_format(
@@ -1267,14 +1304,27 @@ class PCILeechContextBuilder:
                     # Use the more reliable sysfs resource size
                     log_warning_safe(
                         self.logger,
-                        f"BAR {index}: VFIO size {size}B < {min_mem}B; using sysfs size {fallback_size}B",
+                        safe_format(
+                            "BAR {index}: VFIO size {size}B < {min_mem}B; using sysfs size {fallback_size}B",
+                            index=index,
+                            size=size,
+                            min_mem=min_mem,
+                            fallback_size=fallback_size,
+                        ),
+                        prefix="BAR",
                     )
                     size = fallback_size
                 else:
                     # Skip invalid/small memory BARs
                     log_warning_safe(
                         self.logger,
-                        f"Skipping BAR {index}: memory BAR size {size}B below minimum {min_mem}B",
+                        safe_format(
+                            "Skipping BAR {index}: memory BAR size {size}B below minimum {min_mem}B",
+                            index=index,
+                            size=size,
+                            min_mem=min_mem,
+                        ),
+                        prefix="BAR",
                     )
                     return None
 
@@ -1300,13 +1350,21 @@ class PCILeechContextBuilder:
                 with open(power_state_path, "r") as f:
                     state = f.read().strip()
                     if state != POWER_STATE_D0:  # Power state D0 (fully on)
-                        log_info_safe(self.logger, f"Waking device from {state}")
+                        log_info_safe(
+                            self.logger,
+                            safe_format("Waking device from {state}", state=state),
+                            prefix="PWR",
+                        )
                         # Wake device by accessing config space
                         config_path = f"/sys/bus/pci/devices/{self.device_bdf}/config"
                         with open(config_path, "rb") as f:
                             f.read(4)  # Read vendor ID to wake device
         except Exception as e:
-            log_warning_safe(self.logger, f"Power state check failed: {e}")
+            log_warning_safe(
+                self.logger,
+                safe_format("Power state check failed: {error}", error=e),
+                prefix="PWR",
+            )
 
     def _adjust_bar_config_for_behavior(
         self, config: Dict[str, Any], profile: BehaviorProfile
@@ -1709,19 +1767,31 @@ class PCILeechContextBuilder:
                 log_warning_safe(
                     self.logger,
                     "No board specified in config, using fallback detection",
+                    prefix="PCIL",
                 )
                 # Use a default board or get from constants
                 from src.device_clone.constants import BOARD_PARTS
 
                 board_name = list(BOARD_PARTS.keys())[0]  # Use first available board
 
-            log_info_safe(self.logger, f"Building board configuration for {board_name}")
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Building board configuration for {board_name}",
+                    board_name=board_name,
+                ),
+                prefix="PCIL",
+            )
 
             board_config = get_pcileech_board_config(board_name)
 
             log_info_safe(
                 self.logger,
-                f"Board configuration loaded: {board_config.get('fpga_part', 'unknown')}",
+                safe_format(
+                    "Board configuration loaded: {fpga_part}",
+                    fpga_part=board_config.get("fpga_part", "unknown"),
+                ),
+                prefix="PCIL",
             )
 
             # Pass only the fields present in board_config; builder should handle defaults internally
@@ -1730,7 +1800,7 @@ class PCILeechContextBuilder:
         except Exception as e:
             log_error_safe(
                 self.logger,
-                f"Failed to build board configuration: {e}",
+                safe_format("Failed to build board configuration: {error}", error=e),
                 prefix="PCIL",
             )
             # Return a minimal board config to prevent template validation failure
