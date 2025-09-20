@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 
 ## 📑 Table of Contents
 
+- [Version 0.13.25 (2025-09-20)](#version-01325-2025-09-20)
 - [Version 0.13.24 (2025-09-17)](#version-01324-2025-09-17)
 - [Version 0.13.23 (2025-09-16)](#version-01323-2025-09-16)
 - [Version 0.13.22 (2025-09-16)](#version-01322-2025-09-16)
@@ -35,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 - [Version 0.13.5 (2025-08-22)](#version-0135-2025-08-22)
 - [Version 0.13.4 (2025-08-16)](#version-0134-2025-08-16)
 - [Version 0.5.8 (2025-06-09)](#020---2025-06-09)
+
+---
+## Version 0.13.25 (2025-09-20)
+
+### Other
+
+- 389 bug 01324 (#390).
+- :arrow_up:(deps): Bump actions/checkout from 4 to 5 (#290).
 
 ---
 ## Version 0.13.24 (2025-09-17)
