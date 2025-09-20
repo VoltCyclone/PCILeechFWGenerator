@@ -15,7 +15,7 @@ import logging
 import warnings
 from typing import Any, Dict, Optional
 
-from string_utils import log_warning_safe, safe_format
+from src.string_utils import log_warning_safe, safe_format
 
 # Import the new implementations
 from .systemverilog_generator import MSIXHelper, SystemVerilogGenerator

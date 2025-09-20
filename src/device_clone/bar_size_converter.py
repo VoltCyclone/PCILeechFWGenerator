@@ -12,7 +12,7 @@ from typing import Optional, Tuple, Union
 
 from src.device_clone.constants import BAR_SIZE_CONSTANTS
 from src.exceptions import ContextError
-from string_utils import (
+from src.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,

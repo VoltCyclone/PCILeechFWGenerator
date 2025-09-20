@@ -24,7 +24,7 @@ from src.utils.context_error_messages import (
 )
 from src.utils.version_resolver import get_package_version
 
-from string_utils import (
+from src.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
@@ -222,6 +222,12 @@ class TemplateObject:
             return DEFAULT_TEMPERATURE_COEFFICIENT
         if name == "voltage_variation":
             return DEFAULT_VOLTAGE_VARIATION
+        if name == "enable_error_injection":
+            return False  # Safe default for error injection
+        if name == "enable_advanced_features":
+            return True  # Safe default for advanced features
+        if name == "enable_dma_operations":
+            return True  # Safe default for DMA operations
 
         # Otherwise raise AttributeError
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")

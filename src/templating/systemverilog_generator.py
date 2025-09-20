@@ -587,7 +587,7 @@ class SystemVerilogGenerator:
         """
         import logging
 
-        from string_utils import log_error_safe, log_info_safe, safe_format
+        from src.string_utils import log_error_safe, log_info_safe, safe_format
 
         logger = logging.getLogger(__name__)
         msix_config = context.get("msix_config", {})

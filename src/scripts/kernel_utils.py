@@ -23,11 +23,16 @@ import tarfile
 from typing import Any, Dict, List, Optional, Union
 
 from src.log_config import get_logger
-from src.utils.unified_context import \
-    TemplateObject  # For context compatibility
+from src.utils.unified_context import TemplateObject  # For context compatibility
+
 # Project logging & safe string formatting utilities (mandatory per repo style)
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = get_logger(__name__)
 
@@ -163,6 +168,42 @@ def setup_debugfs() -> None:
                 return  # Already mounted
         except RuntimeError:
             # grep returns non-zero if no matches found, which is expected
+            # Attempt to mount debugfs directly if grep fails
+            log_debug_safe(
+                logger, "No debugfs mount found, attempting to mount", prefix="KERNEL"
+            )
+            try:
+                # Try mounting debugfs without check=True to avoid failing on mount errors
+                result = subprocess.run(
+                    ["mount", "-t", "debugfs", "none", "/sys/kernel/debug"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    log_info_safe(
+                        logger,
+                        "Successfully mounted debugfs at /sys/kernel/debug",
+                        prefix="KERNEL",
+                    )
+                    return
+                else:
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Failed to mount debugfs (non-fatal): {err}",
+                            err=result.stderr.strip(),
+                        ),
+                        prefix="KERNEL",
+                    )
+            except Exception as mount_e:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Debugfs mount attempt failed (non-fatal): {e}", e=mount_e
+                    ),
+                    prefix="KERNEL",
+                )
             pass
 
         # Check if debugfs is supported in kernel

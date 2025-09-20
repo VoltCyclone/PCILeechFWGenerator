@@ -22,20 +22,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from src.templating.template_context_validator import \
-    clear_global_template_cache
+from src.templating.template_context_validator import clear_global_template_cache
 from src.utils.log_phases import PhaseLogger
-from string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                          log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
+
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (ConfigurationError, FileOperationError,
-                         ModuleImportError, MSIXPreloadError,
-                         PCILeechBuildError, PlatformCompatibilityError,
-                         VivadoIntegrationError)
+from .exceptions import (
+    ConfigurationError,
+    FileOperationError,
+    ModuleImportError,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    PlatformCompatibilityError,
+    VivadoIntegrationError,
+)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1061,8 +1071,10 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                      PCILeechGenerator)
+        from .device_clone.pcileech_generator import (
+            PCILeechGenerationConfig,
+            PCILeechGenerator,
+        )
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1088,8 +1100,7 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import \
-                DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
@@ -1317,8 +1328,7 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1693,9 +1703,11 @@ def _maybe_emit_issue_report(
         repro_cmd = _build_reproduction_command(args)
 
     try:
-        from src.error_utils import (build_issue_report,
-                                     format_issue_report_human_hint,
-                                     write_issue_report)
+        from src.error_utils import (
+            build_issue_report,
+            format_issue_report_human_hint,
+            write_issue_report,
+        )
 
         report = None
         if want_file or want_stdout:
