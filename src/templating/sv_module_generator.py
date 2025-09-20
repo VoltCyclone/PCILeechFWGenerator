@@ -254,12 +254,16 @@ class SVModuleGenerator:
             # Fail fast with actionable logs; these values must be present.
             log_error_safe(
                 self.logger,
-                "Missing required device identifiers: vendor_id={vid}, device_id={did}",
+                safe_format(
+                    "Missing required device identifiers: vendor_id={vid}, device_id={did}",
+                    vid=str(vid),
+                    did=str(did),
+                ),
                 prefix=self.prefix,
-                vid=str(vid),
-                did=str(did),
             )
-            raise TemplateRenderError(self.messages.get("missing_device_config"))
+            raise TemplateRenderError(
+                self.messages.get("missing_device_config") or "Missing device configuration"
+            )
 
         # Normalize `device` in context without mutating original input.
         if (
