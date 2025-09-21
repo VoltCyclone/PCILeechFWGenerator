@@ -141,20 +141,59 @@ class ErrorHandler:
         )
 
     def _write_traceback_to_file(self, context: str, tb_str: str) -> None:
-        """Append a timestamped traceback to the persistent error log.
+        """Append a standardized, timestamped traceback to logs/error.log.
 
-        The log is stored under `logs/error.log` relative to the repository root.
+        Format:
+            ==== ERROR REPORT ===============================
+            TIME: 2025-09-21T14:23:45Z
+            CONTEXT: <context>
+            TRACEBACK:
+            <full traceback>
+            =================================================
         """
+        # Local import to avoid top-level dependency cycles
+        try:
+            from src.string_utils import utc_timestamp, safe_format
+        except Exception:
+            # Fallbacks if utilities unavailable for any reason
+
+            def utc_timestamp(  # type: ignore
+                precise: bool = True, *args: Any, **kwargs: Any
+            ) -> str:
+                ts = datetime.utcnow().isoformat()
+                return ts if ts.endswith("Z") else ts + "Z"
+
+            def safe_format(template: str, **kwargs: Any) -> str:  # type: ignore
+                try:
+                    return template.format(**kwargs)
+                except Exception:
+                    return template
+
         try:
             log_dir = os.path.join(os.getcwd(), "logs")
             os.makedirs(log_dir, exist_ok=True)
             log_path = os.path.join(log_dir, "error.log")
 
-            with open(log_path, "a") as f:
-                f.write("\n--- ERROR: " + datetime.utcnow().isoformat() + " UTC ---\n")
-                f.write(f"Context: {context}\n")
-                f.write(tb_str)
+            # Normalize traceback to end with a newline and indent for readability
+            tb_str_norm = tb_str if tb_str.endswith("\n") else tb_str + "\n"
+            tb_lines = [
+                f"  {line}" if not line.startswith(" ") else line
+                for line in tb_str_norm.splitlines(True)
+            ]
+
+            header = (
+                "==== ERROR REPORT ===============================\n"
+                + safe_format("TIME: {ts}\n", ts=utc_timestamp(precise=True))
+                + safe_format("CONTEXT: {ctx}\n", ctx=context)
+                + "TRACEBACK:\n"
+            )
+            footer = "=================================================\n"
+
+            with open(log_path, "a", encoding="utf-8") as f:
                 f.write("\n")
+                f.write(header)
+                f.writelines(tb_lines)
+                f.write(footer)
         except Exception:
             # Don't raise from the logger
             logger.exception("Failed to persist traceback to file")

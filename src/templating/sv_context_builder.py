@@ -1,14 +1,20 @@
 """Context builder for SystemVerilog generation."""
 
 import logging
+
 from typing import Any, Dict, List
 
 from src.string_utils import log_warning_safe
 
-from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
-                                     PCILEECH_DEFAULT, TemplateObject,
-                                     normalize_config_to_dict)
+from ..utils.unified_context import (
+    DEFAULT_TIMING_CONFIG,
+    MSIX_DEFAULT,
+    PCILEECH_DEFAULT,
+    TemplateObject,
+    normalize_config_to_dict,
+)
 from .sv_constants import SV_CONSTANTS
+
 from .template_renderer import TemplateRenderError
 
 
@@ -339,14 +345,10 @@ class SVContextBuilder:
         # Add Python builtins
         context["getattr"] = getattr
 
-        # Add log2 function
-        def log2(x):
-            try:
-                return (x.bit_length() - 1) if isinstance(x, int) and x > 0 else 0
-            except Exception:
-                return 0
-
-        context["log2"] = log2
+        # Add log2 helper without nested def to satisfy linters
+        context["log2"] = lambda x: (
+            (x.bit_length() - 1) if isinstance(x, int) and x > 0 else 0
+        )
 
     def _add_compatibility_fields(
         self, context: Dict[str, Any], template_context: Dict[str, Any]
@@ -381,6 +383,45 @@ class SVContextBuilder:
         context["enable_error_logging"] = bool(
             context.get("error_handling", {}).get("enable_error_logging", False)
         )
+
+        # Ensure device_config exposes critical attributes expected by SV templates.
+        # Prefer dynamic values already present in the composed context; fall back to
+        # conservative defaults from pcileech_config when missing. This avoids
+        # Jinja AttributeError during strict rendering while keeping values
+        # donor-derived when available.
+        try:
+            dc = context.get("device_config")
+            pcfg = context.get("pcileech_config")
+
+            # Derive max payload size in priority order:
+            # 1) top-level context["max_payload_size"] (already coerced to int)
+            # 2) pcileech_config.max_payload_size
+            # 3) static conservative default (256)
+            derived_mps = (
+                int(context.get("max_payload_size", 0))
+                or (int(getattr(pcfg, "max_payload_size", 0)) if pcfg else 0)
+                or 256
+            )
+
+            # Derive MSI(-X) vectors in priority order:
+            # 1) msix_config.num_vectors when supported (>0)
+            # 2) top-level context["msi_vectors"]
+            # 3) conservative default (0)
+            msix_vectors = self._safe_get_int(msix_config, "num_vectors", 0)
+            derived_vectors = (
+                msix_vectors if msix_vectors > 0 else int(context.get("msi_vectors", 0))
+            )
+
+            # Populate device_config defaults only if missing to preserve
+            # upstream donor-provided values.
+            if isinstance(dc, TemplateObject):
+                if not hasattr(dc, "max_payload_size"):
+                    dc.setdefault("max_payload_size", int(derived_mps))
+                if not hasattr(dc, "msi_vectors"):
+                    dc.setdefault("msi_vectors", int(derived_vectors))
+        except Exception:
+            # Never let compatibility propagation break context building
+            pass
 
         # BAR and config space
         context["bar"] = template_context.get("bar", [])
