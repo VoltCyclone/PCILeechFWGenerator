@@ -184,8 +184,7 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
                 log_debug_safe(
                     logger,
                     safe_format(
-                        "Found capability ID 0x{cap_id:02x} at ",
-                        " standard offset 0x{offset:02x}",
+                        "Found capability ID 0x{cap_id:02x} at standard offset 0x{offset:02x}",
                         cap_id=cap_id,
                         offset=standard_offset,
                     ),
