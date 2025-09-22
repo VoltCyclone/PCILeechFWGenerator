@@ -4,6 +4,8 @@ Centralized normalization and validation utilities for PCILeech identifiers and 
 """
 from typing import Any, Optional
 
+from src.string_utils import safe_format
+
 
 class IdentifierNormalizer:
     """Utility for hex normalization and identifier validation."""
@@ -30,16 +32,33 @@ class IdentifierNormalizer:
 
         # Check for empty or None
         if not value or str(value).strip() == "":
-            raise ContextError(f"Missing {field_name}: {field_name} cannot be empty")
+            raise ContextError(
+                safe_format(
+                    "Missing {field_name}: {field_name} cannot be empty",
+                    field_name=field_name,
+                )
+            )
         norm = IdentifierNormalizer.normalize_hex(value, length)
         # Check for invalid hex format
         try:
             int(str(value).lower().replace("0x", ""), 16)
         except Exception:
-            raise ContextError(f"Invalid hex format for {field_name}: '{value}'")
+            raise ContextError(
+                safe_format(
+                    "Invalid hex format for {field_name}: '{value}'",
+                    field_name=field_name,
+                    value=value,
+                )
+            )
         if len(norm) != length:
             raise ContextError(
-                f"Invalid hex format for {field_name}: '{value}' (length {len(norm)} != {length})"
+                safe_format(
+                    "Invalid hex format for {field_name}: '{value}' (length {len(norm)} != {length})",
+                    field_name=field_name,
+                    value=value,
+                    len=len(norm),
+                    length=length,
+                )
             )
         return norm
 

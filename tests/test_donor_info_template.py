@@ -224,16 +224,14 @@ class TestDonorInfoTemplateGenerator:
 
     def test_generate_template_with_comments(self):
         """Test generating template with inline comments."""
-        template_str = DonorInfoTemplateGenerator.generate_template_with_comments()
 
-        # Should contain comment markers
-        assert "//" in template_str
-        assert "Auto-generated timestamp" in template_str
-        assert "PCIe Bus:Device.Function" in template_str
+    template_str = DonorInfoTemplateGenerator.generate_template_with_comments()
 
-        # Note: This won't be valid JSON due to comments
-        with pytest.raises(json.JSONDecodeError):
-            json.loads(template_str)
+    # Should be valid JSON and contain $comment guidance fields
+    loaded = json.loads(template_str)
+    assert "$comment" in loaded
+    assert "$comment" in loaded.get("metadata", {})
+    assert "$comment" in loaded.get("device_info", {})
 
     def test_validate_template_valid(self):
         """Test validating a valid template."""

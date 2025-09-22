@@ -13,8 +13,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from ..log_config import get_logger
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
 from .repo_manager import RepoManager
 
 logger = get_logger(__name__)
@@ -44,7 +48,8 @@ class BoardDiscovery:
         "35t325_x4": {"fpga_part": "xc7a35tcsg324-2", "max_lanes": 4},
         "35t325_x1": {"fpga_part": "xc7a35tcsg324-2", "max_lanes": 1},
         "100t484-1": {
-            "fpga_part": "xczu3eg-sbva484-1-e",
+            # CaptainDMA 100T board uses Artix-7 100T in FFG484 package
+            "fpga_part": "xc7a100tffg484-1",
             "max_lanes": 1,
             "canonical_name": "pcileech_100t484_x1",
         },

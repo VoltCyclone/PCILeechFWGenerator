@@ -2,36 +2,50 @@
 """
 Advanced SystemVerilog Features Module
 
-This module consolidates all advanced SystemVerilog generation features including
-error handling, performance monitoring, and power management into a single,
-cohesi            return self._generate_module_template(
-                "error_handling_advanced",
-                context,
-                error_detection,
-                error_state_machine,
-                error_logging,
-                error_counters,
-            ) to reduce import complexity.
+Consolidates advanced SystemVerilog generation features such as error handling,
+performance monitoring, and power management into one cohesive generator to
+reduce import complexity.
 """
 
 import logging
+
 from dataclasses import dataclass, field
+
 from enum import Enum
+
 from typing import Dict, List, Optional, Set
+
+# Centralized version import (avoid hardcoding versions)
+try:
+    from ..__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
+except Exception:  # pragma: no cover - fallback if package structure differs
+    try:
+        from src.__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
+    except Exception:
+        PCILEECH_FWGEN_VERSION = "unknown"
 
 # Import standard utilities
 try:
-    from ..string_utils import (generate_sv_header_comment, log_debug_safe,
-                                log_error_safe, log_info_safe,
-                                log_warning_safe, safe_format)
+    from ..string_utils import (
+        generate_sv_header_comment,
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
     from .template_renderer import TemplateRenderer, TemplateRenderError
 except ImportError:
     # Fallback for standalone usage
-    from src.string_utils import (generate_sv_header_comment, log_debug_safe,
-                                  log_error_safe, log_info_safe,
-                                  log_warning_safe, safe_format)
-    from src.templating.template_renderer import (TemplateRenderer,
-                                                  TemplateRenderError)
+    from src.string_utils import (
+        generate_sv_header_comment,
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
+    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -96,6 +110,7 @@ class ErrorHandlingConfig:
     recoverable_errors: Set[ErrorType] = field(
         default_factory=lambda: {ErrorType.PARITY, ErrorType.CRC, ErrorType.TIMEOUT}
     )
+
     fatal_errors: Set[ErrorType] = field(
         default_factory=lambda: {ErrorType.PROTOCOL, ErrorType.INVALID_TLP}
     )
@@ -220,8 +235,7 @@ class AdvancedSVFeatureGenerator:
 
         try:
             # Import here to avoid circular imports
-            from .advanced_sv_error import (ErrorHandlingConfig,
-                                            ErrorHandlingGenerator)
+            from .advanced_sv_error import ErrorHandlingConfig, ErrorHandlingGenerator
 
             # Create error handling configuration from our config
             error_config = ErrorHandlingConfig(
@@ -258,17 +272,21 @@ class AdvancedSVFeatureGenerator:
         except ImportError as e:
             log_error_safe(
                 logger,
-                "Failed to import error handling generator: {error}",
+                safe_format(
+                    "Failed to import error handling generator: {error}",
+                    error=str(e),
+                ),
                 prefix="ERROR_GEN",
-                error=str(e),
             )
             return self._generate_fallback_error_module()
         except Exception as e:
             log_error_safe(
                 logger,
-                "Error generating error handling module: {error}",
+                safe_format(
+                    "Error generating error handling module: {error}",
+                    error=str(e),
+                ),
                 prefix="ERROR_GEN",
-                error=str(e),
             )
             return self._generate_fallback_error_module()
 
@@ -304,9 +322,11 @@ class AdvancedSVFeatureGenerator:
         except Exception as e:
             log_error_safe(
                 logger,
-                "Error generating performance monitor module: {error}",
+                safe_format(
+                    "Error generating performance monitor module: {error}",
+                    error=str(e),
+                ),
                 prefix="PERF_GEN",
-                error=str(e),
             )
             return self._generate_fallback_performance_module()
 
@@ -340,9 +360,11 @@ class AdvancedSVFeatureGenerator:
         except Exception as e:
             log_error_safe(
                 logger,
-                "Error generating power management module: {error}",
+                safe_format(
+                    "Error generating power management module: {error}",
+                    error=str(e),
+                ),
                 prefix="POWER_GEN",
-                error=str(e),
             )
             return self._generate_fallback_power_module()
 
@@ -397,9 +419,11 @@ class AdvancedSVFeatureGenerator:
         try:
             log_debug_safe(
                 logger,
-                "Generating module template for {module}",
+                safe_format(
+                    "Generating module template for {module}",
+                    module=module_name,
+                ),
                 prefix="TEMPLATE",
-                module=module_name,
             )
 
             # Try to use Jinja2 template first
@@ -412,18 +436,22 @@ class AdvancedSVFeatureGenerator:
             except TemplateRenderError:
                 log_warning_safe(
                     logger,
-                    "Template {template_name} not found, using fallback generation",
+                    safe_format(
+                        "Template {template_name} not found, using fallback generation",
+                        template_name=template_name,
+                    ),
                     prefix="TEMPLATE",
-                    template_name=template_name,
                 )
                 return self._generate_fallback_module(module_name, context, *components)
 
         except Exception as e:
             log_error_safe(
                 logger,
-                "Error in template generation: {error}",
+                safe_format(
+                    "Error in template generation: {error}",
+                    error=str(e),
+                ),
                 prefix="TEMPLATE",
-                error=str(e),
             )
             return self._generate_fallback_module(module_name, context, *components)
 
@@ -433,9 +461,11 @@ class AdvancedSVFeatureGenerator:
         """Generate a fallback module when templates are not available."""
         log_info_safe(
             logger,
-            "Using fallback module generation for {module}",
+            safe_format(
+                "Using fallback module generation for {module}",
+                module=module_name,
+            ),
             prefix="FALLBACK",
-            module=module_name,
         )
 
         header = generate_sv_header_comment(
@@ -444,7 +474,7 @@ class AdvancedSVFeatureGenerator:
                 module_name=module_name.replace("_", " ").title(),
             ),
             generator="AdvancedSVFeatureGenerator",
-            version="0.7.5",
+            version=PCILEECH_FWGEN_VERSION,
         )
 
         module_body = "\n\n".join(filter(None, components))
@@ -478,9 +508,11 @@ endmodule
         """Generate appropriate ports based on module type."""
         log_debug_safe(
             logger,
-            "Generating ports for {module_name}",
+            safe_format(
+                "Generating ports for {module_name}",
+                module_name=module_name,
+            ),
             prefix="PORTS",
-            module_name=module_name,
         )
 
         if module_name == "error_handler":
@@ -510,9 +542,11 @@ endmodule
         else:
             log_warning_safe(
                 logger,
-                "Unknown module type {module_name}, using default ports",
+                safe_format(
+                    "Unknown module type {module_name}, using default ports",
+                    module_name=module_name,
+                ),
                 prefix="PORTS",
-                module_name=module_name,
             )
             return ""
 

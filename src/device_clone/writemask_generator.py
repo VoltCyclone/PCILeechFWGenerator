@@ -16,8 +16,13 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -615,15 +620,3 @@ class WritemaskGenerator:
                     f.write(",\n")
                 else:
                     f.write(";\n")
-
-
-# Standalone CLI functionality
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 3:
-        print("Usage: python writemask_generator.py <input.coe> <output.coe>")
-        sys.exit(1)
-
-    generator = WritemaskGenerator()
-    generator.generate_writemask(Path(sys.argv[1]), Path(sys.argv[2]))

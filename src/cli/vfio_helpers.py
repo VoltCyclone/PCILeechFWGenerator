@@ -7,16 +7,28 @@ import fcntl
 import logging
 import os
 
-from .vfio_constants import (VFIO_CHECK_EXTENSION, VFIO_GET_API_VERSION,
-                             VFIO_GROUP_FLAGS_VIABLE, VFIO_GROUP_GET_DEVICE_FD,
-                             VFIO_GROUP_GET_STATUS, VFIO_GROUP_SET_CONTAINER,
-                             VFIO_SET_IOMMU, VFIO_TYPE1_IOMMU,
-                             vfio_group_status)
+from src.string_utils import safe_format
+
+from .vfio_constants import (
+    VFIO_CHECK_EXTENSION,
+    VFIO_GET_API_VERSION,
+    VFIO_GROUP_FLAGS_VIABLE,
+    VFIO_GROUP_GET_DEVICE_FD,
+    VFIO_GROUP_GET_STATUS,
+    VFIO_GROUP_SET_CONTAINER,
+    VFIO_SET_IOMMU,
+    VFIO_TYPE1_IOMMU,
+    vfio_group_status,
+)
 
 # Import safe logging functions
 try:
-    from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                                log_warning_safe)
+    from ..string_utils import (
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+    )
 except ImportError:
     # Fallback implementations
     def log_info_safe(logger, template, **kwargs):
@@ -350,15 +362,15 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 api_version = fcntl.ioctl(cont_fd, VFIO_GET_API_VERSION)
                 log_debug_safe(
                     logger,
-                    "VFIO API version: {api_version}",
-                    api_version=api_version,
+                    safe_format(
+                        "VFIO API version: {api_version}", api_version=api_version
+                    ),
                     prefix="VFIO",
                 )
             except OSError as e:
                 log_error_safe(
                     logger,
-                    "Failed to get VFIO API version: {e}",
-                    e=str(e),
+                    safe_format("Failed to get VFIO API version: {e}", e=str(e)),
                     prefix="VFIO",
                 )
                 raise OSError(f"VFIO API version check failed: {e}")
@@ -370,8 +382,7 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
             except OSError as e:
                 log_error_safe(
                     logger,
-                    "Type1 IOMMU extension not supported: {e}",
-                    e=str(e),
+                    safe_format("Type1 IOMMU extension not supported: {e}", e=str(e)),
                     prefix="VFIO",
                 )
                 raise OSError(f"Type1 IOMMU extension required but not supported: {e}")
@@ -384,9 +395,11 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
             except OSError as e:
                 log_error_safe(
                     logger,
-                    "Failed to link group {group} to container: {e}",
-                    group=group,
-                    e=str(e),
+                    safe_format(
+                        "Failed to link group {group} to container: {e}",
+                        group=group,
+                        e=str(e),
+                    ),
                     prefix="VFIO",
                 )
                 if e.errno == errno.EINVAL:
@@ -422,13 +435,17 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 )
             except OSError as e:
                 log_error_safe(
-                    logger, "Failed to set IOMMU type: {e}", e=str(e), prefix="VFIO"
+                    logger,
+                    safe_format("Failed to set IOMMU type: {e}", e=str(e)),
+                    prefix="VFIO",
                 )
                 raise OSError(f"Failed to set IOMMU type to Type1: {e}")
 
             # Link group to container
             log_debug_safe(
-                logger, "Linking group {group} to container", group=group, prefix="VFIO"
+                logger,
+                safe_format("Linking group {group} to container", group=group),
+                prefix="VFIO",
             )
 
             # Verify group is viable
@@ -438,16 +455,20 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 fcntl.ioctl(grp_fd, VFIO_GROUP_GET_STATUS, status)
             except OSError as e:
                 log_error_safe(
-                    logger, "Failed to get group status: {e}", e=str(e), prefix="VFIO"
+                    logger,
+                    safe_format("Failed to get group status: {e}", e=str(e)),
+                    prefix="VFIO",
                 )
                 raise OSError(f"Failed to get group {group} status: {e}")
 
             if not (status.flags & VFIO_GROUP_FLAGS_VIABLE):
                 log_error_safe(
                     logger,
-                    "Group {group} is not viable (flags: 0x{flags:x})",
-                    group=group,
-                    flags=status.flags,
+                    safe_format(
+                        "Group {group} is not viable (flags: 0x{flags:x})",
+                        group=group,
+                        flags=status.flags,
+                    ),
                     prefix="VFIO",
                 )
                 log_error_safe(logger, "This usually means:", prefix="VFIO")
@@ -465,26 +486,36 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                     logger, "3. IOMMU group configuration issue", prefix="VFIO"
                 )
                 raise OSError(
-                    f"VFIO group {group} is not viable (flags: 0x{status.flags:x})"
+                    safe_format(
+                        "VFIO group {group} is not viable (flags: 0x{flags:x})",
+                        group=group,
+                        flags=status.flags,
+                    )
                 )
 
             log_debug_safe(
                 logger,
-                "Group {group} is viable (flags: 0x{flags:x})",
-                group=group,
-                flags=status.flags,
+                safe_format(
+                    "Group {group} is viable (flags: 0x{flags:x})",
+                    group=group,
+                    flags=status.flags,
+                ),
                 prefix="VFIO",
             )
 
             # 4. Get device fd from group
             log_debug_safe(
-                logger, "Requesting device fd for {bdf}", bdf=bdf, prefix="VFIO"
+                logger,
+                safe_format("Requesting device fd for {bdf}", bdf=bdf),
+                prefix="VFIO",
             )
             # Create a proper ctypes char array for the device name
             name_array = (ctypes.c_char * 40)()
             name_bytes = bdf.encode("utf-8")
             if len(name_bytes) >= 40:
-                raise OSError(f"Device name {bdf} too long (max 39 chars)")
+                raise OSError(
+                    safe_format("Device name {bdf} too long (max 39 chars)", bdf=bdf)
+                )
 
             # Copy the device name into the array (null-terminated)
             ctypes.memmove(name_array, name_bytes, len(name_bytes))
@@ -498,38 +529,46 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                     if current_driver != "vfio-pci":
                         log_error_safe(
                             logger,
-                            f"Device {bdf} is bound to {current_driver}, not vfio-pci",
-                            bdf=bdf,
-                            current_driver=current_driver,
+                            safe_format(
+                                "Device {bdf} is bound to {current_driver}, not vfio-pci",
+                                bdf=bdf,
+                                current_driver=current_driver,
+                            ),
                             prefix="VFIO",
                         )
                         os.close(cont_fd)
                         raise OSError(
-                            f"Device {bdf} not bound to vfio-pci (bound to {current_driver})"
+                            safe_format(
+                                "Device {bdf} not bound to vfio-pci (bound to {current_driver})",
+                                bdf=bdf,
+                                current_driver=current_driver,
+                            )
                         )
                 else:
                     log_error_safe(
                         logger,
-                        "Device {bdf} has no driver binding",
-                        bdf=bdf,
+                        safe_format("Device {bdf} has no driver binding", bdf=bdf),
                         prefix="VFIO",
                     )
                     os.close(cont_fd)
-                    raise OSError(f"Device {bdf} has no driver binding")
+                    raise OSError(
+                        safe_format("Device {bdf} has no driver binding", bdf=bdf)
+                    )
 
                 log_debug_safe(
                     logger,
-                    "Device {bdf} confirmed bound to vfio-pci",
-                    bdf=bdf,
+                    safe_format("Device {bdf} confirmed bound to vfio-pci", bdf=bdf),
                     prefix="VFIO",
                 )
 
                 dev_fd = fcntl.ioctl(grp_fd, VFIO_GROUP_GET_DEVICE_FD, name_array)
                 log_info_safe(
                     logger,
-                    "Successfully obtained device fd {dev_fd} for {bdf}",
-                    dev_fd=dev_fd,
-                    bdf=bdf,
+                    safe_format(
+                        "Successfully obtained device fd {dev_fd} for {bdf}",
+                        dev_fd=dev_fd,
+                        bdf=bdf,
+                    ),
                     prefix="VFIO",
                 )
                 return int(dev_fd), cont_fd
@@ -537,9 +576,9 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
             except OSError as e:
                 log_error_safe(
                     logger,
-                    "Failed to get device fd for {bdf}: {e}",
-                    bdf=bdf,
-                    e=str(e),
+                    safe_format(
+                        "Failed to get device fd for {bdf}: {e}", bdf=bdf, e=str(e)
+                    ),
                     prefix="VFIO",
                 )
                 if e.errno == errno.EINVAL:
@@ -557,16 +596,17 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 elif e.errno == errno.ENODEV:
                     log_error_safe(
                         logger,
-                        "Device {bdf} not found in group {group}",
-                        bdf=bdf,
-                        group=group,
+                        safe_format(
+                            "Device {bdf} not found in group {group}",
+                            bdf=bdf,
+                            group=group,
+                        ),
                         prefix="VFIO",
                     )
                 elif e.errno == errno.EBUSY:
                     log_error_safe(
                         logger,
-                        "Device {bdf} is busy or already in use",
-                        bdf=bdf,
+                        safe_format("Device {bdf} is busy or already in use", bdf=bdf),
                         prefix="VFIO",
                     )
 
@@ -577,24 +617,30 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                         devices = os.listdir(group_devices_path)
                         log_debug_safe(
                             logger,
-                            "Available devices in group {group}: {devices}",
-                            group=group,
-                            devices=devices,
+                            safe_format(
+                                "Available devices in group {group}: {devices}",
+                                group=group,
+                                devices=devices,
+                            ),
                             prefix="VFIO",
                         )
                         if bdf not in devices:
                             log_error_safe(
                                 logger,
-                                "Device {bdf} not in group {group}!",
-                                bdf=bdf,
-                                group=group,
+                                safe_format(
+                                    "Device {bdf} not in group {group}!",
+                                    bdf=bdf,
+                                    group=group,
+                                ),
                                 prefix="VFIO",
                             )
                 except Exception as list_err:
                     log_warning_safe(
                         logger,
-                        "Could not list group devices: {list_err}",
-                        list_err=str(list_err),
+                        safe_format(
+                            "Could not list group devices: {list_err}",
+                            list_err=str(list_err),
+                        ),
                         prefix="VFIO",
                     )
 
@@ -610,6 +656,8 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
     finally:
         # 5. Close group fd (device fd keeps container reference)
         log_debug_safe(
-            logger, "Closing group fd {grp_fd}", grp_fd=grp_fd, prefix="VFIO"
+            logger,
+            safe_format("Closing group fd {grp_fd}", grp_fd=grp_fd),
+            prefix="VFIO",
         )
         os.close(grp_fd)

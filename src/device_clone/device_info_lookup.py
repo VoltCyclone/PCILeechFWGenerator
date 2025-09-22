@@ -24,6 +24,7 @@ from src.string_utils import (
     log_error_safe,
     log_info_safe,
     log_warning_safe,
+    safe_format,
 )
 from src.device_clone.device_config import DeviceIdentification
 
@@ -83,11 +84,13 @@ class DeviceInfoLookup:
         if needs_extraction:
             log_debug_safe(
                 logger,
-                "Extracting device info from config space "
-                "(from_manager={from_mgr}, missing={missing}, invalid={invalid})",
-                from_mgr=from_config_manager,
-                missing=missing_critical_fields,
-                invalid=invalid_fields,
+                safe_format(
+                    "Extracting device info from config space "
+                    "(from_manager={from_mgr}, missing={missing}, invalid={invalid})",
+                    from_mgr=from_config_manager,
+                    missing=missing_critical_fields,
+                    invalid=invalid_fields,
+                ),
                 prefix="LOOKUP",
             )
 
@@ -119,9 +122,11 @@ class DeviceInfoLookup:
             except Exception as e:
                 log_warning_safe(
                     logger,
-                    "Failed to extract device info for {bdf}: {error}",
-                    bdf=self.bdf,
-                    error=str(e),
+                    safe_format(
+                        "Failed to extract device info for {bdf}: {error}",
+                        bdf=self.bdf,
+                        error=str(e),
+                    ),
                     prefix="LOOKUP",
                 )
 
@@ -164,9 +169,11 @@ class DeviceInfoLookup:
 
             log_info_safe(
                 logger,
-                "Pre-fallback device_info (shape): {shape}",
+                safe_format(
+                    "Pre-fallback device_info (shape): {shape}",
+                    shape=shape,
+                ),
                 prefix="LOOKUP",
-                shape=shape,
             )
 
             s = json.dumps(sanitized, indent=2, sort_keys=True)
@@ -175,9 +182,11 @@ class DeviceInfoLookup:
 
             log_info_safe(
                 logger,
-                "Pre-fallback device_info (sanitized): {snapshot}",
+                safe_format(
+                    "Pre-fallback device_info (sanitized): {snapshot}",
+                    snapshot=s,
+                ),
                 prefix="LOOKUP",
-                snapshot=s,
             )
         except Exception:
             log_warning_safe(
@@ -228,9 +237,11 @@ class DeviceInfoLookup:
         except Exception as e:
             log_error_safe(
                 logger,
-                "Device identification validation failed for {bdf}: {error}",
-                bdf=self.bdf,
-                error=str(e),
+                safe_format(
+                    "Device identification validation failed for {bdf}: {error}",
+                    bdf=self.bdf,
+                    error=str(e),
+                ),
                 prefix="VALIDATE",
             )
 
@@ -272,10 +283,12 @@ class DeviceInfoLookup:
                 except (ValueError, OSError) as e:
                     log_warning_safe(
                         logger,
-                        "Failed to read {file}: {error}",
-                        file=str(file_path),
-                        error=str(e),
-                        prefix="SYSFS",
+                        safe_format(
+                            "Failed to read {file}: {error}",
+                            file=str(file_path),
+                            error=str(e),
+                        ),
+                        prefix="LOOKUP",
                     )
 
         return info

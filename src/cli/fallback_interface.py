@@ -30,7 +30,12 @@ from src.log_config import get_logger
 if TYPE_CHECKING:
     from src.device_clone.fallback_manager import FallbackManager
 
-from src.string_utils import log_error_safe, log_info_safe, log_warning_safe
+from src.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = get_logger(__name__)
 
@@ -89,9 +94,11 @@ class FallbackInterface:
         if result:
             log_info_safe(
                 logger,
-                "Loaded fallbacks from {config_path}",
+                safe_format(
+                    "Loaded fallbacks from {config_path}",
+                    config_path=self.fallback_config,
+                ),
                 prefix="FALLBACK",
-                config_path=self.fallback_config,
             )
         return result
 
@@ -150,9 +157,11 @@ class FallbackInterface:
         """
         log_info_safe(
             logger,
-            "Validating templates in {template_dir} for critical variable usage",
+            safe_format(
+                "Validating templates in {template_dir} for critical variable usage",
+                template_dir=template_dir,
+            ),
             prefix="FALLBACK",
-            template_dir=template_dir,
         )
         result = self.fallback_manager.validate_templates_for_critical_vars(
             template_dir, pattern
@@ -198,9 +207,11 @@ class FallbackInterface:
                 if self._is_sensitive_var(k):
                     log_warning_safe(
                         logger,
-                        "Removed sensitive field from export: {key}",
+                        safe_format(
+                            "Removed sensitive field from export: {key}",
+                            key=k,
+                        ),
                         prefix="FALLBACK",
-                        key=k,
                     )
                     continue
                 if isinstance(v, dict):
@@ -224,10 +235,6 @@ class FallbackInterface:
 # ------------------------
 # This file contains the current template context that was missing critical variables.
 # Please fill in the missing values in the sections below and save this file.
-# 
-# IMPORTANT SECURITY NOTE:
-# - Do NOT create fallbacks for device IDs or other critical values
-# - These should come directly from the hardware
 # 
 # HOW TO USE:
 # 1. Fill in the missing values in the 'missing_critical_variables' section
@@ -285,9 +292,11 @@ class FallbackInterface:
 
         log_info_safe(
             logger,
-            "Exported missing context data to {export_path}",
+            safe_format(
+                "Exported missing context data to {export_path}",
+                export_path=self.export_path,
+            ),
             prefix="FALLBACK",
-            export_path=self.export_path,
         )
         # Also print a short user-facing message so CLI users immediately see the export
         try:
@@ -367,9 +376,11 @@ class FallbackInterface:
             # Log the structure (keys/types)
             log_info_safe(
                 logger,
-                "Pre-fallback snapshot (shape): {shape}",
+                safe_format(
+                    "Pre-fallback snapshot (shape): {shape}",
+                    shape=shape,
+                ),
                 prefix="FALLBACK",
-                shape=shape,
             )
 
             # Log sanitized content (truncated)
@@ -378,9 +389,11 @@ class FallbackInterface:
                 s = s[:6000] + "...<truncated>"
             log_info_safe(
                 logger,
-                "Pre-fallback snapshot (sanitized): {snapshot}",
+                safe_format(
+                    "Pre-fallback snapshot (sanitized): {snapshot}",
+                    snapshot=s,
+                ),
                 prefix="FALLBACK",
-                snapshot=s,
             )
         except Exception:
             logger.exception("Failed to log pre-fallback snapshot")
@@ -402,9 +415,11 @@ class FallbackInterface:
         if not context_file.exists():
             log_error_safe(
                 logger,
-                "Context file not found: {context_file}",
+                safe_format(
+                    "Context file not found: {context_file}",
+                    context_file=context_file,
+                ),
                 prefix="FALLBACK",
-                context_file=context_file,
             )
             return None
 
@@ -434,9 +449,11 @@ class FallbackInterface:
                 if self._is_sensitive_var(var_name):
                     log_warning_safe(
                         logger,
-                        "Ignored sensitive field in context file: {var_name}",
+                        safe_format(
+                            "Ignored sensitive field in context file: {var_name}",
+                            var_name=var_name,
+                        ),
                         prefix="FALLBACK",
-                        var_name=var_name,
                     )
                     continue
 
@@ -466,9 +483,11 @@ class FallbackInterface:
                     if self._is_sensitive_var(key):
                         log_warning_safe(
                             logger,
-                            "Removed sensitive field from loaded context: {key}",
+                            safe_format(
+                                "Removed sensitive field from loaded context: {key}",
+                                key=key,
+                            ),
                             prefix="FALLBACK",
-                            key=key,
                         )
                         del ctx[key]
                         continue
@@ -480,18 +499,22 @@ class FallbackInterface:
 
             log_info_safe(
                 logger,
-                "Loaded context from {context_file}",
+                safe_format(
+                    "Loaded context from {context_file}",
+                    context_file=context_file,
+                ),
                 prefix="FALLBACK",
-                context_file=context_file,
             )
             return context
 
         except Exception as e:
             log_error_safe(
                 logger,
-                "Error loading context file: {error}",
+                safe_format(
+                    "Error loading context file: {error}",
+                    error=e,
+                ),
                 prefix="FALLBACK",
-                error=e,
             )
             return None
 

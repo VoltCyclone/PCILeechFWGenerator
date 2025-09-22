@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.device_clone.constants import VIVADO_PROJECT_NAME
+# Define the project name constant locally to avoid circular imports
+VIVADO_PROJECT_NAME = "pcileech_firmware"
 
 
 def get_project_name() -> str:

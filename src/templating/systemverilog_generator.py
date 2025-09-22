@@ -719,8 +719,10 @@ class SystemVerilogGenerator:
         except Exception as e:
             log_error_safe(
                 logger,
-                "Unexpected error reading MSI-X table: {error}",
-                error=str(e),
+                safe_format(
+                    "Unexpected error reading MSI-X table: {error}",
+                    error=str(e),
+                ),
                 prefix="GEN",
             )
             return None
@@ -791,7 +793,6 @@ class SystemVerilogGenerator:
             "device_config": device_cfg,
             # Provide required integration metadata keys expected by template.
             "pcileech_modules": device_cfg.get("pcileech_modules", ["pcileech_core"]),
-            "build_system_version": vfio_context.get("build_system_version", "0.7.5"),
             "integration_type": vfio_context.get("integration_type", "pcileech"),
         }
         from .sv_constants import SVTemplates
