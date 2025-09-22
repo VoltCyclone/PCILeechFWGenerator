@@ -4,7 +4,9 @@ import logging
 
 from typing import Any, Dict, List
 
-from src.string_utils import log_warning_safe
+from src.string_utils import log_warning_safe, log_error_safe, safe_format
+
+from src.utils.validation_constants import SV_FILE_HEADER
 
 from ..utils.unified_context import (
     DEFAULT_TIMING_CONFIG,
@@ -95,8 +97,9 @@ class SVContextBuilder:
         required_fields = ["clk_hz", "transition_timeout_ns"]
         for field in required_fields:
             if not hasattr(power_config, field) or getattr(power_config, field) is None:
-                raise ValueError(f"Power management {field} cannot be None")
-
+                raise ValueError(
+                    safe_format("Power management {field} cannot be None", field=field)
+                )
         return {
             "clk_hz": power_config.clk_hz,
             "transition_timeout_ns": power_config.transition_timeout_ns,
@@ -162,7 +165,7 @@ class SVContextBuilder:
             # Critical security field - no fallback allowed
             "device_signature": template_context["device_signature"],
             # Header for generated files
-            "header": "// PCILeech generated SystemVerilog module",
+            "header": SV_FILE_HEADER,
             # Basic settings
             # Use distributed RAM FIFO by default to avoid vendor IP dependency
             "fifo_type": "distributed",
@@ -193,13 +196,9 @@ class SVContextBuilder:
         device_id = device_config.get("device_id")
 
         if not vendor_id or not device_id:
-            import logging
-
-            from src.string_utils import log_error_safe, safe_format
-
-            logger = logging.getLogger(__name__)
+            # Fail fast per repository conventions; use class logger and top-level imports
             log_error_safe(
-                logger,
+                self.logger,
                 safe_format(
                     "Missing required device identifiers: vendor_id={vid}, device_id={did}",
                     vid=vendor_id,
@@ -207,7 +206,14 @@ class SVContextBuilder:
                 ),
                 prefix="TEMPLATING",
             )
-            raise SystemExit(2)
+            # Do not terminate the process here; raise a template error to be handled upstream
+            raise TemplateRenderError(
+                safe_format(
+                    "Missing required device identifiers: vendor_id={vid}, device_id={did}",
+                    vid=str(vendor_id),
+                    did=str(device_id),
+                )
+            )
 
         # Add string versions
         context["vendor_id"] = vendor_id
@@ -273,7 +279,9 @@ class SVContextBuilder:
             context["power_config"] = self._ensure_template_object(vars(power_config))
         except Exception as e:
             log_warning_safe(
-                self.logger, f"Failed to build power context: {e}", prefix="TEMPLATING"
+                self.logger,
+                safe_format(f"Failed to build power context: {e}"),
+                prefix="TEMPLATING",
             )
             context["power_management"] = TemplateObject(
                 {"has_interface_signals": False}
@@ -286,7 +294,13 @@ class SVContextBuilder:
             context["error_handling"] = self._ensure_template_object(error_ctx)
             context["error_config"] = self._ensure_template_object(vars(error_config))
         except Exception as e:
-            log_warning_safe(self.logger, f"Failed to build error context: {e}")
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Failed to build error handling context: {error}", error=str(e)
+                ),
+                prefix="TEMPLATING",
+            )
             context["error_handling"] = TemplateObject({"enable_error_logging": False})
             context["error_config"] = TemplateObject({"enable_error_detection": False})
 
@@ -296,7 +310,13 @@ class SVContextBuilder:
             context["performance_counters"] = self._ensure_template_object(perf_ctx)
             context["perf_config"] = self._ensure_template_object(vars(perf_config))
         except Exception as e:
-            log_warning_safe(self.logger, f"Failed to build performance context: {e}")
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Failed to build performance context: {error}", error=str(e)
+                ),
+                prefix="TEMPLATING",
+            )
             context["performance_counters"] = TemplateObject({})
             context["perf_config"] = TemplateObject({})
 
@@ -514,7 +534,9 @@ class SVContextBuilder:
 
         if missing:
             raise ValueError(
-                f"Missing required {config_name} fields: {', '.join(missing)}"
+                safe_format(
+                    f"Missing required {config_name} fields: {', '.join(missing)}"
+                )
             )
 
     def _safe_hex_to_int(self, value: Any) -> int:
