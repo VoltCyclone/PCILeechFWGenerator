@@ -98,14 +98,14 @@ BOARD_PARTS = {
     "35t": "xc7a35tcsg324-2",
     "75t": "xc7a75tfgg484-2",
     # 100T CaptainDMA is an Artix-7 100T (FGG484-1). Use the 7-series part.
-    "100t": "xc7a100tffg484-1",
+    "100t": "xc7a100tfgg484-1",
     # CaptainDMA boards
     "pcileech_75t484_x1": "xc7a75tfgg484-2",
     "pcileech_35t484_x1": "xc7a35tfgg484-2",
     "pcileech_35t325_x4": "xc7a35tcsg324-2",
     "pcileech_35t325_x1": "xc7a35tcsg324-2",
     # CaptainDMA 100T x1 board: Artix-7 100T, FFG484 package, -1 speed grade.
-    "pcileech_100t484_x1": "xc7a100tffg484-1",
+    "pcileech_100t484_x1": "xc7a100tfgg484-1",
     # Other boards
     "pcileech_enigma_x1": "xc7a75tfgg484-2",
     "pcileech_squirrel": "xc7a35tfgg484-2",

@@ -48,8 +48,8 @@ class BoardDiscovery:
         "35t325_x4": {"fpga_part": "xc7a35tcsg324-2", "max_lanes": 4},
         "35t325_x1": {"fpga_part": "xc7a35tcsg324-2", "max_lanes": 1},
         "100t484-1": {
-            # CaptainDMA 100T board uses Artix-7 100T in FFG484 package
-            "fpga_part": "xc7a100tffg484-1",
+            # CaptainDMA 100T board uses Artix-7 100T in FGG484 package
+            "fpga_part": "xc7a100tfgg484-1",
             "max_lanes": 1,
             "canonical_name": "pcileech_100t484_x1",
         },
