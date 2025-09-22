@@ -11,20 +11,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Union
 
-try:
-    from src.string_utils import log_debug_safe, log_error_safe, log_info_safe
-except ImportError:
-    # Fallback for when string_utils is not available
-
-    def log_info_safe(logger, template, **kwargs):
-        logger.info(template.format(**kwargs))
-
-    def log_error_safe(logger, template, **kwargs):
-        logger.error(template.format(**kwargs))
-
-    def log_debug_safe(logger, template, **kwargs):
-        logger.debug(template.format(**kwargs))
-
+from src.string_utils import log_debug_safe, log_error_safe, log_info_safe, safe_format
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +83,10 @@ class ConfigSpaceHexFormatter:
             padding_bytes = 4 - (len(config_space_data) % 4)
             log_info_safe(
                 self.logger,
-                "Padding config space with {padding} zero bytes for alignment",
-                padding=padding_bytes,
+                safe_format(
+                    "Padding config space with {padding} zero bytes for alignment",
+                    padding=padding_bytes,
+                ),
                 prefix="HEX",
             )
             config_space_data = config_space_data + bytes(padding_bytes)
@@ -214,8 +203,10 @@ class ConfigSpaceHexFormatter:
 
             log_info_safe(
                 self.logger,
-                "Written configuration space hex file: {path}",
-                path=output_path,
+                safe_format(
+                    "Written configuration space hex file: {path}",
+                    path=output_path,
+                ),
                 prefix="HEX",
             )
 
@@ -224,9 +215,11 @@ class ConfigSpaceHexFormatter:
         except IOError as e:
             log_error_safe(
                 self.logger,
-                "Failed to write hex file {path}: {error}",
-                path=output_path,
-                error=str(e),
+                safe_format(
+                    "Failed to write hex file {path}: {error}",
+                    path=output_path,
+                    error=str(e),
+                ),
                 prefix="HEX",
             )
             raise
@@ -246,8 +239,10 @@ class ConfigSpaceHexFormatter:
         if not hex_file_path.exists():
             log_error_safe(
                 self.logger,
-                "Hex file does not exist: {path}",
-                path=hex_file_path,
+                safe_format(
+                    "Hex file does not exist: {path}",
+                    path=hex_file_path,
+                ),
                 prefix="HEX",
             )
             return False
@@ -268,8 +263,10 @@ class ConfigSpaceHexFormatter:
                 if len(line) != 8:
                     log_error_safe(
                         self.logger,
-                        "Invalid hex word length in line: {line}",
-                        line=line,
+                        safe_format(
+                            "Invalid hex word length in line: {line}",
+                            line=line,
+                        ),
                         prefix="HEX",
                     )
                     return False
@@ -281,16 +278,20 @@ class ConfigSpaceHexFormatter:
                 except ValueError:
                     log_error_safe(
                         self.logger,
-                        "Invalid hex characters in line: {line}",
-                        line=line,
+                        safe_format(
+                            "Invalid hex characters in line: {line}",
+                            line=line,
+                        ),
                         prefix="HEX",
                     )
                     return False
 
             log_info_safe(
                 self.logger,
-                "Hex file validated successfully: {words} words",
-                words=hex_word_count,
+                safe_format(
+                    "Hex file validated successfully: {words} words",
+                    words=hex_word_count,
+                ),
                 prefix="HEX",
             )
 
@@ -299,9 +300,11 @@ class ConfigSpaceHexFormatter:
         except IOError as e:
             log_error_safe(
                 self.logger,
-                "Failed to read hex file {path}: {error}",
-                path=hex_file_path,
-                error=str(e),
+                safe_format(
+                    "Failed to read hex file {path}: {error}",
+                    path=hex_file_path,
+                    error=str(e),
+                ),
                 prefix="HEX",
             )
             return False

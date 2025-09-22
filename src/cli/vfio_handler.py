@@ -22,8 +22,12 @@ from pathlib import Path
 from typing import Any, Dict, Generator, Optional, Tuple, Union
 
 # Import VFIO exceptions
-from src.exceptions import (VFIOBindError, VFIODeviceNotFoundError,
-                            VFIOGroupError, VFIOPermissionError)
+from src.exceptions import (
+    VFIOBindError,
+    VFIODeviceNotFoundError,
+    VFIOGroupError,
+    VFIOPermissionError,
+)
 
 # Import the privilege manager - make it optional to avoid circular imports
 try:
@@ -44,19 +48,30 @@ except ImportError:
     HAS_VFIO_ASSIST = False
 
 # Import safe logging functions
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+
 # Import proper VFIO constants with kernel-compatible ioctl generation
 from .vfio_constants import VfioGroupStatus  # legacy alias
 from .vfio_constants import VfioRegionInfo  # legacy alias
-from .vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
-                             VFIO_GROUP_GET_DEVICE_FD, VFIO_GROUP_GET_STATUS,
-                             VFIO_GROUP_SET_CONTAINER,
-                             VFIO_REGION_INFO_FLAG_MMAP,
-                             VFIO_REGION_INFO_FLAG_READ,
-                             VFIO_REGION_INFO_FLAG_WRITE, VFIO_SET_IOMMU,
-                             VFIO_TYPE1_IOMMU, vfio_group_status,
-                             vfio_region_info)
+from .vfio_constants import (
+    VFIO_DEVICE_GET_REGION_INFO,
+    VFIO_GROUP_GET_DEVICE_FD,
+    VFIO_GROUP_GET_STATUS,
+    VFIO_GROUP_SET_CONTAINER,
+    VFIO_REGION_INFO_FLAG_MMAP,
+    VFIO_REGION_INFO_FLAG_READ,
+    VFIO_REGION_INFO_FLAG_WRITE,
+    VFIO_SET_IOMMU,
+    VFIO_TYPE1_IOMMU,
+    vfio_group_status,
+    vfio_region_info,
+)
 from .vfio_helpers import get_device_fd
 
 # Configure global logger
@@ -226,17 +241,30 @@ class VFIOBinderImpl:
             path.write_text(value)
             log_debug_safe(
                 logger,
-                "Successfully wrote '{value}' to {path}",
-                value=value,
-                path=path,
-                prefix="SYSFS",
+                safe_format(
+                    "Successfully wrote '{value}' to {path}",
+                    value=value,
+                    path=path,
+                ),
+                prefix="BIND",
             )
         except PermissionError as e:
             raise VFIOPermissionError(
-                f"Permission denied writing to {path}: {e}"
+                safe_format(
+                    "Permission denied writing to {path}: {error}",
+                    path=path,
+                    error=e,
+                )
             ) from e
         except OSError as e:
-            raise VFIOBindError(f"Failed to write '{value}' to {path}: {e}") from e
+            raise VFIOBindError(
+                safe_format(
+                    "Failed to write '{value}' to {path}: {error}",
+                    value=value,
+                    path=path,
+                    error=e,
+                )
+            ) from e
 
     def _wait_for_state_change(
         self, expected_driver: Optional[str], timeout: float = 2.0
@@ -257,8 +285,10 @@ class VFIOBinderImpl:
 
         log_info_safe(
             logger,
-            "Unbinding device from current driver {current_driver}",
-            current_driver=device_info.current_driver,
+            safe_format(
+                "Unbinding device from current driver {current_driver}",
+                current_driver=device_info.current_driver,
+            ),
             prefix="BIND",
         )
 
@@ -273,15 +303,19 @@ class VFIOBinderImpl:
                 if self._wait_for_state_change(None, timeout=2.0):
                     log_debug_safe(
                         logger,
-                        "Successfully unbound from {current_driver}",
-                        current_driver=device_info.current_driver,
+                        safe_format(
+                            "Successfully unbound from {current_driver}",
+                            current_driver=device_info.current_driver,
+                        ),
                         prefix="BIND",
                     )
                 else:
                     log_warning_safe(
                         logger,
-                        "Unbinding from {current_driver} may not have completed",
-                        current_driver=device_info.current_driver,
+                        safe_format(
+                            "Unbinding from {current_driver} may not have completed",
+                            current_driver=device_info.current_driver,
+                        ),
                         prefix="BIND",
                     )
 
@@ -289,16 +323,20 @@ class VFIOBinderImpl:
         except Exception as e:
             log_warning_safe(
                 logger,
-                "Failed to unbind from {current_driver}: {error}",
-                current_driver=device_info.current_driver,
-                error=str(e),
+                safe_format(
+                    "Failed to unbind from {current_driver}: {error}",
+                    current_driver=device_info.current_driver,
+                    error=str(e),
+                ),
                 prefix="BIND",
             )
 
     def _perform_vfio_binding(self) -> None:
         """Bind device to vfio-pci using driver_override workflow."""
         log_info_safe(
-            logger, "Binding {bdf} to vfio-pci driver", bdf=self.bdf, prefix="BIND"
+            logger,
+            safe_format("Binding {bdf} to vfio-pci driver", bdf=self.bdf),
+            prefix="BIND",
         )
 
         # Wait for driver_override to be writable
@@ -315,9 +353,13 @@ class VFIOBinderImpl:
 
         # Wait for binding to complete
         if self._wait_for_state_change(VFIO_DRIVER_NAME, timeout=3.0):
-            log_debug_safe(logger, "Successfully bound to vfio-pci", prefix="BIND")
+            log_debug_safe(
+                logger, safe_format("Successfully bound to vfio-pci"), prefix="BIND"
+            )
         else:
-            raise VFIOBindError(f"Binding to vfio-pci timed out for {self.bdf}")
+            raise VFIOBindError(
+                safe_format("Binding to vfio-pci timed out for {bdf}", bdf=self.bdf)
+            )
 
         time.sleep(DEFAULT_BIND_WAIT_TIME)
 
@@ -325,8 +367,7 @@ class VFIOBinderImpl:
         """Bind device to vfio-pci using driver_override workflow."""
         log_info_safe(
             logger,
-            "Starting VFIO binding process for device {bdf}",
-            bdf=self.bdf,
+            safe_format("Starting VFIO binding process for device {bdf}", bdf=self.bdf),
             prefix="BIND",
         )
 
@@ -338,9 +379,11 @@ class VFIOBinderImpl:
 
         log_info_safe(
             logger,
-            "Current driver for {bdf}: {current_driver}",
-            bdf=self.bdf,
-            current_driver=device_info.current_driver or "none",
+            safe_format(
+                "Current driver for {bdf}: {current_driver}",
+                bdf=self.bdf,
+                current_driver=device_info.current_driver or "none",
+            ),
             prefix="BIND",
         )
 
@@ -348,8 +391,7 @@ class VFIOBinderImpl:
         if device_info.binding_state == BindingState.BOUND_TO_VFIO:
             log_info_safe(
                 logger,
-                "Device {bdf} already bound to vfio-pci",
-                bdf=self.bdf,
+                safe_format("Device {bdf} already bound to vfio-pci", bdf=self.bdf),
                 prefix="BIND",
             )
             self._verify_vfio_binding()
@@ -360,8 +402,10 @@ class VFIOBinderImpl:
         if self.original_driver:
             log_info_safe(
                 logger,
-                "Stored original driver '{original_driver}' for restoration",
-                original_driver=self.original_driver,
+                safe_format(
+                    "Stored original driver '{original_driver}' for restoration",
+                    original_driver=self.original_driver,
+                ),
                 prefix="BIND",
             )
 
@@ -375,8 +419,7 @@ class VFIOBinderImpl:
         final_device_info = self._get_device_info(refresh=True)
         if final_device_info.binding_state != BindingState.BOUND_TO_VFIO:
             raise VFIOBindError(
-                f"Failed to bind {self.bdf} to vfio-pci. "
-                f"Expected: {VFIO_DRIVER_NAME}, Got: {final_device_info.current_driver}"
+                safe_format("Failed to bind {bdf} to vfio-pci.", bdf=self.bdf)
             )
 
         # Additional verification that VFIO binding is functional
@@ -384,7 +427,9 @@ class VFIOBinderImpl:
 
         self._bound = True
         log_info_safe(
-            logger, "Successfully bound {bdf} to vfio-pci", bdf=self.bdf, prefix="BIND"
+            logger,
+            safe_format("Successfully bound {bdf} to vfio-pci", bdf=self.bdf),
+            prefix="BIND",
         )
 
     def _ensure_privileges(self) -> None:
@@ -418,12 +463,14 @@ class VFIOBinderImpl:
             except Exception as e:
                 log_error_safe(
                     logger,
-                    "Failed to elevate privileges: {error}",
-                    error=str(e),
+                    safe_format("Failed to elevate privileges: {error}", error=str(e)),
                     prefix="PERM",
                 )
                 raise VFIOPermissionError(
-                    f"Failed to elevate privileges for VFIO operations: {e}"
+                    safe_format(
+                        "Failed to elevate privileges for VFIO operations: {error}",
+                        error=str(e),
+                    )
                 )
         else:
             # No privilege manager available, fall back to standard check
@@ -434,8 +481,7 @@ class VFIOBinderImpl:
         """Verify that VFIO binding is functional."""
         log_debug_safe(
             logger,
-            "Verifying VFIO binding functionality for {bdf}",
-            bdf=self.bdf,
+            safe_format("Verifying VFIO binding functionality for {bdf}", bdf=self.bdf),
             prefix="BIND",
         )
 
@@ -447,36 +493,48 @@ class VFIOBinderImpl:
             group_path = self._path_manager.get_vfio_group_path(self.group_id)
 
             if not group_path.exists():
-                raise VFIOGroupError(f"VFIO group device {group_path} does not exist")
+                raise VFIOGroupError(
+                    safe_format(
+                        "VFIO group device {group_path} does not exist",
+                        group_path=group_path,
+                    )
+                )
 
             # Verify the group device is accessible
             if not os.access(group_path, os.R_OK | os.W_OK):
                 raise VFIOPermissionError(
-                    f"VFIO group device {group_path} is not accessible"
+                    safe_format(
+                        "VFIO group device {group_path} is not accessible",
+                        group_path=group_path,
+                    )
                 )
 
             log_debug_safe(
                 logger,
-                "VFIO group device {group_path} exists and is accessible",
-                group_path=group_path,
+                safe_format(
+                    "VFIO group device {group_path} exists and is accessible",
+                    group_path=group_path,
+                ),
                 prefix="BIND",
             )
 
         except Exception as e:
             log_error_safe(
                 logger,
-                "VFIO binding verification failed: {error}",
-                error=str(e),
+                safe_format("VFIO binding verification failed: {error}", error=str(e)),
                 prefix="BIND",
             )
             raise VFIOBindError(
-                f"VFIO binding verification failed for {self.bdf}: {e}"
+                safe_format(
+                    "VFIO binding verification failed for {bdf}: {error}",
+                    bdf=self.bdf,
+                    error=str(e),
+                )
             ) from e
 
         log_debug_safe(
             logger,
-            "VFIO binding verification successful for {bdf}",
-            bdf=self.bdf,
+            safe_format("VFIO binding verification successful for {bdf}", bdf=self.bdf),
             prefix="BIND",
         )
 
@@ -525,7 +583,11 @@ class VFIOBinderImpl:
             delay = min(delay * 2, MAX_BACKOFF_DELAY)
 
         raise VFIOGroupError(
-            f"VFIO group node {group_path} did not appear within {MAX_GROUP_WAIT_TIME}s"
+            safe_format(
+                "VFIO group node {group_path} did not appear within {max_wait_time}s",
+                group_path=group_path,
+                max_wait_time=MAX_GROUP_WAIT_TIME,
+            )
         )
 
     def _restore_original_driver(self) -> None:
@@ -539,17 +601,21 @@ class VFIOBinderImpl:
                 self._write_sysfs_safe(bind_path, self.bdf)
                 log_debug_safe(
                     logger,
-                    "Restored {bdf} to {original_driver}",
-                    bdf=self.bdf,
-                    original_driver=self.original_driver,
+                    safe_format(
+                        "Restored {bdf} to {original_driver}",
+                        bdf=self.bdf,
+                        original_driver=self.original_driver,
+                    ),
                     prefix="BIND",
                 )
             except Exception as e:
                 log_warning_safe(
                     logger,
-                    "Failed to restore original driver {original_driver}: {error}",
-                    original_driver=self.original_driver,
-                    error=str(e),
+                    safe_format(
+                        "Failed to restore original driver {original_driver}: {error}",
+                        original_driver=self.original_driver,
+                        error=str(e),
+                    ),
                     prefix="BIND",
                 )
 
@@ -562,8 +628,10 @@ class VFIOBinderImpl:
         if not self._path_manager.device_path.exists():
             log_debug_safe(
                 logger,
-                "Device {bdf} no longer exists, skipping cleanup",
-                bdf=self.bdf,
+                safe_format(
+                    "Device {bdf} no longer exists, skipping cleanup",
+                    bdf=self.bdf,
+                ),
                 prefix="BIND",
             )
             return
@@ -579,7 +647,9 @@ class VFIOBinderImpl:
                 )
                 self._write_sysfs_safe(unbind_path, self.bdf)
                 log_debug_safe(
-                    logger, "Unbound {bdf} from vfio-pci", bdf=self.bdf, prefix="BIND"
+                    logger,
+                    safe_format("Unbound {bdf} from vfio-pci", bdf=self.bdf),
+                    prefix="BIND",
                 )
 
                 # Wait for unbinding
@@ -593,8 +663,7 @@ class VFIOBinderImpl:
                 self._write_sysfs_safe(self._path_manager.driver_override_path, "")
                 log_debug_safe(
                     logger,
-                    "Cleared driver_override for {bdf}",
-                    bdf=self.bdf,
+                    safe_format("Cleared driver_override for {bdf}", bdf=self.bdf),
                     prefix="BIND",
                 )
 
@@ -603,16 +672,20 @@ class VFIOBinderImpl:
             if self._path_manager.device_path.exists():
                 log_warning_safe(
                     logger,
-                    "Cleanup failed for {bdf}: {error}",
-                    bdf=self.bdf,
-                    error=str(e),
+                    safe_format(
+                        "Cleanup failed for {bdf}: {error}",
+                        bdf=self.bdf,
+                        error=str(e),
+                    ),
                     prefix="BIND",
                 )
             else:
                 log_debug_safe(
                     logger,
-                    "Device {bdf} removed during cleanup",
-                    bdf=self.bdf,
+                    safe_format(
+                        "Device {bdf} removed during cleanup",
+                        bdf=self.bdf,
+                    ),
                     prefix="BIND",
                 )
 
@@ -653,9 +726,11 @@ class VFIOBinderImpl:
             except OSError as e:
                 log_error_safe(
                     logger,
-                    "Failed to link group {group} to container: {e}",
-                    group=self.group_id,
-                    e=str(e),
+                    safe_format(
+                        "Failed to link group {group} to container: {e}",
+                        group=self.group_id,
+                        e=str(e),
+                    ),
                     prefix="VFIO",
                 )
                 if e.errno == errno.EINVAL:
@@ -708,7 +783,11 @@ class VFIOBinderImpl:
                 except OSError:
                     pass  # Already closed or invalid
             raise VFIOBindError(
-                f"Failed to open VFIO device FD for {self.bdf}: {e}"
+                safe_format(
+                    "Failed to open VFIO device FD for {bdf}: {e}",
+                    bdf=self.bdf,
+                    e=str(e),
+                )
             ) from e
 
     def _get_vfio_region_info(self, region_index: int) -> Optional[Dict[str, Any]]:
@@ -804,10 +883,14 @@ def _get_iommu_group(bdf: str) -> str:
     group_link = Path(f"/sys/bus/pci/devices/{bdf}/iommu_group")
     try:
         if not group_link.exists():
-            raise VFIODeviceNotFoundError(f"No IOMMU group found for device {bdf}")
+            raise VFIODeviceNotFoundError(
+                safe_format("No IOMMU group found for device {bdf}", bdf=bdf)
+            )
         return group_link.resolve().name
     except (OSError, RuntimeError) as e:
-        raise VFIOBindError(f"Failed to read IOMMU group for {bdf}: {e}") from e
+        raise VFIOBindError(
+            safe_format("Failed to read IOMMU group for {bdf}: {e}", bdf=bdf, e=str(e))
+        ) from e
 
 
 @contextmanager
@@ -875,7 +958,9 @@ def run_diagnostics(bdf: Optional[str] = None) -> Dict[str, Any]:
         }
     except Exception as e:
         log_error_safe(
-            logger, "Diagnostics failed: {error}", error=str(e), prefix="DIAG"
+            logger,
+            safe_format("Diagnostics failed: {error}", error=str(e)),
+            prefix="DIAG",
         )
         return {"overall": "error", "can_proceed": False, "checks": [], "error": str(e)}
 

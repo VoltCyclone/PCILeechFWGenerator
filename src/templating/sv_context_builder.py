@@ -164,7 +164,8 @@ class SVContextBuilder:
             # Header for generated files
             "header": "// PCILeech generated SystemVerilog module",
             # Basic settings
-            "fifo_type": "block_ram",
+            # Use distributed RAM FIFO by default to avoid vendor IP dependency
+            "fifo_type": "distributed",
             "fifo_depth": self.constants.DEFAULT_FIFO_DEPTH,
             "data_width": self.constants.DEFAULT_DATA_WIDTH,
             "fpga_family": self.constants.DEFAULT_FPGA_FAMILY,

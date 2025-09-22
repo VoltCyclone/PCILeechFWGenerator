@@ -9,10 +9,19 @@ including automatic cfg_force_mps parameter calculation and tiny PCIe algorithm 
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from src.device_clone.constants import (MPS_ENCODING_TO_VALUE,
-                                        MPS_VALUE_TO_ENCODING,
-                                        PCIE_MPS_CONSTANTS, VALID_MPS_VALUES)
+from src.device_clone.constants import (
+    MPS_ENCODING_TO_VALUE,
+    MPS_VALUE_TO_ENCODING,
+    PCIE_MPS_CONSTANTS,
+    VALID_MPS_VALUES,
+)
 from src.exceptions import ContextError
+from src.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +66,19 @@ class PayloadSizeConfig:
         """
         if self.max_payload_size not in VALID_MPS_VALUES:
             raise PayloadSizeError(
-                f"Invalid maximum payload size: {self.max_payload_size} bytes. "
-                f"Valid values are: {', '.join(map(str, VALID_MPS_VALUES))} bytes"
+                safe_format(
+                    "Invalid maximum payload size: {max_payload_size} bytes. "
+                    "Valid values are: {valid_values} bytes",
+                    max_payload_size=self.max_payload_size,
+                    valid_values=", ".join(map(str, VALID_MPS_VALUES)),
+                )
             )
-
-        logger.debug(f"Validated payload size: {self.max_payload_size} bytes")
+        log_info_safe(
+            logger,
+            safe_format(
+                "Validated payload size: {size} bytes", size=self.max_payload_size
+            ),
+        )
 
     def get_mps_encoding(self) -> int:
         """
@@ -84,8 +101,14 @@ class PayloadSizeConfig:
             cfg_force_mps value (0-5)
         """
         encoding = self.get_mps_encoding()
-        logger.info(
-            f"Calculated cfg_force_mps={encoding} for payload size {self.max_payload_size} bytes"
+        log_info_safe(
+            logger,
+            safe_format(
+                "Calculated cfg_force_mps: {encoding} for payload size {size} bytes",
+                encoding=encoding,
+                size=self.max_payload_size,
+            ),
+            prefix="PAYLOAD",
         )
         return encoding
 
@@ -103,13 +126,15 @@ class PayloadSizeConfig:
         threshold = PCIE_MPS_CONSTANTS["TINY_PCIE_THRESHOLD"]
 
         if self.max_payload_size < threshold:
-            warning = (
-                f"Payload size {self.max_payload_size} bytes is below the recommended "
-                f"threshold of {threshold} bytes. This may cause performance issues "
-                f"with the 'tiny PCIe algorithm'. Consider using a larger payload size "
-                f"if your device supports it."
+            warning = safe_format(
+                "Payload size {max_payload_size} bytes is below the recommended "
+                "threshold of {threshold} bytes. This may cause performance issues "
+                "with the 'tiny PCIe algorithm'. Consider using a larger payload size "
+                "if your device supports it.",
+                max_payload_size=self.max_payload_size,
+                threshold=threshold,
             )
-            logger.warning(warning)
+            log_warning_safe(logger, warning, prefix="PAYLOAD")
             return True, warning
 
         return False, None
@@ -128,8 +153,12 @@ class PayloadSizeConfig:
         device_max_payload = self.device_capabilities.get("max_payload_supported")
         if device_max_payload and self.max_payload_size > device_max_payload:
             raise PayloadSizeError(
-                f"Configured payload size {self.max_payload_size} bytes exceeds "
-                f"device maximum supported payload size of {device_max_payload} bytes"
+                safe_format(
+                    "Configured payload size {max_payload_size} bytes exceeds "
+                    "device maximum supported payload size of {device_max_payload} bytes",
+                    max_payload_size=self.max_payload_size,
+                    device_max_payload=device_max_payload,
+                )
             )
 
         # Check PCIe generation compatibility
@@ -137,9 +166,16 @@ class PayloadSizeConfig:
         if pcie_gen:
             recommended_mps = self._get_recommended_mps_for_gen(pcie_gen)
             if recommended_mps and self.max_payload_size < recommended_mps:
-                logger.warning(
-                    f"Payload size {self.max_payload_size} bytes is below the "
-                    f"recommended {recommended_mps} bytes for PCIe Gen{pcie_gen}"
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Payload size {max_payload_size} bytes is below the "
+                        "recommended {recommended_mps} bytes for PCIe Gen{pcie_gen}",
+                        max_payload_size=self.max_payload_size,
+                        recommended_mps=recommended_mps,
+                        pcie_gen=pcie_gen,
+                    ),
+                    prefix="PAYLOAD",
                 )
 
     def _get_recommended_mps_for_gen(self, pcie_gen: int) -> Optional[int]:
@@ -212,5 +248,6 @@ def validate_and_configure_payload_size(
         return summary
 
     except Exception as e:
-        logger.error(f"Payload size configuration failed: {e}")
-        raise PayloadSizeError(f"Failed to configure payload size: {e}") from e
+        raise PayloadSizeError(
+            safe_format("Failed to configure payload size: {error}", error=str(e))
+        ) from e

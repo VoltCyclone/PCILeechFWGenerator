@@ -27,6 +27,7 @@ from ..string_utils import (
     log_error_safe,
     log_info_safe,
     log_warning_safe,
+    safe_format,
 )
 from .build_constants import (
     DEFAULT_ACTIVE_INTERRUPT_MODE,
@@ -56,6 +57,23 @@ class VFIOError(RuntimeError):
 
 class EnvError(RuntimeError):
     pass
+
+
+# Lightweight indirection so tests can monkeypatch container._get_iommu_group
+def _get_iommu_group(bdf: str) -> int:
+    """Return IOMMU group id as int for the given BDF.
+
+    Delegates to vfio_handler and normalizes the result to int to make
+    tests and callsites simpler.
+    """
+    from .vfio_handler import _get_iommu_group as _impl
+
+    gid = _impl(bdf)
+    try:
+        return int(gid)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        # Ensure string conversion path still returns a valid int
+        return int(str(gid))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -191,7 +209,10 @@ class BuildConfig:
         )
         if not bdf_pattern.match(self.bdf):
             raise ValueError(
-                f"Invalid BDF format: {self.bdf}. Expected format: DDDD:BB:DD.F"
+                safe_format(
+                    "Invalid BDF format: {bdf}. Expected format: DDDD:BB:DD.F",
+                    bdf=self.bdf,
+                )
             )
         # Basic board non-empty validation
         if not self.board or not isinstance(self.board, str):
@@ -285,8 +306,10 @@ def _build_podman_command(
     else:
         log_warning_safe(
             logger,
-            "Kernel headers path missing; skipping mount (host={platform})",
-            platform=sys.platform,
+            safe_format(
+                "Kernel headers path missing; skipping mount (host={platform})",
+                platform=sys.platform,
+            ),
             prefix="CONT",
         )
     # Mount host debugfs to container to avoid privileged mount issues
@@ -295,15 +318,19 @@ def _build_podman_command(
         cmd.extend(["-v", f"{debugfs_path}:{debugfs_path}:rw"])
         log_debug_safe(
             logger,
-            "Mounted host debugfs at {path}",
-            path=debugfs_path,
+            safe_format(
+                "Mounted host debugfs at {path}",
+                path=debugfs_path,
+            ),
             prefix="CONT",
         )
     else:
         log_debug_safe(
             logger,
-            "Host debugfs not available for mount at {path}",
-            path=debugfs_path,
+            safe_format(
+                "Host debugfs not available for mount at {path}",
+                path=debugfs_path,
+            ),
             prefix="CONT",
         )
 
@@ -364,8 +391,10 @@ def run_local_build(cfg: BuildConfig) -> None:
 
     log_info_safe(
         logger,
-        "Running local build - board={board}",
-        board=cfg.board,
+        safe_format(
+            "Running local build - board={board}",
+            board=cfg.board,
+        ),
         prefix="LOCAL",
     )
 
@@ -400,8 +429,10 @@ def run_local_build(cfg: BuildConfig) -> None:
 
     log_info_safe(
         logger,
-        "Executing local build with args: {args}",
-        args=" ".join(build_args),
+        safe_format(
+            "Executing local build with args: {args}",
+            args=" ".join(build_args),
+        ),
         prefix="LOCAL",
     )
 
@@ -410,13 +441,14 @@ def run_local_build(cfg: BuildConfig) -> None:
     try:
         result = build_main(build_args)
         if result != 0:
-            raise RuntimeError(f"Local build failed with exit code {result}")
+            raise RuntimeError(
+                safe_format("Local build failed with exit code {result}", result=result)
+            )
 
         elapsed = time.time() - start
         log_info_safe(
             logger,
-            "Local build completed in {elapsed:.1f}s ✓",
-            elapsed=elapsed,
+            safe_format("Local build completed in {elapsed:.1f}s ✓", elapsed=elapsed),
             prefix="LOCAL",
         )
     except Exception as e:
@@ -435,9 +467,11 @@ def run_local_build(cfg: BuildConfig) -> None:
         else:
             log_error_safe(
                 logger,
-                "Local build failed after {elapsed:.1f}s: {error}",
-                elapsed=elapsed,
-                error=error_str,
+                safe_format(
+                    "Local build failed after {elapsed:.1f}s: {error}",
+                    elapsed=elapsed,
+                    error=error_str,
+                ),
                 prefix="LOCAL",
             )
         raise
@@ -445,6 +479,8 @@ def run_local_build(cfg: BuildConfig) -> None:
 
 def run_build(cfg: BuildConfig) -> None:
     """High‑level orchestration: VFIO bind → container run → cleanup"""
+    # Resolve image and tag once, respect dynamic tagging if enabled
+    resolved_image, resolved_tag = cfg.resolve_image_parts()
     # Check if Podman is available and working
     podman_available = check_podman_available()
 
@@ -479,14 +515,16 @@ def run_build(cfg: BuildConfig) -> None:
     # Try container build first
     try:
         require_podman()
-        if not image_exists(f"{cfg.container_image}:{cfg.container_tag}"):
-            build_image(cfg.container_image, cfg.container_tag)
+        if not image_exists(f"{resolved_image}:{resolved_tag}"):
+            build_image(resolved_image, resolved_tag)
     except (EnvError, RuntimeError) as e:
         if "Cannot connect to Podman" in str(e) or "connection refused" in str(e):
             log_warning_safe(
                 logger,
-                "Podman connection failed: {error}",
-                error=str(e),
+                safe_format(
+                    "Podman connection failed: {error}",
+                    error=str(e),
+                ),
                 prefix="BUILD",
             )
 
@@ -535,8 +573,10 @@ def run_build(cfg: BuildConfig) -> None:
                     json.dump(payload, f, indent=2)
                 log_info_safe(
                     logger,
-                    "Host MSI-X preloaded → {path}",
-                    path=str(msix_json_path),
+                    safe_format(
+                        "Host MSI-X preloaded → {path}",
+                        path=str(msix_json_path),
+                    ),
                     prefix="HOST",
                 )
             else:
@@ -562,24 +602,26 @@ def run_build(cfg: BuildConfig) -> None:
             pass
 
         # Get the group device path as a string (safe, just a string)
-        from .vfio_handler import _get_iommu_group
-
         group_id = _get_iommu_group(cfg.bdf)
         group_dev = f"/dev/vfio/{group_id}"
 
         log_info_safe(
             logger,
-            "Launching build container - board={board}, tag={tag}",
-            board=cfg.board,
-            tag=cfg.container_tag,
+            safe_format(
+                "Launching build container - board={board}, tag={tag}",
+                board=cfg.board,
+                tag=resolved_tag,
+            ),
             prefix="CONT",
         )
 
         podman_cmd_vec = _build_podman_command(cfg, group_dev, output_dir)
         log_debug_safe(
             logger,
-            "Container command (argv): {cmd}",
-            cmd=" ".join(podman_cmd_vec),
+            safe_format(
+                "Container command (argv): {cmd}",
+                cmd=" ".join(podman_cmd_vec),
+            ),
             prefix="CONT",
         )
         start = time.time()
@@ -603,7 +645,7 @@ def run_build(cfg: BuildConfig) -> None:
                             "ps",
                             "-q",
                             "--filter",
-                            f"ancestor={cfg.container_image}:{cfg.container_tag}",
+                            f"ancestor={resolved_image}:{resolved_tag}",
                         ]
                     )
                     .decode()
@@ -612,8 +654,10 @@ def run_build(cfg: BuildConfig) -> None:
                 if container_id:
                     log_info_safe(
                         logger,
-                        "Stopping container {container_id}",
-                        container_id=container_id,
+                        safe_format(
+                            "Stopping container {container_id}",
+                            container_id=container_id,
+                        ),
                         prefix="CONT",
                     )
                     # Best‑effort stop; no shell required
@@ -621,8 +665,10 @@ def run_build(cfg: BuildConfig) -> None:
             except Exception as e:
                 log_warning_safe(
                     logger,
-                    "Failed to clean up container: {error}",
-                    error=str(e),
+                    safe_format(
+                        "Failed to clean up container: {error}",
+                        error=str(e),
+                    ),
                     prefix="CONT",
                 )
 
@@ -631,8 +677,10 @@ def run_build(cfg: BuildConfig) -> None:
                 if cfg.bdf:  # This is sufficient since bdf is a required field
                     log_info_safe(
                         logger,
-                        "Ensuring VFIO cleanup for device {bdf}",
-                        bdf=cfg.bdf,
+                        safe_format(
+                            "Ensuring VFIO cleanup for device {bdf}",
+                            bdf=cfg.bdf,
+                        ),
                         prefix="CLEA",
                     )
                     # Get original driver if possible
@@ -651,8 +699,10 @@ def run_build(cfg: BuildConfig) -> None:
             except Exception as e:
                 log_warning_safe(
                     logger,
-                    "VFIO cleanup after interrupt failed: {error}",
-                    error=str(e),
+                    safe_format(
+                        "VFIO cleanup after interrupt failed: {error}",
+                        error=str(e),
+                    ),
                     prefix="CLEA",
                 )
 
@@ -660,8 +710,10 @@ def run_build(cfg: BuildConfig) -> None:
         duration = time.time() - start
         log_info_safe(
             logger,
-            "Build completed in {duration:.1f}s",
-            duration=duration,
+            safe_format(
+                "Build completed in {duration:.1f}s",
+                duration=duration,
+            ),
             prefix="CONT",
         )
     except RuntimeError as e:
@@ -669,8 +721,10 @@ def run_build(cfg: BuildConfig) -> None:
             # VFIO binding failed, diagnostics have already been run
             log_error_safe(
                 logger,
-                "Build aborted due to VFIO issues: {error}",
-                error=str(e),
+                safe_format(
+                    "Build aborted due to VFIO issues: {error}",
+                    error=str(e),
+                ),
                 prefix="VFIO",
             )
             from .vfio_diagnostics import Diagnostics, render

@@ -4,6 +4,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from src.string_utils import safe_format
+
 
 @dataclass
 class BuildConfig:
@@ -53,15 +55,24 @@ class BuildConfig:
         )
         if not bdf_pattern.match(self.bdf):
             raise ValueError(
-                f"Invalid BDF format: {self.bdf}. Expected format: DDDD:BB:DD.F"
+                safe_format(
+                    "Invalid BDF format: {bdf}. Expected format: DDDD:BB:DD.F",
+                    bdf=self.bdf,
+                )
             )
 
         # Validate vendor and device IDs
         if not re.match(r"^[0-9a-fA-F]{4}$", self.vendor):
             raise ValueError(
-                f"Invalid vendor ID format: {self.vendor}. Expected 4-digit hex."
+                safe_format(
+                    "Invalid vendor ID format: {vendor}. Expected 4-digit hex.",
+                    vendor=self.vendor,
+                )
             )
         if not re.match(r"^[0-9a-fA-F]{4}$", self.device):
             raise ValueError(
-                f"Invalid device ID format: {self.device}. Expected 4-digit hex."
+                safe_format(
+                    "Invalid device ID format: {device}. Expected 4-digit hex.",
+                    device=self.device,
+                )
             )

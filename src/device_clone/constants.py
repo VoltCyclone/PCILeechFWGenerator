@@ -10,8 +10,7 @@ from typing import Dict, Final, List, Optional, Union
 
 # Import the VendorID enum for use in fallback functions
 try:
-    from src.pci_capability.dynamic_functions import \
-        VendorID as ExternalVendorID
+    from src.pci_capability.dynamic_functions import VendorID as ExternalVendorID
 
     # Use the external VendorID enum values
     VENDOR_ID_INTEL = ExternalVendorID.INTEL
@@ -98,13 +97,15 @@ BOARD_PARTS = {
     # Original boards
     "35t": "xc7a35tcsg324-2",
     "75t": "xc7a75tfgg484-2",
-    "100t": "xczu3eg-sbva484-1-e",
+    # 100T CaptainDMA is an Artix-7 100T (FGG484-1). Use the 7-series part.
+    "100t": "xc7a100tffg484-1",
     # CaptainDMA boards
     "pcileech_75t484_x1": "xc7a75tfgg484-2",
     "pcileech_35t484_x1": "xc7a35tfgg484-2",
     "pcileech_35t325_x4": "xc7a35tcsg324-2",
     "pcileech_35t325_x1": "xc7a35tcsg324-2",
-    "pcileech_100t484_x1": "xczu3eg-sbva484-1-e",
+    # CaptainDMA 100T x1 board: Artix-7 100T, FFG484 package, -1 speed grade.
+    "pcileech_100t484_x1": "xc7a100tffg484-1",
     # Other boards
     "pcileech_enigma_x1": "xc7a75tfgg484-2",
     "pcileech_squirrel": "xc7a35tfgg484-2",

@@ -27,15 +27,24 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.device_clone.manufacturing_variance import (
-    DeviceClass, ManufacturingVarianceSimulator)
-# Import project logging and string utilities
-from src.exceptions import PlatformCompatibilityError
+
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+
 from src.log_config import get_logger
-# Import manufacturing variance simulation
+from src.exceptions import PlatformCompatibilityError
 from src.scripts.kernel_utils import setup_debugfs
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+
+from src.device_clone.manufacturing_variance import (
+    DeviceClass,
+    ManufacturingVarianceSimulator,
+)
+from src.error_utils import extract_root_cause
 
 
 def is_linux() -> bool:
@@ -546,7 +555,9 @@ class BehaviorProfiler:
 
         except Exception as e:
             log_warning_safe(
-                self.logger, "Ftrace parsing error: {error}", prefix="PROFILER", error=e
+                self.logger,
+                safe_format("Ftrace parsing error: {error}", error=e),
+                prefix="PROFILER",
             )
 
     def _read_debug_registers(self, debug_path: str) -> None:
@@ -573,9 +584,8 @@ class BehaviorProfiler:
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                "Debug register read error: {error}",
+                safe_format("Debug register read error: {error}", error=e),
                 prefix="PROFILER",
-                error=e,
             )
 
     def _start_monitoring(self) -> bool:
@@ -641,9 +651,8 @@ class BehaviorProfiler:
                     # Ignore tracing cleanup errors as they're not critical
                     log_debug_safe(
                         self.logger,
-                        "Failed to disable tracing: {error}",
+                        safe_format("Failed to disable tracing: {error}", error=e),
                         prefix="PROFILER",
-                        error=e,
                     )
 
         log_debug_safe(self.logger, "Monitoring stopped", prefix="PROFILER")
@@ -676,9 +685,8 @@ class BehaviorProfiler:
                     # Ignore tracing cleanup errors as they're not critical
                     log_debug_safe(
                         self.logger,
-                        "Failed to disable tracing: {error}",
+                        safe_format("Failed to disable tracing: {error}", error=e),
                         prefix="PROFILER",
-                        error=e,
                     )
 
         log_debug_safe(self.logger, "Monitoring stopped", prefix="PROFILER")
@@ -695,9 +703,8 @@ class BehaviorProfiler:
         """
         log_debug_safe(
             self.logger,
-            "Starting behavior capture for {duration}s",
+            safe_format("Starting behavior capture for {duration}s", duration=duration),
             prefix="PROFILER",
-            duration=duration,
         )
 
         if duration <= 0:
@@ -764,9 +771,8 @@ class BehaviorProfiler:
 
             log_debug_safe(
                 self.logger,
-                "Captured {count} register accesses",
+                safe_format("Captured {count} register accesses", count=len(accesses)),
                 prefix="PROFILER",
-                count=len(accesses),
             )
             return profile
 
@@ -1207,9 +1213,8 @@ class BehaviorProfiler:
 
         log_info_safe(
             self.logger,
-            "Profile saved to {filepath}",
+            safe_format("Profile saved to {filepath}", filepath=filepath),
             prefix="PROFILER",
-            filepath=filepath,
         )
 
     def load_profile(self, filepath: str) -> BehaviorProfile:
@@ -1234,9 +1239,8 @@ class BehaviorProfiler:
 
         log_info_safe(
             self.logger,
-            "Profile loaded from {filepath}",
+            safe_format("Profile loaded from {filepath}", filepath=filepath),
             prefix="PROFILER",
-            filepath=filepath,
         )
         return profile
 
@@ -1731,7 +1735,8 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="PCIe Device Behavior Profiler")
-    parser.add_argument("--bd", required=True, help="PCIe Bus:Device.Function")
+    # Use --bdf to match the attribute accessed below (args.bdf)
+    parser.add_argument("--bdf", required=True, help="PCIe Bus:Device.Function")
     parser.add_argument(
         "--duration", type=float, default=30.0, help="Capture duration in seconds"
     )
@@ -1745,26 +1750,57 @@ def main():
         profile = profiler.capture_behavior_profile(args.duration)
         analysis = profiler.analyze_patterns(profile)
 
-        print(f"Behavior Profile Summary for {args.bdf}:")
-        print(f"  Total accesses: {profile.total_accesses}")
-        print(f"  Timing patterns: {len(profile.timing_patterns)}")
-        print(
-            f"  Access frequency: {analysis['device_characteristics']['access_frequency_hz']:.2f} Hz"
+        logger = get_logger(__name__)
+        log_info_safe(
+            logger,
+            safe_format("Behavior Profile Summary for {bdf}", bdf=args.bdf),
+            prefix="PROFILER",
         )
-        print(
-            f"  Timing regularity: {analysis['behavioral_signatures']['timing_regularity']:.2f}"
+        log_info_safe(
+            logger,
+            safe_format("  Total accesses: {count}", count=profile.total_accesses),
+            prefix="PROFILER",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Timing patterns: {count}", count=len(profile.timing_patterns)
+            ),
+            prefix="PROFILER",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Access frequency: {freq:.2f} Hz",
+                freq=analysis["device_characteristics"]["access_frequency_hz"],
+            ),
+            prefix="PROFILER",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Timing regularity: {reg:.2f}",
+                reg=analysis["behavioral_signatures"]["timing_regularity"],
+            ),
+            prefix="PROFILER",
         )
 
-        print("\nRecommendations:")
+        log_info_safe(logger, "Recommendations:", prefix="PROFILER")
         for rec in analysis["recommendations"]:
-            print(f"  - {rec}")
+            log_info_safe(logger, safe_format("  - {rec}", rec=rec), prefix="PROFILER")
 
         if args.output:
             profiler.save_profile(profile, args.output)
-            print(f"\nProfile saved to {args.output}")
+            # save_profile already logs a message; avoid duplicate output
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger = get_logger(__name__)
+        root_cause = extract_root_cause(e)
+        log_error_safe(
+            logger,
+            safe_format("Profiler failed: {rc}", rc=root_cause),
+            prefix="PROFILER",
+        )
         return 1
 
     return 0

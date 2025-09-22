@@ -7,27 +7,16 @@ from pathlib import Path
 from typing import Optional
 
 # Re-export the correct, complete VFIO implementation
-from .vfio_handler import (VFIOBinder, VFIOBindError, render_pretty,
-                           run_diagnostics)
+from .vfio_handler import VFIOBinder, VFIOBindError, render_pretty, run_diagnostics
 from .vfio_helpers import get_device_fd
 
-try:
-    from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                                log_warning_safe)
-except ImportError:
-    # Fallback implementations
-    def log_info_safe(logger, template, **kwargs):
-        logger.info(template.format(**kwargs))
-
-    def log_error_safe(logger, template, **kwargs):
-        logger.error(template.format(**kwargs))
-
-    def log_warning_safe(logger, template, **kwargs):
-        logger.warning(template.format(**kwargs))
-
-    def log_debug_safe(logger, template, **kwargs):
-        logger.debug(template.format(**kwargs))
-
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +27,11 @@ def get_current_driver(bdf: str) -> Optional[str]:
     if driver_link.exists():
         log_info_safe(
             logger,
-            "Current driver for {bdf} is {driver}",
-            bdf=bdf,
-            driver=driver_link.resolve().name,
+            safe_format(
+                "Current driver for {bdf} is {driver}",
+                bdf=bdf,
+                driver=driver_link.resolve().name,
+            ),
             prefix="VFIO",
         )
         return driver_link.resolve().name
@@ -56,17 +47,21 @@ def restore_driver(bdf: str, original: Optional[str]):
                 bind_path.write_text(f"{bdf}\n")
                 log_debug_safe(
                     logger,
-                    "Restored {bdf} to {driver}",
-                    bdf=bdf,
-                    driver=original,
+                    safe_format(
+                        "Restored {bdf} to {driver}",
+                        bdf=bdf,
+                        driver=original,
+                    ),
                     prefix="VFIO",
                 )
         except Exception as e:
             log_warning_safe(
                 logger,
-                "Failed to restore driver for {bdf}: {error}",
-                bdf=bdf,
-                error=e,
+                safe_format(
+                    "Failed to restore driver for {bdf}: {error}",
+                    bdf=bdf,
+                    error=e,
+                ),
                 prefix="VFIO",
             )
 

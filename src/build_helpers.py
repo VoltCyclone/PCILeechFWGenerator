@@ -41,13 +41,24 @@ logger = logging.getLogger(__name__)
 
 
 def add_src_to_path() -> None:
-    """Prepend `<project‑root>/src` to *sys.path* exactly once."""
+    """Ensure `<project‑root>/src` appears exactly once in sys.path at front.
+
+    Removes any pre-existing duplicates (including symlink/relative variants)
+    before inserting the canonical resolved path at position 0.
+    """
     src = (Path(__file__).resolve().parent.parent / "src").resolve()
     if not src.exists():
         raise RuntimeError(f"Expected src directory not found: {src}")
-    if str(src) not in sys.path:
-        sys.path.insert(0, str(src))
-        log_debug_safe(logger, "Added {src} to PYTHONPATH", prefix="BUILD", src=src)
+
+    # Drop all entries resolving to the same path to guarantee idempotency
+    normalized = src
+    sys.path[:] = [p for p in sys.path if Path(p).resolve() != normalized]
+
+    # Prepend canonical path
+    sys.path.insert(0, str(src))
+    log_debug_safe(
+        logger, "Ensured {src} is first on PYTHONPATH", prefix="BUILD", src=src
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +162,12 @@ def write_tcl_file(
     path = Path(file_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf‑8")
-    tcl_files.append(str(path))
+    # Track by human-friendly description and by absolute path for consumers
+    if description not in tcl_files:
+        tcl_files.append(description)
+    abs_path = str(path)
+    if abs_path not in tcl_files:
+        tcl_files.append(abs_path)
     log_info_safe(
         logger,
         safe_format("Generated {description}", description=description),

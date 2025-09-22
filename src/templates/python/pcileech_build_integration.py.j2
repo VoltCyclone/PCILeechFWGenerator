@@ -52,7 +52,6 @@ class BuildConfig:
     timing: TimingConfig
     pcileech: PCILeechConfig
     pcileech_modules: List[str] = field(default_factory=lambda: {{ pcileech_modules | python_list }})
-    build_system_version: str = "{{ build_system_version }}"
     integration_type: str = "{{ integration_type }}"
 
 
@@ -171,7 +170,6 @@ def create_build_config(build_data: Dict[str, Any]) -> BuildConfig:
         timing=timing,
         pcileech=pcileech,
         pcileech_modules=build_data.get("pcileech_modules", []),
-        build_system_version=build_data.get("build_system_version", "0.7.5"),
         integration_type=build_data.get("integration_type", "pcileech"),
     )
 
@@ -192,7 +190,6 @@ def integrate_pcileech_build(build_data: Dict[str, Any]) -> Dict[str, Any]:
         "systemverilog_files": integrator.get_systemverilog_files(),
         "constraint_files": integrator.get_constraint_files(),
         "integration_metadata": {
-            "build_system_version": config.build_system_version,
             "integration_type": config.integration_type,
         }
     }

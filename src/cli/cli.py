@@ -32,11 +32,13 @@ except ImportError:
     from src.log_config import get_logger, setup_logging
     from src.shell import Shell
 
-from ..string_utils import log_info_safe, log_warning_safe
-from .build_constants import (DEFAULT_ACTIVE_INTERRUPT_MODE,
-                              DEFAULT_ACTIVE_INTERRUPT_VECTOR,
-                              DEFAULT_ACTIVE_PRIORITY,
-                              DEFAULT_ACTIVE_TIMER_PERIOD)
+from ..string_utils import log_info_safe, log_warning_safe, safe_format
+from .build_constants import (
+    DEFAULT_ACTIVE_INTERRUPT_MODE,
+    DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+    DEFAULT_ACTIVE_PRIORITY,
+    DEFAULT_ACTIVE_TIMER_PERIOD,
+)
 from .container import BuildConfig, run_build  # new unified runner
 from .version_checker import add_version_args, check_and_notify
 
@@ -229,7 +231,7 @@ def donor_template_sub(parser: argparse._SubParsersAction):
     p.add_argument(
         "--with-comments",
         action="store_true",
-        help="Generate template with explanatory comments (not valid JSON)",
+        help="Generate template with explanatory $comment fields (valid JSON)",
     )
 
 
@@ -280,10 +282,16 @@ def main(argv: Optional[List[str]] = None):
             else:
                 log_info_safe(
                     logger,
-                    f"✓ You are running the latest version ({latest_version})",
+                    safe_format(
+                        "✓ You are running the latest version ({latest_version})",
+                        latest_version=latest_version,
+                    ),
+                    prefix="VERS",
                 )
         else:
-            log_warning_safe(logger, "Unable to check for updates")
+            log_warning_safe(
+                logger, safe_format("Unable to check for updates"), prefix="VERS"
+            )
         sys.exit(0)
 
     # Check for updates unless explicitly skipped
@@ -316,6 +324,7 @@ def main(argv: Optional[List[str]] = None):
             log_warning_safe(
                 logger,
                 "Legacy compatibility mode enabled - using 'auto' fallback mode",
+                prefix="BUILD",
             )
             fallback_mode = "auto"
             if not allowed_fallbacks:
@@ -351,8 +360,7 @@ def main(argv: Optional[List[str]] = None):
         flash_bin(Path(args.firmware))
 
     elif args.cmd == "donor-template":
-        from ..device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from ..device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         if args.with_comments:
             # Generate template with comments (for documentation)
@@ -361,8 +369,11 @@ def main(argv: Optional[List[str]] = None):
                 f.write(template_str)
             log_info_safe(
                 logger,
-                "✓ Donor info template with comments saved to: {output}",
-                output=args.output,
+                safe_format(
+                    "✓ Donor info template with comments saved to: {output}",
+                    output=args.output,
+                ),
+                prefix="BUILD",
             )
         else:
             # Generate valid JSON template
@@ -371,15 +382,23 @@ def main(argv: Optional[List[str]] = None):
             )
             log_info_safe(
                 logger,
-                "✓ Donor info template saved to: {output}",
-                output=args.output,
+                safe_format(
+                    "✓ Donor info template saved to: {output}",
+                    output=args.output,
+                ),
+                prefix="BUILD",
             )
 
-        log_info_safe(logger, "\nNext steps:")
-        log_info_safe(logger, "1. Fill in the device-specific values in the template")
-        log_info_safe(logger, "2. Run behavioral profiling to capture timing data")
+        log_info_safe(logger, safe_format("\nNext steps:"))
         log_info_safe(
-            logger, "3. Use the completed template for advanced device cloning"
+            logger, safe_format("1. Fill in the device-specific values in the template")
+        )
+        log_info_safe(
+            logger, safe_format("2. Run behavioral profiling to capture timing data")
+        )
+        log_info_safe(
+            logger,
+            safe_format("3. Use the completed template for advanced device cloning"),
         )
 
 

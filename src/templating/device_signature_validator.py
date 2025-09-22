@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, Dict, Optional, Tuple
 
-from src.string_utils import log_error_safe
+from src.string_utils import log_error_safe, safe_format
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,10 @@ def validate_device_signature(device_signature: Any) -> Tuple[bool, Optional[str
     if not isinstance(device_signature, str):
         return (
             False,
-            f"Device signature must be a string, got {type(device_signature).__name__}",
+            safe_format(
+                "device_signature must be a string, got {type}",
+                type=type(device_signature).__name__,
+            ),
         )
 
     # Check if it matches any of the valid patterns
@@ -50,7 +53,9 @@ def validate_device_signature(device_signature: Any) -> Tuple[bool, Optional[str
     if re.match(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[0-9a-fA-F]{2})?$", device_signature):
         return True, None
 
-    return False, f"Device signature has invalid format: {device_signature}"
+    return False, safe_format(
+        "Device signature has invalid format: {sig}", sig=device_signature
+    )
 
 
 def ensure_valid_device_signature(context: Dict[str, Any]) -> None:
@@ -75,9 +80,19 @@ def ensure_valid_device_signature(context: Dict[str, Any]) -> None:
     is_valid, error_message = validate_device_signature(device_signature)
 
     if not is_valid:
+        # Log with detailed context using safe_format and then raise
         log_error_safe(
             logger,
-            "CRITICAL: Invalid device_signature: {error_message}",
+            safe_format(
+                "CRITICAL: Invalid device_signature: {error_message}",
+                error_message=error_message,
+            ),
             prefix="SECURITY",
         )
-        raise ValueError(f"CRITICAL: Invalid device_signature: {error_message}")
+        # Raise to enforce strict validation in templates/tests
+        raise ValueError(
+            safe_format(
+                "Invalid device_signature: {error_message}",
+                error_message=error_message,
+            )
+        )
