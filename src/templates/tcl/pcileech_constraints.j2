@@ -2,16 +2,17 @@
 #
 puts "Setting up PCILeech build environment..."
 
-{%- from "_helpers.j2" import safe_name, safe_attr, board_name, board_fpga_part, safe_board_name, safe_board_fpga_part %}
-{% if not device.vendor_id or not device.device_id %}
+{%- from "_helpers.j2" import safe_attr, safe_board_name, safe_board_fpga_part, get_vendor_id, get_device_id %}
+{% set _vendor_id = get_vendor_id(device_config, device, config_space, vendor_id_int) %}
+{% set _device_id = get_device_id(device_config, device, config_space, device_id_int) %}
+{% if not _vendor_id or not _device_id %}
 # WARNING: Missing vendor_id or device_id - Device identification incomplete
 {% else %}
-# Generated for: {{ device.vendor_id }}:{{ device.device_id }}
+# Generated for: {{ _vendor_id }}:{{ _device_id }}
 {% endif %}
 # compute safe board values using helpers to tolerate string/None
-{% from "_helpers.j2" import safe_attr, board_name %}
-{%- set _board_name = safe_attr(board, 'name', '') -%}
-{%- set _board_fpga = safe_attr(board, 'fpga_part', '') -%}
+{%- set _board_name = safe_board_name(board, '') -%}
+{%- set _board_fpga = safe_board_fpga_part(board, '') -%}
 {%- set _supports_msix = (supports_msix if supports_msix is defined else False) -%}
 {% if not _board_name %}
 # WARNING: Missing board name
@@ -36,6 +37,11 @@ puts "Applying PCILeech constraints..."
 {% set pcie_tx_n_pins = safe_attr(board, 'pcie_tx_n_pins', []) %}
 {% set pcie_rx_p_pins = safe_attr(board, 'pcie_rx_p_pins', []) %}
 {% set pcie_rx_n_pins = safe_attr(board, 'pcie_rx_n_pins', []) %}
+
+# Allow board to override PCIe ref clock IOSTANDARDs with sensible defaults
+{% set _clk_iostd_generic = safe_attr(board, 'pcie_clk_iostandard', '') %}
+{% set _clk_iostd_7x = safe_attr(board, 'pcie_clk_iostandard_7x', _clk_iostd_generic if _clk_iostd_generic else 'DIFF_HSTL_I') %}
+{% set _clk_iostd_us = safe_attr(board, 'pcie_clk_iostandard_ultrascale', _clk_iostd_generic if _clk_iostd_generic else 'DIFF_SSTL12') %}
 
 #===============================================================================
 # BOARD-SPECIFIC CONSTRAINTS
@@ -72,11 +78,13 @@ create_clock -period {{ _pcie_clock_period }} -name pcie_clk [get_ports pcie_clk
 
 # PCIe clock IO standards and pin assignments
 {% set _pcie_ip_type = safe_attr(board, 'pcie_ip_type', '') %}
+{% set _is_7x = (_pcie_ip_type == 'pcie_7x' or _pcie_ip_type == 'pcie7x') %}
+{% set _is_us = (_pcie_ip_type == 'pcie_ultrascale' or _pcie_ip_type == 'ultrascale') %}
 {% if not _pcie_ip_type %}
 puts "ERROR: Missing required parameter: board.pcie_ip_type"
 puts "PCIe IP type must be explicitly specified in board configuration"
 return
-{% elif _pcie_ip_type == "pcie7x" %}
+{% elif _is_7x %}
 # PCIe 7-series specific clock constraints
 {% if not pcie_clk_p_pin %}
 puts "ERROR: Missing required parameter: pcie_clk_p_pin for 7-series device"
@@ -90,9 +98,9 @@ return
 {% else %}
 set_property PACKAGE_PIN {{ pcie_clk_n_pin }} [get_ports pcie_clk_n]
 {% endif %}
-set_property IOSTANDARD DIFF_HSTL_I [get_ports pcie_clk_p]
-set_property IOSTANDARD DIFF_HSTL_I [get_ports pcie_clk_n]
-{% elif _pcie_ip_type == "ultrascale" %}
+set_property IOSTANDARD {{ _clk_iostd_7x }} [get_ports pcie_clk_p]
+set_property IOSTANDARD {{ _clk_iostd_7x }} [get_ports pcie_clk_n]
+{% elif _is_us %}
 # UltraScale+ specific clock constraints
 {% if not pcie_clk_p_pin %}
 puts "ERROR: Missing required parameter: pcie_clk_p_pin for UltraScale device"
@@ -106,12 +114,12 @@ return
 {% else %}
 set_property PACKAGE_PIN {{ pcie_clk_n_pin }} [get_ports pcie_clk_n]
 {% endif %}
-set_property IOSTANDARD DIFF_SSTL12 [get_ports pcie_clk_p]
-set_property IOSTANDARD DIFF_SSTL12 [get_ports pcie_clk_n]
+set_property IOSTANDARD {{ _clk_iostd_us }} [get_ports pcie_clk_p]
+set_property IOSTANDARD {{ _clk_iostd_us }} [get_ports pcie_clk_n]
 {% else %}
 # Error for unsupported FPGA family
-puts "ERROR: Unsupported PCIe IP type: {{ board.pcie_ip_type }}"
-puts "Supported types are: pcie7x, ultrascale"
+puts "ERROR: Unsupported PCIe IP type: {{ _pcie_ip_type }}"
+puts "Supported types are: pcie_7x|pcie7x, pcie_ultrascale|ultrascale"
 return
 {% endif %}
 
@@ -202,9 +210,9 @@ set_false_path -from [get_pins -hierarchical *option_rom*/reg*/C] -to [get_clock
 #===============================================================================
 # DEVICE-SPECIFIC CONSTRAINTS
 #===============================================================================
-# Device {{ device.vendor_id }}:{{ device.device_id }} specific constraints
-{% if device.vendor_id and device.device_id %}
-# Device {{ device.vendor_id }}:{{ device.device_id }} specific constraints
+# Device {{ _vendor_id }}:{{ _device_id }} specific constraints
+{% if _vendor_id and _device_id %}
+# Device {{ _vendor_id }}:{{ _device_id }} specific constraints
 {% if device.class_code %}
 {% if device.class_code == "0x020000" %}
 # Network controller specific constraints
@@ -277,12 +285,12 @@ set_property BITSTREAM.CONFIG.CONFIGRATE {{ _bit_rate }} [current_design]
 {% endif %}
 
 # PCILeech-specific bitstream settings
-{% if not device.vendor_id or not device.device_id %}
+{% if not _vendor_id or not _device_id %}
 puts "ERROR: Missing required parameter: device.vendor_id or device.device_id"
 puts "Both vendor ID and device ID must be specified for proper device identification"
 return
 {% else %}
-set_property BITSTREAM.CONFIG.USERID "0x{{ device.vendor_id }}{{ device.device_id }}" [current_design]
+set_property BITSTREAM.CONFIG.USERID "0x{{ _vendor_id }}{{ _device_id }}" [current_design]
 {% endif %}
 
 puts "PCILeech constraints applied successfully"

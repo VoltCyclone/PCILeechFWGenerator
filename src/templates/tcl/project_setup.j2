@@ -1,33 +1,5 @@
-{{ header_comment }}
-
-puts "Setting up PCILeech project environment..."
-{% from "_helpers.j2" import safe_name, safe_attr, board_name, board_fpga_part, safe_board_name, safe_board_fpga_part %}
-
-# Set up build environment (use safe helpers to tolerate string/dict/project variants)
-set project_name "{{ safe_name(project) }}"
-set project_dir "{{ safe_attr(project, 'dir', project_dir|default('.')) }}"
-set output_dir "{{ safe_attr(project, 'output_dir', output_dir|default('./out')) }}"
-
-# Create project directory
-file mkdir $project_dir
-
-{% from "_helpers.j2" import board_name, board_fpga_part, safe_board_name, safe_board_fpga_part %}
-puts "Creating Vivado project for {{ safe_board_name(board) }}..."
-puts "Device: {{ device.vendor_id }}:{{ device.device_id }} (Class: {{ device.class_code }})"
-
-# Create project with correct FPGA part
-create_project $project_name $project_dir -part {{ safe_board_fpga_part(board) }} -force
-
-# Part-sanity guard (must be after project creation)
-set expected_part {{ safe_board_fpga_part(board) }}
-set actual_part [get_property PART [current_project]]
-if {[string tolower $actual_part] ne [string tolower $expected_part]} {
-    puts "CRITICAL: wrong -part (found $actual_part, need $expected_part)"; exit 1
-}
-
-# Set project properties
-set_property target_language Verilog [current_project]
-set_property simulator_language Mixed [current_project]
-set_property default_lib xil_defaultlib [current_project]
-
-puts "Project setup completed successfully"
+{#
+    Generic project_setup template delegates to the PCILeech-specific
+    version to avoid duplication and ensure consistent behavior.
+#}
+{% include "tcl/pcileech_project_setup.j2" %}

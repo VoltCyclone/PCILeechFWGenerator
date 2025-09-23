@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 from src.exceptions import DeviceConfigError, ValidationError
-from src.string_utils import safe_format, safe_log_format
+from src.string_utils import safe_format, safe_log_format, log_error_safe, log_info_safe
 
 logger = logging.getLogger(__name__)
 
@@ -389,7 +389,7 @@ class DonorInfoTemplateGenerator:
             )
         except Exception as e:
             error_msg = safe_format("Failed to save template: {error}", error=str(e))
-            logger.error(error_msg)
+            log_error_safe(logger, error_msg, prefix="DONOR")
             raise DeviceConfigError(error_msg) from e
 
     @staticmethod
@@ -420,7 +420,7 @@ class DonorInfoTemplateGenerator:
             )
         except Exception as e:
             error_msg = safe_format("Failed to save template: {error}", error=str(e))
-            logger.error(error_msg)
+            log_error_safe(logger, error_msg, prefix="DONOR")
             raise DeviceConfigError(error_msg) from e
 
     @staticmethod
@@ -671,7 +671,7 @@ class DonorInfoTemplateGenerator:
             error_msg = safe_format(
                 "Failed to run lspci for device {bdf}: {error}", bdf=bdf, error=str(e)
             )
-            logger.error(error_msg)
+            log_error_safe(logger, error_msg, prefix="DONOR")
             raise DeviceConfigError(error_msg) from e
         except Exception as e:
             error_msg = safe_format(
@@ -679,7 +679,7 @@ class DonorInfoTemplateGenerator:
                 bdf=bdf,
                 error=str(e),
             )
-            logger.error(error_msg)
+            log_error_safe(logger, error_msg, prefix="DONOR")
             raise DeviceConfigError(error_msg) from e
 
         return template
@@ -785,13 +785,13 @@ class DonorInfoTemplateGenerator:
 
         except FileNotFoundError:
             error_msg = safe_format("Template file not found: {path}", path=filepath)
-            logger.error(error_msg)
+            log_error_safe(logger, error_msg, prefix="DONOR")
             raise ValidationError(error_msg)
         except json.JSONDecodeError as e:
             error_msg = safe_format(
                 "Invalid JSON in {path}: {error}", path=filepath, error=str(e)
             )
-            logger.error(error_msg)
+            log_error_safe(logger, error_msg, prefix="DONOR")
             raise ValidationError(error_msg) from e
 
     @staticmethod

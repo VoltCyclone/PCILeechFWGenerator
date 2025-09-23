@@ -25,7 +25,7 @@ jobs:
         fetch-depth: 0
     
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -71,10 +71,17 @@ jobs:
         draft: false
         prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
     
+    - name: Publish pre-release to TestPyPI (rc/beta/alpha)
+      if: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: dist
+        repository-url: https://test.pypi.org/legacy/
+        skip-existing: true
+
     - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: |
-        twine upload dist/*
       if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: dist
+        skip-existing: true

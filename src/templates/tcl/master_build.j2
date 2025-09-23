@@ -43,171 +43,64 @@ set color_red "\033\[91m"
 set color_yellow "\033\[93m"
 set color_green "\033\[92m"
 set color_blue "\033\[94m"
-set color_reset "\033\[0m"
+{{ header_comment }}
 
-# Portable color detection using environment variables
-set use_colors [expr {[info exists ::env(TERM)] && [regexp {xterm|vt100|ansi|screen} $::env(TERM)]}]
+{% from "_helpers.j2" import safe_name, get_vendor_id, get_device_id %}
 
-# Defensive defaults for legacy templates
-set batch_mode [info exists ::env(BATCH_MODE) ? $::env(BATCH_MODE) : 0]
+# Guard against re-sourcing this master script
+if {[info exists ::build_master_running]} return
+set ::build_master_running 1
 
-# Get script directory for relative path resolution
+# Batch-friendly defaults and clean start
+set_param gui.enableXmsgs 0
+catch {close_project -quiet}
+
+# Basic logging (console + file)
+set logfile [open "build_console.log" a]
+proc log {msg} {
+    global logfile
+    set ts [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"]
+    puts $logfile "$ts $msg"
+    flush $logfile
+    puts $msg
+}
+
 set script_dir [file dirname [info script]]
 
-# Enhanced error reporting procedure
-proc report_error {script_name error_msg {severity "ERROR"}} {
-    global build_errors build_warnings error_details warning_details
-    global color_red color_yellow color_green color_reset use_colors
-    
-    set timestamp [clock format [clock seconds] -format "%H:%M:%S"]
-    set formatted_msg "\[$timestamp\] $severity in $script_name: $error_msg"
-    
-    if {$severity == "ERROR" || $severity == "CRITICAL"} {
-        incr build_errors
-        lappend error_details $formatted_msg
-        if {$use_colors} {
-            log "${color_red} $formatted_msg${color_reset}"
-        } else {
-            log "ERROR: $formatted_msg"
-        }
-    } elseif {$severity == "WARNING"} {
-        incr build_warnings
-        lappend warning_details $formatted_msg
-        if {$use_colors} {
-            log "${color_yellow}  $formatted_msg${color_reset}"
-        } else {
-            log "WARNING: $formatted_msg"
-        }
-    } else {
-        if {$use_colors} {
-            log "${color_green}ℹ  $formatted_msg${color_reset}"
-        } else {
-            log "INFO: $formatted_msg"
-        }
+log "=========================================="
+log "PCILeech Firmware Build"
+log "Device: {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}:{{ get_device_id(device_config, device, config_space, device_id_int) }}"
+log "Board: {{ safe_name(board) }}"
+log "Started: [clock format [clock seconds]]"
+log "=========================================="
+
+# Fail-fast helpers
+proc die {msg} {
+    log "ERROR: $msg"
+    catch {close_project -quiet}
+    global logfile
+    close $logfile
+    exit 1
+}
+
+proc require_file {path} {
+    if {![file exists $path]} {
+        die "Missing required script: $path"
     }
 }
 
-# Enhanced script execution with error handling
-proc execute_script {script_name} {
-    global build_errors failed_scripts color_blue color_reset use_colors script_dir
-    
-    # Resolve script path relative to master script directory
-    set full_path [file normalize [file join $script_dir $script_name]]
-    if {![file exists $full_path]} {
-        report_error $script_name "Script file not found at $full_path" "CRITICAL"
-        lappend failed_scripts $script_name
-        return 0
+proc run_step {relpath} {
+    global script_dir
+    set full [file normalize [file join $script_dir $relpath]]
+    require_file $full
+    log "--> Sourcing $relpath"
+    if {[catch {source $full} err]} {
+        die "Step failed ($relpath): $err"
     }
-    
-    if {$use_colors} {
-        log "${color_blue}🔄 Executing: $script_name${color_reset}"
-    } else {
-        log "Executing: $script_name"
-    }
-    
-    set script_start [clock seconds]
-    
-    # Execute script with comprehensive error handling (renamed variable to avoid shadowing)
-    if {[catch {source $full_path} errMsg]} {
-        report_error $script_name $errMsg "ERROR"
-        lappend failed_scripts $script_name
-        
-        # Try to extract more specific error information
-        if {[string match "*ERROR*" $errMsg]} {
-            # Parse Vivado-specific errors
-            if {[regexp {ERROR: \[(\w+) (\d+-\d+)\] (.*)} $errMsg match tool code msg]} {
-                report_error $script_name "Vivado $tool error $code: $msg" "ERROR"
-            }
-        }
-        return 0
-    }
-    
-    set script_end [clock seconds]
-    set script_duration [expr $script_end - $script_start]
-    
-    if {$use_colors} {
-        log "${color_blue} Completed: $script_name (${script_duration}s)${color_reset}"
-    } else {
-        log "Completed: $script_name (${script_duration}s)"
-    }
-    log ""
-    return 1
 }
 
-# Write error report to file
-proc write_error_report {} {
-    global error_report_file build_errors build_warnings error_details warning_details failed_scripts
-    
-    set report_file [open $error_report_file w]
-    
-    puts $report_file "=========================================="
-    puts $report_file "VIVADO BUILD ERROR REPORT"
-    puts $report_file "=========================================="
-    puts $report_file "Generated: [clock format [clock seconds]]"
-    puts $report_file "Device: {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}:{{ get_device_id(device_config, device, config_space, device_id_int) }} (Class: {{ device.class_code }})"
-    puts $report_file "Board: {{ safe_board_name(board) }}"
-    puts $report_file ""
-    
-    puts $report_file "SUMMARY:"
-    puts $report_file "  Errors: $build_errors"
-    puts $report_file "  Warnings: $build_warnings"
-    puts $report_file "  Failed Scripts: [llength $failed_scripts]"
-    puts $report_file ""
-    
-    if {$build_errors > 0} {
-        puts $report_file "ERRORS:"
-        puts $report_file "----------------------------------------"
-        foreach error $error_details {
-            puts $report_file "  $error"
-        }
-        puts $report_file ""
-    }
-    
-    if {$build_warnings > 0} {
-        puts $report_file "WARNINGS:"
-        puts $report_file "----------------------------------------"
-        foreach warning $warning_details {
-            puts $report_file "  $warning"
-        }
-        puts $report_file ""
-    }
-    
-    if {[llength $failed_scripts] > 0} {
-        puts $report_file "FAILED SCRIPTS:"
-        puts $report_file "----------------------------------------"
-        foreach script $failed_scripts {
-            puts $report_file "  $script"
-        }
-        puts $report_file ""
-    }
-    
-    puts $report_file "RECOMMENDATIONS:"
-    puts $report_file "----------------------------------------"
-    if {$build_errors > 0} {
-        puts $report_file "  • Check Vivado log files for detailed error messages"
-        puts $report_file "  • Verify all source files are present and syntactically correct"
-        puts $report_file "  • Check constraint files for timing and placement issues"
-        puts $report_file "  • Ensure sufficient FPGA resources for the design"
-    }
-    if {$build_warnings > 0} {
-        puts $report_file "  • Review warnings for potential design issues"
-        puts $report_file "  • Consider adding missing constraints"
-    }
-    puts $report_file "=========================================="
-    
-    close $report_file
-    log "Error report written to: $error_report_file"
-}
-
-# Define critical scripts that should abort the build if they fail
-array set critical_scripts {
-    01_project_setup.tcl 1
-    05_synthesis.tcl     1
-    06_implementation.tcl 1
-}
-
-# Source all build scripts in order
-set build_scripts [list \
+# Deterministic step order
+set steps [list \
     "01_project_setup.tcl" \
     "02_ip_config.tcl" \
     "03_add_sources.tcl" \
@@ -217,108 +110,23 @@ set build_scripts [list \
     "07_bitstream.tcl" \
 ]
 
-set start_time [clock seconds]
-set successful_scripts 0
+set start_ts [clock seconds]
+foreach s $steps { run_step $s }
 
-foreach script $build_scripts {
-    if {[execute_script $script]} {
-        incr successful_scripts
-    } else {
-        # Script failed - decide whether to continue or abort
-        if {[info exists critical_scripts($script)]} {
-            # Critical scripts - abort build
-            report_error "BUILD" "Critical script $script failed - aborting build" "CRITICAL"
-            break
-        } else {
-            # Non-critical scripts - continue with warning
-            report_error "BUILD" "Non-critical script $script failed - continuing" "WARNING"
-        }
-    }
+# Minimal artifact check
+if {![file exists "pcileech_top.bit"]} {
+    die "Bitstream not found: pcileech_top.bit"
 }
 
-set end_time [clock seconds]
-set total_duration [expr $end_time - $start_time]
-set duration_min [expr $total_duration / 60]
-set duration_sec [expr $total_duration % 60]
+set kb [format %.1f [expr {[file size "pcileech_top.bit"] / 1024.0}]]
+log "Bitstream generated: pcileech_top.bit (${kb} KB)"
 
-# Generate comprehensive build summary
-log ""
+set elapsed [expr {[clock seconds] - $start_ts}]
+set mm [expr {$elapsed / 60}]
+set ss [expr {$elapsed % 60}]
+log "Completed in ${mm}m ${ss}s"
 log "=========================================="
-log "BUILD SUMMARY"
-log "=========================================="
-log "Total build time: ${duration_min}m ${duration_sec}s"
-log "Device: {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}:{{ get_device_id(device_config, device, config_space, device_id_int) }} (Class: {{ device_config.class_code }})"
-log "Board: {{ safe_name(board) }} ({{ safe_board_name(board) }})"
-log "Successful scripts: $successful_scripts/[llength $build_scripts]"
-
-if {$build_errors > 0} {
-    if {$use_colors} {
-        log "${color_red} Build FAILED with $build_errors error(s)${color_reset}"
-    } else {
-        log "BUILD FAILED with $build_errors error(s)"
-    }
-} elseif {$build_warnings > 0} {
-    if {$use_colors} {
-        log "${color_yellow}  Build completed with $build_warnings warning(s)${color_reset}"
-    } else {
-        log "Build completed with $build_warnings warning(s)"
-    }
-} else {
-    if {$use_colors} {
-        log "${color_green} Build completed successfully!${color_reset}"
-    } else {
-        log "Build completed successfully!"
-    }
-}
-
-# Final output file check with detailed analysis
-if {[file exists "pcileech_top.bit"]} {
-    set bitfile_size [file size "pcileech_top.bit"]
-    set bitfile_size_kb [expr $bitfile_size / 1024]
-    if {$use_colors} {
-        log "${color_green} Bitstream: pcileech_top.bit (${bitfile_size_kb} KB)${color_reset}"
-    } else {
-        log "Bitstream: pcileech_top.bit (${bitfile_size_kb} KB)"
-    }
-    
-    # Enhanced bitstream size validation with reference comparison
-    set ref_size_kb  4250   ;# last full build on this board - adjust per target
-    set delta        0.20   ;# 20% tolerance
-    
-    # Check if bitstream size is reasonable (basic check)
-    if {$bitfile_size < 100000} {
-        report_error "BITSTREAM" "Bitstream file unusually small - may be incomplete" "WARNING"
-    }
-    
-    # Check against reference size for drift detection
-    if {abs(($bitfile_size_kb - $ref_size_kb) / double($ref_size_kb)) > $delta} {
-        report_error "BITSTREAM" "Bitstream size drifted >20% from reference ($ref_size_kb KB)" "WARNING"
-    }
-} else {
-    report_error "BITSTREAM" "pcileech_top.bit not found - build may have failed" "ERROR"
-}
-
-# Write error report if there were any issues
-if {$build_errors > 0 || $build_warnings > 0} {
-    write_error_report
-}
-
-log "=========================================="
-
-# Close log file
-close $logfile
-
-# Exit with appropriate code for CI integration
-if {$build_errors > 0} {
-    set exit_code 1
-    log "Exiting with error code due to build failures"
-} elseif {$build_warnings > 0} {
-    set exit_code 2
-    log "Exiting with warning code - build unstable but usable"
-} else {
-    set exit_code 0
-    log "Build process completed successfully"
-}
 
 catch {close_project -quiet}
-exit $exit_code
+close $logfile
+exit 0

@@ -772,6 +772,43 @@ class TCLBuilder:
             ValueError: If required parameters are invalid
         """
         # Determine board and FPGA part
+        # Prefer non-interactive inference before prompting
+        # 1) If board missing but fpga_part provided, reverse-map to a known board
+        if not board and fpga_part:
+            try:
+                matches = [
+                    b
+                    for b, p in self.BOARD_PARTS.items()
+                    if str(p).lower() == str(fpga_part).lower()
+                ]
+                if len(matches) == 1:
+                    board = matches[0]
+                    log_info_safe(
+                        self.logger,
+                        safe_format(
+                            "Auto-selected board '{board}' from fpga_part '{part}'",
+                            board=board,
+                            part=fpga_part,
+                        ),
+                    )
+                elif len(matches) > 1:
+                    # Prefer canonical pcileech_* names if ambiguous
+                    preferred = [m for m in matches if m.startswith("pcileech_")]
+                    chosen = preferred[0] if preferred else matches[0]
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "Multiple boards match fpga_part '{part}'; choosing '{chosen}' from {matches}",
+                            part=fpga_part,
+                            chosen=chosen,
+                            matches=matches,
+                        ),
+                    )
+                    board = chosen
+            except Exception:
+                # Fall through to normal flow
+                pass
+
         if fpga_part is None:
             if not board:
                 board = self._select_board_interactively()

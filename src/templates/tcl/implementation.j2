@@ -1,48 +1,5 @@
-{{ header }}
-
-puts "Configuring implementation settings..."
-
-set impl_run [get_runs impl_1]
-#-- directive per step (new API)
-foreach step {OPT_DESIGN PLACE_DESIGN ROUTE_DESIGN} {
-    set_property STEPS.${step}.ARGS.DIRECTIVE PerformanceExplore $impl_run
-}
-
-# Reset if this isn’t the first invocation
-if {[get_property NEEDS_REFRESH $impl_run]} { reset_run $impl_run }
-
-puts "Starting implementation..."
-launch_runs $impl_run -jobs 8
-wait_on_run  $impl_run
-
-set status [get_property STATUS $impl_run]
-if {![string match "*completed*" $status]} {
-    puts "ERROR: Implementation failed - $status"
-    exit 1
-}
-
-puts "Implementation completed successfully"
-
-# Reports
-open_run $impl_run
-report_timing_summary -of_objects $impl_run -file timing_summary.rpt
-report_utilization   -of_objects $impl_run -file utilization_impl.rpt
-report_power         -of_objects $impl_run -file power_analysis.rpt
-report_drc           -of_objects $impl_run -file drc_report.rpt
-
-# Health check
-set drc_str [report_drc -return_string -quiet]
-set crits   [regexp -all -inline -nocase {CRITICAL WARNING:} $drc_str]
-if {[llength $crits]} {
-    puts "WARNING: [llength $crits] critical DRC warnings found"
-}
-
-set timing_str [report_timing_summary -return_string -quiet]
-if {[regexp {WNS\s*\(ns\):\s*([-0-9.]+)} $timing_str -> wns]} {
-    if {$wns < 0} {
-        puts "WARNING: Negative WNS = $wns ns"
-    } else {
-        puts "TIMING: WNS = $wns ns (clean)"
-    }
-}
-puts "Implementation health check completed"
+{#
+  Generic implementation template delegates to the PCILeech-specific
+  implementation to avoid duplication and ensure consistent behavior.
+#}
+{% include "tcl/pcileech_implementation.j2" %}

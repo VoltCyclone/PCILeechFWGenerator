@@ -35,13 +35,15 @@ module pcileech_top (
 {%- set _enable_wake_events = enable_wake_events|default(false) %}
 {#- Expose sideband pins only when explicitly requested by context -#}
 {%- set _expose_pm_sideband = expose_pm_sideband|default(power_management.has_interface_signals if power_management is defined else false) %}
-{%- if _expose_pm_sideband %}
+{#- Only add the leading comma if at least one optional port will be emitted -#}
+{%- set _has_optional_ports = _expose_pm_sideband and (_enable_pme or _enable_wake_events) %}
+{%- if _has_optional_ports %}
     ,
     // Optional PCIe power management sideband (expose for integration)
 {%- if _enable_pme %}
     input  logic        pme_turnoff,
     input  logic        aux_pwr_present,
-    output logic        pme_to_ack,
+    output logic        pme_to_ack{%- if _enable_wake_events %},{% endif %}
 {%- endif %}
 {%- if _enable_wake_events %}
     output logic        wake_n
@@ -295,7 +297,6 @@ module pcileech_top (
             // Update debug status with device ID and current state
             {% set _vendor_str = get_vendor_id(active_device_config, device, config_space, vendor_id_int) %}
             {% set _device_str = get_device_id(active_device_config, device, config_space, device_id_int) %}
-            {# Since the helpers now return hex strings, just use them directly #}
             debug_status <= {16'h{{ _vendor_str }}, 8'h{{ _device_str[:2] }}, 5'h0, tlp_state};
         end
     end

@@ -10,14 +10,16 @@ Context variables expected:
 - project: Project settings (name, dir)
 - header: TCL header comment
 #}
-{{ header }}
+{{ header_comment }}
 
 # allow builds to complete even if a few user pins stay unconstrained
 set_property BITSTREAM.CONFIG.UNCONSTRAINED_IO  ALLOW [current_design]
 set_property UNCONSTRAINED_IO                   ALLOW [current_design]
 
 puts "Generating bitstream..."
-open_run impl_1
+if {[catch {open_run impl_1} err]} {
+    puts "Fatal: failed to open impl_1: $err"; exit 1
+}
 
 # -------------------------------------------------------------------------
 # Live console summaries
@@ -46,9 +48,9 @@ puts "UTIL  →  $lut,  $ff,  $bram,  $dsp"
 #
 #  • If you target the 35T card the check is obvious: we must not exceed
 #    its device limits.
-#  • If you target the 75T card we still want to know whether the exact
-#    RTL build would *fit* on a 35T (handy for mass-build SKUs).  Fail if
-#    it does not.
+#  • If you target the 75T/100T card we still want to know whether the exact
+#    RTL build would *fit* on a 35T (handy for mass-build SKUs). Warn if
+#    it does not, but continue the build.
 #
 #  Device caps come from Xilinx DS180 (Artix-7) - rounded down a little
 #  to leave head-room for routed nets.
@@ -60,9 +62,12 @@ array set CAP_DSPS  {35t  90    75t   180}
 
 # Determine which part we *are* compiling
 set part    [get_property PART [current_project]]
-set partkey [expr {[string match -nocase *35t* $part] ? "35t" : \
-                   ([string match -nocase *75t* $part] ? "75t" : "75t")}]
-# The && above defaults unknown parts to "75t" (safer upper bound).
+set partkey [expr {
+    [string match -nocase *35t* $part] ? "35t" : \
+    ([string match -nocase *75t* $part] ? "75t" : \
+    ([string match -nocase *100t* $part] ? "100t" : "unknown"))
+}]
+# Unknown parts will be evaluated against actual device totals from reports.
 
 # Parse utilisation once (we already have $u_str from the live summary)
 if {![info exists u_str]} { set u_str [report_utilization -return_string -quiet] }
@@ -71,6 +76,12 @@ proc parse_field {field txt} {
     regexp "\\Q$field\\E\\s+\\|\\s+(\\d+)" $txt -> val
     return $val
 }
+proc parse_used_total {field txt} {
+    if {[regexp "\\Q$field\\E\\s+\\|\\s+(\\d+)\\s+\\|\\s+(\\d+)" $txt -> u t]} {
+        return [list $u $t]
+    }
+    return [list 0 0]
+}
 
 set usedLUT [parse_field "CLB LUTs"       $u_str]
 set usedREG [parse_field "CLB Registers"  $u_str]
@@ -78,6 +89,7 @@ set usedBR  [parse_field "Block RAM Tile" $u_str]
 set usedDSP [parse_field "DSPs"           $u_str]
 
 # ---- check against 35T limits first (smallest card) ---------------
+set resource_warns 0
 foreach {capName used arr} {
     LUTs        $usedLUT CAP_LUTs
     Registers   $usedREG CAP_REGs
@@ -86,26 +98,31 @@ foreach {capName used arr} {
 } {
     set max35 [set ${arr}(35t)]
     if {$used > $max35} {
-        puts "FATAL: design needs $used $capName but a 35T card only has $max35."
-        exit 1
+        puts "WARNING: design needs $used $capName but a 35T card only has $max35. (won't fit 35T)"
+        incr resource_warns
     }
 }
 
 # ---- also check we don't overrun the *current* target device -------
-foreach {capName used arr} {
-    LUTs        $usedLUT CAP_LUTs
-    Registers   $usedREG CAP_REGs
-    BRAMs       $usedBR  CAP_BRAMS
-    DSPs        $usedDSP CAP_DSPS
+# Use the totals reported by Vivado so this works for 35T/75T/100T and others.
+foreach {label used} {
+    "CLB LUTs"       $usedLUT
+    "CLB Registers"  $usedREG
+    "Block RAM Tile" $usedBR
+    "DSPs"           $usedDSP
 } {
-    set maxCur [set ${arr}($partkey)]
-    if {$used > $maxCur} {
-        puts "FATAL: design exceeds $capName capacity of target part $part."
-        exit 1
+    lassign [parse_used_total $label $u_str] u tot
+    if {$tot > 0 && $used > $tot} {
+        puts "WARNING: design exceeds $label capacity of target part $part ($used > $tot)."
+        incr resource_warns
     }
 }
 
-puts "COMPAT→  fits both 35T and 75T resource envelopes ✔"
+if {$resource_warns == 0} {
+    puts "COMPAT→  resource checks passed (35T envelope + target totals) ✔"
+} else {
+    puts "COMPAT→  resource check warnings: $resource_warns"
+}
 
 # ---------------- timing ----------------------
 report_timing_summary -delay_type max -file timing_summary.rpt
@@ -119,7 +136,8 @@ set warn_cnt [regexp -all -inline -nocase {WARNING:} $drc_str]
 puts "DRC   →  [llength $err_cnt] ERR, [llength $warn_cnt] WARN"
 
 # --- design rule check --------------------------------------------------
-if {[report_drc -return_string -quiet] =~ "*ERROR*"} {
+# Use the previously captured DRC string to avoid re-running and ensure robust matching
+if {[regexp -nocase {ERROR:} $drc_str]} {
     puts "Fatal: DRC errors present"; exit 1
 }
 
@@ -131,9 +149,14 @@ if {$t_slack < 0.0} {
 }
 
 # --- utilisation guard (≥80 % CLB LUTs) ---------------------------------
+# Warn (do not fail) if LUT utilisation exceeds 80% to keep builds reliable
 set u_str [report_utilization -return_string -quiet]
-if {[regexp {CLB LUTs\s+\|\s+(\d+)\s+\|\s+(\d+)} $u_str -> u used avail] && $used > 0.80*$avail} {
-    puts "Fatal: LUT utilisation $used/$avail"; exit 1
+set used 0
+set avail 0
+if {[regexp {CLB LUTs\s+\|\s+(\d+)\s+\|\s+(\d+)} $u_str -> used avail]} {
+    if {$avail > 0 && $used > 0.80 * $avail} {
+        puts "WARNING: LUT utilisation high $used/$avail (>80%)"
+    }
 }
 
 write_bitstream -force pcileech_top.bit

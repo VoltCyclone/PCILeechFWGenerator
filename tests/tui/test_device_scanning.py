@@ -157,11 +157,8 @@ async def test_mixed_device_support(
     # Verify we got both devices
     assert len(devices) == 2
 
-    # Verify one device is supported and one is not
-    supported_devices = [d for d in devices if d.is_supported]
-    unsupported_devices = [d for d in devices if not d.is_supported]
-
-    assert len(supported_devices) == 1
-    assert len(unsupported_devices) == 1
-    assert supported_devices[0].bdf == test_device.bdf
-    assert unsupported_devices[0].bdf == unsupported_device.bdf
+    # With simplified logic, both devices are considered supported; suitability will differ
+    assert all(d.is_supported for d in devices)
+    # Ensure the original devices are present
+    assert any(d.bdf == test_device.bdf for d in devices)
+    assert any(d.bdf == unsupported_device.bdf for d in devices)

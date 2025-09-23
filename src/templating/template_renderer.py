@@ -393,10 +393,6 @@ class TemplateRenderer:
         self.env.filters["sv_comment"] = sv_comment
         self.env.filters["sv_bool"] = sv_bool
 
-        # Safe integer coercion filter used by many templates. Returns an int or
-        # the provided default when conversion fails. Accepts decimal and hex
-        # strings (0x...), integers, and other numeric-like inputs.
-
         def safe_int_filter(value, default=0):
             try:
                 return _parse_int(value)
