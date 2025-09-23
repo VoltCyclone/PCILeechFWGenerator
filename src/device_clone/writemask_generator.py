@@ -404,6 +404,7 @@ class WritemaskGenerator:
             log_error_safe(
                 self.logger,
                 safe_format("Failed to read configuration space: {error}", error=e),
+                prefix="WRITEMASK",
             )
             raise
 
@@ -440,6 +441,7 @@ class WritemaskGenerator:
                     ptr=cap_ptr,
                     name=cap_name,
                 ),
+                prefix="WRITEMASK",
             )
 
             capabilities[f"0x{cap_id:02X}"] = cap_ptr
@@ -466,6 +468,7 @@ class WritemaskGenerator:
                         offset=ext_cap_offset,
                         name=cap_name,
                     ),
+                    prefix="WRITEMASK",
                 )
 
                 capabilities[f"0x{ext_cap_id:04X}"] = ext_cap_offset
@@ -533,6 +536,7 @@ class WritemaskGenerator:
         log_info_safe(
             self.logger,
             safe_format("Generating writemask from {path}", path=cfg_space_path),
+            prefix="WRITEMASK",
         )
 
         # Read configuration space
@@ -587,6 +591,7 @@ class WritemaskGenerator:
         log_info_safe(
             self.logger,
             safe_format("Writemask generated successfully: {path}", path=output_path),
+            prefix="WRITEMASK",
         )
 
     def _write_writemask_coe(self, wr_mask: List[str], output_path: Path) -> None:
