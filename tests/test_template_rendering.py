@@ -454,3 +454,18 @@ class TestTemplateFilters:
         template = renderer.env.from_string(template_str)
         result = template.render(value=255)
         assert result == "000000ff"
+
+    def test_sv_hex_filter_colon_separated_vid_did(self, renderer):
+        """sv_hex should accept colon-separated VID:DID strings."""
+        template_str = "{{ value | sv_hex(32) }}"
+        template = renderer.env.from_string(template_str)
+        result = template.render(value="1912:0014")
+        assert result == "32'h19120014"
+
+    def test_sv_hex_filter_colon_three_parts_masks(self, renderer):
+        """sv_hex should accept VID:DID:RID and mask to width when necessary."""
+        template_str = "{{ value | sv_hex(32) }}"
+        template = renderer.env.from_string(template_str)
+        # 0x8086123415 masked to 32 bits -> 0x86123415
+        result = template.render(value="8086:1234:15")
+        assert result == "32'h86123415"

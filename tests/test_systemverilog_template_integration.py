@@ -420,6 +420,31 @@ class TestSystemVerilogTemplateIntegration:
             },
         )
 
+    def test_device_signature_vid_did_format_renders(self):
+        """Device signature provided as 'VID:DID' should render to a valid SV literal."""
+        template_context = self.context_builder.create_minimal_context()
+        template_context["device_signature"] = "1912:0014"
+
+        result = self.generator.generate_pcileech_modules(template_context)
+
+        # Validate expected modules and content
+        self._validate_generated_modules(result)
+        content = result["pcileech_tlps128_bar_controller"]
+        # Expect the SV literal equivalent
+        assert "32'h19120014" in content
+
+    def test_device_signature_three_part_vid_did_rid_masks_to_width(self):
+        """Device signature 'VID:DID:RID' should mask to 32 bits and render correctly."""
+        template_context = self.context_builder.create_minimal_context()
+        template_context["device_signature"] = "8086:1234:15"
+
+        result = self.generator.generate_pcileech_modules(template_context)
+
+        self._validate_generated_modules(result)
+        content = result["pcileech_tlps128_bar_controller"]
+        # 0x8086123415 masked to 32 bits -> 0x86123415
+        assert "32'h86123415" in content
+
     @pytest.mark.parametrize(
         "vendor_id,device_id",
         [

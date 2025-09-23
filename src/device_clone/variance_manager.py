@@ -119,13 +119,18 @@ class VarianceManager:
 
             log_info_safe(
                 logger,
-                "Applied manufacturing variance for {device_class}",
-                device_class=device_class.value,
+                safe_format(
+                    "Applied manufacturing variance for {device_class}",
+                    device_class=device_class.value,
+                ),
+                prefix="VAR",
             )
 
         except Exception as e:
-            error_msg = f"Error applying manufacturing variance: {e}"
-            log_error_safe(logger, safe_format("{msg}", msg=error_msg))
+            error_msg = safe_format(
+                "Error applying manufacturing variance: {error}", error=e
+            )
+            log_error_safe(logger, error_msg, prefix="VAR")
 
             # Check with fallback manager if available
             if self.fallback_manager:

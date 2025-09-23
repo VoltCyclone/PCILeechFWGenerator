@@ -228,6 +228,18 @@ class TemplateRenderer:
                 if s.lower().startswith("0x"):
                     return int(s, 16)
 
+                # VID:DID[:RID] format (colon-separated hex tokens)
+                # Example: "1912:0014" -> 0x19120014
+                #          "8086:1234:15" -> 0x8086123415 (will be width-masked by sv_hex)
+                if ":" in s and "." not in s:
+                    parts = s.split(":")
+                    # Ensure all parts are non-empty hex strings
+                    hexset = set("0123456789abcdefABCDEF")
+                    if all(p and all(c in hexset for c in p) for p in parts):
+                        # Concatenate parts in order (VID, DID, [RID, ...])
+                        joined = "".join(parts)
+                        return int(joined, 16)
+
                 # If (after removing underscores) the string contains only hex digits
                 # and at least one hex letter (A-F), treat as hex. This avoids
                 # misclassifying decimal-like values that use underscores as separators.
@@ -255,6 +267,11 @@ class TemplateRenderer:
             width<=0 returns just hex without width.
             """
             iv = _parse_int(value)
+            # If a width is specified, mask the value to that width to avoid
+            # emitting too many hex digits for the declared literal width.
+            if width and width > 0:
+                mask = (1 << width) - 1
+                iv &= mask
             if width and width > 0:
                 hex_digits = (width + 3) // 4
                 return f"{width}'h{iv:0{hex_digits}X}"
@@ -462,7 +479,6 @@ class TemplateRenderer:
                     logger,
                     safe_format(
                         "ensure_template_compatibility failed, using original context: {error}",
-                        prefix="TEMPLATE",
                         error=e,
                     ),
                     prefix="TEMPLATE",
@@ -674,7 +690,6 @@ class TemplateRenderer:
                     logger,
                     safe_format(
                         "TemplateContextValidator failed, falling back to basic preparation: {error}",
-                        prefix="TEMPLATE",
                         error=e,
                     ),
                     prefix="TEMPLATE",
