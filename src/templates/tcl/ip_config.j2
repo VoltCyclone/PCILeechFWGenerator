@@ -92,7 +92,7 @@ safe_set $ip CONFIG.Bar0_Size {128}
 safe_set $ip CONFIG.Device_ID {{ (device_config.device_id | default(device.device_id)) }}
 safe_set $ip CONFIG.Vendor_ID {{ (device_config.vendor_id | default(device.vendor_id)) }}
 safe_set $ip CONFIG.Subsystem_Vendor_ID {{ (device_config.vendor_id | default(device.vendor_id)) }}
-safe_set $ip CONFIG.Subsystem_ID {0x0000}
+safe_set $ip CONFIG.Subsystem_ID {0000}
 safe_set $ip CONFIG.Revision_ID {{ (device.revision_id | default('0')) }}
 # Link speed must use exact enum values with underscores
 safe_set $ip CONFIG.Link_Speed {2.5_GT/s}
@@ -121,7 +121,7 @@ set_property -dict [list \
     CONFIG.PF0_DEVICE_ID {{ device.device_id }} \
     CONFIG.PF0_VENDOR_ID {{ device.vendor_id }} \
     CONFIG.PF0_SUBSYSTEM_VENDOR_ID {{ device.vendor_id }} \
-    CONFIG.PF0_SUBSYSTEM_ID {0x0000} \
+    CONFIG.PF0_SUBSYSTEM_ID {0000} \
     CONFIG.PF0_REVISION_ID {{ device.revision_id }} \
     CONFIG.PF0_CLASS_CODE {{ device.class_code }} \
     CONFIG.PF0_BAR0_SCALE {Kilobytes} \
@@ -138,7 +138,7 @@ set DEVICE_ID {{ device.device_id }}
 set VENDOR_ID {{ device.vendor_id }}
 set REVISION_ID {{ device.revision_id }}
 set SUBSYSTEM_VENDOR_ID {{ device.vendor_id }}
-set SUBSYSTEM_ID 0x0000
+set SUBSYSTEM_ID 0000
 
 puts "Using custom PCIe implementation for {{ safe_name(board) }}"
 puts "Device ID: $DEVICE_ID"

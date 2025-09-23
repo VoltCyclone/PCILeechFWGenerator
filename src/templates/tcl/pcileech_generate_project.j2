@@ -111,11 +111,11 @@ puts "Configuring PCIe IP Core for {{ pcie_ip_type }}..."
 {%- if not (device.subsys_vendor_id if device is defined else None) %}
 {%- error "Subsystem Vendor ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
 {%- endif %}
-set DEVICE_ID 0x{{ get_device_id(device_config, device, config_space, device_id_int) }}
-set VENDOR_ID 0x{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
+set DEVICE_ID {{ get_device_id(device_config, device, config_space, device_id_int) }}
+set VENDOR_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
 set REVISION_ID {{ device.revision_id }}
-set SUBSYSTEM_VENDOR_ID 0x{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }}
-set SUBSYSTEM_ID 0x{{ get_subsystem_device_id(device_config, device, device_id_int) }}
+set SUBSYSTEM_VENDOR_ID {{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }}
+set SUBSYSTEM_ID {{ get_subsystem_device_id(device_config, device, device_id_int) }}
 
 puts "Using custom PCIe implementation for Artix-7 35T"
 puts "Device ID: $DEVICE_ID"
@@ -146,12 +146,12 @@ set_property -dict [list \
     CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {8.0_GT/s} \
     CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {X{{ max_lanes }}} \
     CONFIG.AXISTEN_IF_EXT_512_RQ_STRADDLE {false} \
-    CONFIG.PF0_DEVICE_ID 0x{{ get_device_id(device_config, device, config_space, device_id_int) }} \
-    CONFIG.PF0_VENDOR_ID 0x{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
+    CONFIG.PF0_DEVICE_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
+    CONFIG.PF0_VENDOR_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
     CONFIG.PF0_CLASS_CODE {{ device.class_code }} \
     CONFIG.PF0_REVISION_ID {{ device.revision_id }} \
-    CONFIG.PF0_SUBSYSTEM_ID 0x{{ get_subsystem_device_id(device_config, device, device_id_int) }} \
-    CONFIG.PF0_SUBSYSTEM_VENDOR_ID 0x{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }} \
+    CONFIG.PF0_SUBSYSTEM_ID {{ get_subsystem_device_id(device_config, device, device_id_int) }} \
+    CONFIG.PF0_SUBSYSTEM_VENDOR_ID {{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }} \
     CONFIG.PF0_BAR0_ENABLED {true} \
     CONFIG.PF0_BAR0_64BIT {true} \
     CONFIG.PF0_BAR0_SIZE {1} \
@@ -178,14 +178,14 @@ create_ip -name pcie_7x -vendor xilinx.com -library ip -module_name pcie_7x_brid
 set_property -dict [list \
     CONFIG.Link_Speed {2.5_GT/s} \
     CONFIG.Maximum_Link_Width X1 \
-    CONFIG.Device_ID 0x{{ get_device_id(device_config, device, config_space, device_id_int) }} \
-    CONFIG.Vendor_ID 0x{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
+    CONFIG.Device_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
+    CONFIG.Vendor_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
     CONFIG.Revision_ID {{ device.revision_id }} \
     CONFIG.Class_Code_Base {02} \
     CONFIG.Class_Code_Interface {00} \
     CONFIG.Class_Code_Sub {00} \
-    CONFIG.Subsystem_ID 0x{{ get_subsystem_device_id(device_config, device, device_id_int) }} \
-    CONFIG.Subsystem_Vendor_ID 0x{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }} \
+    CONFIG.Subsystem_ID {{ get_subsystem_device_id(device_config, device, device_id_int) }} \
+    CONFIG.Subsystem_Vendor_ID {{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }} \
     CONFIG.Bar0_Enabled {true} \
     CONFIG.Bar0_Type {Memory} \
     CONFIG.Bar0_64bit {true} \

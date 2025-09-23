@@ -85,11 +85,11 @@ set ip [get_ips pcie_7x_bridge]
 # BAR-0 configuration: use plain integer for size, not string with units
 safe_set $ip CONFIG.Bar0_Scale {Kilobytes}
 safe_set $ip CONFIG.Bar0_Size {128}
-safe_set $ip CONFIG.Device_ID {0x{{ get_device_id(device_config, device, config_space, device_id_int) }}}
-safe_set $ip CONFIG.Vendor_ID {0x{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}}
-safe_set $ip CONFIG.Subsystem_Vendor_ID {0x{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}}
-safe_set $ip CONFIG.Subsystem_ID {0x0000}
-safe_set $ip CONFIG.Revision_ID {0x{{ device.revision_id }}}
+safe_set $ip CONFIG.Device_ID {{ get_device_id(device_config, device, config_space, device_id_int) }}
+safe_set $ip CONFIG.Vendor_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
+safe_set $ip CONFIG.Subsystem_Vendor_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
+safe_set $ip CONFIG.Subsystem_ID {0000}
+safe_set $ip CONFIG.Revision_ID {{ device.revision_id }}
 # Link speed must use exact enum values with underscores
 safe_set $ip CONFIG.Link_Speed {2.5_GT/s}
 safe_set $ip CONFIG.Link_Width {X1}
