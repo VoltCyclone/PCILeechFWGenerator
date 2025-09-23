@@ -281,17 +281,21 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
     cap_ptr_offset = 0x34
     if not is_valid_offset(cfg_bytes, cap_ptr_offset, 1):
         log_warning_safe(
-            logger, "Capabilities pointer not found in configuration space"
+            logger,
+            "Capabilities pointer not found in configuration space",
+            prefix="PCI_CAP",
         )
         return None
 
     try:
         cap_ptr = read_u8(cfg_bytes, cap_ptr_offset)
         if cap_ptr == 0:
-            log_debug_safe(logger, "No capabilities present")
+            log_debug_safe(logger, "No capabilities present", prefix="PCI_CAP")
             return None
     except IndexError:
-        log_warning_safe(logger, "Failed to read capabilities pointer")
+        log_warning_safe(
+            logger, "Failed to read capabilities pointer", prefix="PCI_CAP"
+        )
         return None
 
     # Walk the capabilities list
@@ -305,8 +309,11 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         if not is_valid_offset(cfg_bytes, current_ptr, 2):
             log_warning_safe(
                 logger,
-                "Capability pointer 0x{current_ptr:02x} is out of bounds",
-                current_ptr=current_ptr,
+                safe_format(
+                    "Capability pointer 0x{current_ptr:02x} is out of bounds",
+                    current_ptr=current_ptr,
+                ),
+                prefix="PCI_CAP",
             )
             return None
 
@@ -322,8 +329,11 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         except IndexError:
             log_warning_safe(
                 logger,
-                "Invalid capability data at offset 0x{current_ptr:02x}",
-                current_ptr=current_ptr,
+                safe_format(
+                    "Invalid capability data at offset 0x{current_ptr:02x}",
+                    current_ptr=current_ptr,
+                ),
+                prefix="PCI_CAP",
             )
             return None
 
@@ -344,7 +354,7 @@ def msix_size(cfg: str) -> int:
     # Find MSI-X capability (ID 0x11)
     cap = find_cap(cfg, 0x11)
     if cap is None:
-        log_info_safe(logger, "MSI-X capability not found")
+        log_info_safe(logger, "MSI-X capability not found", prefix="PCI_CAP")
         return 0
 
     try:
@@ -352,14 +362,18 @@ def msix_size(cfg: str) -> int:
         cfg_bytes = hex_to_bytes(cfg)
     except ValueError as e:
         log_error_safe(
-            logger, "Invalid hex string in configuration space: {error}", error=e
+            logger,
+            safe_format("Invalid hex string in configuration space: {error}", error=e),
+            prefix="PCI_CAP",
         )
         return 0
 
     # Read Message Control register (offset 2 from capability start)
     msg_ctrl_offset = cap + 2
     if not is_valid_offset(cfg_bytes, msg_ctrl_offset, 2):
-        log_warning_safe(logger, "MSI-X Message Control register is out of bounds")
+        log_warning_safe(
+            logger, "MSI-X Message Control register is out of bounds", prefix="PCI_CAP"
+        )
         return 0
 
     try:
@@ -371,13 +385,18 @@ def msix_size(cfg: str) -> int:
 
         log_debug_safe(
             logger,
-            "MSI-X table size: {table_size} entries (msg_ctrl=0x{msg_ctrl:04x})",
-            table_size=table_size,
-            msg_ctrl=msg_ctrl,
+            safe_format(
+                "MSI-X table size: {table_size} entries (msg_ctrl=0x{msg_ctrl:04x})",
+                table_size=table_size,
+                msg_ctrl=msg_ctrl,
+            ),
+            prefix="PCI_CAP",
         )
         return table_size
     except struct.error:
-        log_warning_safe(logger, "Failed to read MSI-X Message Control register")
+        log_warning_safe(
+            logger, "Failed to read MSI-X Message Control register", prefix="PCI_CAP"
+        )
         return 0
 
 
@@ -559,7 +578,9 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
         cfg_bytes = hex_to_bytes(cfg)
     except ValueError as e:
         log_error_safe(
-            logger, "Invalid hex string in configuration space: {error}", error=e
+            logger,
+            safe_format("Invalid hex string in configuration space: {error}", error=e),
+            prefix="PCI_CAP",
         )
         return bars
 
@@ -892,7 +913,9 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
         function_mask_val = 1  # Force masked when disabled
     else:
         log_debug_safe(
-            logger, "MSI-X: Found, generating SystemVerilog code for MSI-X table"
+            logger,
+            "MSI-X: Found, generating SystemVerilog code for MSI-X table",
+            prefix="PCI_CAP",
         )
         table_size = msix_info["table_size"]
         pba_size = (table_size + 31) // 32  # Number of 32-bit words needed for PBA

@@ -186,18 +186,55 @@ class TemplateRenderer:
         # SystemVerilog-specific filters
 
         def _parse_int(value) -> int:
-            """Parse integer from various formats."""
+            """Parse integer from various formats.
+
+            Supported inputs:
+            - Python int
+            - Decimal strings (e.g., "1234")
+            - Hex strings with 0x prefix (e.g., "0xCAFEBABE")
+            - Bare hex strings (e.g., "DEADBEEF")
+            - SystemVerilog literals (e.g., "32'hDEAD_BEEF", "16'd255", "8'b1010_1100")
+            """
             if isinstance(value, int):
                 return value
+
             s = str(value).strip()
+
+            # Try SystemVerilog literal first: <width>'<base><digits>
+            # base: h/H (hex), d/D (decimal), b/B (binary), o/O (octal)
+            # allow underscores in digits
+            import re
+
+            sv_match = re.match(
+                r"^(?P<width>\d+)?'(?P<base>[hHbBdDoO])(?P<digits>[0-9a-fA-F_xXzZ]+)$",
+                s,
+            )
+            if sv_match:
+                base_char = sv_match.group("base").lower()
+                digits = sv_match.group("digits").replace("_", "")
+                # Treat x/z as 0 for integer conversion purposes
+                digits = re.sub(r"[xXzZ]", "0", digits)
+                if base_char == "h":
+                    return int(digits, 16)
+                if base_char == "d":
+                    return int(digits, 10)
+                if base_char == "b":
+                    return int(digits, 2)
+                if base_char == "o":
+                    return int(digits, 8)
+
             try:
-                # hex forms
+                # 0x-prefixed hex
                 if s.lower().startswith("0x"):
                     return int(s, 16)
-                # choose base: hex if only hex chars, else decimal
-                hexdigits = set("0123456789abcdefABCDEF")
-                base = 16 if all(c in hexdigits for c in s) else 10
-                return int(s, base)
+
+                # If the string contains only hex digits/underscores treat as hex
+                hexdigits = set("0123456789abcdefABCDEF_")
+                if all(c in hexdigits for c in s) and any(c.isalpha() for c in s):
+                    return int(s.replace("_", ""), 16)
+
+                # Fallback: decimal (underscores allowed in Python 3.10+)
+                return int(s.replace("_", ""), 10)
             except Exception as e:
                 raise TemplateRenderError(
                     safe_format(
