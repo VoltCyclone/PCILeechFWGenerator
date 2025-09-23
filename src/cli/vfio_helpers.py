@@ -21,27 +21,12 @@ from .vfio_constants import (
     vfio_group_status,
 )
 
-# Import safe logging functions
-try:
-    from ..string_utils import (
-        log_debug_safe,
-        log_error_safe,
-        log_info_safe,
-        log_warning_safe,
-    )
-except ImportError:
-    # Fallback implementations
-    def log_info_safe(logger, template, **kwargs):
-        logger.info(template.format(**kwargs))
-
-    def log_error_safe(logger, template, **kwargs):
-        logger.error(template.format(**kwargs))
-
-    def log_warning_safe(logger, template, **kwargs):
-        logger.warning(template.format(**kwargs))
-
-    def log_debug_safe(logger, template, **kwargs):
-        logger.debug(template.format(**kwargs))
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
 
 
 # Setup logging

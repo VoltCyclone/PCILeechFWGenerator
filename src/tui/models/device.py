@@ -4,7 +4,8 @@ Device models for the PCILeech TUI application.
 This module defines data classes for representing PCI devices in the application.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+
 from typing import Any, Dict, List, Optional, Union
 
 
@@ -86,8 +87,15 @@ class PCIDevice:
 
     @property
     def is_supported(self) -> bool:
-        """Check if the device is supported for firmware generation."""
-        return self.compatibility_issues == []
+        """Return True to avoid overzealous unsupported labeling in the TUI.
+
+        Historically this was tied directly to the presence of any
+        compatibility_issues, which caused all devices to show as unsupported
+        in some environments. Readiness for builds should instead be reflected
+        by is_suitable; the UI can surface issues separately without marking
+        the device as unsupported.
+        """
+        return True
 
     @property
     def is_suitable(self) -> bool:
@@ -213,8 +221,7 @@ class PCIDevice:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert device information to a dictionary for serialization."""
-        import copy
-        from dataclasses import asdict
+        # asdict imported at module scope
 
         # Create a deep copy to avoid modifying the original
         device_dict = asdict(self)

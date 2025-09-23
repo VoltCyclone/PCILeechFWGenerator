@@ -7,15 +7,28 @@ for extracting PCI device parameters.
 """
 
 import json
+import json
 import logging
 import os
 import random
 import subprocess
 import sys
+
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+
+# Project-standard logging utilities
+from src.string_utils import (
+    safe_format,
+    log_info_safe,
+    log_warning_safe,
+    log_error_safe,
+    log_debug_safe,
+)
+
 logger = logging.getLogger(__name__)
+LOG_PREFIX = "DONOR_DUMP"
 
 
 class DonorDumpError(Exception):
@@ -278,7 +291,11 @@ class DonorDumpManager:
 
             return headers_available, kernel_version
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to get kernel version: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Failed to get kernel version: {err}", err=e),
+                prefix=LOG_PREFIX,
+            )
             return False, ""
 
     def install_kernel_headers(self, kernel_version: str) -> bool:
@@ -292,11 +309,19 @@ class DonorDumpManager:
             True if installation succeeded
         """
         try:
-            logger.info(f"Installing kernel headers for {kernel_version}")
+            log_info_safe(
+                logger,
+                safe_format("Installing kernel headers for {kv}", kv=kernel_version),
+                prefix=LOG_PREFIX,
+            )
 
             # Detect Linux distribution
             distro = self._detect_linux_distribution()
-            logger.info(f"Detected Linux distribution: {distro}")
+            log_info_safe(
+                logger,
+                safe_format("Detected Linux distribution: {d}", d=distro),
+                prefix=LOG_PREFIX,
+            )
 
             if distro == "debian" or distro == "ubuntu":
                 # Debian/Ubuntu approach
@@ -327,7 +352,14 @@ class DonorDumpManager:
                     return True
 
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to install kernel headers via apt-get: {e}")
+                    log_error_safe(
+                        logger,
+                        safe_format(
+                            "Failed to install kernel headers via apt-get: {err}",
+                            err=e,
+                        ),
+                        prefix=LOG_PREFIX,
+                    )
                     return False
 
             elif distro == "fedora" or distro == "centos" or distro == "rhel":
@@ -345,7 +377,14 @@ class DonorDumpManager:
                         text=True,
                     )
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to install kernel headers via dnf: {e}")
+                    log_error_safe(
+                        logger,
+                        safe_format(
+                            "Failed to install kernel headers via dnf: {err}",
+                            err=e,
+                        ),
+                        prefix=LOG_PREFIX,
+                    )
                     return False
 
             elif distro == "arch" or distro == "manjaro":
@@ -358,7 +397,14 @@ class DonorDumpManager:
                         text=True,
                     )
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to install kernel headers via pacman: {e}")
+                    log_error_safe(
+                        logger,
+                        safe_format(
+                            "Failed to install kernel headers via pacman: {err}",
+                            err=e,
+                        ),
+                        prefix=LOG_PREFIX,
+                    )
                     return False
 
             elif distro == "opensuse":
@@ -376,11 +422,23 @@ class DonorDumpManager:
                         text=True,
                     )
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to install kernel headers via zypper: {e}")
+                    log_error_safe(
+                        logger,
+                        safe_format(
+                            "Failed to install kernel headers via zypper: {err}",
+                            err=e,
+                        ),
+                        prefix=LOG_PREFIX,
+                    )
                     return False
             else:
-                logger.warning(
-                    f"Unsupported distribution: {distro}. Cannot automatically install headers."
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Unsupported distribution: {d}. Cannot automatically install headers.",
+                        d=distro,
+                    ),
+                    prefix=LOG_PREFIX,
                 )
                 return False
 
@@ -389,7 +447,11 @@ class DonorDumpManager:
             return headers_available
 
         except Exception as e:
-            logger.error(f"Failed to install kernel headers: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Failed to install kernel headers: {err}", err=e),
+                prefix=LOG_PREFIX,
+            )
             return False
 
     def _detect_linux_distribution(self) -> str:
@@ -454,7 +516,11 @@ class DonorDumpManager:
 
             return "unknown"
         except Exception as e:
-            logger.error(f"Error detecting Linux distribution: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Error detecting Linux distribution: {err}", err=e),
+                prefix=LOG_PREFIX,
+            )
             return "unknown"
 
     def build_module(self, force_rebuild: bool = False) -> bool:
@@ -473,7 +539,14 @@ class DonorDumpManager:
         """
         # First check if the source directory exists
         if not self.module_source_dir.exists():
-            logger.error(f"Module source directory not found: {self.module_source_dir}")
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Module source directory not found: {path}",
+                    path=self.module_source_dir,
+                ),
+                prefix=LOG_PREFIX,
+            )
             raise ModuleBuildError(
                 f"Module source directory not found: {self.module_source_dir}"
             )
@@ -482,7 +555,11 @@ class DonorDumpManager:
 
         # Check if module already exists and we're not forcing rebuild
         if module_ko.exists() and not force_rebuild:
-            logger.info("Module already built, skipping build")
+            log_info_safe(
+                logger,
+                safe_format("Module already built, skipping build"),
+                prefix=LOG_PREFIX,
+            )
             return True
 
         # Check kernel headers - this must happen before any build attempt
@@ -494,7 +571,11 @@ class DonorDumpManager:
             distro = self._detect_linux_distribution()
             install_cmd = self._get_header_install_command(distro, kernel_version)
 
-            logger.error(f"Kernel headers not found for {kernel_version}")
+            log_error_safe(
+                logger,
+                safe_format("Kernel headers not found for {kv}", kv=kernel_version),
+                prefix=LOG_PREFIX,
+            )
             # Raise the exception immediately when headers are not available
             # This is the key line that needs to work for the test
             raise KernelHeadersNotFoundError(
@@ -503,7 +584,11 @@ class DonorDumpManager:
             )
 
         try:
-            logger.info("Building donor_dump kernel module...")
+            log_info_safe(
+                logger,
+                safe_format("Building donor_dump kernel module..."),
+                prefix=LOG_PREFIX,
+            )
 
             # Clean first if forcing rebuild
             if force_rebuild:
@@ -524,12 +609,20 @@ class DonorDumpManager:
                     capture_output=True,
                     text=True,
                 )
-                logger.info("Module build completed successfully")
+                log_info_safe(
+                    logger,
+                    safe_format("Module build completed successfully"),
+                    prefix=LOG_PREFIX,
+                )
                 return True
             except subprocess.CalledProcessError as e:
                 # If the build fails, try with KERNELRELEASE explicitly set
-                logger.warning(
-                    "Standard build failed, trying with explicit KERNELRELEASE"
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Standard build failed, trying with explicit KERNELRELEASE"
+                    ),
+                    prefix=LOG_PREFIX,
                 )
                 try:
                     result = subprocess.run(
@@ -539,8 +632,12 @@ class DonorDumpManager:
                         capture_output=True,
                         text=True,
                     )
-                    logger.info(
-                        "Module build with explicit KERNELRELEASE completed successfully"
+                    log_info_safe(
+                        logger,
+                        safe_format(
+                            "Module build with explicit KERNELRELEASE completed successfully"
+                        ),
+                        prefix=LOG_PREFIX,
                     )
                     return True
                 except subprocess.CalledProcessError as e2:
@@ -616,20 +713,34 @@ class DonorDumpManager:
         # Check if module is already loaded
         if self.is_module_loaded():
             if force_reload:
-                logger.info("Module already loaded, unloading first")
+                log_info_safe(
+                    logger,
+                    safe_format("Module already loaded, unloading first"),
+                    prefix=LOG_PREFIX,
+                )
                 self.unload_module()
             else:
-                logger.info("Module already loaded")
+                log_info_safe(
+                    logger, safe_format("Module already loaded"), prefix=LOG_PREFIX
+                )
                 return True
 
         # Ensure module is built
         module_ko = self.module_source_dir / f"{self.module_name}.ko"
         if not module_ko.exists():
-            logger.info("Module not built, building now...")
+            log_info_safe(
+                logger,
+                safe_format("Module not built, building now..."),
+                prefix=LOG_PREFIX,
+            )
             self.build_module()
 
         try:
-            logger.info(f"Loading donor_dump module with BDF {bdf}")
+            log_info_safe(
+                logger,
+                safe_format("Loading donor_dump module with BDF {b}", b=bdf),
+                prefix=LOG_PREFIX,
+            )
             subprocess.run(
                 ["insmod", str(module_ko), f"bdf={bdf}"],
                 check=True,
@@ -646,7 +757,9 @@ class DonorDumpManager:
             if not os.path.exists(self.proc_path):
                 raise ModuleLoadError(f"Module loaded but {self.proc_path} not created")
 
-            logger.info("Module loaded successfully")
+            log_info_safe(
+                logger, safe_format("Module loaded successfully"), prefix=LOG_PREFIX
+            )
             return True
 
         except subprocess.CalledProcessError as e:
@@ -663,11 +776,13 @@ class DonorDumpManager:
             True if unload succeeded
         """
         if not self.is_module_loaded():
-            logger.info("Module not loaded")
+            log_info_safe(logger, safe_format("Module not loaded"), prefix=LOG_PREFIX)
             return True
 
         try:
-            logger.info("Unloading donor_dump module")
+            log_info_safe(
+                logger, safe_format("Unloading donor_dump module"), prefix=LOG_PREFIX
+            )
             subprocess.run(
                 ["rmmod", self.module_name],
                 check=True,
@@ -675,7 +790,11 @@ class DonorDumpManager:
                 text=True,
             )
 
-            logger.info("Module unloaded successfully")
+            log_info_safe(
+                logger,
+                safe_format("Module unloaded successfully"),
+                prefix=LOG_PREFIX,
+            )
             return True
 
         except subprocess.CalledProcessError as e:
@@ -694,11 +813,17 @@ class DonorDumpManager:
         Returns:
             Dictionary of synthetic device parameters
         """
-        logger.info(f"Generating synthetic donor information for {device_type} device")
+        log_info_safe(
+            logger,
+            safe_format(
+                "Generating synthetic donor information for {dt} device",
+                dt=device_type,
+            ),
+            prefix=LOG_PREFIX,
+        )
 
         # Import vendor ID constants
-        from src.device_clone.constants import (VENDOR_ID_INTEL,
-                                                get_fallback_vendor_id)
+        from src.device_clone.constants import VENDOR_ID_INTEL, get_fallback_vendor_id
 
         # Convert to hex string format
         intel_vid_str = f"0x{VENDOR_ID_INTEL:04x}"
@@ -764,7 +889,11 @@ class DonorDumpManager:
 
             with open(output_path, "w") as f:
                 json.dump(device_info, f, indent=2)
-            logger.info(f"Saved donor information to {output_path}")
+            log_info_safe(
+                logger,
+                safe_format("Saved donor information to {path}", path=output_path),
+                prefix=LOG_PREFIX,
+            )
 
             # Generate configuration space hex file for SystemVerilog $readmemh
             config_hex_path = os.path.join(
@@ -777,8 +906,12 @@ class DonorDumpManager:
                 "extended_config" in device_info
                 and device_info["extended_config"] != "disabled"
             ):
-                logger.info(
-                    "Extended configuration space found - generating hex file from device data"
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Extended configuration space found - generating hex file from device data"
+                    ),
+                    prefix=LOG_PREFIX,
                 )
                 self.save_config_space_hex(
                     device_info["extended_config"], config_hex_path
@@ -786,33 +919,63 @@ class DonorDumpManager:
             else:
                 # Log the specific reason why extended config is not available
                 if "extended_config" not in device_info:
-                    logger.warning(
-                        "Extended configuration space not found in device_info - generating blank hex file fallback"
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Extended configuration space not found in device_info - generating blank hex file fallback"
+                        ),
+                        prefix=LOG_PREFIX,
                     )
-                    logger.warning(
-                        "This may indicate the device doesn't support extended config space or the donor dump failed to capture it"
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "This may indicate the device doesn't support extended config space or the donor dump failed to capture it"
+                        ),
+                        prefix=LOG_PREFIX,
                     )
                 elif device_info["extended_config"] == "disabled":
-                    logger.warning(
-                        "Extended configuration space is disabled - generating blank hex file fallback"
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Extended configuration space is disabled - generating blank hex file fallback"
+                        ),
+                        prefix=LOG_PREFIX,
                     )
-                    logger.warning(
-                        "Extended config space may have been explicitly disabled during device enumeration"
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Extended config space may have been explicitly disabled during device enumeration"
+                        ),
+                        prefix=LOG_PREFIX,
                     )
                 else:
-                    logger.warning(
-                        f"Extended configuration space has unexpected value '{device_info['extended_config']}' - generating blank hex file fallback"
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Extended configuration space has unexpected value '{val}' - generating blank hex file fallback",
+                            val=device_info["extended_config"],
+                        ),
+                        prefix=LOG_PREFIX,
                     )
 
                 # Generate blank hex file as fallback
-                logger.info(
-                    f"Generating blank 4KB configuration space hex file at {config_hex_path}"
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Generating blank 4KB configuration space hex file at {path}",
+                        path=config_hex_path,
+                    ),
+                    prefix=LOG_PREFIX,
                 )
                 self.generate_blank_config_hex(config_hex_path)
 
             return True
         except IOError as e:
-            logger.error(f"Failed to save donor information: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Failed to save donor information: {err}", err=e),
+                prefix=LOG_PREFIX,
+            )
             return False
 
     def save_config_space_hex(
@@ -861,8 +1024,7 @@ class DonorDumpManager:
                 # Optional standardized header (off by default for test parity)
                 if include_header:
                     try:
-                        from src.string_utils import \
-                            generate_hex_header_comment
+                        from src.string_utils import generate_hex_header_comment
 
                         header = generate_hex_header_comment(
                             title=(
@@ -897,10 +1059,23 @@ class DonorDumpManager:
                         le_word = byte3 + byte2 + byte1 + byte0
                         f.write(f"{le_word.lower()}\n")
 
-            logger.info(f"Saved configuration space hex data to {output_path}")
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Saved configuration space hex data to {path}",
+                    path=output_path,
+                ),
+                prefix=LOG_PREFIX,
+            )
             return True
         except IOError as e:
-            logger.error(f"Failed to save configuration space hex data: {e}")
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Failed to save configuration space hex data: {err}", err=e
+                ),
+                prefix=LOG_PREFIX,
+            )
             return False
 
     def generate_blank_config_hex(self, output_path: str) -> bool:
@@ -926,15 +1101,31 @@ class DonorDumpManager:
                 for _ in range(1024):  # 4KB = 1024 * 4 bytes = 1024 * 32-bit words
                     f.write("00000000\n")
 
-            logger.info(
-                f"Generated blank configuration space hex file at {output_path}"
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Generated blank configuration space hex file at {path}",
+                    path=output_path,
+                ),
+                prefix=LOG_PREFIX,
             )
-            logger.info(
-                "Blank hex file contains 1024 lines of zeros (4KB total) for SystemVerilog $readmemh compatibility"
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Blank hex file contains 1024 lines of zeros (4KB total) for SystemVerilog $readmemh compatibility"
+                ),
+                prefix=LOG_PREFIX,
             )
             return True
         except IOError as e:
-            logger.error(f"Failed to generate blank configuration space hex file: {e}")
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Failed to generate blank configuration space hex file: {err}",
+                    err=e,
+                ),
+                prefix=LOG_PREFIX,
+            )
             return False
 
     def read_device_info(self) -> Dict[str, str]:
@@ -1132,13 +1323,21 @@ class DonorDumpManager:
             Device information dictionary
         """
         try:
-            logger.info(f"Setting up donor_dump module for device {bdf}")
+            log_info_safe(
+                logger,
+                safe_format("Setting up donor_dump module for device {b}", b=bdf),
+                prefix=LOG_PREFIX,
+            )
 
             # Check kernel headers
             headers_available, kernel_version = self.check_kernel_headers()
             if not headers_available:
                 if auto_install_headers:
-                    logger.info("Kernel headers missing, attempting to install...")
+                    log_info_safe(
+                        logger,
+                        safe_format("Kernel headers missing, attempting to install..."),
+                        prefix=LOG_PREFIX,
+                    )
                     if not self.install_kernel_headers(kernel_version):
                         raise KernelHeadersNotFoundError(
                             f"Failed to install kernel headers for {kernel_version}"
@@ -1163,11 +1362,19 @@ class DonorDumpManager:
                 "extended_config" not in device_info
                 or device_info["extended_config"] == "disabled"
             ):
-                logger.warning(
-                    "Full 4KB configuration space extraction is disabled or not available"
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Full 4KB configuration space extraction is disabled or not available"
+                    ),
+                    prefix=LOG_PREFIX,
                 )
-                logger.warning(
-                    "Some features may not work correctly without full configuration space data"
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Some features may not work correctly without full configuration space data"
+                    ),
+                    prefix=LOG_PREFIX,
                 )
 
             # Save to file if requested
@@ -1181,7 +1388,11 @@ class DonorDumpManager:
                 with open(save_to_file, "w") as f:
                     json.dump(device_info, f, indent=2)
 
-                logger.info(f"Saved donor information to {save_to_file}")
+                log_info_safe(
+                    logger,
+                    safe_format("Saved donor information to {path}", path=save_to_file),
+                    prefix=LOG_PREFIX,
+                )
             elif device_info and not save_to_file:
                 # If we have device info but no save path, use a default path
                 default_save_path = os.path.join(
@@ -1190,22 +1401,39 @@ class DonorDumpManager:
                 with open(default_save_path, "w") as f:
                     json.dump(device_info, f, indent=2)
 
-                logger.info(
-                    f"Saved donor information to default path: {default_save_path}"
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Saved donor information to default path: {path}",
+                        path=default_save_path,
+                    ),
+                    prefix=LOG_PREFIX,
                 )
 
             return device_info
 
         except Exception as e:
-            logger.error(f"Failed to set up donor_dump module: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Failed to set up donor_dump module: {err}", err=e),
+                prefix=LOG_PREFIX,
+            )
 
             if generate_if_unavailable:
-                logger.info("Generating synthetic donor information as fallback")
+                log_info_safe(
+                    logger,
+                    safe_format("Generating synthetic donor information as fallback"),
+                    prefix=LOG_PREFIX,
+                )
                 device_info = self.generate_donor_info(device_type)
 
                 # Add synthetic extended configuration space if needed
                 if extract_full_config and "extended_config" not in device_info:
-                    logger.info("Generating synthetic configuration space data")
+                    log_info_safe(
+                        logger,
+                        safe_format("Generating synthetic configuration space data"),
+                        prefix=LOG_PREFIX,
+                    )
                     # Generate a basic 4KB configuration space with
                     # device/vendor IDs
                     config_space = ["00"] * 4096  # Initialize with zeros

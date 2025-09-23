@@ -16,6 +16,7 @@ reg [31:0] read_transaction_count;
 reg [31:0] write_transaction_count;
 reg [31:0] total_transaction_count;
 
+// Increment counters on valid transactions
 always @(posedge clk) begin
     if (rst) begin
         read_transaction_count <= 32'h0;
@@ -84,6 +85,7 @@ reg [31:0] avg_write_latency;
 reg [31:0] latency_start_time;
 reg latency_measurement_active;
 
+// Start latency measurement on request and end on completion
 always @(posedge clk) begin
     if (rst) begin
         read_latency_accumulator <= 32'h0;

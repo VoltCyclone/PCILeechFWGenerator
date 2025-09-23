@@ -1,26 +1,3 @@
-{#
-# USB-required commit 2025-06-16
-Constraints Template - Timing and Physical Constraints Management
-
-This template generates timing constraints and pin assignments based on the
-current tcl_generator.py implementation.
-
-IMPORTANT: Pin assignments are based on existing PCILeech XDC files from the
-official repository. For board-specific constraints, refer to:
-https://github.com/ufrisk/pcileech-fpga/tree/master/
-
-Available board-specific XDC files:
-- CaptainDMA/75t484_x1/src/pcileech_75t484_x1_captaindma_75t.xdc
-- CaptainDMA/100t484_x1/src/pcileech_100t484_x1_captaindma_100t.xdc
-- And others for different FPGA variants
-
-Please update the pin assignments below for your specific board and FPGA package.
-
-Context variables expected:
-- device: Device information (vendor_id, device_id)
-- board: Board information (name)
-- header: TCL header comment
-#}
 {{ header }}
 
 {% from "_helpers.j2" import board_name, board_fpga_part, safe_attr %}
@@ -29,40 +6,40 @@ puts "Adding constraint files..."
 # Get script directory for reliable path resolution
 set script_dir [file dirname [info script]]
 
-# Add generated board-specific XDC file if available
+# Only include constraint files provided by PCILeech discovery and generation
+set already_added_files [list]
+
+# Generated XDC path (copied by the builder)
 {% if generated_xdc_path %}
 set generated_xdc "{{ generated_xdc_path }}"
 if {[file exists $generated_xdc]} {
-    puts "Adding generated XDC constraints: $generated_xdc"
-    add_files -fileset constrs_1 -norecurse $generated_xdc
+    if {[lsearch -exact $already_added_files $generated_xdc] == -1} {
+        add_files -fileset constrs_1 -norecurse $generated_xdc
+        lappend already_added_files $generated_xdc
+        puts "Added generated XDC constraints: $generated_xdc"
+    }
+} else {
+    puts "WARNING: Generated XDC path does not exist: $generated_xdc"
 }
 {% endif %}
 
-# Add all other constraint files (excluding already added board-specific files)
-# Use explicit directory to avoid pulling stale XDC from sibling directories
-set xdc_files [glob -nocomplain -directory $script_dir *.xdc]
-set already_added_files [list]
-{%- set _board_cons = safe_attr(board, 'constraints', {}) -%}
-{%- set _board_xdc_file = _board_cons.xdc_file if (_board_cons is mapping or _board_cons is defined and _board_cons.xdc_file is defined) else (_board_cons.get('xdc_file', None) if _board_cons is mapping else None) -%}
-{%- if _board_xdc_file %}
-lappend already_added_files "{{ _board_xdc_file }}"
-{%- endif %}
-
-# Filter out already added files
-set filtered_xdc_files [list]
-foreach xdc_file $xdc_files {
-    if {[lsearch -exact $already_added_files $xdc_file] == -1} {
-        lappend filtered_xdc_files $xdc_file
+# Explicit constraint files provided by the builder
+{% if constraint_files %}
+set pcileech_xdc_files [list \
+{% for f in constraint_files %}    "{{ f }}" \
+{% endfor %}]
+foreach xdc_file $pcileech_xdc_files {
+    if {[file exists $xdc_file]} {
+        if {[lsearch -exact $already_added_files $xdc_file] == -1} {
+            add_files -fileset constrs_1 -norecurse $xdc_file
+            lappend already_added_files $xdc_file
+            puts "  Added PCILeech XDC: $xdc_file"
+        }
+    } else {
+        puts "WARNING: PCILeech XDC not found: $xdc_file"
     }
 }
-
-if {[llength $filtered_xdc_files] > 0} {
-    puts "Found [llength $filtered_xdc_files] additional constraint files"
-    add_files -fileset constrs_1 -norecurse $filtered_xdc_files
-    foreach xdc_file $filtered_xdc_files {
-        puts "  - $xdc_file"
-    }
-}
+{% endif %}
 
 # Generate device-specific timing constraints
 puts "Adding device-specific timing constraints..."
@@ -70,18 +47,7 @@ puts "Adding device-specific timing constraints..."
 {%- if board is defined -%}
 puts "Attempting to load board-specific XDC constraints for: {{ board_name(board) }}"
 
-{%- if _board_xdc_file %}
-puts "Constraints for {{ board_name(board) }}"
-set board_xdc_file "{{ _board_xdc_file }}"
-if {[file exists $board_xdc_file]} {
-    add_files -fileset constrs_1 -norecurse $board_xdc_file
-    lappend already_added_files $board_xdc_file
-    puts "Added board-specific XDC constraints: $board_xdc_file"
-} else {
-    puts "WARNING: XDC file not found for board {{ board_name(board) }}: $board_xdc_file"
-    puts "Continuing with generic constraints..."
-}
-{%- elif board_xdc_content is defined and board_xdc_content %}
+{%- if board_xdc_content is defined and board_xdc_content %}
 # Load XDC constraints from PCILeech repository
 # This will be populated by the constraint generation system
 # with actual XDC content from the PCILeech FPGA repository
