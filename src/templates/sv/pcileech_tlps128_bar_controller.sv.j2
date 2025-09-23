@@ -12,9 +12,9 @@ module pcileech_tlps128_bar_controller #(
     // MSI-X Configuration
     parameter NUM_MSIX = {{ msix_config.num_vectors | default(4) }},
     parameter MSIX_TABLE_BIR = {{ msix_config.table_bir | default(0) }},
-    parameter MSIX_TABLE_OFFSET = {{ msix_config.table_offset | default('h1000') }},
+    parameter MSIX_TABLE_OFFSET = {{ (msix_config.table_offset | default(4096)) | sv_hex(32) }},
     parameter MSIX_PBA_BIR = {{ msix_config.pba_bir | default(0) }},
-    parameter MSIX_PBA_OFFSET = {{ msix_config.pba_offset | default('h2000') }},
+    parameter MSIX_PBA_OFFSET = {{ (msix_config.pba_offset | default(8192)) | sv_hex(32) }},
     
     // Unmapped region default read value (configurable)
     parameter DEFAULT_UNMAPPED_VALUE = 32'h00000000,
@@ -116,6 +116,9 @@ module pcileech_tlps128_bar_controller #(
     // ========================================================================
     // Local Parameters and Type Definitions
     // ========================================================================
+    // Device signature constant, used in status/debug registers
+    // Force into a sized SV hex literal to avoid malformed tokens
+    localparam [31:0] DEVICE_SIGNATURE = {% if device_signature %}{{ device_signature | sv_hex(32) }}{% else %}32'hDEAD_BEEF{% endif %};
     
     // TLP Types
     localparam [4:0] TLP_MEM_READ_32    = 5'b00000;
@@ -505,7 +508,7 @@ module pcileech_tlps128_bar_controller #(
                 6'h04: status_reg_rdata = read_count;
                 6'h05: status_reg_rdata = write_count;
                 6'h06: status_reg_rdata = error_count;
-                6'h07: status_reg_rdata = {% if device_signature %}{{ device_signature }}{% else %}{{ "ERROR_MISSING_DEVICE_SIGNATURE" }}{% endif %};
+                6'h07: status_reg_rdata = DEVICE_SIGNATURE;
                 default: begin
                     if (region_offset[31:2] < (STATUS_REG_SIZE/4)) begin
                         status_reg_rdata = status_reg_mem[region_offset[31:2]];
@@ -591,7 +594,7 @@ module pcileech_tlps128_bar_controller #(
                         pcileech_stat_reg[0] <= 1'b1; // Busy
                     end
                     PCILEECH_CMD_PROBE: begin
-                        pcileech_data_reg <= {% if device_signature %}{{ device_signature }}{% else %}{{ "ERROR_MISSING_DEVICE_SIGNATURE" }}{% endif %};
+                        pcileech_data_reg <= DEVICE_SIGNATURE;
                         pcileech_stat_reg[1] <= 1'b1; // Ready
                     end
                     PCILEECH_CMD_STATUS: begin
@@ -813,7 +816,7 @@ module pcileech_tlps128_bar_controller #(
         
         // Initialize PCILeech control registers
         device_ctrl_mem[0] = 32'h00000001; // Enable PCILeech by default
-        device_ctrl_mem[1] = {% if device_signature %}{{ device_signature }}{% else %}{{ "ERROR_MISSING_DEVICE_SIGNATURE" }}{% endif %};
+    device_ctrl_mem[1] = DEVICE_SIGNATURE;
         device_ctrl_mem[2] = {{ device_config.firmware_version | default('32\'h00010000') }};
         
         // Initialize debug monitoring

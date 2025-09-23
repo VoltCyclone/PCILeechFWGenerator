@@ -21,7 +21,7 @@
             32'h0000001C: bar_rd_data = perf_counter_3;
             
             // Device identification
-            32'h00000020: bar_rd_data = {{ device_signature }};  // Advanced controller signature
+            32'h00000020: bar_rd_data = {{ device_signature | sv_hex(32) }};  // Advanced controller signature
             32'h00000024: bar_rd_data = {16'h0, DEVICE_TYPE[15:0]};
             
             // Advanced status registers

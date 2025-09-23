@@ -17,11 +17,11 @@ puts "FPGA Part: {{ safe_board_fpga_part(board) }}"
 # This part uses custom SystemVerilog modules instead of Xilinx IP cores
 
 # Set device-specific parameters for custom PCIe implementation
-set DEVICE_ID 0x{{ device.device_id }}
-set VENDOR_ID 0x{{ device.vendor_id }}
-set REVISION_ID 0x{{ device.revision_id }}
-set SUBSYSTEM_VENDOR_ID 0x{{ device.vendor_id }}
-set SUBSYSTEM_ID 0x0000
+set DEVICE_ID {{ device.device_id }}
+set VENDOR_ID {{ device.vendor_id }}
+set REVISION_ID {{ device.revision_id }}
+set SUBSYSTEM_VENDOR_ID {{ device.vendor_id }}
+set SUBSYSTEM_ID 0000
 
 puts "Using custom PCIe implementation for Artix-7 35T"
 puts "Device ID: $DEVICE_ID"

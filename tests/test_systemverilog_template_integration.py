@@ -13,8 +13,7 @@ import pytest
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.exceptions import TemplateRenderError
-from src.templating.advanced_sv_features import (ErrorHandlingConfig,
-                                                 PerformanceConfig)
+from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
 from src.templating.advanced_sv_power import PowerManagementConfig
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 
@@ -376,6 +375,22 @@ class TestSystemVerilogTemplateIntegration:
         assert any(term in content for term in ["MSI-X", "MSIX"])
 
         for name, value in expected_values.items():
+            # For device_signature, the template emits an SV literal (e.g., 32'h12345678)
+            # Accept either the raw value or the SV formatted equivalent
+            if (
+                name == "device_signature"
+                and isinstance(value, str)
+                and value.lower().startswith("0x")
+            ):
+                try:
+                    int_val = int(value, 16)
+                    sv_form = f"32'h{int_val:08X}"
+                    if sv_form in content or value in content:
+                        continue
+                except Exception as e:
+                    # Parsing may fail if device_signature isn't a strict hex string;
+                    # fall back to validating the raw value presence below.
+                    print(f"Warning: failed to parse device_signature '{value}': {e}")
             assert value in content, f"Expected {name} '{value}' not found in content"
 
     def test_minimal_template_renders_successfully(self):
@@ -513,8 +528,7 @@ class TestSystemVerilogTemplateIntegration:
 
     def test_template_validation_compatibility(self):
         """Test compatibility with TemplateContextValidator requirements."""
-        from src.templating.template_context_validator import \
-            TemplateContextValidator
+        from src.templating.template_context_validator import TemplateContextValidator
 
         validator = TemplateContextValidator()
         template_context = self.context_builder.create_minimal_context()
