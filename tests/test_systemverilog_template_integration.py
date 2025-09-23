@@ -387,8 +387,10 @@ class TestSystemVerilogTemplateIntegration:
                     sv_form = f"32'h{int_val:08X}"
                     if sv_form in content or value in content:
                         continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Parsing may fail if device_signature isn't a strict hex string;
+                    # fall back to validating the raw value presence below.
+                    print(f"Warning: failed to parse device_signature '{value}': {e}")
             assert value in content, f"Expected {name} '{value}' not found in content"
 
     def test_minimal_template_renders_successfully(self):

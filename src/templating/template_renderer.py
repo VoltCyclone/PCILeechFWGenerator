@@ -228,10 +228,17 @@ class TemplateRenderer:
                 if s.lower().startswith("0x"):
                     return int(s, 16)
 
-                # If the string contains only hex digits/underscores treat as hex
-                hexdigits = set("0123456789abcdefABCDEF_")
-                if all(c in hexdigits for c in s) and any(c.isalpha() for c in s):
-                    return int(s.replace("_", ""), 16)
+                # If (after removing underscores) the string contains only hex digits
+                # and at least one hex letter (A-F), treat as hex. This avoids
+                # misclassifying decimal-like values that use underscores as separators.
+                s_no_underscore = s.replace("_", "")
+                hex_digits_no_us = set("0123456789abcdefABCDEF")
+                if (
+                    s_no_underscore
+                    and all(c in hex_digits_no_us for c in s_no_underscore)
+                    and any(c.isalpha() for c in s_no_underscore)
+                ):
+                    return int(s_no_underscore, 16)
 
                 # Fallback: decimal (underscores allowed in Python 3.10+)
                 return int(s.replace("_", ""), 10)
