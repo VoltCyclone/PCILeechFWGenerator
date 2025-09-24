@@ -1610,8 +1610,9 @@ class PCILeechContextBuilder:
         behavior_profile: Optional[BehaviorProfile],
         config_space_data: Dict[str, Any],
     ) -> str:
-        """Generate device signature as 'vendor_id:device_id' (test contract)."""
-        return f"{identifiers.vendor_id}:{identifiers.device_id}"
+        """Generate canonical device signature as 'VID:DID:RID'."""
+        rid = identifiers.revision_id or DEFAULT_REVISION_ID
+        return f"{identifiers.vendor_id}:{identifiers.device_id}:{rid}"
 
     def _build_generation_metadata(self, identifiers: DeviceIdentifiers) -> Any:
         """Build generation metadata using centralized metadata builder."""
@@ -1620,7 +1621,7 @@ class PCILeechContextBuilder:
         # Use device_signature as 'vendor_id:device_id' for test contract
         return build_generation_metadata(
             device_bdf=self.device_bdf,
-            device_signature=f"{identifiers.vendor_id}:{identifiers.device_id}",
+            device_signature=f"{identifiers.vendor_id}:{identifiers.device_id}:{identifiers.revision_id}",
             device_class=identifiers.get_device_class_type(),
             validation_level=self.validation_level.value,
             vendor_name=self._get_vendor_name(identifiers.vendor_id),

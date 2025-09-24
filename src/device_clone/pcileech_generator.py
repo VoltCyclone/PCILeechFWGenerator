@@ -1247,6 +1247,13 @@ class PCILeechGenerator:
                     "fpga_family": template_context.get("fpga_family", ""),
                     "constraints": template_context.get("board_constraints", {}),
                 },
+                # Explicit constraint files list (may be empty). This must always
+                # be present to satisfy StrictUndefined in templates.
+                "constraint_files": (
+                    template_context.get("constraint_files")
+                    if isinstance(template_context.get("constraint_files"), list)
+                    else []
+                ),
                 # Timing parameters
                 "sys_clk_freq_mhz": int(
                     float(1000.0 / float(template_context.get("clock_period", "10.0")))
