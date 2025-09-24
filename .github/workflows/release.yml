@@ -59,6 +59,19 @@ jobs:
           echo "changelog=Release $VERSION" >> $GITHUB_OUTPUT
         fi
     
+    - name: Create GitHub prerelease (rc/beta/alpha)
+      if: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: v${{ steps.version.outputs.version }}
+        body: ${{ steps.version.outputs.changelog }}
+        files: |
+          dist/*.tar.gz
+          dist/*.whl
+        draft: false
+        prerelease: true
+    
     - name: Publish pre-release to TestPyPI (rc/beta/alpha)
       if: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
       uses: pypa/gh-action-pypi-publish@release/v1

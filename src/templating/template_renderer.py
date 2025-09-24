@@ -481,7 +481,29 @@ class TemplateRenderer:
                 )
                 compatible = context
 
-            # Render the template with the compatible context
+            # Apply centralized context validation/injection in non-strict mode
+            # to ensure optional defaults (e.g., constraint_files) are present
+            # across all templates, without relaxing required keys.
+            try:
+                from src.templating.template_context_validator import (
+                    validate_template_context,
+                )
+
+                compatible = validate_template_context(
+                    template_name, compatible, strict=False
+                )
+            except Exception as e:
+                # Validator is best-effort; proceed with current context on any issue
+                log_debug_safe(
+                    logger,
+                    safe_format(
+                        "TemplateContextValidator unavailable or failed: {error}",
+                        error=e,
+                    ),
+                    prefix="TEMPLATE",
+                )
+
+            # Render the template with the validated/compatible context
             template = self._load_template(template_name)
             return template.render(**compatible)
 

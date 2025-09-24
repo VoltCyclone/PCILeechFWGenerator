@@ -28,24 +28,34 @@ from unittest.mock import MagicMock, Mock, PropertyMock, call, mock_open, patch
 
 import pytest
 
-from src.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
-                                    VFIO_GROUP_GET_DEVICE_FD,
-                                    VFIO_REGION_INFO_FLAG_MMAP,
-                                    VFIO_REGION_INFO_FLAG_READ,
-                                    VFIO_REGION_INFO_FLAG_WRITE,
-                                    VfioRegionInfo)
-from src.device_clone.behavior_profiler import (BehaviorProfile,
-                                                RegisterAccess, TimingPattern)
+from src.cli.vfio_constants import (
+    VFIO_DEVICE_GET_REGION_INFO,
+    VFIO_GROUP_GET_DEVICE_FD,
+    VFIO_REGION_INFO_FLAG_MMAP,
+    VFIO_REGION_INFO_FLAG_READ,
+    VFIO_REGION_INFO_FLAG_WRITE,
+    VfioRegionInfo,
+)
+from src.device_clone.behavior_profiler import (
+    BehaviorProfile,
+    RegisterAccess,
+    TimingPattern,
+)
 from src.device_clone.config_space_manager import BarInfo
-from src.device_clone.fallback_manager import (FallbackManager,
-                                               get_global_fallback_manager)
+from src.device_clone.fallback_manager import (
+    FallbackManager,
+    get_global_fallback_manager,
+)
 from src.device_clone.overlay_mapper import OverlayMapper
-from src.device_clone.pcileech_context import (BarConfiguration, ContextError,
-                                               DeviceIdentifiers,
-                                               PCILeechContextBuilder,
-                                               TemplateContext,
-                                               TimingParameters,
-                                               ValidationLevel)
+from src.device_clone.pcileech_context import (
+    BarConfiguration,
+    ContextError,
+    DeviceIdentifiers,
+    PCILeechContextBuilder,
+    TemplateContext,
+    TimingParameters,
+    ValidationLevel,
+)
 
 # ============================================================================
 # Test Data Factories
@@ -1005,7 +1015,8 @@ class TestUtilityMethods:
         metadata = builder._build_generation_metadata(device_identifiers)
 
         assert metadata["device_bdf"] == "0000:03:00.0"
-        assert metadata["device_signature"] == "10ee:7024"
+        # Device signature now standardized to VID:DID:RID
+        assert metadata["device_signature"] == "10ee:7024:01"
         assert metadata["validation_level"] == "moderate"
         assert "generated_at" in metadata
         assert "generator_version" in metadata

@@ -760,12 +760,12 @@ class TCLBuilder:
         Args:
             board: Board name
             fpga_part: FPGA part string
-            vendor_id: PCI vendor ID
-            device_id: PCI device ID
-            revision_id: PCI revision ID
-            **kwargs: Additional context parameters
-
-        Returns:
+        device_signature = safe_format(
+            "{vid}:{did}:{rid}",
+            vid=format_hex_id(vendor_id, 4),
+            did=format_hex_id(device_id, 4),
+            rid=format_hex_id(revision_id, 2),
+        )
             Validated build context
 
         Raises:

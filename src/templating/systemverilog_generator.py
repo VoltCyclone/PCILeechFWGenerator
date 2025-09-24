@@ -13,16 +13,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from src.__version__ import __version__
-from src.device_clone.device_config import DeviceClass, DeviceType
-from src.device_clone.manufacturing_variance import VarianceModel
-from src.error_utils import format_user_friendly_error
+# Project string utilities (always first of project imports)
 from src.string_utils import (
     generate_sv_header_comment,
     log_error_safe,
     log_info_safe,
     utc_timestamp,
 )
+
+# Core project modules
+from src.__version__ import __version__
+from src.device_clone.device_config import DeviceClass, DeviceType
+from src.device_clone.manufacturing_variance import VarianceModel
+from src.error_utils import format_user_friendly_error
 
 from ..utils.unified_context import (
     DEFAULT_TIMING_CONFIG,
@@ -518,19 +521,74 @@ class SystemVerilogGenerator:
         Returns:
             Generated SystemVerilog code
         """
-        # Build a complete context for the advanced controller
+        # Build a complete context for the advanced controller without hardcoding
+        # donor-unique identifiers. Prefer deriving identifiers from existing
+        # configuration; otherwise use a safe placeholder that validates format.
+
+        # Attempt to source identifiers from provided device_config
+        derived_vendor_id: Optional[str] = None
+        derived_device_id: Optional[str] = None
+        derived_revision_id: Optional[str] = None
+        derived_signature: Optional[str] = None
+
+        dc_raw = self.device_config
+        dc_dict: Dict[str, Any] = {}
+        if isinstance(dc_raw, TemplateObject):
+            try:
+                dc_dict = dc_raw.to_dict()
+            except Exception:
+                dc_dict = {}
+        elif isinstance(dc_raw, dict):
+            dc_dict = dc_raw
+
+        derived_vendor_id = dc_dict.get("vendor_id") or dc_dict.get(
+            "identification", {}
+        ).get("vendor_id")
+        derived_device_id = dc_dict.get("device_id") or dc_dict.get(
+            "identification", {}
+        ).get("device_id")
+        # Accept either raw hex like "0x01" or already normalized strings
+        derived_revision_id = dc_dict.get("revision_id") or dc_dict.get(
+            "registers", {}
+        ).get("revision_id")
+        derived_signature = dc_dict.get("device_signature")
+
+        # Build canonical signature when identifiers are present; otherwise
+        # use a minimal placeholder that passes validation but is not unique.
+
+        def _fmt(val: Any, width: int) -> str:
+            s = str(val)
+            s = s.replace("0x", "").replace("0X", "").upper()
+            return s.zfill(width)
+
+        if not derived_signature:
+            if derived_vendor_id and derived_device_id:
+                rid = derived_revision_id or "00"
+                derived_signature = f"{_fmt(derived_vendor_id,4)}:{_fmt(derived_device_id,4)}:{_fmt(rid,2)}"
+            else:
+                # Safe placeholder; templates will render but this is not donor-bound
+                derived_signature = "0000:0000:00"
+
+        # Construct device_config without hardcoding VID/DID. Include only when present.
+        device_cfg_payload: Dict[str, Any] = {
+            "enable_advanced_features": True,
+            "max_payload_size": 256,  # Default payload size (not donor-unique)
+            "enable_perf_counters": True,
+            "enable_error_handling": True,
+            "enable_power_management": False,
+            "msi_vectors": 0,  # Default MSI vectors (0 = disabled)
+        }
+        if derived_vendor_id:
+            device_cfg_payload["vendor_id"] = derived_vendor_id
+        if derived_device_id:
+            device_cfg_payload["device_id"] = derived_device_id
+        if derived_revision_id:
+            device_cfg_payload["revision_id"] = derived_revision_id
+
         context = {
-            "device_signature": "32'hDEADBEEF",  # Default signature
-            "device_config": {
-                "vendor_id": "10EC",
-                "device_id": "8168",
-                "enable_advanced_features": True,
-                "max_payload_size": 256,  # Default payload size
-                "enable_perf_counters": True,
-                "enable_error_handling": True,
-                "enable_power_management": False,
-                "msi_vectors": 0,  # Default MSI vectors (0 = disabled)
-            },
+            "device_signature": derived_signature,
+            "device_config": device_cfg_payload,
+            # Keep non-unique, conservative defaults for peripheral config
             "bar_config": {
                 "bars": [],
                 "aperture_size": 65536,
