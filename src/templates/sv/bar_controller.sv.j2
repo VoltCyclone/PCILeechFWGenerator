@@ -52,6 +52,11 @@ module pcileech_tlps128_bar_controller #(
     input  logic [31:0] custom_win_rdata
 );
 
+    // ----------------------------------------------------------------
+    // Device signature constant (for debug/identification in builds)
+    // ----------------------------------------------------------------
+    localparam [31:0] DEVICE_SIGNATURE = {% if device_signature %}{{ device_signature | sv_hex(32) }}{% else %}32'hDEAD_BEEF{% endif %};
+
     // ------------------------------------------------------------
     // Configuration‑space shadow BRAM
     // ------------------------------------------------------------
@@ -80,7 +85,7 @@ module pcileech_tlps128_bar_controller #(
     logic [31:0] msix_tbl_rdata;
     
     // ------------------------------------------------------------
-    // MSI‑X capability runtime registers
+    // MSI-X capability runtime registers
     // Replaces static decode from shadow BRAM so driver writes to the
     // MSI‑X Message Control register update enable/mask semantics.
     // ------------------------------------------------------------
