@@ -16,6 +16,12 @@ module pcileech_tlps128_bar_controller #(
     parameter MSIX_PBA_BIR = {{ msix_config.pba_bir | default(0) }},
     parameter MSIX_PBA_OFFSET = {{ (msix_config.pba_offset | default(8192)) | sv_hex(32) }},
     
+    // Address map compatibility (top-level wrapper expectations)
+    // top 4 KB reserved for cfg space shadow, next-to-top 4 KB for custom regs
+    // Provide safe defaults when not explicitly set in context
+    parameter CONFIG_SHDW_HI  = {{ CONFIG_SHDW_HI | default("20'hFFFFF") }},
+    parameter CUSTOM_WIN_BASE = {{ CUSTOM_WIN_BASE | default("20'hFFFFE") }},
+    
     // Unmapped region default read value (configurable)
     parameter DEFAULT_UNMAPPED_VALUE = 32'h00000000,
     
@@ -83,6 +89,15 @@ module pcileech_tlps128_bar_controller #(
     output logic                msix_interrupt,
     output logic [10:0]         msix_vector,
     input  logic                msix_interrupt_ack,
+    
+    // --- Custom window hook (compatibility with basic controller) ---------
+    output logic                custom_win_sel,
+    output logic [11:0]         custom_win_addr,
+    output logic [31:0]         custom_win_wdata,
+    output logic [3:0]          custom_win_be,
+    output logic                custom_win_we,
+    output logic                custom_win_re,
+    input  logic [31:0]         custom_win_rdata,
     
     // PCILeech Control Interface
     input  logic                pcileech_enable,
@@ -251,6 +266,16 @@ module pcileech_tlps128_bar_controller #(
     
     // Debug monitoring
     logic [31:0]        prev_pcileech_command;
+
+    // --------------------------------------------------------------------
+    // Default tie-offs for custom window interface (not used internally)
+    // --------------------------------------------------------------------
+    assign custom_win_sel   = 1'b0;
+    assign custom_win_addr  = 12'h000;
+    assign custom_win_wdata = 32'h0000_0000;
+    assign custom_win_be    = 4'h0;
+    assign custom_win_we    = 1'b0;
+    assign custom_win_re    = 1'b0;
     
     // ========================================================================
     // Command Register Bit Extraction
