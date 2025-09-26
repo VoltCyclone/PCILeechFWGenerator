@@ -443,8 +443,11 @@ class BuildOrchestrator:
         except (psutil.Error, OSError) as e:
             log_warning_safe(
                 logger,
-                "Resource monitoring failed: {msg}",
-                msg=str(e),
+                safe_format(
+                    "Resource monitoring failed: {msg}",
+                    msg=str(e),
+                ),
+                prefix="BUILD",
             )
 
     async def _validate_environment(self) -> None:

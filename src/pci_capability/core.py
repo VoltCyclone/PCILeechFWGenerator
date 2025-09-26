@@ -12,15 +12,24 @@ import logging
 from typing import Dict, Iterator, Optional, Set
 
 from ..string_utils import log_info_safe, log_warning_safe, safe_format
-from .constants import (EXTENDED_CAPABILITY_NAMES, PCI_CAPABILITIES_POINTER,
-                        PCI_CONFIG_SPACE_MIN_HEX_CHARS,
-                        PCI_CONFIG_SPACE_MIN_SIZE, PCI_EXT_CAP_ALIGNMENT,
-                        PCI_EXT_CAP_ID_MASK, PCI_EXT_CAP_NEXT_PTR_MASK,
-                        PCI_EXT_CAP_NEXT_PTR_SHIFT, PCI_EXT_CAP_START,
-                        PCI_EXT_CAP_VERSION_MASK, PCI_EXT_CAP_VERSION_SHIFT,
-                        PCI_EXT_CONFIG_SPACE_END, PCI_STATUS_CAP_LIST,
-                        PCI_STATUS_REGISTER, STANDARD_CAPABILITY_NAMES,
-                        TWO_BYTE_HEADER_CAPABILITIES)
+from .constants import (
+    EXTENDED_CAPABILITY_NAMES,
+    PCI_CAPABILITIES_POINTER,
+    PCI_CONFIG_SPACE_MIN_HEX_CHARS,
+    PCI_CONFIG_SPACE_MIN_SIZE,
+    PCI_EXT_CAP_ALIGNMENT,
+    PCI_EXT_CAP_ID_MASK,
+    PCI_EXT_CAP_NEXT_PTR_MASK,
+    PCI_EXT_CAP_NEXT_PTR_SHIFT,
+    PCI_EXT_CAP_START,
+    PCI_EXT_CAP_VERSION_MASK,
+    PCI_EXT_CAP_VERSION_SHIFT,
+    PCI_EXT_CONFIG_SPACE_END,
+    PCI_STATUS_CAP_LIST,
+    PCI_STATUS_REGISTER,
+    STANDARD_CAPABILITY_NAMES,
+    TWO_BYTE_HEADER_CAPABILITIES,
+)
 from .types import CapabilityInfo, CapabilityType
 
 logger = logging.getLogger(__name__)
@@ -369,6 +378,7 @@ class CapabilityWalker:
                         current_ptr=current_ptr,
                         e=e,
                     ),
+                    prefix="PCI_CAP",
                 )
                 break
 
@@ -395,6 +405,7 @@ class CapabilityWalker:
                         "Extended capability pointer {current_ptr:03x} is out of bounds",
                         current_ptr=current_ptr,
                     ),
+                    prefix="PCI_CAP",
                 )
                 break
 
@@ -406,6 +417,7 @@ class CapabilityWalker:
                         "Extended capability pointer {current_ptr:03x} is not DWORD aligned",
                         current_ptr=current_ptr,
                     ),
+                    prefix="PCI_CAP",
                 )
                 break
 
@@ -469,6 +481,7 @@ class CapabilityWalker:
                         current_ptr=current_ptr,
                         e=e,
                     ),
+                    prefix="PCI_CAP",
                 )
                 break
 

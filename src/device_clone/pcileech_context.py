@@ -552,9 +552,12 @@ class VFIODeviceManager:
             if not (region_flags & VFIO_REGION_INFO_FLAG_MMAP):
                 log_warning_safe(
                     self.logger,
-                    "Region {index} is not mappable (flags={flags}); cannot mmap",
-                    index=index,
-                    flags=region_flags,
+                    safe_format(
+                        "Region {index} is not mappable (flags={flags}); cannot mmap",
+                        index=index,
+                        flags=region_flags,
+                    ),
+                    prefix="VFIO",
                 )
                 return None
 
@@ -886,7 +889,12 @@ class PCILeechContextBuilder:
         if size < PCI_CONFIG_SPACE_MIN_SIZE:
             log_warning_safe(
                 self.logger,
-                f"Config space size {size} < {PCI_CONFIG_SPACE_MIN_SIZE}",
+                safe_format(
+                    "Config space size {size} < {min_size}",
+                    size=size,
+                    min_size=PCI_CONFIG_SPACE_MIN_SIZE,
+                ),
+                prefix="PCIL",
             )
             if self.validation_level == ValidationLevel.STRICT and size == 0:
                 missing.append(f"config_space_size ({size})")
@@ -1704,7 +1712,11 @@ class PCILeechContextBuilder:
                 "OVERLAY_ENTRIES": overlay_map.get("overlay_entries", []),
             }
         except Exception as e:
-            log_warning_safe(self.logger, f"Overlay generation failed: {e}")
+            log_warning_safe(
+                self.logger,
+                safe_format("Overlay generation failed: {error}", error=e),
+                prefix="OVR",
+            )
             return {
                 "OVERLAY_MAP": {},
                 "OVERLAY_ENTRIES": [],
@@ -1723,8 +1735,11 @@ class PCILeechContextBuilder:
                 if merged[key] != value:
                     log_warning_safe(
                         self.logger,
-                        "Donor template provided '{key}', but dynamic context value will be used.",
-                        key=key,
+                        safe_format(
+                            "Donor template provided '{key}', but dynamic context value will be used.",
+                            key=key,
+                        ),
+                        prefix="TEMPLATE",
                     )
 
             # If both sides are dict-like, perform a shallow merge where context overrides donor
@@ -1747,11 +1762,16 @@ class PCILeechContextBuilder:
                     log_warning_safe(
                         self.logger,
                         "Donor template provided 'active_device_config' as dict; coerced to TemplateObject and dynamic values will be preserved.",
+                        prefix="TEMPLATE",
                     )
                 # If it's already a TemplateObject or an object with 'enabled', leave as-is
         except Exception as e:
             # If coercion fails, log and continue; caller will perform final validation
-            log_warning_safe(self.logger, f"Failed to coerce active_device_config: {e}")
+            log_warning_safe(
+                self.logger,
+                safe_format("Failed to coerce active_device_config: {error}", error=e),
+                prefix="TEMPLATE",
+            )
 
         return merged  # type: ignore
 

@@ -387,6 +387,15 @@ class SVContextBuilder:
             msix_config, "pba_offset", 0x2000
         )
 
+        # Legacy templates expect uppercase aliases sourced from donor data.
+        # Publish both canonical snake_case fields and uppercase copies so
+        # strict Jinja rendering succeeds without guessing.
+        context.setdefault("MSIX_TABLE_BIR", context["msix_table_bir"])
+        context.setdefault("MSIX_TABLE_OFFSET", context["msix_table_offset"])
+        context.setdefault("MSIX_PBA_BIR", context["msix_pba_bir"])
+        context.setdefault("MSIX_PBA_OFFSET", context["msix_pba_offset"])
+        context.setdefault("NUM_MSIX", context["NUM_MSIX"])
+
         # Table/PBA combined fields
         context["table_offset_bir"] = context["msix_table_bir"] | (
             context["msix_table_offset"] & ~0x7
@@ -445,6 +454,31 @@ class SVContextBuilder:
             pass
 
         # BAR and config space
+        bar_config = template_context.get("bar_config", {}) or {}
+        aperture_size = self._safe_get_int(bar_config, "aperture_size", 0x1000)
+        context.setdefault("BAR_APERTURE_SIZE", aperture_size)
+
+        # Default to enabling byte enables unless explicitly disabled.
+        # Legacy controller relies on this flag for write strobes, so fall
+        # back to True when donor data omits the override.
+        use_byte_enables = bool(bar_config.get("use_byte_enables", True))
+        context.setdefault("USE_BYTE_ENABLES", use_byte_enables)
+
+        # Derive BAR window layout in 4KB pages. Clamp to avoid negative values
+        # if the aperture is undersized in test fixtures.
+        aperture_pages = max(1, aperture_size // 0x1000)
+        config_shadow_page = max(0, aperture_pages - 1)
+        custom_window_page = max(0, aperture_pages - 2)
+
+        context.setdefault(
+            "CONFIG_SHDW_HI",
+            bar_config.get("config_shadow_base", config_shadow_page),
+        )
+        context.setdefault(
+            "CUSTOM_WIN_BASE",
+            bar_config.get("custom_window_base", custom_window_page),
+        )
+
         context["bar"] = template_context.get("bar", [])
         context["config_space"] = {
             "vendor_id": context["vendor_id"],

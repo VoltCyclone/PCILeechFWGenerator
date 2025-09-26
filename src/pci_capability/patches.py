@@ -11,8 +11,13 @@ binary format.
 import logging
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .core import ConfigSpace
 from .types import PatchInfo, PruningAction
 
@@ -129,9 +134,11 @@ class BinaryPatch:
         if not self.can_apply_to(config_space):
             log_warning_safe(
                 logger,
-                "Cannot apply patch: {self.description}",
+                safe_format(
+                    "Cannot apply patch: {self.description}",
+                    self=self,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
             )
             return False
 
@@ -143,19 +150,23 @@ class BinaryPatch:
             self.applied = True
             log_debug_safe(
                 logger,
-                "Applied patch: {description}",
+                safe_format(
+                    "Applied patch: {description}",
+                    description=self.description,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
             )
             return True
 
         except (IndexError, ValueError) as e:
             log_error_safe(
                 logger,
-                "Failed to apply patch {description}: {e}",
+                safe_format(
+                    "Failed to apply patch {self.description}: {e}",
+                    self=self,
+                    e=e,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
-                e=e,
             )
             return False
 
@@ -172,18 +183,22 @@ class BinaryPatch:
         if not self.applied:
             log_warning_safe(
                 logger,
-                "Patch not applied, cannot rollback: {self.description}",
+                safe_format(
+                    "Patch not applied, cannot rollback: {self.description}",
+                    self=self,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
             )
             return False
 
         if not config_space.has_data(self.offset, self.size):
             log_error_safe(
                 logger,
-                "Cannot rollback patch, invalid bounds: {self.description}",
+                safe_format(
+                    "Cannot rollback patch, invalid bounds: {self.description}",
+                    self=self,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
             )
             return False
 
@@ -195,19 +210,23 @@ class BinaryPatch:
             self.applied = False
             log_debug_safe(
                 logger,
-                "Rolled back patch: {description}",
+                safe_format(
+                    "Rolled back patch: {self.description}",
+                    self=self,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
             )
             return True
 
         except (IndexError, ValueError) as e:
             log_error_safe(
                 logger,
-                "Failed to rollback patch {self.description}: {e}",
+                safe_format(
+                    "Failed to rollback patch {self.description}: {e}",
+                    self=self,
+                    e=e,
+                ),
                 prefix="PCI_CAP",
-                description=self.description,
-                e=e,
             )
             return False
 
@@ -273,9 +292,11 @@ class PatchEngine:
                 ):
                     log_debug_safe(
                         logger,
-                        "Suppressing duplicate patch: {patch}",
+                        safe_format(
+                            "Suppressing duplicate patch: {patch}",
+                            patch=patch,
+                        ),
                         prefix="PCI_CAP",
-                        patch=patch,
                     )
                     return True  # treat as success without adding duplicate
 
@@ -286,15 +307,18 @@ class PatchEngine:
                         new_patch=patch,
                         existing_patch=existing_patch,
                     ),
+                    prefix="PCI_CAP",
                 )
                 return False
 
         self.patches.append(patch)
         log_debug_safe(
             logger,
-            "Added patch: {description}",
+            safe_format(
+                "Added patch: {description}",
+                description=patch.description,
+            ),
             prefix="PCI_CAP",
-            description=patch.description,
         )
         return True
 
@@ -358,6 +382,7 @@ class PatchEngine:
                     original_value=original_value,
                     new_value=new_value,
                 ),
+                prefix="PCI_CAP",
             )
             return None
 
@@ -401,6 +426,7 @@ class PatchEngine:
                     original_value=original_value,
                     new_value=new_value,
                 ),
+                prefix="PCI_CAP",
             )
             return None
 
