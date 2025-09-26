@@ -64,3 +64,4 @@ site/site/
 
 .github/copilot-instructions.md
 template_variables_report.json
+src/file_management/donor_info.json
