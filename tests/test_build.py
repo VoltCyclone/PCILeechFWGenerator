@@ -25,13 +25,31 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
-    BUFFER_SIZE, CONFIG_SPACE_PATH_TEMPLATE, DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DURATION, FILE_WRITE_TIMEOUT, MAX_PARALLEL_FILE_WRITES,
-    REQUIRED_MODULES, BuildConfiguration, ConfigurationError,
-    ConfigurationManager, DeviceConfiguration, FileOperationError,
-    FileOperationsManager, FirmwareBuilder, ModuleChecker, ModuleImportError,
-    MSIXData, MSIXManager, MSIXPreloadError, PCILeechBuildError,
-    VivadoIntegrationError, _display_summary, main, parse_args)
+    BUFFER_SIZE,
+    CONFIG_SPACE_PATH_TEMPLATE,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PROFILE_DURATION,
+    FILE_WRITE_TIMEOUT,
+    MAX_PARALLEL_FILE_WRITES,
+    REQUIRED_MODULES,
+    BuildConfiguration,
+    ConfigurationError,
+    ConfigurationManager,
+    DeviceConfiguration,
+    FileOperationError,
+    FileOperationsManager,
+    FirmwareBuilder,
+    ModuleChecker,
+    ModuleImportError,
+    MSIXData,
+    MSIXManager,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    VivadoIntegrationError,
+    _display_summary,
+    main,
+    parse_args,
+)
 from src.error_utils import build_issue_report
 
 # ============================================================================
@@ -1170,3 +1188,520 @@ def test_configuration_manager_create_from_args(mock_args, mock_logger):
         assert config.enable_profiling == (mock_args.profile > 0)
         assert config.preload_msix == mock_args.preload_msix
         assert config.profile_duration == mock_args.profile
+
+
+# ============================================================================
+# Test FirmwareBuilder Class
+# ============================================================================
+
+
+def test_firmware_builder_init(build_config, mock_logger):
+    """Test FirmwareBuilder initialization."""
+    builder = FirmwareBuilder(build_config, logger=mock_logger)
+
+    assert builder.config == build_config
+    assert builder.logger == mock_logger
+    assert builder._device_config is None
+    assert hasattr(builder, "msix_manager")
+    assert hasattr(builder, "file_manager")
+    assert hasattr(builder, "config_manager")
+    assert hasattr(builder, "gen")
+    assert hasattr(builder, "tcl")
+    assert hasattr(builder, "profiler")
+
+
+def test_firmware_builder_init_dependency_injection(build_config, mock_logger):
+    """Test FirmwareBuilder initialization with dependency injection."""
+    msix_manager = mock.MagicMock()
+    file_manager = mock.MagicMock()
+    config_manager = mock.MagicMock()
+
+    builder = FirmwareBuilder(
+        build_config,
+        msix_manager=msix_manager,
+        file_manager=file_manager,
+        config_manager=config_manager,
+        logger=mock_logger,
+    )
+
+    assert builder.msix_manager == msix_manager
+    assert builder.file_manager == file_manager
+    assert builder.config_manager == config_manager
+
+
+@pytest.fixture
+def mock_firmware_builder(build_config, mock_logger):
+    """Create a FirmwareBuilder with mocked dependencies."""
+    with mock.patch("src.build.MSIXManager") as mock_msix_cls, mock.patch(
+        "src.build.FileOperationsManager"
+    ) as mock_file_cls, mock.patch(
+        "src.build.ConfigurationManager"
+    ) as mock_config_cls, mock.patch(
+        "src.device_clone.pcileech_generator.PCILeechGenerator"
+    ) as mock_gen_cls, mock.patch(
+        "src.templating.tcl_builder.TCLBuilder"
+    ) as mock_tcl_cls, mock.patch(
+        "src.device_clone.behavior_profiler.BehaviorProfiler"
+    ) as mock_profiler_cls:
+
+        mock_msix = mock.MagicMock()
+        mock_file = mock.MagicMock()
+        mock_config = mock.MagicMock()
+        mock_gen = mock.MagicMock()
+        mock_tcl = mock.MagicMock()
+        mock_profiler = mock.MagicMock()
+
+        mock_msix_cls.return_value = mock_msix
+        mock_file_cls.return_value = mock_file
+        mock_config_cls.return_value = mock_config
+        mock_gen_cls.return_value = mock_gen
+        mock_tcl_cls.return_value = mock_tcl
+        mock_profiler_cls.return_value = mock_profiler
+
+        builder = FirmwareBuilder(build_config, logger=mock_logger)
+
+        # Return builder and mocks as a tuple
+        yield builder, {
+            "msix": mock_msix,
+            "file": mock_file,
+            "config": mock_config,
+            "gen": mock_gen,
+            "tcl": mock_tcl,
+            "profiler": mock_profiler,
+        }
+
+
+def test_firmware_builder_build_success(mock_firmware_builder):
+    """Test successful FirmwareBuilder.build() execution."""
+    builder, mocks = mock_firmware_builder
+
+    # Mock all the method calls
+    builder._load_donor_template = mock.MagicMock(return_value=None)
+    builder._preload_msix = mock.MagicMock(return_value=MSIXData(preloaded=False))
+    builder._generate_firmware = mock.MagicMock(
+        return_value={
+            "systemverilog_modules": {},
+            "template_context": {"device_config": {}},
+            "config_space_data": {"device_info": {}},
+        }
+    )
+    builder._inject_msix = mock.MagicMock()
+    builder._write_modules = mock.MagicMock()
+    builder._generate_profile = mock.MagicMock()
+    builder._generate_tcl_scripts = mock.MagicMock()
+    builder._save_device_info = mock.MagicMock()
+    builder._store_device_config = mock.MagicMock()
+    builder._generate_donor_template = mock.MagicMock()
+
+    mocks["file"].list_artifacts.return_value = ["file1.sv", "file2.tcl"]
+
+    # Execute build
+    artifacts = builder.build()
+
+    # Verify all steps were called
+    builder._load_donor_template.assert_called_once()
+    builder._preload_msix.assert_called_once()
+    builder._generate_firmware.assert_called_once_with(None)
+    builder._inject_msix.assert_called_once()
+    builder._write_modules.assert_called_once()
+    builder._generate_profile.assert_called_once()
+    builder._generate_tcl_scripts.assert_called_once()
+    builder._save_device_info.assert_called_once()
+    builder._store_device_config.assert_called_once()
+    builder._generate_donor_template.assert_not_called()  # output_template not set
+
+    # Verify artifacts returned
+    assert artifacts == ["file1.sv", "file2.tcl"]
+
+
+def test_firmware_builder_build_with_donor_template(mock_firmware_builder):
+    """Test FirmwareBuilder.build() with donor template."""
+    builder, mocks = mock_firmware_builder
+    builder.config.donor_template = "/path/to/template.json"
+
+    donor_template = {"test": "data"}
+
+    # Mock all the method calls
+    builder._load_donor_template = mock.MagicMock(return_value=donor_template)
+    builder._preload_msix = mock.MagicMock(return_value=MSIXData(preloaded=False))
+    builder._generate_firmware = mock.MagicMock(
+        return_value={
+            "systemverilog_modules": {},
+            "template_context": {"device_config": {}},
+            "config_space_data": {"device_info": {}},
+        }
+    )
+    builder._inject_msix = mock.MagicMock()
+    builder._write_modules = mock.MagicMock()
+    builder._generate_profile = mock.MagicMock()
+    builder._generate_tcl_scripts = mock.MagicMock()
+    builder._save_device_info = mock.MagicMock()
+    builder._store_device_config = mock.MagicMock()
+    builder._generate_donor_template = mock.MagicMock()
+
+    mocks["file"].list_artifacts.return_value = ["file1.sv"]
+
+    # Execute build
+    builder.build()
+
+    # Verify donor template was passed to firmware generation
+    builder._generate_firmware.assert_called_once_with(donor_template)
+
+
+def test_firmware_builder_build_with_output_template(mock_firmware_builder):
+    """Test FirmwareBuilder.build() with output template generation."""
+    builder, mocks = mock_firmware_builder
+    builder.config.output_template = "donor_template.json"
+
+    # Mock all the method calls
+    builder._load_donor_template = mock.MagicMock(return_value=None)
+    builder._preload_msix = mock.MagicMock(return_value=MSIXData(preloaded=False))
+    builder._generate_firmware = mock.MagicMock(
+        return_value={
+            "systemverilog_modules": {},
+            "template_context": {"device_config": {}},
+            "config_space_data": {"device_info": {}},
+        }
+    )
+    builder._inject_msix = mock.MagicMock()
+    builder._write_modules = mock.MagicMock()
+    builder._generate_profile = mock.MagicMock()
+    builder._generate_tcl_scripts = mock.MagicMock()
+    builder._save_device_info = mock.MagicMock()
+    builder._store_device_config = mock.MagicMock()
+    builder._generate_donor_template = mock.MagicMock()
+
+    mocks["file"].list_artifacts.return_value = ["file1.sv"]
+
+    # Execute build
+    builder.build()
+
+    # Verify donor template generation was called
+    builder._generate_donor_template.assert_called_once()
+
+
+def test_firmware_builder_build_exception_handling(mock_firmware_builder):
+    """Test FirmwareBuilder.build() exception handling."""
+    builder, mocks = mock_firmware_builder
+
+    # Mock _load_donor_template to raise an exception
+    builder._load_donor_template = mock.MagicMock(side_effect=Exception("Test error"))
+
+    # Execute build and expect exception
+    with pytest.raises(Exception, match="Test error"):
+        builder.build()
+
+
+def test_firmware_builder_load_donor_template_none(mock_firmware_builder):
+    """Test FirmwareBuilder._load_donor_template() with no template configured."""
+    builder, mocks = mock_firmware_builder
+    builder.config.donor_template = None
+
+    result = builder._load_donor_template()
+
+    assert result is None
+
+
+def test_firmware_builder_load_donor_template_success(mock_firmware_builder):
+    """Test FirmwareBuilder._load_donor_template() successful load."""
+    builder, mocks = mock_firmware_builder
+    builder.config.donor_template = "/path/to/template.json"
+
+    expected_template = {"test": "data"}
+
+    with mock.patch(
+        "src.device_clone.donor_info_template.DonorInfoTemplateGenerator"
+    ) as mock_gen_cls:
+        mock_gen = mock.MagicMock()
+        mock_gen_cls.load_template.return_value = expected_template
+        mock_gen_cls.return_value = mock_gen
+
+        result = builder._load_donor_template()
+
+        assert result == expected_template
+        mock_gen_cls.load_template.assert_called_once_with("/path/to/template.json")
+
+
+def test_firmware_builder_load_donor_template_failure(mock_firmware_builder):
+    """Test FirmwareBuilder._load_donor_template() load failure."""
+    builder, mocks = mock_firmware_builder
+    builder.config.donor_template = "/path/to/template.json"
+
+    with mock.patch(
+        "src.device_clone.donor_info_template.DonorInfoTemplateGenerator"
+    ) as mock_gen_cls:
+        mock_gen_cls.load_template.side_effect = Exception("Load failed")
+
+        with pytest.raises(PCILeechBuildError, match="Failed to load donor template"):
+            builder._load_donor_template()
+
+
+def test_firmware_builder_preload_msix_enabled(mock_firmware_builder):
+    """Test FirmwareBuilder._preload_msix() with MSI-X preloading enabled."""
+    builder, mocks = mock_firmware_builder
+    builder.config.preload_msix = True
+
+    expected_msix_data = MSIXData(preloaded=True)
+    mocks["msix"].preload_data.return_value = expected_msix_data
+
+    result = builder._preload_msix()
+
+    assert result == expected_msix_data
+    mocks["msix"].preload_data.assert_called_once()
+
+
+def test_firmware_builder_preload_msix_disabled(mock_firmware_builder):
+    """Test FirmwareBuilder._preload_msix() with MSI-X preloading disabled."""
+    builder, mocks = mock_firmware_builder
+    builder.config.preload_msix = False
+
+    result = builder._preload_msix()
+
+    assert result.preloaded == False
+    mocks["msix"].preload_data.assert_not_called()
+
+
+def test_firmware_builder_generate_firmware_basic(mock_firmware_builder):
+    """Test FirmwareBuilder._generate_firmware() basic functionality."""
+    builder, mocks = mock_firmware_builder
+
+    expected_result = {
+        "systemverilog_modules": {"module1": "content1"},
+        "template_context": {
+            "device_config": {"vendor_id": "0x1234"},
+            "msix_config": {"is_supported": False, "num_vectors": 0},
+            "msix_data": None,
+        },
+        "config_space_data": {"device_info": {}},
+    }
+
+    mocks["gen"].generate_pcileech_firmware.return_value = {
+        "systemverilog_modules": {"module1": "content1"},
+        "template_context": {"device_config": {"vendor_id": "0x1234"}},
+        "config_space_data": {"device_info": {}},
+    }
+
+    result = builder._generate_firmware()
+
+    # Verify MSI-X defaults were added
+    assert "msix_config" in result["template_context"]
+    assert "msix_data" in result["template_context"]
+    assert result["template_context"]["msix_config"]["is_supported"] == False
+    assert result["template_context"]["msix_config"]["num_vectors"] == 0
+    assert result["template_context"]["msix_data"] is None
+
+
+def test_firmware_builder_generate_firmware_with_donor_template(mock_firmware_builder):
+    """Test FirmwareBuilder._generate_firmware() with donor template."""
+    builder, mocks = mock_firmware_builder
+    donor_template = {"test": "data"}
+
+    mocks["gen"].generate_pcileech_firmware.return_value = {
+        "systemverilog_modules": {},
+        "template_context": {"device_config": {}},
+        "config_space_data": {"device_info": {}},
+    }
+
+    result = builder._generate_firmware(donor_template)
+
+    # Verify donor template was passed to generator config
+    assert mocks["gen"].config.donor_template == donor_template
+
+
+def test_firmware_builder_write_modules(mock_firmware_builder):
+    """Test FirmwareBuilder._write_modules()."""
+    builder, mocks = mock_firmware_builder
+
+    modules = {"module1.sv": "content1", "module2.sv": "content2"}
+    result = {"systemverilog_modules": modules}
+
+    mocks["file"].write_systemverilog_modules.return_value = (
+        ["module1.sv", "module2.sv"],
+        [],
+    )
+
+    builder._write_modules(result)
+
+    mocks["file"].write_systemverilog_modules.assert_called_once_with(modules)
+
+
+def test_firmware_builder_generate_profile_enabled(mock_firmware_builder):
+    """Test FirmwareBuilder._generate_profile() with profiling enabled."""
+    builder, mocks = mock_firmware_builder
+    builder.config.profile_duration = 30
+
+    profile_data = {"profile": "data"}
+    mocks["profiler"].capture_behavior_profile.return_value = profile_data
+
+    builder._generate_profile()
+
+    mocks["profiler"].capture_behavior_profile.assert_called_once_with(duration=30)
+    mocks["file"].write_json.assert_called_once_with(
+        "behavior_profile.json", profile_data
+    )
+
+
+def test_firmware_builder_generate_profile_disabled(mock_firmware_builder):
+    """Test FirmwareBuilder._generate_profile() with profiling disabled."""
+    builder, mocks = mock_firmware_builder
+    builder.config.profile_duration = 0
+
+    builder._generate_profile()
+
+    mocks["profiler"].capture_behavior_profile.assert_not_called()
+    mocks["file"].write_json.assert_not_called()
+
+
+def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
+    """Test FirmwareBuilder._generate_tcl_scripts()."""
+    builder, mocks = mock_firmware_builder
+
+    result = {
+        "template_context": {
+            "device_config": {
+                "device_id": "0x5678",
+                "class_code": "0x020000",
+                "revision_id": "0x01",
+                "vendor_id": "0x1234",
+                "subsystem_vendor_id": "0x1234",
+                "subsystem_device_id": "0x5678",
+            }
+        }
+    }
+
+    builder._generate_tcl_scripts(result)
+
+    mocks["tcl"].build_all_tcl_scripts.assert_called_once_with(
+        board=builder.config.board,
+        device_id="0x5678",
+        class_code="0x020000",
+        revision_id="0x01",
+        vendor_id="0x1234",
+        subsys_vendor_id=0x1234,  # Converted to int by _optional_int
+        subsys_device_id=0x5678,  # Converted to int by _optional_int
+        build_jobs=builder.config.vivado_jobs,
+        build_timeout=builder.config.vivado_timeout,
+    )
+
+
+def test_firmware_builder_save_device_info(mock_firmware_builder):
+    """Test FirmwareBuilder._save_device_info()."""
+    builder, mocks = mock_firmware_builder
+
+    device_info = {"vendor_id": "0x1234", "device_id": "0x5678"}
+    result = {"config_space_data": {"device_info": device_info}}
+
+    builder._save_device_info(result)
+
+    mocks["file"].write_json.assert_called_once_with("device_info.json", device_info)
+
+
+def test_firmware_builder_store_device_config(mock_firmware_builder):
+    """Test FirmwareBuilder._store_device_config()."""
+    builder, mocks = mock_firmware_builder
+
+    ctx = {"device_config": {"vendor_id": "0x1234"}}
+    result = {"template_context": ctx, "msix_data": {"enabled": True}}
+
+    builder._store_device_config(result)
+
+    mocks["config"].extract_device_config.assert_called_once_with(ctx, True)
+    assert builder._device_config is not None
+
+
+def test_firmware_builder_generate_donor_template(mock_firmware_builder):
+    """Test FirmwareBuilder._generate_donor_template()."""
+    builder, mocks = mock_firmware_builder
+    builder.config.output_template = "output_template.json"
+
+    result = {
+        "config_space_data": {"device_info": {}},
+        "template_context": {"device_config": {}},
+    }
+
+    with mock.patch(
+        "src.device_clone.donor_info_template.DonorInfoTemplateGenerator"
+    ) as mock_gen_cls:
+        mock_gen = mock.MagicMock()
+        mock_template = {"device_info": {"identification": {}}, "metadata": {}}
+        mock_gen.generate_blank_template.return_value = mock_template
+        mock_gen_cls.return_value = mock_gen
+
+        builder._generate_donor_template(result)
+
+        mock_gen.generate_blank_template.assert_called_once()
+        mock_gen.save_template_dict.assert_called_once()
+        # Check that BDF was added to metadata
+        assert mock_template["metadata"]["device_bdf"] == builder.config.bdf
+
+
+def test_firmware_builder_run_vivado_user_path(mock_firmware_builder):
+    """Test FirmwareBuilder.run_vivado() with user-specified Vivado path."""
+    builder, mocks = mock_firmware_builder
+    builder.config.vivado_path = "/custom/vivado/path"
+
+    with mock.patch("src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
+        "src.vivado_handling.find_vivado_installation", return_value=None
+    ):
+
+        mock_runner = mock.MagicMock()
+        mock_runner_cls.return_value = mock_runner
+
+        builder.run_vivado()
+
+        mock_runner_cls.assert_called_once_with(
+            board=builder.config.board,
+            output_dir=builder.config.output_dir,
+            vivado_path="/custom/vivado/path",
+            logger=builder.logger,
+            device_config=None,
+        )
+        mock_runner.run.assert_called_once()
+
+
+def test_firmware_builder_run_vivado_auto_detect(mock_firmware_builder):
+    """Test FirmwareBuilder.run_vivado() with auto-detected Vivado path."""
+    builder, mocks = mock_firmware_builder
+    builder.config.vivado_path = None
+
+    vivado_info = {"executable": "/tools/xilinx/vivado/bin/vivado"}
+
+    with mock.patch("src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
+        "src.vivado_handling.find_vivado_installation", return_value=vivado_info
+    ):
+
+        mock_runner = mock.MagicMock()
+        mock_runner_cls.return_value = mock_runner
+
+        builder.run_vivado()
+
+        expected_path = "/tools/xilinx/vivado"
+        mock_runner_cls.assert_called_once_with(
+            board=builder.config.board,
+            output_dir=builder.config.output_dir,
+            vivado_path=expected_path,
+            logger=builder.logger,
+            device_config=None,
+        )
+        mock_runner.run.assert_called_once()
+
+
+def test_firmware_builder_run_vivado_not_found(mock_firmware_builder):
+    """Test FirmwareBuilder.run_vivado() when Vivado is not found."""
+    builder, mocks = mock_firmware_builder
+    builder.config.vivado_path = None
+
+    with mock.patch("src.vivado_handling.find_vivado_installation", return_value=None):
+        with pytest.raises(VivadoIntegrationError, match="Vivado not found"):
+            builder.run_vivado()
+
+
+def test_firmware_builder_run_vivado_import_error(mock_firmware_builder):
+    """Test FirmwareBuilder.run_vivado() when VivadoRunner import fails."""
+    builder, mocks = mock_firmware_builder
+
+    with mock.patch.dict("sys.modules", {"src.vivado_handling": None}):
+        with pytest.raises(
+            VivadoIntegrationError, match="Vivado handling modules not available"
+        ):
+            builder.run_vivado()
