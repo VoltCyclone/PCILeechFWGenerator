@@ -11,21 +11,41 @@ MSI-X functionality and provides enhanced categorization through the rule engine
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
-from .constants import (MSIX_BIR_MASK, MSIX_CAPABILITY_SIZE, MSIX_ENABLE_BIT,
-                        MSIX_FUNCTION_MASK_BIT, MSIX_LARGE_TABLE_THRESHOLD,
-                        MSIX_MAX_BIR, MSIX_MAX_TABLE_SIZE,
-                        MSIX_MESSAGE_CONTROL_OFFSET, MSIX_MIN_TABLE_SIZE,
-                        MSIX_OFFSET_ALIGNMENT, MSIX_OFFSET_MASK,
-                        MSIX_PBA_OFFSET_BIR_OFFSET,
-                        MSIX_TABLE_OFFSET_BIR_OFFSET, MSIX_TABLE_SIZE_MASK,
-                        PCI_CAP_ID_OFFSET, PCI_CAP_NEXT_PTR_OFFSET)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from .constants import (
+    MSIX_BIR_MASK,
+    MSIX_CAPABILITY_SIZE,
+    MSIX_ENABLE_BIT,
+    MSIX_FUNCTION_MASK_BIT,
+    MSIX_LARGE_TABLE_THRESHOLD,
+    MSIX_MAX_BIR,
+    MSIX_MAX_TABLE_SIZE,
+    MSIX_MESSAGE_CONTROL_OFFSET,
+    MSIX_MIN_TABLE_SIZE,
+    MSIX_OFFSET_ALIGNMENT,
+    MSIX_OFFSET_MASK,
+    MSIX_PBA_OFFSET_BIR_OFFSET,
+    MSIX_TABLE_OFFSET_BIR_OFFSET,
+    MSIX_TABLE_SIZE_MASK,
+    PCI_CAP_ID_OFFSET,
+    PCI_CAP_NEXT_PTR_OFFSET,
+)
 from .core import CapabilityWalker, ConfigSpace
 from .patches import BinaryPatch, PatchEngine
 from .rules import RuleEngine
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PCICapabilityID, PruningAction)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    EmulationCategory,
+    PCICapabilityID,
+    PruningAction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +108,11 @@ class MSIXCapabilityHandler:
         if not self.config_space.has_data(offset, MSIX_CAPABILITY_SIZE):
             log_warning_safe(
                 logger,
-                "MSI-X capability at offset 0x{offset:02x} is truncated",
+                safe_format(
+                    "MSI-X capability at offset 0x{offset:02x} is truncated",
+                    offset=offset,
+                ),
                 prefix="PCI_CAP",
-                offset=offset,
             )
             return None
 
@@ -312,11 +334,13 @@ class MSIXCapabilityHandler:
             if current_next_ptr != offset:
                 log_warning_safe(
                     logger,
-                    "Previous capability at 0x{prev_offset:02x} points to 0x{current:02x}, not MSI-X at 0x{offset:02x}",
+                    safe_format(
+                        "Previous capability at 0x{prev_offset:02x} points to 0x{current:02x}, not MSI-X at 0x{offset:02x}",
+                        prev_offset=previous_cap_offset,
+                        current=current_next_ptr,
+                        offset=offset,
+                    ),
                     prefix="PCI_CAP",
-                    prev_offset=previous_cap_offset,
-                    current=current_next_ptr,
-                    offset=offset,
                 )
                 return patches  # Don't create invalid patches
 
@@ -342,10 +366,12 @@ class MSIXCapabilityHandler:
             if current_cap_ptr != offset:
                 log_warning_safe(
                     logger,
-                    "Capabilities pointer is 0x{current:02x}, not MSI-X at 0x{offset:02x}",
+                    safe_format(
+                        "Capabilities pointer is 0x{current:02x}, not MSI-X at 0x{offset:02x}",
+                        current=current_cap_ptr,
+                        offset=offset,
+                    ),
                     prefix="PCI_CAP",
-                    current=current_cap_ptr,
-                    offset=offset,
                 )
                 return patches  # Don't create invalid patches
 

@@ -56,7 +56,9 @@ class VarianceManager:
         try:
             if not DeviceClass or not VarianceModel:
                 error_msg = "Manufacturing variance modules not available"
-                log_warning_safe(logger, safe_format("{msg}", msg=error_msg))
+                log_warning_safe(
+                    logger, safe_format("{msg}", msg=error_msg), prefix="PROF"
+                )
 
                 # Check with fallback manager if available
                 if (
@@ -164,7 +166,7 @@ class VarianceManager:
         """
         if not BehaviorProfiler:
             error_msg = "Behavior profiler not available"
-            log_warning_safe(logger, safe_format("{msg}", msg=error_msg))
+            log_warning_safe(logger, safe_format("{msg}", msg=error_msg), prefix="PROF")
 
             # Check with fallback manager if available
             if self.fallback_manager and not self.fallback_manager.confirm_fallback(

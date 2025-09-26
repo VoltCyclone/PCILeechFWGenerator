@@ -13,12 +13,22 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .constants import PCI_DEVICE_ID_OFFSET, PCI_VENDOR_ID_OFFSET
 from .core import ConfigSpace
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PCICapabilityID, PCIExtCapabilityID)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    EmulationCategory,
+    PCICapabilityID,
+    PCIExtCapabilityID,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +133,11 @@ class CapabilityRule:
         else:
             log_warning_safe(
                 logger,
-                "Unknown condition '{condition}' in rule",
+                safe_format(
+                    "Unknown condition '{condition}' in rule",
+                    condition=condition,
+                ),
                 prefix="PCI_CAP",
-                condition=condition,
             )
             return True  # Unknown conditions are ignored
 
@@ -162,9 +174,11 @@ class RuleEngine:
         self.rules.append(rule)
         log_debug_safe(
             logger,
-            "Added rule: {rule}",
+            safe_format(
+                "Added rule: {rule}",
+                rule=rule,
+            ),
             prefix="PCI_CAP",
-            rule=rule,
         )
 
     def remove_rules(self, cap_id: int, cap_type: CapabilityType) -> int:

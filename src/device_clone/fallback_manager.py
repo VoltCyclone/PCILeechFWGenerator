@@ -15,14 +15,29 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Callable, Dict, Final, List, Optional, Protocol, Set,
-                    Tuple, TypeVar, Union)
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Final,
+    List,
+    Optional,
+    Protocol,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
-from ..utils.validation_constants import (DEVICE_IDENTIFICATION_FIELDS,
-                                          SENSITIVE_TOKENS)
+from ..utils.validation_constants import DEVICE_IDENTIFICATION_FIELDS, SENSITIVE_TOKENS
 
 # Type variable for return type of handler functions
 T = TypeVar("T")
@@ -568,8 +583,7 @@ class FallbackManager:
         # consumers still receive TemplateObjects rather than plain dicts.
         if original_was_template_object:
             try:
-                from src.utils.unified_context import \
-                    ensure_template_compatibility
+                from src.utils.unified_context import ensure_template_compatibility
 
                 return ensure_template_compatibility(context)
             except Exception:
@@ -600,10 +614,12 @@ class FallbackManager:
             except Exception as e:
                 log_warning_safe(
                     logger,
-                    "Handler for {var_name} failed: {error}",
+                    safe_format(
+                        "Handler for {var_name} failed: {error}",
+                        var_name=var_name,
+                        error=str(e),
+                    ),
                     prefix="FALLBACK",
-                    var_name=var_name,
-                    error=str(e),
                 )
                 return False
         else:
@@ -634,16 +650,17 @@ class FallbackManager:
         if is_dynamic:
             log_debug_safe(
                 logger,
-                "Applied dynamic fallback for {var_name}",
+                safe_format(
+                    "Applied dynamic fallback for {var_name}",
+                    var_name=var_name,
+                ),
                 prefix="FALLBACK",
-                var_name=var_name,
             )
         else:
             log_debug_safe(
                 logger,
-                "Applied fallback for {var_name}",
+                safe_format("Applied fallback for {var_name}", var_name=var_name),
                 prefix="FALLBACK",
-                var_name=var_name,
             )
 
     def validate_critical_variables(
@@ -668,9 +685,11 @@ class FallbackManager:
         if missing:
             log_error_safe(
                 logger,
-                "Missing critical variables: {missing}",
+                safe_format(
+                    "Missing critical variables: {missing}",
+                    missing=", ".join(missing),
+                ),
                 prefix="FALLBACK",
-                missing=", ".join(missing),
             )
             return False, missing
 
@@ -796,9 +815,10 @@ class FallbackManager:
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", var_name):
             log_error_safe(
                 logger,
-                "Invalid variable name format: {var_name}",
+                safe_format(
+                    "Invalid variable name format: {var_name}", var_name=var_name
+                ),
                 prefix="FALLBACK",
-                var_name=var_name,
             )
             return False
 
@@ -821,9 +841,11 @@ class FallbackManager:
             if not config_file.exists():
                 log_error_safe(
                     logger,
-                    "Configuration file not found: {path}",
+                    safe_format(
+                        "Configuration file not found: {path}",
+                        path=config_path,
+                    ),
                     prefix="FALLBACK",
-                    path=config_path,
                 )
                 return False
 
@@ -833,9 +855,11 @@ class FallbackManager:
             if not config:
                 log_warning_safe(
                     logger,
-                    "Empty fallback configuration in {path}",
+                    safe_format(
+                        "Empty fallback configuration in {path}",
+                        path=config_path,
+                    ),
                     prefix="FALLBACK",
-                    path=config_path,
                 )
                 return False
 
@@ -844,10 +868,12 @@ class FallbackManager:
                 self.mark_as_critical(config["critical_variables"])
                 log_info_safe(
                     logger,
-                    "Loaded {count} critical variables from {path}",
+                    safe_format(
+                        "Loaded {count} critical variables from {path}",
+                        count=len(config["critical_variables"]),
+                        path=config_path,
+                    ),
                     prefix="FALLBACK",
-                    count=len(config["critical_variables"]),
-                    path=config_path,
                 )
 
             # Then register fallbacks
@@ -857,10 +883,12 @@ class FallbackManager:
 
                 log_info_safe(
                     logger,
-                    "Loaded {count} fallbacks from {path}",
+                    safe_format(
+                        "Loaded {count} fallbacks from {path}",
+                        count=len(config["fallbacks"]),
+                        path=config_path,
+                    ),
                     prefix="FALLBACK",
-                    count=len(config["fallbacks"]),
-                    path=config_path,
                 )
 
             return True

@@ -40,7 +40,7 @@ class DeprecationHelper:
         )
 
         warnings.warn(warning_msg, DeprecationWarning, stacklevel=3)
-        log_warning_safe(logger, warning_msg)
+        log_warning_safe(logger, warning_msg, prefix="TEMPLATING")
 
 
 class LegacySystemVerilogGenerator:

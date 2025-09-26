@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.string_utils import log_info_safe, log_warning_safe
+from src.string_utils import log_info_safe, log_warning_safe, safe_format
 
 from ..log_config import get_logger
 
@@ -113,7 +113,8 @@ class VivadoRunner:
         # Create a script that the host can execute
         host_script = host_output_dir / "run_vivado_on_host.sh"
 
-        script_content = f"""#!/bin/bash
+        script_content = safe_format(
+            """#!/bin/bash
 set -e
 
 echo "Running Vivado on host system"
@@ -128,7 +129,11 @@ cd {host_output_dir}
 {host_vivado_path}/bin/vivado -mode batch -source vivado_build.tcl
 
 echo "Vivado synthesis completed on host"
-"""
+""",
+            host_vivado_path=host_vivado_path,
+            host_output_dir=str(host_output_dir),
+            self=self,
+        )
 
         try:
             with open(host_script, "w") as f:
@@ -139,8 +144,10 @@ echo "Vivado synthesis completed on host"
 
             log_info_safe(
                 self.logger,
-                "Created host execution script: {path}",
-                path=str(host_script),
+                safe_format(
+                    "Created host execution script: {path}",
+                    path=str(host_script),
+                ),
                 prefix="VIVADO",
             )
             log_info_safe(
@@ -148,16 +155,13 @@ echo "Vivado synthesis completed on host"
                 "To complete Vivado synthesis, run this on the host:",
                 prefix="VIVADO",
             )
-            log_info_safe(
-                self.logger,
-                "  chmod +x {path} && {path}",
-                path=str(host_script),
-                prefix="VIVADO",
-            )
 
             raise VivadoIntegrationError(
-                "Container detected. Vivado must be run on host. "
-                f"Please execute: {host_script}"
+                safe_format(
+                    "Container detected. Vivado must be run on host. "
+                    "Please execute: {host_script}",
+                    host_script=str(host_script),
+                )
             )
 
         except Exception as e:
@@ -183,14 +187,18 @@ echo "Vivado synthesis completed on host"
 
         log_info_safe(
             self.logger,
-            "Starting Vivado build for board: {board}",
-            board=self.board,
+            safe_format(
+                "Starting Vivado build for board: {board}",
+                board=self.board,
+            ),
             prefix="VIVADO",
         )
         log_info_safe(
             self.logger,
-            "Output directory: {dir}",
-            dir=str(self.output_dir),
+            safe_format(
+                "Output directory: {dir}",
+                dir=str(self.output_dir),
+            ),
             prefix="VIVADO",
         )
 
@@ -210,16 +218,20 @@ echo "Vivado synthesis completed on host"
             )
             log_info_safe(
                 self.logger,
-                "Using integrated build script: {path}",
-                path=str(build_script),
+                safe_format(
+                    "Using integrated build script: {path}",
+                    path=str(build_script),
+                ),
                 prefix="VIVADO",
             )
             build_tcl = build_script
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                "Failed to use integrated build, falling back to generated scripts: {err}",
-                err=str(e),
+                safe_format(
+                    "Failed to use integrated build, falling back to generated scripts: {err}",
+                    err=str(e),
+                ),
                 prefix="VIVADO",
             )
             build_tcl = self.output_dir / "vivado_build.tcl"
@@ -227,8 +239,10 @@ echo "Vivado synthesis completed on host"
             # Ensure fallback script exists
             if not build_tcl.exists():
                 raise VivadoIntegrationError(
-                    f"No build script found at {build_tcl}. "
-                    "Run the build generation step first."
+                    safe_format(
+                        "No build script found at {build_tcl}. Cannot proceed.",
+                        build_tcl=build_tcl,
+                    )
                 )
 
         # Execute Vivado with comprehensive error reporting
@@ -240,8 +254,12 @@ echo "Vivado synthesis completed on host"
 
         if return_code != 0:
             raise VivadoIntegrationError(
-                f"Vivado build failed with return code {return_code}. "
-                f"See error report: {report}"
+                safe_format(
+                    "Vivado build failed with return code {return_code}. "
+                    "See error report: {report}",
+                    return_code=return_code,
+                    report=report,
+                )
             )
 
         log_info_safe(

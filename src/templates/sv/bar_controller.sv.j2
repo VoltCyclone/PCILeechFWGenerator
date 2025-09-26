@@ -83,6 +83,10 @@ module pcileech_tlps128_bar_controller #(
     // ------------------------------------------------------------
     logic [31:0] cfg_shdw_rdata;
     logic [31:0] msix_tbl_rdata;
+{% if device_config is defined and (device_config.enable_perf_counters | default(false, true)) %}
+    logic [31:0] perf_rd_count;
+    logic [31:0] perf_wr_count;
+{% endif %}
     
     // ------------------------------------------------------------
     // MSI-X capability runtime registers
@@ -208,6 +212,27 @@ module pcileech_tlps128_bar_controller #(
             default         : bar_rd_data = 32'h00000000;
         endcase
     end
+
+{% if device_config is defined and (device_config.enable_perf_counters | default(false, true)) %}
+    // ------------------------------------------------------------
+    // Lightweight performance counters for BAR transactions
+    // ------------------------------------------------------------
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            perf_rd_count <= 32'h0;
+            perf_wr_count <= 32'h0;
+        end else begin
+            if (bar_rd_en && bar_access_mem) begin
+                perf_rd_count <= perf_rd_count + 32'd1;
+            end
+            if (bar_wr_en && bar_access_mem) begin
+                perf_wr_count <= perf_wr_count + 32'd1;
+            end
+        end
+    end
+{% else %}
+    // Performance counters disabled in configuration
+{% endif %}
 
     // ------------------------------------------------------------
     // Initial BAR memory clear (simulation only)
