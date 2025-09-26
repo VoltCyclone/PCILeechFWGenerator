@@ -18,8 +18,14 @@ from pathlib import Path
 from typing import List, Optional
 
 from ..log_config import get_logger
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, utc_timestamp)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    utc_timestamp,
+)
 
 ###############################################################################
 # Configuration constants - override with environment vars if desired.
@@ -102,8 +108,11 @@ class RepoManager:
         if repo_path.exists():
             log_warning_safe(
                 _logger,
-                "Removing invalid repo directory {repo_path}",
-                repo_path=repo_path,
+                safe_format(
+                    "Removing invalid repo directory {repo_path}",
+                    repo_path=repo_path,
+                ),
+                prefix="GIT",
             )
             _shutil.rmtree(repo_path, ignore_errors=True)
 
@@ -247,14 +256,22 @@ class RepoManager:
         log_info_safe(_logger, "Updating repo {path} ...", path=path)
 
         if not _git_available():
-            log_warning_safe(_logger, "git executable not available - skipping update")
+            log_warning_safe(
+                _logger,
+                safe_format("git executable not available - skipping update"),
+                prefix="GIT",
+            )
             return
 
         try:
             _run(["git", "-C", str(path), "pull", "--rebase", "--autostash"])
             stamp.write_text(utc_timestamp())
         except Exception as exc:
-            log_warning_safe(_logger, "Git pull failed: {error}", error=exc)
+            log_warning_safe(
+                _logger,
+                safe_format("Git pull failed: {error}", error=exc),
+                prefix="GIT",
+            )
 
     # ------------------------------------------------------------------
     # Clone logic
@@ -264,7 +281,9 @@ class RepoManager:
     def _clone(cls, repo_url: str, dst: Path) -> None:
         """Clone repository using git command."""
         log_info_safe(
-            _logger, "Cloning {repo_url} -> {dst}", repo_url=repo_url, dst=dst
+            _logger,
+            safe_format("Cloning repo {url} to {dst}", url=repo_url, dst=dst),
+            prefix="GIT",
         )
 
         if not _git_available():
@@ -289,13 +308,20 @@ class RepoManager:
                     pass  # Ignore errors during cleanup
                 log_warning_safe(
                     _logger,
-                    "Clone attempt {attempts} failed: {error}",
-                    attempts=attempts,
-                    error=exc,
+                    safe_format(
+                        "Clone attempt {attempts} failed: {error}",
+                        attempts=attempts,
+                        error=exc,
+                    ),
+                    prefix="GIT",
                 )
                 if attempts >= 3:
                     raise RuntimeError(
-                        f"Failed to clone {repo_url} after {attempts} attempts"
+                        safe_format(
+                            "Failed to clone {url} after {attempts} attempts",
+                            url=repo_url,
+                            attempts=attempts,
+                        )
                     ) from exc
                 _time.sleep(delay)
                 delay *= 2  # exponential back‑off

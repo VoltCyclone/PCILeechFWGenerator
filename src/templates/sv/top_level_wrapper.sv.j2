@@ -142,7 +142,16 @@ module pcileech_top (
         .custom_win_rdata(custom_win_rdata)
     );
 
-{% if active_device_config and active_device_config.enabled %}
+{%- set _active_device_module = none %}
+{%- if active_device_config and active_device_config.enabled %}
+    {%- if active_device_config.module_name is defined %}
+        {%- set _active_device_module = active_device_config.module_name %}
+    {%- elif active_device_config.module_template is defined %}
+        {#- Some contexts expose module_template instead of module_name - reuse it #}
+        {%- set _active_device_module = active_device_config.module_template %}
+    {%- endif %}
+{%- endif %}
+{% if _active_device_module %}
     // Active device interrupt controller
     logic [{{ active_device_config.num_sources - 1 }}:0] interrupt_sources;
     logic [{{ active_device_config.num_sources - 1 }}:0] interrupt_ack;
@@ -156,7 +165,7 @@ module pcileech_top (
         end
     endgenerate
     
-    active_device_interrupt #(
+    {{ _active_device_module }} #(
         .TIMER_PERIOD({{ active_device_config.timer_period }}),
         .TIMER_ENABLE({{ '1\'b1' if active_device_config.timer_enable else '1\'b0' }}),
         .MSI_VECTOR_WIDTH({{ active_device_config.msi_vector_width }}),

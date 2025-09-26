@@ -159,7 +159,8 @@ class SVTemplates:
     CLOCK_CROSSING: str = "systemverilog/advanced/clock_crossing.sv.j2"
     BUILD_INTEGRATION: str = "python/build_integration.py.j2"
     PCILEECH_INTEGRATION: str = "python/pcileech_build_integration.py.j2"
-    PCILEECH_TLPS_BAR_CONTROLLER: str = (
+    PCILEECH_TLPS_BAR_CONTROLLER: str = "systemverilog/bar_controller.sv.j2"
+    ENHANCED_PCILEECH_TLPS_BAR_CONTROLLER: str = (
         "systemverilog/pcileech_tlps128_bar_controller.sv.j2"
     )
     PCILEECH_FIFO: str = "systemverilog/pcileech_fifo.sv.j2"

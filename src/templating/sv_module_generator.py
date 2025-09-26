@@ -149,20 +149,25 @@ class SVModuleGenerator:
             except Exception as e:
                 log_error_safe(
                     self.logger,
-                    "Failed to generate advanced controller: {error}",
+                    safe_format(
+                        "Failed to generate advanced controller: {error}",
+                        error=str(e),
+                    ),
                     prefix=self.prefix,
-                    error=str(e),
                 )
 
         # Report results
         if failed_modules:
             log_warning_safe(
                 self.logger,
-                "Generated {success} of {total} modules. Failed: {failed}",
+                safe_format(
+                    "Generated {success} of {total} modules. Failed: {failed}",
+                    prefix=self.prefix,
+                    success=len(modules),
+                    total=len(self.templates.BASIC_SV_MODULES),
+                    failed=", ".join(failed_modules),
+                ),
                 prefix=self.prefix,
-                success=len(modules),
-                total=len(self.templates.BASIC_SV_MODULES),
-                failed=", ".join(failed_modules),
             )
 
         return modules
@@ -208,20 +213,24 @@ class SVModuleGenerator:
             )
             log_debug_safe(
                 self.logger,
-                "Rendered device-specific ports for {dtype}/{dclass} (len={length})",
+                safe_format(
+                    "Rendered device-specific ports for {dtype}/{dclass} (len={length})",
+                    dtype=device_type,
+                    dclass=device_class,
+                    length=len(rendered) if rendered else 0,
+                ),
                 prefix=self.prefix,
-                dtype=device_type,
-                dclass=device_class,
-                length=len(rendered) if rendered else 0,
             )
             # Save to cache and return
             self._ports_cache[cache_key_tuple] = rendered
             return rendered
 
         except TemplateRenderError as e:
-            error_msg = (
-                "Failed to render device-specific ports for"
-                f" {device_type}/{device_class}: {e}"
+            error_msg = safe_format(
+                "Failed to render device-specific ports for {dtype}/{dclass}: {error}",
+                dtype=device_type,
+                dclass=device_class,
+                error=str(e),
             )
             log_error_safe(
                 self.logger,
@@ -262,7 +271,8 @@ class SVModuleGenerator:
                 prefix=self.prefix,
             )
             raise TemplateRenderError(
-                self.messages.get("missing_device_config") or "Missing device configuration"
+                self.messages.get("missing_device_config")
+                or "Missing device configuration"
             )
 
         # Normalize `device` in context without mutating original input.
@@ -275,14 +285,28 @@ class SVModuleGenerator:
             context = dict(context)  # Make a shallow copy before modification
             context["device"] = {"vendor_id": vid, "device_id": did}
 
-        # TLP BAR controller
+        # TLP BAR controller (select enhanced variant only when explicitly requested)
+        bar_config = safe_get_attr(context, "bar_config", {}) or {}
+        use_enhanced_bar = bool(
+            safe_get_attr(bar_config, "use_enhanced_controller", False)
+        )
+
+        bar_template = (
+            self.templates.ENHANCED_PCILEECH_TLPS_BAR_CONTROLLER
+            if use_enhanced_bar
+            else self.templates.PCILEECH_TLPS_BAR_CONTROLLER
+        )
+
         log_debug_safe(
             self.logger,
-            "Rendering core template: TLPS128 BAR controller",
+            safe_format(
+                "Rendering core template: TLPS128 BAR controller (variant={variant})",
+                variant="enhanced" if use_enhanced_bar else "legacy",
+            ),
             prefix=self.prefix,
         )
         modules["pcileech_tlps128_bar_controller"] = self.renderer.render_template(
-            self.templates.PCILEECH_TLPS_BAR_CONTROLLER, context
+            bar_template, context
         )
 
         # Check for error markers
@@ -443,7 +467,6 @@ class SVModuleGenerator:
                     self.logger,
                     safe_format(
                         "Failed to render clock crossing: {error}",
-                        prefix=self.prefix,
                         error=str(e),
                     ),
                     prefix=self.prefix,
