@@ -10,11 +10,12 @@ Simplified Power Management feature for the PCILeechFWGenerator project.
 """
 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from ..string_utils import generate_sv_header_comment
-from ..utils.validation_constants import POWER_TRANSITION_CYCLES
+
+from .sv_constants import SV_CONSTANTS
 from .advanced_sv_features import PowerState, TransitionCycles
 from .template_renderer import TemplateRenderer
 
@@ -24,10 +25,12 @@ class PowerManagementConfig:
     """Configuration for power management features."""
 
     # Clock frequency for timing calculations
-    clk_hz: int = 100_000_000  # 100 MHz default
+    clk_hz: int = SV_CONSTANTS.DEFAULT_CLOCK_HZ  # 100 MHz default
 
     # Transition timeout (nanoseconds) - PCIe spec allows up to 10ms
-    transition_timeout_ns: int = 10_000_000  # 10 ms
+    transition_timeout_ns: int = (
+        SV_CONSTANTS.DEFAULT_POWER_TRANSITION_TIMEOUT_NS
+    )  # 10 ms
 
     # Enable PME (Power Management Event) support
     enable_pme: bool = True
@@ -39,11 +42,7 @@ class PowerManagementConfig:
     has_interface_signals: bool = True
 
     # Transition cycle counts
-    transition_cycles: Optional[TransitionCycles] = None
-
-    def __post_init__(self):
-        if self.transition_cycles is None:
-            self.transition_cycles = TransitionCycles()
+    transition_cycles: TransitionCycles = field(default_factory=TransitionCycles)
 
 
 class PowerManagementGenerator:
@@ -62,6 +61,13 @@ class PowerManagementGenerator:
             "timeout_ms": self.config.transition_timeout_ns // 1_000_000,
             "enable_pme": self.config.enable_pme,
             "enable_wake_events": self.config.enable_wake_events,
+            # Provide transition cycles context for templates that need it
+            "transition_cycles": {
+                "d0_to_d1": self.config.transition_cycles.d0_to_d1,
+                "d1_to_d0": self.config.transition_cycles.d1_to_d0,
+                "d0_to_d3": self.config.transition_cycles.d0_to_d3,
+                "d3_to_d0": self.config.transition_cycles.d3_to_d0,
+            },
         }
 
     def generate_pmcsr_stub_module(self) -> str:
@@ -100,15 +106,15 @@ class PowerManagementGenerator:
         # Build monitoring and status outputs based on configuration
         monitoring_lines = [
             "    // ── Power State Monitoring ──────────────────────────────────────────",
-            "    assign current_power_state = pmcsr_rdata[1:0];",
+            f"    assign current_power_state = pmcsr_rdata[{SV_CONSTANTS.PMCSR_POWER_STATE_MSB}:{SV_CONSTANTS.PMCSR_POWER_STATE_LSB}];",
             "    assign power_management_enabled = 1'b1;",
         ]
 
         if self.config.enable_pme:
             monitoring_lines.extend(
                 [
-                    "    assign pme_enable = pmcsr_rdata[15];",
-                    "    assign pme_status = pmcsr_rdata[14];",
+                    f"    assign pme_enable = pmcsr_rdata[{SV_CONSTANTS.PMCSR_PME_ENABLE_BIT}];",
+                    f"    assign pme_status = pmcsr_rdata[{SV_CONSTANTS.PMCSR_PME_STATUS_BIT}];",
                 ]
             )
 
@@ -146,7 +152,9 @@ class PowerManagementGenerator:
     def get_config_space_requirements(self) -> dict:
         """Return config space requirements for power management."""
         return {
-            "pmcsr_offset": "0x44",
+            # Absolute capability offset must be discovered from donor; we only expose
+            # the fixed relative PMCSR offset within the capability structure.
+            "pmcsr_rel_offset": f"0x{SV_CONSTANTS.PMCSR_REL_OFFSET:02x}",
             "pmcsr_size": "16 bits",
             "description": "Power Management Control/Status Register",
         }

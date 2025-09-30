@@ -16,16 +16,18 @@ from typing import Dict, List, Optional, Union
 from ..device_clone import DeviceConfiguration as NewDeviceConfiguration
 from ..device_clone import VarianceModel
 from ..device_clone.manufacturing_variance import DeviceClass
+
 # Import from centralized utils
 from ..string_utils import generate_sv_header_comment
 from ..utils.unified_context import TemplateObject
 from ..utils.validation_constants import POWER_TRANSITION_CYCLES
+
 # Import template renderer
 from . import TemplateRenderer, TemplateRenderError
+
 # Import centralized enums and constants
 from .advanced_sv_features import LinkState, PowerState
 
-# Import device configuration system
 
 class ErrorType(Enum):
     """PCIe error types."""

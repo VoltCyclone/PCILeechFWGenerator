@@ -19,6 +19,10 @@ from .sv_constants import SV_CONSTANTS
 
 from .template_renderer import TemplateRenderError
 
+# Module-level defaults are sourced from SV_CONSTANTS to avoid drift
+CFG_SPACE_DEFAULT_SIZE: int = SV_CONSTANTS.CONFIG_SPACE_DEFAULT_SIZE
+EXT_CAP_PTR_DEFAULT: int = SV_CONSTANTS.EXTENDED_CAP_PTR_DEFAULT
+
 
 class SVContextBuilder:
     """Builds and manages template contexts for SystemVerilog generation."""
@@ -346,16 +350,22 @@ class SVContextBuilder:
         context["enable_interrupt"] = (
             getattr(context.get("interrupt_config", None), "vectors", 0) > 0
         )
-        context["enable_clock_crossing"] = True
-        context["enable_performance_counters"] = True
-        context["enable_error_detection"] = True
-        context["enable_custom_config"] = True
+        context["enable_clock_crossing"] = SV_CONSTANTS.DEFAULT_ENABLE_CLOCK_CROSSING
+        context["enable_performance_counters"] = (
+            SV_CONSTANTS.DEFAULT_ENABLE_PERF_COUNTERS
+        )
+        context["enable_error_detection"] = SV_CONSTANTS.DEFAULT_ENABLE_ERROR_DETECTION
+        context["enable_custom_config"] = SV_CONSTANTS.DEFAULT_ENABLE_CUSTOM_CONFIG
 
         # Device info object
         context["device"] = TemplateObject(
             {
-                "msi_vectors": int(context.get("msi_vectors", 0)),
-                "num_sources": int(context.get("num_sources", 1)),
+                "msi_vectors": int(
+                    context.get("msi_vectors", SV_CONSTANTS.DEFAULT_MSI_VECTORS)
+                ),
+                "num_sources": int(
+                    context.get("num_sources", SV_CONSTANTS.DEFAULT_NUM_SOURCES)
+                ),
                 # No fallback device ID - should use actual device_id from context
                 "FALLBACK_DEVICE_ID": device_config_dict["device_id"],
             }
@@ -377,14 +387,20 @@ class SVContextBuilder:
         """Add fields for backward compatibility."""
         # MSI-X related fields
         msix_config = context.get("msix_config", {})
-        context["NUM_MSIX"] = self._safe_get_int(msix_config, "num_vectors", 0)
-        context["msix_table_bir"] = self._safe_get_int(msix_config, "table_bir", 0)
-        context["msix_table_offset"] = self._safe_get_int(
-            msix_config, "table_offset", 0x1000
+        context["NUM_MSIX"] = self._safe_get_int(
+            msix_config, "num_vectors", SV_CONSTANTS.DEFAULT_NUM_MSIX
         )
-        context["msix_pba_bir"] = self._safe_get_int(msix_config, "pba_bir", 0)
+        context["msix_table_bir"] = self._safe_get_int(
+            msix_config, "table_bir", SV_CONSTANTS.DEFAULT_MSIX_TABLE_BIR
+        )
+        context["msix_table_offset"] = self._safe_get_int(
+            msix_config, "table_offset", SV_CONSTANTS.DEFAULT_MSIX_TABLE_OFFSET
+        )
+        context["msix_pba_bir"] = self._safe_get_int(
+            msix_config, "pba_bir", SV_CONSTANTS.DEFAULT_MSIX_PBA_BIR
+        )
         context["msix_pba_offset"] = self._safe_get_int(
-            msix_config, "pba_offset", 0x2000
+            msix_config, "pba_offset", SV_CONSTANTS.DEFAULT_MSIX_PBA_OFFSET
         )
 
         # Legacy templates expect uppercase aliases sourced from donor data.
@@ -397,16 +413,20 @@ class SVContextBuilder:
         context.setdefault("NUM_MSIX", context["NUM_MSIX"])
 
         # Table/PBA combined fields
-        context["table_offset_bir"] = context["msix_table_bir"] | (
-            context["msix_table_offset"] & ~0x7
+        context["table_offset_bir"] = context["msix_table_bir"] | self._align_down(
+            context["msix_table_offset"], SV_CONSTANTS.MSIX_ALIGNMENT_BYTES
         )
-        context["pba_offset_bir"] = context["msix_pba_bir"] | (
-            context["msix_pba_offset"] & ~0x7
+        context["pba_offset_bir"] = context["msix_pba_bir"] | self._align_down(
+            context["msix_pba_offset"], SV_CONSTANTS.MSIX_ALIGNMENT_BYTES
         )
 
         # Other compatibility fields
-        context["msi_vectors"] = int(template_context.get("msi_vectors", 0))
-        context["max_payload_size"] = int(template_context.get("max_payload_size", 256))
+        context["msi_vectors"] = int(
+            template_context.get("msi_vectors", SV_CONSTANTS.DEFAULT_MSI_VECTORS)
+        )
+        context["max_payload_size"] = int(
+            template_context.get("max_payload_size", SV_CONSTANTS.DEFAULT_MPS_BYTES)
+        )
         context["enable_perf_counters"] = bool(
             context.get("enable_performance_counters", False)
         )
@@ -427,10 +447,10 @@ class SVContextBuilder:
             # 1) top-level context["max_payload_size"] (already coerced to int)
             # 2) pcileech_config.max_payload_size
             # 3) static conservative default (256)
-            derived_mps = (
+            derived_mps = int(
                 int(context.get("max_payload_size", 0))
                 or (int(getattr(pcfg, "max_payload_size", 0)) if pcfg else 0)
-                or 256
+                or SV_CONSTANTS.DEFAULT_MPS_BYTES
             )
 
             # Derive MSI(-X) vectors in priority order:
@@ -455,20 +475,28 @@ class SVContextBuilder:
 
         # BAR and config space
         bar_config = template_context.get("bar_config", {}) or {}
-        aperture_size = self._safe_get_int(bar_config, "aperture_size", 0x1000)
+        aperture_size = self._safe_get_int(
+            bar_config, "aperture_size", SV_CONSTANTS.DEFAULT_BAR_APERTURE_SIZE
+        )
         context.setdefault("BAR_APERTURE_SIZE", aperture_size)
 
         # Default to enabling byte enables unless explicitly disabled.
         # Legacy controller relies on this flag for write strobes, so fall
         # back to True when donor data omits the override.
-        use_byte_enables = bool(bar_config.get("use_byte_enables", True))
+        use_byte_enables = bool(
+            bar_config.get("use_byte_enables", SV_CONSTANTS.DEFAULT_USE_BYTE_ENABLES)
+        )
         context.setdefault("USE_BYTE_ENABLES", use_byte_enables)
 
         # Derive BAR window layout in 4KB pages. Clamp to avoid negative values
         # if the aperture is undersized in test fixtures.
-        aperture_pages = max(1, aperture_size // 0x1000)
-        config_shadow_page = max(0, aperture_pages - 1)
-        custom_window_page = max(0, aperture_pages - 2)
+        aperture_pages = max(1, aperture_size // SV_CONSTANTS.PAGE_SIZE_BYTES)
+        config_shadow_page = max(
+            0, aperture_pages - SV_CONSTANTS.CONFIG_SHADOW_PAGE_FROM_END
+        )
+        custom_window_page = max(
+            0, aperture_pages - SV_CONSTANTS.CUSTOM_WINDOW_PAGE_FROM_END
+        )
 
         context.setdefault(
             "CONFIG_SHDW_HI",
@@ -490,6 +518,83 @@ class SVContextBuilder:
                 "revision_id", self.constants.DEFAULT_REVISION_ID
             ),
         }
+
+        # ------------------------------------------------------------------
+        # Config-space shadow template compatibility
+        # - Provide CONFIG_SPACE_SIZE (bytes) with a safe default (256)
+        # - Ensure OVERLAY_MAP exists (mapping of reg->mask) with {} default
+        # - Provide OVERLAY_ENTRIES as an integer count (not a list)
+        # - Publish uppercase aliases for extended capability pointers
+        #   (defaults to 0x100 = 256) without fabricating donor-unique values
+        # ------------------------------------------------------------------
+
+        # Many SV templates gate an extra RAM port with DUAL_PORT. Provide a
+        # conservative default of False unless explicitly requested by the
+        # caller. This avoids strict-undefined errors in cfg_shadow.sv.j2.
+        context.setdefault("DUAL_PORT", SV_CONSTANTS.DEFAULT_DUAL_PORT)
+
+        # Derive CONFIG_SPACE_SIZE from explicit config_space_data when provided,
+        # otherwise use a conservative default of 256 bytes.
+        cfg_space_size = CFG_SPACE_DEFAULT_SIZE
+        try:
+            cs_data = template_context.get("config_space_data") or {}
+            if isinstance(cs_data, dict):
+                data_blob = cs_data.get("data")
+                if isinstance(data_blob, (bytes, bytearray)):
+                    cfg_space_size = max(cfg_space_size, len(data_blob))
+                elif isinstance(data_blob, list):
+                    # List of byte values
+                    cfg_space_size = max(cfg_space_size, len(data_blob))
+        except Exception:
+            # Keep safe default on any parsing issue
+            pass
+
+        context.setdefault("CONFIG_SPACE_SIZE", int(cfg_space_size))
+
+        # Overlay defaults: prefer an explicit map if provided by callers; avoid
+        # making up dynamic, donor-unique values here.
+        overlay_map = template_context.get("OVERLAY_MAP") or {}
+        # Normalize non-dict/sequence inputs to an empty map
+        if not isinstance(overlay_map, (dict, list, tuple)):
+            overlay_map = {}
+
+        # Count entries for the SV parameter. For sequences, treat each item as
+        # an entry; for mappings, use number of keys. Fallback to 0.
+        if isinstance(overlay_map, dict):
+            overlay_entries = len(overlay_map.keys())
+        elif isinstance(overlay_map, (list, tuple)):
+            overlay_entries = len(overlay_map)
+        else:
+            overlay_entries = 0
+
+        # Only set if not already a valid integer to avoid clobbering explicit test inputs
+        if not isinstance(context.get("OVERLAY_ENTRIES"), int):
+            context["OVERLAY_ENTRIES"] = int(overlay_entries)
+        context.setdefault(
+            "OVERLAY_MAP",
+            overlay_map if isinstance(overlay_map, (dict, list, tuple)) else {},
+        )
+
+        # Uppercase aliases for extended capability pointers used by cfg_shadow
+        try:
+            dc = context.get("device_config", {})
+            # device_config may be a TemplateObject/dict; getattr will work with TemplateObject
+            ext_ptr = (
+                int(getattr(dc, "ext_cfg_cap_ptr", EXT_CAP_PTR_DEFAULT))
+                if not isinstance(dc, dict)
+                else int(dc.get("ext_cfg_cap_ptr", EXT_CAP_PTR_DEFAULT))
+            )
+            ext_xp_ptr = (
+                int(getattr(dc, "ext_cfg_xp_cap_ptr", EXT_CAP_PTR_DEFAULT))
+                if not isinstance(dc, dict)
+                else int(dc.get("ext_cfg_xp_cap_ptr", EXT_CAP_PTR_DEFAULT))
+            )
+            context.setdefault("EXT_CFG_CAP_PTR", ext_ptr)
+            context.setdefault("EXT_CFG_XP_CAP_PTR", ext_xp_ptr)
+        except Exception:
+            # Defaults already cover typical cases; do not fail context build
+            context.setdefault("EXT_CFG_CAP_PTR", EXT_CAP_PTR_DEFAULT)
+            context.setdefault("EXT_CFG_XP_CAP_PTR", EXT_CAP_PTR_DEFAULT)
 
     def _ensure_template_object(self, obj: Any) -> TemplateObject:
         """Convert any object to TemplateObject for consistent template access."""
@@ -541,7 +646,11 @@ class SVContextBuilder:
             tc_dict = {}
             for field in required_fields:
                 if not hasattr(transition_cycles, field):
-                    raise ValueError(f"Missing transition cycle field: {field}")
+                    raise ValueError(
+                        safe_format(
+                            "Missing transition cycle field: {field}", field=field
+                        )
+                    )
                 tc_dict[field] = getattr(transition_cycles, field)
             return tc_dict
         elif isinstance(transition_cycles, dict):
@@ -549,12 +658,18 @@ class SVContextBuilder:
             missing = [f for f in required_fields if f not in transition_cycles]
             if missing:
                 raise ValueError(
-                    f"Missing transition cycle fields: {', '.join(missing)}"
+                    safe_format(
+                        "Missing transition cycle fields: {fields}",
+                        fields=", ".join(missing),
+                    )
                 )
             return transition_cycles
         else:
             raise ValueError(
-                f"Invalid transition_cycles type: {type(transition_cycles).__name__}"
+                safe_format(
+                    "Invalid transition_cycles type: {type_name}",
+                    type_name=type(transition_cycles).__name__,
+                )
             )
 
     def _validate_required_fields(
@@ -569,7 +684,9 @@ class SVContextBuilder:
         if missing:
             raise ValueError(
                 safe_format(
-                    f"Missing required {config_name} fields: {', '.join(missing)}"
+                    "Missing required {config_name} fields: {fields}",
+                    config_name=config_name,
+                    fields=", ".join(missing),
                 )
             )
 
@@ -592,6 +709,15 @@ class SVContextBuilder:
             return default
         except Exception:
             return default
+
+    def _align_down(self, value: int, alignment: int) -> int:
+        """Align value down to the given power-of-two alignment."""
+        try:
+            if alignment <= 0:
+                return int(value)
+            return int(value) & ~(int(alignment) - 1)
+        except Exception:
+            return int(value) if isinstance(value, int) else 0
 
 
 # Import at the end to avoid circular dependency

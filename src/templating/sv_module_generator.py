@@ -1,6 +1,7 @@
 """Module generator for SystemVerilog code generation."""
 
 import logging
+
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -354,6 +355,26 @@ class SVModuleGenerator:
             self.templates.PCILEECH_CFGSPACE, context
         )
 
+        # Configuration-space shadow BRAM module (provides
+        # pcileech_tlps128_cfgspace_shadow used by the BAR controller).
+        # This was previously only emitted via the legacy path; include it in
+        # the primary PCILEech path to satisfy synthesis dependencies.
+        log_debug_safe(
+            self.logger,
+            "Rendering core template: cfg_shadow.sv (config-space shadow)",
+            prefix=self.prefix,
+        )
+        try:
+            modules["cfg_shadow"] = self.renderer.render_template(
+                "systemverilog/cfg_shadow.sv.j2", context
+            )
+        except Exception as e:
+            # Surface a clear error since the BAR controller instantiates this
+            # module; without it synthesis will fail with 'module not found'.
+            raise TemplateRenderError(
+                safe_format("Failed to render cfg_shadow.sv: {error}", error=str(e))
+            ) from e
+
     def _generate_msix_modules_if_needed(
         self, context: Dict[str, Any], modules: Dict[str, str]
     ) -> None:
@@ -647,10 +668,10 @@ class SVModuleGenerator:
             for i in range(num_vectors):
                 table_data.extend(
                     [
-                        0xFEE00000 + (i << 4),  # Address Low
-                        0x00000000,  # Address High
-                        0x00000000 | i,  # Message Data
-                        0x00000000,  # Vector Control
+                        SV_CONSTANTS.MSIX_TEST_ADDR_BASE + (i << 4),  # Address Low
+                        SV_CONSTANTS.MSIX_TEST_ADDR_HIGH,  # Address High
+                        (0x00000000 | i),  # Message Data
+                        SV_CONSTANTS.MSIX_TEST_VECTOR_CTRL_DEFAULT,  # Vector Control
                     ]
                 )
             return "\n".join(f"{value:08X}" for value in table_data) + "\n"

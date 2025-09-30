@@ -99,10 +99,10 @@ class MSIXHelper:
             for i in range(num_vectors):
                 table_data.extend(
                     [
-                        0xFEE00000 + (i << 4),  # Address Low
-                        0x00000000,  # Address High
-                        0x00000000 | i,  # Message Data
-                        0x00000000,  # Vector Control
+                        SVConstants.MSIX_TEST_ADDR_BASE + (i << 4),  # Address Low
+                        SVConstants.MSIX_TEST_ADDR_HIGH,  # Address High
+                        (0x00000000 | i),  # Message Data
+                        SVConstants.MSIX_TEST_VECTOR_CTRL_DEFAULT,  # Vector Control
                     ]
                 )
             return "\n".join(f"{value:08X}" for value in table_data) + "\n"
@@ -365,16 +365,26 @@ class SystemVerilogGenerator:
             cs = enhanced_context.get("config_space")
             try:
                 if isinstance(cs, dict):
-                    cs.setdefault("status", 0x0010)
-                    cs.setdefault("command", 0x0000)
-                    cs.setdefault("class_code", 0x020000)
-                    cs.setdefault("revision_id", 0x01)
+                    cs.setdefault("status", SVConstants.DEFAULT_PCI_STATUS)
+                    cs.setdefault("command", SVConstants.DEFAULT_PCI_COMMAND)
+                    cs.setdefault("class_code", SVConstants.DEFAULT_CLASS_CODE_INT)
+                    cs.setdefault("revision_id", SVConstants.DEFAULT_REVISION_ID_INT)
 
                     device_cfg = enhanced_context.get("device_config")
 
                     if device_cfg is None:
-                        cs.setdefault("vendor_id", 0x8086)
-                        cs.setdefault("device_id", 0x1533)
+                        # Prefer canonical fallbacks from device_clone.constants
+                        try:
+                            from src.device_clone.constants import (
+                                VENDOR_ID_INTEL,
+                                DEVICE_ID_INTEL_ETH,
+                            )
+
+                            cs.setdefault("vendor_id", VENDOR_ID_INTEL)
+                            cs.setdefault("device_id", DEVICE_ID_INTEL_ETH)
+                        except Exception:
+                            cs.setdefault("vendor_id", 0x8086)
+                            cs.setdefault("device_id", 0x1533)
                     elif (
                         isinstance(device_cfg, dict)
                         and device_cfg.get("vendor_id")
