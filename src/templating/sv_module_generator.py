@@ -668,10 +668,10 @@ class SVModuleGenerator:
             for i in range(num_vectors):
                 table_data.extend(
                     [
-                        0xFEE00000 + (i << 4),  # Address Low
-                        0x00000000,  # Address High
-                        0x00000000 | i,  # Message Data
-                        0x00000000,  # Vector Control
+                        SV_CONSTANTS.MSIX_TEST_ADDR_BASE + (i << 4),  # Address Low
+                        SV_CONSTANTS.MSIX_TEST_ADDR_HIGH,  # Address High
+                        (0x00000000 | i),  # Message Data
+                        SV_CONSTANTS.MSIX_TEST_VECTOR_CTRL_DEFAULT,  # Vector Control
                     ]
                 )
             return "\n".join(f"{value:08X}" for value in table_data) + "\n"

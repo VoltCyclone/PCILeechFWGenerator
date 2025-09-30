@@ -62,6 +62,12 @@ def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
             return "020000"  # Default Ethernet class code
         else:
             return "10EC"  # Default Realtek vendor ID
+    # Coerce Enum values to their underlying integer before formatting
+    if isinstance(val, Enum):
+        # Prefer numeric value; if not available, fall back to string handling below
+        if hasattr(val, "value"):
+            val = val.value  # type: ignore[assignment]
+
     if isinstance(val, str):
         # Remove 0x prefix if present and return just the hex digits
         return val.replace("0x", "").replace("0X", "").upper()
@@ -152,19 +158,32 @@ class BuildContext:
         subsys_device_id = getattr(self, "subsys_device_id", None) or self.device_id
 
         # Ensure all critical values have defaults to prevent None values
-        vendor_id = self.vendor_id or 0x10EC  # Default to Realtek
-        device_id = self.device_id or 0x8168  # Default to RTL8168
+        try:
+            # Prefer centralized fallbacks for vendor and class code
+            from src.device_clone.constants import VENDOR_ID_REALTEK
+            from src.templating.sv_constants import SVConstants
+
+            default_vendor = VENDOR_ID_REALTEK
+            default_class = SVConstants.DEFAULT_CLASS_CODE_INT
+        except Exception:
+            default_vendor = 0x10EC
+            default_class = 0x020000
+        # Preserve legacy default device_id expected by tests
+        default_device = 0x8168
+
+        vendor_id = self.vendor_id or default_vendor
+        device_id = self.device_id or default_device
         revision_id = self.revision_id or 0x15  # Default revision
-        class_code = self.class_code or 0x020000  # Default to Ethernet controller
+        class_code = self.class_code or default_class  # Default to Ethernet controller
 
         # Track which values were defaulted vs explicitly provided
         if self.vendor_id is None:
-            context_metadata["defaults_used"]["vendor_id"] = 0x10EC
+            context_metadata["defaults_used"]["vendor_id"] = default_vendor
         else:
             context_metadata["explicit_values"]["vendor_id"] = self.vendor_id
 
         if self.device_id is None:
-            context_metadata["defaults_used"]["device_id"] = 0x8168
+            context_metadata["defaults_used"]["device_id"] = default_device
         else:
             context_metadata["explicit_values"]["device_id"] = self.device_id
 
@@ -174,7 +193,7 @@ class BuildContext:
             context_metadata["explicit_values"]["revision_id"] = self.revision_id
 
         if self.class_code is None:
-            context_metadata["defaults_used"]["class_code"] = 0x020000
+            context_metadata["defaults_used"]["class_code"] = default_class
         else:
             context_metadata["explicit_values"]["class_code"] = self.class_code
 

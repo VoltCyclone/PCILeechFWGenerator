@@ -15,6 +15,8 @@ from enum import Enum
 
 from typing import Dict, List, Optional, Set
 
+from src.utils import validation_constants as VC
+
 # Centralized version import (avoid hardcoding versions)
 try:
     from ..__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
@@ -136,7 +138,7 @@ class PerformanceConfig:
     enable_error_rate_tracking: bool = True
     enable_performance_grading: bool = True
     enable_perf_outputs: bool = True
-    counter_width: int = 32
+    counter_width: int = VC.DEFAULT_COUNTER_WIDTH
     sampling_period: int = 1000  # Clock cycles
     bandwidth_sample_period: int = 100000  # Clock cycles for bandwidth sampling
     transfer_width: int = 4  # Transfer width in bytes
@@ -166,10 +168,11 @@ class PerformanceConfig:
 class TransitionCycles:
     """Power state transition cycle counts."""
 
-    d0_to_d1: int = 100
-    d1_to_d0: int = 200
-    d0_to_d3: int = 500
-    d3_to_d0: int = 1000
+    # Default to centralized validation constants; allow overrides
+    d0_to_d1: int = VC.POWER_TRANSITION_CYCLES.get("d0_to_d1", 100)
+    d1_to_d0: int = VC.POWER_TRANSITION_CYCLES.get("d1_to_d0", 200)
+    d0_to_d3: int = VC.POWER_TRANSITION_CYCLES.get("d0_to_d3", 500)
+    d3_to_d0: int = VC.POWER_TRANSITION_CYCLES.get("d3_to_d0", 1000)
 
 
 @dataclass
