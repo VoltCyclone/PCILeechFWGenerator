@@ -1,6 +1,8 @@
 {#- MSI-X Table and PBA Implementation Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module msix_table #(
     parameter NUM_MSIX = {{ msix_config.num_vectors | default(16) }},                // Number of MSI-X table entries
     parameter MSIX_TABLE_BIR = {{ msix_config.table_bir | default(0) }},          // BAR indicator for MSI-X table
@@ -274,3 +276,5 @@ module msix_table #(
 {% endif %}
 
 endmodule
+
+`default_nettype wire

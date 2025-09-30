@@ -1,6 +1,8 @@
 {#- Dynamic PCIe BAR Controller Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module pcileech_tlps128_bar_controller #(
     parameter BAR_APERTURE_SIZE   = {{ BAR_APERTURE_SIZE }},  // {{ BAR_APERTURE_SIZE }} bytes by default
     parameter NUM_MSIX           = {{ NUM_MSIX }},
@@ -58,6 +60,28 @@ module pcileech_tlps128_bar_controller #(
     localparam [31:0] DEVICE_SIGNATURE = {% if device_signature %}{{ device_signature | sv_hex(32) }}{% else %}32'hDEAD_BEEF{% endif %};
 
     // ------------------------------------------------------------
+    // Internal signal declarations (declare before use)
+    // ------------------------------------------------------------
+    logic [31:0] cfg_shdw_rdata;
+    logic [31:0] msix_tbl_rdata;
+{% if device_config is defined and (device_config.enable_perf_counters | default(false, true)) %}
+    logic [31:0] perf_rd_count;
+    logic [31:0] perf_wr_count;
+{% endif %}
+    
+    // ------------------------------------------------------------
+    // Address decode helpers (declared early so downstream modules can use)
+    // ------------------------------------------------------------
+    logic bar_access_cfg;
+    logic bar_access_msix;
+    logic bar_access_cust;
+    logic bar_access_mem;
+
+    assign bar_access_cfg  = (bar_addr[31:12] == {{ CONFIG_SHDW_HI }});
+    assign bar_access_cust = (bar_addr[31:12] == {{ CUSTOM_WIN_BASE }});
+    assign bar_access_mem  = !bar_access_cfg && !bar_access_msix && !bar_access_cust;
+
+    // ------------------------------------------------------------
     // Configuration‑space shadow BRAM
     // ------------------------------------------------------------
     pcileech_tlps128_cfgspace_shadow cfg_shdw (
@@ -78,16 +102,6 @@ module pcileech_tlps128_bar_controller #(
         .host_read_data            (cfg_shdw_rdata)
     );
 
-    // ------------------------------------------------------------
-    // Internal signal declarations
-    // ------------------------------------------------------------
-    logic [31:0] cfg_shdw_rdata;
-    logic [31:0] msix_tbl_rdata;
-{% if device_config is defined and (device_config.enable_perf_counters | default(false, true)) %}
-    logic [31:0] perf_rd_count;
-    logic [31:0] perf_wr_count;
-{% endif %}
-    
     // ------------------------------------------------------------
     // MSI-X capability runtime registers
     // Replaces static decode from shadow BRAM so driver writes to the
@@ -179,16 +193,8 @@ module pcileech_tlps128_bar_controller #(
     end
 
     // ------------------------------------------------------------
-    // Address decode helpers
+    // Address decode helpers (continued)
     // ------------------------------------------------------------
-    logic bar_access_cfg;
-    logic bar_access_msix;
-    logic bar_access_cust;
-    logic bar_access_mem;
-
-    assign bar_access_cfg  = (bar_addr[31:12] == {{ CONFIG_SHDW_HI }});
-    assign bar_access_cust = (bar_addr[31:12] == {{ CUSTOM_WIN_BASE }});
-    assign bar_access_mem  = !bar_access_cfg && !bar_access_msix && !bar_access_cust;
 
     // ------------------------------------------------------------
     // Custom window bus out
@@ -251,3 +257,5 @@ module pcileech_tlps128_bar_controller #(
     endtask
 
 endmodule
+
+`default_nettype wire

@@ -1,6 +1,8 @@
 {#- Enhanced PCILeech TLP 128-bit BAR Controller Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 {% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
 module pcileech_tlps128_bar_controller #(
     // BAR Configuration Parameters
@@ -904,3 +906,5 @@ module pcileech_tlps128_bar_controller #(
     {% endif %}
 
 endmodule
+
+`default_nettype wire

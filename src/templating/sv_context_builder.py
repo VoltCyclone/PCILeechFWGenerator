@@ -491,6 +491,83 @@ class SVContextBuilder:
             ),
         }
 
+        # ------------------------------------------------------------------
+        # Config-space shadow template compatibility
+        # - Provide CONFIG_SPACE_SIZE (bytes) with a safe default (256)
+        # - Ensure OVERLAY_MAP exists (mapping of reg->mask) with {} default
+        # - Provide OVERLAY_ENTRIES as an integer count (not a list)
+        # - Publish uppercase aliases for extended capability pointers
+        #   (defaults to 0x100 = 256) without fabricating donor-unique values
+        # ------------------------------------------------------------------
+
+        # Many SV templates gate an extra RAM port with DUAL_PORT. Provide a
+        # conservative default of False unless explicitly requested by the
+        # caller. This avoids strict-undefined errors in cfg_shadow.sv.j2.
+        context.setdefault("DUAL_PORT", False)
+
+        # Derive CONFIG_SPACE_SIZE from explicit config_space_data when provided,
+        # otherwise use a conservative default of 256 bytes.
+        cfg_space_size = 256
+        try:
+            cs_data = template_context.get("config_space_data") or {}
+            if isinstance(cs_data, dict):
+                data_blob = cs_data.get("data")
+                if isinstance(data_blob, (bytes, bytearray)):
+                    cfg_space_size = max(cfg_space_size, len(data_blob))
+                elif isinstance(data_blob, list):
+                    # List of byte values
+                    cfg_space_size = max(cfg_space_size, len(data_blob))
+        except Exception:
+            # Keep safe default on any parsing issue
+            pass
+
+        context.setdefault("CONFIG_SPACE_SIZE", int(cfg_space_size))
+
+        # Overlay defaults: prefer an explicit map if provided by callers; avoid
+        # making up dynamic, donor-unique values here.
+        overlay_map = template_context.get("OVERLAY_MAP") or {}
+        # Normalize non-dict/sequence inputs to an empty map
+        if not isinstance(overlay_map, (dict, list, tuple)):
+            overlay_map = {}
+
+        # Count entries for the SV parameter. For sequences, treat each item as
+        # an entry; for mappings, use number of keys. Fallback to 0.
+        if isinstance(overlay_map, dict):
+            overlay_entries = len(overlay_map.keys())
+        elif isinstance(overlay_map, (list, tuple)):
+            overlay_entries = len(overlay_map)
+        else:
+            overlay_entries = 0
+
+        # Only set if not already a valid integer to avoid clobbering explicit test inputs
+        if not isinstance(context.get("OVERLAY_ENTRIES"), int):
+            context["OVERLAY_ENTRIES"] = int(overlay_entries)
+        context.setdefault(
+            "OVERLAY_MAP",
+            overlay_map if isinstance(overlay_map, (dict, list, tuple)) else {},
+        )
+
+        # Uppercase aliases for extended capability pointers used by cfg_shadow
+        try:
+            dc = context.get("device_config", {})
+            # device_config may be a TemplateObject/dict; getattr will work with TemplateObject
+            ext_ptr = (
+                int(getattr(dc, "ext_cfg_cap_ptr", 0x100))
+                if not isinstance(dc, dict)
+                else int(dc.get("ext_cfg_cap_ptr", 0x100))
+            )
+            ext_xp_ptr = (
+                int(getattr(dc, "ext_cfg_xp_cap_ptr", 0x100))
+                if not isinstance(dc, dict)
+                else int(dc.get("ext_cfg_xp_cap_ptr", 0x100))
+            )
+            context.setdefault("EXT_CFG_CAP_PTR", ext_ptr)
+            context.setdefault("EXT_CFG_XP_CAP_PTR", ext_xp_ptr)
+        except Exception:
+            # Defaults already cover typical cases; do not fail context build
+            context.setdefault("EXT_CFG_CAP_PTR", 0x100)
+            context.setdefault("EXT_CFG_XP_CAP_PTR", 0x100)
+
     def _ensure_template_object(self, obj: Any) -> TemplateObject:
         """Convert any object to TemplateObject for consistent template access."""
         if isinstance(obj, TemplateObject):
