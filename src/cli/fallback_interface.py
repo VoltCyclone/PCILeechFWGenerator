@@ -30,12 +30,8 @@ from src.log_config import get_logger
 if TYPE_CHECKING:
     from src.device_clone.fallback_manager import FallbackManager
 
-from src.string_utils import (
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                              safe_format)
 
 logger = get_logger(__name__)
 

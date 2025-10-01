@@ -14,15 +14,11 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
 
-from src.device_clone.device_config import DeviceConfiguration, get_device_config
-
+from src.device_clone.device_config import (DeviceConfiguration,
+                                            get_device_config)
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe)
 
 logger = logging.getLogger(__name__)
 
@@ -1094,7 +1090,8 @@ class ConfigSpaceManager:
                 )
                 bar_info.size = size_found
                 # Generate proper encoding for the size
-                from src.device_clone.bar_size_converter import BarSizeConverter
+                from src.device_clone.bar_size_converter import \
+                    BarSizeConverter
 
                 try:
                     bar_info.size_encoding = BarSizeConverter.size_to_encoding(

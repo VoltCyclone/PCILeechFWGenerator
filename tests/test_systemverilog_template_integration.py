@@ -13,7 +13,8 @@ import pytest
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.exceptions import TemplateRenderError
-from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+from src.templating.advanced_sv_features import (ErrorHandlingConfig,
+                                                 PerformanceConfig)
 from src.templating.advanced_sv_power import PowerManagementConfig
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 
@@ -553,7 +554,8 @@ class TestSystemVerilogTemplateIntegration:
 
     def test_template_validation_compatibility(self):
         """Test compatibility with TemplateContextValidator requirements."""
-        from src.templating.template_context_validator import TemplateContextValidator
+        from src.templating.template_context_validator import \
+            TemplateContextValidator
 
         validator = TemplateContextValidator()
         template_context = self.context_builder.create_minimal_context()

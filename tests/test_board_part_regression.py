@@ -9,7 +9,6 @@ string and never the incorrect FFG package variant which Vivado rejects.
 import re
 
 from src.device_clone import constants
-
 from src.file_management.board_discovery import BoardDiscovery
 
 

@@ -13,12 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from ..log_config import get_logger
-from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe)
 from .repo_manager import RepoManager
 
 logger = get_logger(__name__)

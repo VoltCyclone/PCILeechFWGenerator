@@ -15,13 +15,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 import src.cli.vfio_diagnostics as vd
-from src.cli.vfio_diagnostics import (
-    Boot,
-    Check,
-    Diagnostics,
-    Report,
-    Status,
-)
+from src.cli.vfio_diagnostics import Boot, Check, Diagnostics, Report, Status
 
 
 # -----------------------------

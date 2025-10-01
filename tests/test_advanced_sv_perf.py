@@ -7,17 +7,15 @@ and all methods for generating performance monitoring logic.
 """
 
 import logging
-from unittest.mock import Mock, patch, MagicMock
 from dataclasses import asdict
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from src.templating.advanced_sv_perf import (
-    DeviceType,
-    PerformanceCounterConfig,
-    PerformanceCounterGenerator,
-)
 from src.string_utils import log_info_safe, safe_format
+from src.templating.advanced_sv_perf import (DeviceType,
+                                             PerformanceCounterConfig,
+                                             PerformanceCounterGenerator)
 
 
 class TestDeviceType:

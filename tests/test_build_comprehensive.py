@@ -11,34 +11,20 @@ import logging
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import Mock, patch
 from typing import Any, Dict
+from unittest.mock import Mock, patch
 
 import pytest
 
-from src.build import (
-    BuildConfiguration,
-    DeviceConfiguration,
-    MSIXData,
-    ModuleChecker,
-    _as_int,
-    _optional_int,
-    BUFFER_SIZE,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DURATION,
-    MAX_PARALLEL_FILE_WRITES,
-    REQUIRED_MODULES,
-    SPECIAL_FILE_EXTENSIONS,
-    SYSTEMVERILOG_EXTENSION,
-    FirmwareBuilder,
-)
-from src.exceptions import (
-    ConfigurationError,
-    FileOperationError,
-    MSIXPreloadError,
-    PCILeechBuildError,
-    VivadoIntegrationError,
-)
+from src.build import (BUFFER_SIZE, DEFAULT_OUTPUT_DIR,
+                       DEFAULT_PROFILE_DURATION, MAX_PARALLEL_FILE_WRITES,
+                       REQUIRED_MODULES, SPECIAL_FILE_EXTENSIONS,
+                       SYSTEMVERILOG_EXTENSION, BuildConfiguration,
+                       DeviceConfiguration, FirmwareBuilder, ModuleChecker,
+                       MSIXData, _as_int, _optional_int)
+from src.exceptions import (ConfigurationError, FileOperationError,
+                            MSIXPreloadError, PCILeechBuildError,
+                            VivadoIntegrationError)
 
 
 class TestBuildHelperFunctions:

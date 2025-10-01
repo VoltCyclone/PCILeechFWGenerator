@@ -13,22 +13,12 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe, safe_format)
 from .constants import PCI_DEVICE_ID_OFFSET, PCI_VENDOR_ID_OFFSET
 from .core import ConfigSpace
-from .types import (
-    CapabilityInfo,
-    CapabilityType,
-    EmulationCategory,
-    PCICapabilityID,
-    PCIExtCapabilityID,
-)
+from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
+                    PCICapabilityID, PCIExtCapabilityID)
 
 logger = logging.getLogger(__name__)
 

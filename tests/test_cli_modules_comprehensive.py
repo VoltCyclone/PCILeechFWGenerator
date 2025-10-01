@@ -11,8 +11,8 @@ import json
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, mock_open
 from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 

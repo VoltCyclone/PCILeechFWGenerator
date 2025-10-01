@@ -27,24 +27,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
-
-from src.log_config import get_logger
-from src.exceptions import PlatformCompatibilityError
-from src.scripts.kernel_utils import setup_debugfs
-
 from src.device_clone.manufacturing_variance import (
-    DeviceClass,
-    ManufacturingVarianceSimulator,
-)
+    DeviceClass, ManufacturingVarianceSimulator)
 from src.error_utils import extract_root_cause
+from src.exceptions import PlatformCompatibilityError
+from src.log_config import get_logger
+from src.scripts.kernel_utils import setup_debugfs
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format)
 
 
 def is_linux() -> bool:
@@ -323,9 +313,11 @@ class BehaviorProfiler:
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                "Ftrace setup failed (may require root): {error}",
+                safe_format(
+                    "Ftrace setup failed (may require root): {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
             # Disable ftrace for this session since it's not working
             self.enable_ftrace = False
@@ -349,9 +341,11 @@ class BehaviorProfiler:
             except Exception as e:
                 log_error_safe(
                     self.logger,
-                    "Monitor worker error: {error}",
+                    safe_format(
+                        "Monitor worker error: {error}",
+                        error=e,
+                    ),
                     prefix="PROFILER",
-                    error=e,
                 )
                 break
 
@@ -398,18 +392,22 @@ class BehaviorProfiler:
             # unavailable
             log_debug_safe(
                 self.logger,
-                "Ftrace monitoring unavailable: {error}",
+                safe_format(
+                    "Ftrace monitoring unavailable: {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
             # Disable ftrace for future calls to avoid repeated errors
             self.enable_ftrace = False
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                "Ftrace monitoring error: {error}",
+                safe_format(
+                    "Ftrace monitoring error: {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
 
     def _monitor_sysfs_accesses(self) -> None:
@@ -439,16 +437,20 @@ class BehaviorProfiler:
             # Expected in some environments
             log_debug_safe(
                 self.logger,
-                "Sysfs monitoring limited: {error}",
+                safe_format(
+                    "Sysfs monitoring limited: {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                "Sysfs monitoring error: {error}",
+                safe_format(
+                    "Sysfs monitoring error: {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
 
     def _monitor_debugfs_registers(self) -> None:
@@ -476,9 +478,11 @@ class BehaviorProfiler:
             except Exception as e:
                 log_warning_safe(
                     self.logger,
-                    "Failed to setup debugfs for register monitoring: {error}",
+                    safe_format(
+                        "Failed to setup debugfs for register monitoring: {error}",
+                        error=e,
+                    ),
                     prefix="PROFILER",
-                    error=e,
                 )
                 self.debugfs_available = False
                 # Continue without debugfs monitoring - this is not critical for basic functionality
@@ -505,18 +509,22 @@ class BehaviorProfiler:
             # Expected when debugfs is not available or accessible
             log_debug_safe(
                 self.logger,
-                "Debugfs monitoring unavailable: {error}",
+                safe_format(
+                    "Debugfs monitoring unavailable: {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
             # Disable debugfs for future iterations
             self.debugfs_available = False
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                "Debugfs monitoring error: {error}",
+                safe_format(
+                    "Debugfs monitoring error: {error}",
+                    error=e,
+                ),
                 prefix="PROFILER",
-                error=e,
             )
 
     def _parse_ftrace_output(self, output: str) -> None:

@@ -22,30 +22,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from src.templating.template_context_validator import clear_global_template_cache
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format)
+from src.templating.template_context_validator import \
+    clear_global_template_cache
 from src.utils.log_phases import PhaseLogger
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
 
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
-
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (
-    ConfigurationError,
-    FileOperationError,
-    ModuleImportError,
-    MSIXPreloadError,
-    PCILeechBuildError,
-    PlatformCompatibilityError,
-    VivadoIntegrationError,
-)
+from .exceptions import (ConfigurationError, FileOperationError,
+                         ModuleImportError, MSIXPreloadError,
+                         PCILeechBuildError, PlatformCompatibilityError,
+                         VivadoIntegrationError)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -389,13 +379,14 @@ class MSIXManager:
 
         except Exception as e:
             log_warning_safe(
-                self.logger, "MSI-X preload failed: {err}", err=str(e), prefix="MSIX"
+                self.logger,
+                safe_format("MSI-X preload failed: {err}", err=str(e)),
+                prefix="MSIX",
             )
             if self.logger.isEnabledFor(logging.DEBUG):
                 log_debug_safe(
                     self.logger,
-                    "MSI-X preload exception details: {err}",
-                    err=str(e),
+                    safe_format("MSI-X preload exception details: {err}", err=str(e)),
                     prefix="MSIX",
                 )
             return MSIXData(preloaded=False)
@@ -411,7 +402,9 @@ class MSIXManager:
         if not self._should_inject(msix_data):
             return
 
-        log_info_safe(self.logger, "  • Using preloaded MSI-X data", prefix="MSIX")
+        log_info_safe(
+            self.logger, safe_format("Using preloaded MSI-X data"), prefix="MSIX"
+        )
 
         # msix_info is guaranteed to be non-None by _should_inject
         if msix_data.msix_info is not None:
@@ -1045,8 +1038,8 @@ class FirmwareBuilder:
             vivado_path = str(vivado_exe_path.parent.parent)
             log_info_safe(
                 self.logger,
-                "Auto-detected Vivado at: {path}",
-                path=vivado_path,
+                safe_format("Auto-detected Vivado at: {path}", path=vivado_path),
+                prefix="VIVADO",
             )
 
         # Create and run VivadoRunner
@@ -1071,10 +1064,8 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (
-            PCILeechGenerationConfig,
-            PCILeechGenerator,
-        )
+        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
+                                                      PCILeechGenerator)
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1100,7 +1091,8 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import \
+                DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
@@ -1111,13 +1103,17 @@ class FirmwareBuilder:
                 template = DonorInfoTemplateGenerator.load_template(
                     self.config.donor_template
                 )
-                log_info_safe(self.logger, "✓ Donor template loaded successfully")
+                log_info_safe(self.logger, "Donor template loaded successfully")
                 return template
             except Exception as e:
                 log_error_safe(
-                    self.logger, "Failed to load donor template: {err}", err=str(e)
+                    self.logger,
+                    safe_format("Failed to load donor template: {err}", err=str(e)),
+                    prefix="BUILD",
                 )
-                raise PCILeechBuildError(f"Failed to load donor template: {e}")
+                raise PCILeechBuildError(
+                    safe_format("Failed to load donor template: {err}", err=str(e))
+                ) from e
         return None
 
     def _preload_msix(self) -> MSIXData:
@@ -1187,8 +1183,7 @@ class FirmwareBuilder:
             # Log but do not fail build if hex generation fails
             log_warning_safe(
                 self.logger,
-                "Config space hex generation failed: {err}",
-                err=str(e),
+                safe_format("Config space hex generation failed: {err}", err=str(e)),
                 prefix="BUILD",
             )
 
@@ -1206,16 +1201,17 @@ class FirmwareBuilder:
                 json.dump(audit, f, indent=2)
             log_debug_safe(
                 self.logger,
-                "Template context audit written ({count} keys) → {path}",
-                count=len(keys),
-                path=str(audit_path),
+                safe_format(
+                    "Template context audit written ({count} keys) → {path}",
+                    count=len(keys),
+                    path=str(audit_path),
+                ),
                 prefix="BUILD",
             )
         except Exception as e:
             log_debug_safe(
                 self.logger,
-                "Template context audit skipped: {err}",
-                err=str(e),
+                safe_format("Template context audit skipped: {err}", err=str(e)),
                 prefix="BUILD",
             )
 
@@ -1237,9 +1233,11 @@ class FirmwareBuilder:
         group_id = ensure_device_vfio_binding(self.config.bdf)
         log_warning_safe(
             self.logger,
-            "VFIO binding recheck passed: bdf={bdf} group={group}",
-            bdf=self.config.bdf,
-            group=str(group_id),
+            safe_format(
+                "VFIO binding recheck passed: bdf={bdf} group={group}",
+                bdf=self.config.bdf,
+                group=str(group_id),
+            ),
             prefix="VFIO",
         )
 
@@ -1255,17 +1253,21 @@ class FirmwareBuilder:
 
         log_info_safe(
             self.logger,
-            "  • Wrote {count} SystemVerilog modules: {files}",
-            count=len(sv_files),
-            files=", ".join(sv_files),
+            safe_format(
+                "Wrote {count} SystemVerilog modules: {files}",
+                count=len(sv_files),
+                files=", ".join(sv_files),
+            ),
             prefix="BUILD",
         )
         if special_files:
             log_info_safe(
                 self.logger,
-                "  • Wrote {count} special files: {files}",
-                count=len(special_files),
-                files=", ".join(special_files),
+                safe_format(
+                    "Wrote {count} special files: {files}",
+                    count=len(special_files),
+                    files=", ".join(special_files),
+                ),
                 prefix="BUILD",
             )
 
@@ -1278,7 +1280,7 @@ class FirmwareBuilder:
             self.file_manager.write_json("behavior_profile.json", profile)
             log_info_safe(
                 self.logger,
-                "  • Saved behavior profile → behavior_profile.json",
+                "Saved behavior profile to behavior_profile.json",
                 prefix="BUILD",
             )
 
@@ -1328,7 +1330,8 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import \
+            DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1361,8 +1364,9 @@ class FirmwareBuilder:
             generator.save_template_dict(template, output_path, pretty=True)
             log_info_safe(
                 self.logger,
-                "  • Generated donor info template → {name}",
-                name=output_path.name,
+                safe_format(
+                    "Generated donor info template {name}", name=output_path.name
+                ),
                 prefix="BUILD",
             )
 
@@ -1703,11 +1707,9 @@ def _maybe_emit_issue_report(
         repro_cmd = _build_reproduction_command(args)
 
     try:
-        from src.error_utils import (
-            build_issue_report,
-            format_issue_report_human_hint,
-            write_issue_report,
-        )
+        from src.error_utils import (build_issue_report,
+                                     format_issue_report_human_hint,
+                                     write_issue_report)
 
         report = None
         if want_file or want_stdout:
@@ -1745,14 +1747,14 @@ def _maybe_emit_issue_report(
         if repro_cmd:
             log_info_safe(
                 logger,
-                "Reproduce with: {cmd}",
-                cmd=repro_cmd,
+                safe_format("Reproduce with: {cmd}", cmd=repro_cmd),
+                prefix="BUILD",
             )
     except Exception as emit_err:  # pragma: no cover - best effort
         log_warning_safe(
             logger,
-            "Issue report generation failed: {err}",
-            err=str(emit_err),
+            safe_format("Issue report generation failed: {err}", err=str(emit_err)),
+            prefix="BUILD",
         )
 
 

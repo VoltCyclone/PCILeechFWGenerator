@@ -1,9 +1,8 @@
 import pytest
 
+from src.string_utils import generate_tcl_header_comment
 from src.templating.template_renderer import TemplateRenderer
 from src.utils.unified_context import TemplateObject
-
-from src.string_utils import generate_tcl_header_comment
 
 
 class TestConstraintsTemplateDefaults:

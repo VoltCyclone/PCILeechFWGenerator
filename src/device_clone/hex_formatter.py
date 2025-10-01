@@ -11,7 +11,8 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Union
 
-from src.string_utils import log_debug_safe, log_error_safe, log_info_safe, safe_format
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              safe_format)
 
 logger = logging.getLogger(__name__)
 

@@ -14,9 +14,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..string_utils import generate_sv_header_comment
-
-from .sv_constants import SV_CONSTANTS
 from .advanced_sv_features import PowerState, TransitionCycles
+from .sv_constants import SV_CONSTANTS
 from .template_renderer import TemplateRenderer
 
 

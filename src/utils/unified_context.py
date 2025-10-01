@@ -14,36 +14,26 @@ from datetime import datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
+from typing import (Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar,
+                    Union)
 
 from src.error_utils import extract_root_cause
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format)
 from src.utils.context_error_messages import (
-    MISSING_IDENTIFIERS,
-    STRICT_MODE_MISSING,
-    TEMPLATE_CONTEXT_VALIDATION_FAILED,
-)
+    MISSING_IDENTIFIERS, STRICT_MODE_MISSING,
+    TEMPLATE_CONTEXT_VALIDATION_FAILED)
 from src.utils.version_resolver import get_package_version
 
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
-
-from .validation_constants import (
-    CRITICAL_TEMPLATE_CONTEXT_KEYS,
-    DEFAULT_COUNTER_WIDTH,
-    DEFAULT_PROCESS_VARIATION,
-    DEFAULT_TEMPERATURE_COEFFICIENT,
-    DEFAULT_VOLTAGE_VARIATION,
-    DEVICE_CLASS_MAPPINGS,
-    KNOWN_DEVICE_TYPES,
-    POWER_TRANSITION_CYCLES,
-    CORE_DEVICE_IDS,
-    SUBSYSTEM_ID_FIELDS,
-)
+from .validation_constants import (CORE_DEVICE_IDS,
+                                   CRITICAL_TEMPLATE_CONTEXT_KEYS,
+                                   DEFAULT_COUNTER_WIDTH,
+                                   DEFAULT_PROCESS_VARIATION,
+                                   DEFAULT_TEMPERATURE_COEFFICIENT,
+                                   DEFAULT_VOLTAGE_VARIATION,
+                                   DEVICE_CLASS_MAPPINGS, KNOWN_DEVICE_TYPES,
+                                   POWER_TRANSITION_CYCLES,
+                                   SUBSYSTEM_ID_FIELDS)
 
 # Type aliases for clarity
 HexString = str
@@ -1055,7 +1045,8 @@ class UnifiedContextBuilder:
         # -----------------------------------------------------------------
         if device_config.enable_advanced_features:
             try:
-                from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+                from src.pci_capability.constants import \
+                    AER_CAPABILITY_VALUES as _AER
 
                 aer_ctx = {
                     # Store as integers; template will format as 8-hex digits
@@ -1484,7 +1475,8 @@ class UnifiedContextBuilder:
         # even if empty or partial.
         try:
             # Import from shared driver enrichment module to avoid cyclic dependency
-            from src.utils.context_driver_enrichment import enrich_context_with_driver
+            from src.utils.context_driver_enrichment import \
+                enrich_context_with_driver
 
             enrich_context_with_driver(
                 template_context,

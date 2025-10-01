@@ -45,7 +45,12 @@ set sv_files [glob -nocomplain *.sv]
 if {[llength $sv_files] > 0} {
     puts "Found [llength $sv_files] SystemVerilog files"
     add_files -norecurse $sv_files
-    set_property file_type SystemVerilog [get_files *.sv]
+    # Ensure Vivado parses .sv files as SystemVerilog
+    set sv_in_proj [get_files *.sv]
+    if {[llength $sv_in_proj] > 0} {
+        puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
+        set_property file_type SystemVerilog $sv_in_proj
+    }
     foreach sv_file $sv_files {
         puts "  - $sv_file"
     }
