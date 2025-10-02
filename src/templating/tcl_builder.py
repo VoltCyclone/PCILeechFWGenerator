@@ -8,25 +8,36 @@ using the template system, integrating with constants and build helpers.
 
 import logging
 import shutil
+
 # Use absolute imports for better compatibility
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Dict, List, Optional, Protocol, Union,
-                    runtime_checkable)
+from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.exceptions import (DeviceConfigError, TCLBuilderError,
-                            TemplateNotFoundError, XDCConstraintError)
+from src.exceptions import (
+    DeviceConfigError,
+    TCLBuilderError,
+    TemplateNotFoundError,
+    XDCConstraintError,
+)
 from src.import_utils import safe_import, safe_import_class
+
 # String utilities (always use these)
-from src.string_utils import (generate_tcl_header_comment, get_project_name,
-                              log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    get_project_name,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
@@ -105,6 +116,13 @@ class BuildContext:
     implementation_strategy: str = "Performance_Explore"
     build_jobs: int = 4
     build_timeout: int = 3600
+
+    # Optional donor-derived PCIe capability fields
+    # If provided, these will be mapped to Xilinx enum strings for use in templates
+    pcie_max_link_speed_code: Optional[int] = (
+        None  # 1=2.5, 2=5.0, 3=8.0, 4=16.0, 5=32.0
+    )
+    pcie_max_link_width: Optional[int] = None  # lane count: 1,2,4,8,16
 
     # PCILeech-specific parameters
     pcileech_src_dir: str = "src"
@@ -291,6 +309,56 @@ class BuildContext:
         # Import TemplateObject for template compatibility
         from src.utils.unified_context import TemplateObject
 
+        # Derive and validate PCIe link speed/width enums from donor/IP context
+        def _map_speed(code: Optional[int], ip_type: str) -> str:
+            mapping = {
+                1: "2.5_GT/s",
+                2: "5.0_GT/s",
+                3: "8.0_GT/s",
+                4: "16.0_GT/s",
+                5: "32.0_GT/s",
+            }
+            if code is None:
+                return "2.5_GT/s" if ip_type == "pcie_7x" else "8.0_GT/s"
+            return mapping.get(code, "2.5_GT/s")
+
+        def _map_width(width_val: Optional[int], default_lanes: int) -> str:
+            lanes = width_val or default_lanes or 1
+            return f"X{lanes}"
+
+        def _validate_enums(ip_type: str, speed_enum: str, width_enum: str) -> None:
+            if ip_type == "pcie_7x":
+                allowed_speeds = {"2.5_GT/s", "5.0_GT/s"}
+                allowed_widths = {"X1", "X2", "X4", "X8"}
+            elif ip_type == "pcie_ultrascale":
+                allowed_speeds = {"2.5_GT/s", "5.0_GT/s", "8.0_GT/s", "16.0_GT/s"}
+                allowed_widths = {"X1", "X2", "X4", "X8", "X16"}
+            else:
+                return
+
+            if speed_enum not in allowed_speeds:
+                raise TCLBuilderError(
+                    safe_format(
+                        "Unsupported link speed {speed} for IP {ip}",
+                        speed=speed_enum,
+                        ip=ip_type,
+                    )
+                )
+            if width_enum not in allowed_widths:
+                raise TCLBuilderError(
+                    safe_format(
+                        "Unsupported link width {width} for IP {ip}",
+                        width=width_enum,
+                        ip=ip_type,
+                    )
+                )
+
+        derived_speed = _map_speed(self.pcie_max_link_speed_code, self.pcie_ip_type)
+        derived_width = _map_width(self.pcie_max_link_width, self.max_lanes)
+
+        # Validate derived enums against the IP type; fail fast on mismatch
+        _validate_enums(self.pcie_ip_type, derived_speed, derived_width)
+
         return {
             # REQUIRED VARIABLES - These are critical for template validation
             "device_signature": device_signature,
@@ -384,6 +452,9 @@ class BuildContext:
             "pcileech_ip_dir": self.pcileech_ip_dir,
             "batch_mode": self.batch_mode,
             "constraint_files": [],  # Add empty constraint files list
+            # Link configuration propagated to templates
+            "target_link_speed": derived_speed,
+            "target_link_width_enum": derived_width,
             # Context metadata for introspection and strict mode validation
             "context_metadata": context_metadata,
         }
@@ -420,8 +491,10 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from file_management.repo_manager import (get_xdc_files,
-                                                      is_repository_accessible)
+            from file_management.repo_manager import (
+                get_xdc_files,
+                is_repository_accessible,
+            )
 
             if not is_repository_accessible(board_name):
                 raise XDCConstraintError("Repository is not accessible")
@@ -640,9 +713,11 @@ class TCLBuilder:
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from build_helpers import (batch_write_tcl_files,
-                                       create_fpga_strategy_selector,
-                                       validate_fpga_part)
+            from build_helpers import (
+                batch_write_tcl_files,
+                create_fpga_strategy_selector,
+                validate_fpga_part,
+            )
 
             self.batch_write_tcl_files = batch_write_tcl_files
             self.fpga_strategy_selector = create_fpga_strategy_selector()
@@ -887,6 +962,9 @@ class TCLBuilder:
             or 0x020000,  # Default to Ethernet class
             subsys_vendor_id=subsys_vendor_id or config_subsys_vendor_id,
             subsys_device_id=subsys_device_id or config_subsys_device_id,
+            # Donor-derived PCIe link fields (optional)
+            pcie_max_link_speed_code=kwargs.get("pcie_max_link_speed_code"),
+            pcie_max_link_width=kwargs.get("pcie_max_link_width"),
             synthesis_strategy=kwargs.get(
                 "synthesis_strategy", self.SYNTHESIS_STRATEGY
             ),
@@ -1406,6 +1484,8 @@ class TCLBuilder:
 
 
 # Backward compatibility aliases
+
+
 def create_tcl_builder(*args, **kwargs) -> TCLBuilder:
     """Factory function for creating TCL builder instances."""
     return TCLBuilder(*args, **kwargs)

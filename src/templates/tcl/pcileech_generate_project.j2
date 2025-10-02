@@ -156,8 +156,8 @@ create_ip -name pcie4_uscale_plus -vendor xilinx.com -library ip -module_name pc
 {%- error "Class Code must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
 {%- endif %}
 set_property -dict [list \
-    CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {8.0_GT/s} \
-    CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {X{{ max_lanes }}} \
+    CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {{ target_link_speed | default('8.0_GT/s') }} \
+    CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }} \
     CONFIG.AXISTEN_IF_EXT_512_RQ_STRADDLE {false} \
     CONFIG.PF0_DEVICE_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
     CONFIG.PF0_VENDOR_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
@@ -189,8 +189,8 @@ create_ip -name pcie_7x -vendor xilinx.com -library ip -module_name pcie_7x_brid
 {%- error "Subsystem Vendor ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
 {%- endif %}
 set_property -dict [list \
-    CONFIG.Link_Speed {2.5_GT/s} \
-    CONFIG.Maximum_Link_Width X1 \
+    CONFIG.Link_Speed {{ target_link_speed | default('2.5_GT/s') }} \
+    CONFIG.Maximum_Link_Width {{ target_link_width_enum | default('X1') }} \
     CONFIG.Device_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
     CONFIG.Vendor_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
     CONFIG.Revision_ID {{ device.revision_id }} \

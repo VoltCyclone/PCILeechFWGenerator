@@ -639,6 +639,42 @@ module pcileech_tlps128_bar_controller #(
     // MSI-X Integration
     // ========================================================================
     
+    // MSI-X capability runtime registers
+    // Capture writes to MSI-X Message Control and expose enable/mask outputs.
+    localparam [9:0] MSIX_CAP_REG = 10'h1C; // 0x70 >> 2
+
+    logic        msix_cap_wr;
+    logic [31:0] msix_cap_addr;
+    logic [31:0] msix_cap_wdata;
+    logic [3:0]  msix_cap_be;
+    logic        msix_enabled;
+    logic        msix_function_mask;
+    wire  [10:0] msix_table_size_ro;
+
+    assign msix_cap_wr    = cfg_ext_write_received &&
+                             (cfg_ext_register_number >= MSIX_CAP_REG) &&
+                             (cfg_ext_register_number <= (MSIX_CAP_REG + 4));
+    assign msix_cap_addr  = {28'h0, (cfg_ext_register_number - MSIX_CAP_REG), 2'b00};
+    assign msix_cap_wdata = cfg_ext_write_data;
+    assign msix_cap_be    = cfg_ext_write_byte_enable;
+
+    msix_capability_registers #(
+        .TABLE_SIZE_MINUS_ONE (NUM_MSIX-1),
+        .TABLE_OFFSET_BIR     (MSIX_TABLE_OFFSET + MSIX_TABLE_BIR),
+        .PBA_OFFSET_BIR       (MSIX_PBA_OFFSET + MSIX_PBA_BIR)
+    ) msix_caps (
+        .clk                (clk),
+        .reset_n            (reset_n),
+        .msix_cap_wr        (msix_cap_wr),
+        .msix_cap_addr      (msix_cap_addr),
+        .msix_cap_wdata     (msix_cap_wdata),
+        .msix_cap_be        (msix_cap_be),
+        .msix_cap_rdata     (/* unused for now */),
+        .msix_enable        (msix_enabled),
+        .msix_function_mask (msix_function_mask),
+        .msix_table_size    (msix_table_size_ro)
+    );
+
     // MSI-X Table Access
     msix_table #(
         .NUM_MSIX(NUM_MSIX),
@@ -657,8 +693,8 @@ module pcileech_tlps128_bar_controller #(
         .bar_rd_en(current_state == STATE_READ_PROCESS && target_region == REGION_MSIX_TABLE),
         .bar_rd_data(msix_table_data),
         .bar_access_match(msix_table_access),
-        .msix_enable(device_ctrl_mem[0][0]), // MSI-X enable from control register
-        .msix_function_mask(device_ctrl_mem[0][1]), // Function mask from control register
+        .msix_enable(msix_enabled),
+        .msix_function_mask(msix_function_mask),
         .msix_interrupt(msix_interrupt),
         .msix_vector(msix_vector),
         .msix_interrupt_ack(msix_interrupt_ack)
