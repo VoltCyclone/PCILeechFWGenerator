@@ -8,25 +8,36 @@ using the template system, integrating with constants and build helpers.
 
 import logging
 import shutil
+
 # Use absolute imports for better compatibility
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Dict, List, Optional, Protocol, Union,
-                    runtime_checkable)
+from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.exceptions import (DeviceConfigError, TCLBuilderError,
-                            TemplateNotFoundError, XDCConstraintError)
+from src.exceptions import (
+    DeviceConfigError,
+    TCLBuilderError,
+    TemplateNotFoundError,
+    XDCConstraintError,
+)
 from src.import_utils import safe_import, safe_import_class
+
 # String utilities (always use these)
-from src.string_utils import (generate_tcl_header_comment, get_project_name,
-                              log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    get_project_name,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
@@ -384,6 +395,12 @@ class BuildContext:
             "pcileech_ip_dir": self.pcileech_ip_dir,
             "batch_mode": self.batch_mode,
             "constraint_files": [],  # Add empty constraint files list
+            # Link configuration for templates (allow dynamic override)
+            # target_link_speed must use Xilinx enum strings like "2.5_GT/s", "5.0_GT/s", "8.0_GT/s", etc.
+            # target_link_width_enum must use enums like "X1", "X2", "X4", "X8", "X16".
+            # We derive a safe default from max_lanes for width and Gen1 for speed.
+            "target_link_speed": "2.5_GT/s",
+            "target_link_width_enum": f"X{self.max_lanes}",
             # Context metadata for introspection and strict mode validation
             "context_metadata": context_metadata,
         }
@@ -420,8 +437,10 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from file_management.repo_manager import (get_xdc_files,
-                                                      is_repository_accessible)
+            from file_management.repo_manager import (
+                get_xdc_files,
+                is_repository_accessible,
+            )
 
             if not is_repository_accessible(board_name):
                 raise XDCConstraintError("Repository is not accessible")
@@ -640,9 +659,11 @@ class TCLBuilder:
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from build_helpers import (batch_write_tcl_files,
-                                       create_fpga_strategy_selector,
-                                       validate_fpga_part)
+            from build_helpers import (
+                batch_write_tcl_files,
+                create_fpga_strategy_selector,
+                validate_fpga_part,
+            )
 
             self.batch_write_tcl_files = batch_write_tcl_files
             self.fpga_strategy_selector = create_fpga_strategy_selector()
