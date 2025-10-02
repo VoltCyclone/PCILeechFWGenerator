@@ -59,6 +59,13 @@ puts "Project opened successfully"
 puts "FPGA Part: [get_property PART [current_project]]"
 puts "Target Language: [get_property TARGET_LANGUAGE [current_project]]"
 
+# Ensure all .sv files are treated as SystemVerilog
+set sv_in_proj [get_files *.sv]
+if {[llength $sv_in_proj] > 0} {
+    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
+    set_property file_type SystemVerilog $sv_in_proj
+}
+
 # Reset runs to ensure clean build
 reset_run synth_1
 reset_run impl_1

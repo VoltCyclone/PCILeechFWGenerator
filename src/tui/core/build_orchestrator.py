@@ -16,17 +16,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import psutil
 
-from src.error_utils import (
-    extract_root_cause,
-    format_user_friendly_error,
-    log_error_with_root_cause,
-)
-from src.string_utils import (
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from src.error_utils import (extract_root_cause, format_user_friendly_error,
+                             log_error_with_root_cause)
+from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                              safe_format)
 
 from ..models.config import BuildConfiguration
 from ..models.device import PCIDevice

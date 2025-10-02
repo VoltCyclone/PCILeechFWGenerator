@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from src.string_utils import log_debug_safe, safe_format
-from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
 from src.device_clone.bar_size_converter import BarSizeConverter
+from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+from src.string_utils import log_debug_safe, safe_format
 
 # Module-level logger is intentionally omitted; use instance-level loggers only.
 

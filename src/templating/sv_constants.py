@@ -3,10 +3,8 @@
 from typing import Any, Dict, List, Set
 
 # Reuse shared validation constants instead of redefining overlapping values
-from src.utils import (
-    context_error_messages as CEM,
-    validation_constants as VC,
-)
+from src.utils import context_error_messages as CEM
+from src.utils import validation_constants as VC
 
 
 class SVConstants:

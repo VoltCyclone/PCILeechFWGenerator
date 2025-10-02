@@ -16,56 +16,42 @@ import os
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict, Union, cast
+from typing import (TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict,
+                    Union, cast)
 
-from src.cli.vfio_constants import (
-    VFIO_DEVICE_GET_REGION_INFO,
-    VFIO_REGION_INFO_FLAG_MMAP,
-    VFIO_REGION_INFO_FLAG_READ,
-    VFIO_REGION_INFO_FLAG_WRITE,
-    VfioRegionInfo,
-)
+from src.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
+                                    VFIO_REGION_INFO_FLAG_MMAP,
+                                    VFIO_REGION_INFO_FLAG_READ,
+                                    VFIO_REGION_INFO_FLAG_WRITE,
+                                    VfioRegionInfo)
 from src.device_clone.bar_content_generator import BarContentGenerator
 from src.device_clone.bar_size_converter import extract_bar_size
 from src.device_clone.behavior_profiler import BehaviorProfile
 from src.device_clone.board_config import get_pcileech_board_config
 from src.device_clone.config_space_manager import BarInfo, ConfigSpaceConstants
-from src.device_clone.constants import (
-    BAR_SIZE_CONSTANTS,
-    BAR_TYPE_MEMORY_64BIT,
-    DEFAULT_CLASS_CODE,
-    DEFAULT_EXT_CFG_CAP_PTR,
-    DEFAULT_REVISION_ID,
-    DEVICE_ID_FALLBACK,
-    MAX_32BIT_VALUE,
-    PCI_CLASS_AUDIO,
-    PCI_CLASS_DISPLAY,
-    PCI_CLASS_NETWORK,
-    PCI_CLASS_STORAGE,
-    POWER_STATE_D0,
-)
+from src.device_clone.constants import (BAR_SIZE_CONSTANTS,
+                                        BAR_TYPE_MEMORY_64BIT,
+                                        DEFAULT_CLASS_CODE,
+                                        DEFAULT_EXT_CFG_CAP_PTR,
+                                        DEFAULT_REVISION_ID,
+                                        DEVICE_ID_FALLBACK, MAX_32BIT_VALUE,
+                                        PCI_CLASS_AUDIO, PCI_CLASS_DISPLAY,
+                                        PCI_CLASS_NETWORK, PCI_CLASS_STORAGE,
+                                        POWER_STATE_D0)
 from src.device_clone.device_config import get_device_config
-from src.device_clone.fallback_manager import (
-    FallbackManager,
-    get_global_fallback_manager,
-)
+from src.device_clone.fallback_manager import (FallbackManager,
+                                               get_global_fallback_manager)
 from src.device_clone.identifier_normalizer import IdentifierNormalizer
 from src.device_clone.overlay_mapper import OverlayMapper
 from src.error_utils import extract_root_cause
 from src.exceptions import ContextError
 from src.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
-from src.string_utils import (
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                              safe_format)
 
-from ..utils.validation_constants import (
-    REQUIRED_CONTEXT_SECTIONS,
-    CORE_DEVICE_ID_FIELDS,
-    CORE_DEVICE_IDS,
-)
+from ..utils.validation_constants import (CORE_DEVICE_ID_FIELDS,
+                                          CORE_DEVICE_IDS,
+                                          REQUIRED_CONTEXT_SECTIONS)
 
 # NOTE: Don't import VFIO helper callables at module import time. Tests
 # commonly patch the functions on the `src.cli.vfio_helpers` module. To
@@ -85,11 +71,8 @@ def require(condition: bool, message: str, **context) -> None:
         raise SystemExit(2)
 
 
-from src.utils.unified_context import (
-    TemplateObject,
-    UnifiedContextBuilder,
-    ensure_template_compatibility,
-)
+from src.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
+                                       ensure_template_compatibility)
 from src.utils.validation_constants import SV_FILE_HEADER
 
 # ---------------------------------------------------------------------------
@@ -791,7 +774,8 @@ class PCILeechContextBuilder:
         # If the check raises, treat as not verified but leave vfio_device intact.
         try:
             # Late import to allow unit tests to patch helpers
-            from src.cli.vfio_helpers import ensure_device_vfio_binding as _ensure
+            from src.cli.vfio_helpers import \
+                ensure_device_vfio_binding as _ensure
 
             _ensure(self.device_bdf)
             context["vfio_binding_verified"] = True
@@ -937,7 +921,8 @@ class PCILeechContextBuilder:
 
             # Try to use ConfigSpaceManager for missing fields
             try:
-                from src.device_clone.config_space_manager import ConfigSpaceManager
+                from src.device_clone.config_space_manager import \
+                    ConfigSpaceManager
 
                 manager = ConfigSpaceManager(self.device_bdf)
                 config_space = manager.read_vfio_config_space()
@@ -1075,7 +1060,8 @@ class PCILeechContextBuilder:
         if not all(
             k in config_data for k in ["config_space_hex", "config_space_size", "bars"]
         ):
-            from src.device_clone.config_space_manager import ConfigSpaceManager
+            from src.device_clone.config_space_manager import \
+                ConfigSpaceManager
 
             manager = ConfigSpaceManager(self.device_bdf)
             config_space = manager.read_vfio_config_space()

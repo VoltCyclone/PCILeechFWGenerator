@@ -44,7 +44,8 @@ def main():
 
         # Import logging helpers
         try:
-            from src.string_utils import log_error_safe, log_info_safe, log_warning_safe
+            from src.string_utils import (log_error_safe, log_info_safe,
+                                          log_warning_safe)
         except Exception:
             # If unavailable, rethrow later when used
             raise

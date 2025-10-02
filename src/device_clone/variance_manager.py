@@ -12,17 +12,9 @@ from typing import Any, Dict, List, Optional
 
 from src.device_clone.behavior_profiler import BehaviorProfiler
 from src.device_clone.manufacturing_variance import (
-    DeviceClass,
-    ManufacturingVarianceSimulator,
-    VarianceModel,
-)
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+    DeviceClass, ManufacturingVarianceSimulator, VarianceModel)
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format)
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +31,8 @@ class VarianceManager:
         # Use provided fallback manager or the shared/global one
         if fallback_manager is None:
             try:
-                from src.device_clone.fallback_manager import (
-                    get_global_fallback_manager,
-                )
+                from src.device_clone.fallback_manager import \
+                    get_global_fallback_manager
 
                 self.fallback_manager = get_global_fallback_manager(mode="none")
             except ImportError:

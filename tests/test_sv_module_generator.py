@@ -12,15 +12,14 @@ Tests the SystemVerilog module generation functionality including:
 
 import logging
 from typing import Any, Dict, List, Optional
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
-from src.string_utils import log_info_safe, log_error_safe, safe_format
-
+from src.string_utils import log_error_safe, log_info_safe, safe_format
 from src.templating.sv_module_generator import SVModuleGenerator
-
-from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
+from src.templating.template_renderer import (TemplateRenderer,
+                                              TemplateRenderError)
 
 
 class TestSVModuleGenerator:

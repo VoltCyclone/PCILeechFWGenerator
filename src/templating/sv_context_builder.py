@@ -1,22 +1,15 @@
 """Context builder for SystemVerilog generation."""
 
 import logging
-
 from typing import Any, Dict, List
 
-from src.string_utils import log_warning_safe, log_error_safe, safe_format
-
+from src.string_utils import log_error_safe, log_warning_safe, safe_format
 from src.utils.validation_constants import SV_FILE_HEADER
 
-from ..utils.unified_context import (
-    DEFAULT_TIMING_CONFIG,
-    MSIX_DEFAULT,
-    PCILEECH_DEFAULT,
-    TemplateObject,
-    normalize_config_to_dict,
-)
+from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
+                                     PCILEECH_DEFAULT, TemplateObject,
+                                     normalize_config_to_dict)
 from .sv_constants import SV_CONSTANTS
-
 from .template_renderer import TemplateRenderError
 
 # Module-level defaults are sourced from SV_CONSTANTS to avoid drift

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 from src.log_config import get_logger
-
 from src.string_utils import log_debug_safe
 
 # Module logger for consistent logging
@@ -106,7 +105,6 @@ def _try_git_describe() -> Optional[str]:
     """Try to get version from git describe."""
     try:
         import re
-
         import subprocess
 
         project_root = Path(__file__).parent.parent.parent

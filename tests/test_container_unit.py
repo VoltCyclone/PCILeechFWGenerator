@@ -1,25 +1,16 @@
 #!/usr/bin/env python3
 import types
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
 import src.cli.container as container
-
-from src.cli.container import (
-    BuildConfig,
-    EnvError,
-    _build_podman_command,
-    build_image,
-    check_podman_available,
-    image_exists,
-    prompt_user_for_local_build,
-    require_podman,
-    run_build,
-    run_local_build,
-)
+from src.cli.container import (BuildConfig, EnvError, _build_podman_command,
+                               build_image, check_podman_available,
+                               image_exists, prompt_user_for_local_build,
+                               require_podman, run_build, run_local_build)
 
 
 class DummyShell:

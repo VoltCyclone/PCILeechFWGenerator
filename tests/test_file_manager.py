@@ -4,7 +4,6 @@ import shutil
 import sys
 import tempfile
 import textwrap
-
 from pathlib import Path
 from unittest import mock
 
@@ -16,7 +15,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.file_management.file_manager import FileManager
-
 
 # ============================================================================
 # Fixtures

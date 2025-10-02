@@ -318,9 +318,10 @@ class Diagnostics:
         else:
             log_warning_safe(
                 log,
-                "Unsupported platform detected: {platform}",
+                safe_format(
+                    "Unsupported platform detected: {platform}", platform=platform_name
+                ),
                 prefix="VFIO",
-                platform=platform_name,
             )
             self._append(
                 name="Platform",
@@ -352,17 +353,23 @@ class Diagnostics:
 
             log_debug_safe(
                 log,
-                "CPU flags check - Intel VT-d: {intel}, AMD-Vi: {amd}",
-                intel=intel,
-                amd=amd,
+                safe_format(
+                    "CPU flags check - Intel VT-d: {intel}, AMD-Vi: {amd}",
+                    intel=intel,
+                    amd=amd,
+                ),
+                prefix="VFIO",
             )
 
             if intel or amd:
                 cpu_type = "Intel VT-d" if intel else "AMD-Vi"
                 log_debug_safe(
                     log,
-                    "IOMMU hardware support confirmed: {cpu_type}",
-                    cpu_type=cpu_type,
+                    safe_format(
+                        "IOMMU hardware support confirmed: {cpu_type}",
+                        cpu_type=cpu_type,
+                    ),
+                    prefix="VFIO",
                 )
                 self._append(
                     name="IOMMU HW",
@@ -406,7 +413,11 @@ class Diagnostics:
                 return
 
             cmdline = cmdline_path.read_text().strip()
-            log_debug_safe(log, "Kernel cmdline: {cmdline}", cmdline=cmdline)
+            log_debug_safe(
+                log,
+                safe_format("Kernel cmdline: {cmdline}", cmdline=cmdline),
+                prefix="VFIO",
+            )
 
             iommu_params = ["intel_iommu=on", "amd_iommu=on", "iommu=pt", "iommu=on"]
             found_params = [param for param in iommu_params if param in cmdline]
@@ -419,13 +430,21 @@ class Diagnostics:
             ]
             found_acs = [param for param in acs_params if param in cmdline]
 
-            log_debug_safe(log, "Found IOMMU parameters: {params}", params=found_params)
             log_debug_safe(
-                log, "Found ACS override parameters: {params}", params=found_acs
+                log,
+                safe_format("Found IOMMU parameters: {params}", params=found_params),
+                prefix="VFIO",
+            )
+            log_debug_safe(
+                log,
+                safe_format(
+                    "Found ACS override parameters: {params}", params=found_acs
+                ),
+                prefix="VFIO",
             )
 
             if found_params:
-                log_debug_safe(log, "IOMMU enabled in kernel cmdline")
+                log_debug_safe(log, "IOMMU enabled in kernel cmdline", prefix="VFIO")
                 message = safe_format(
                     "IOMMU enabled in cmdline: {params}", params=", ".join(found_params)
                 )
@@ -450,7 +469,9 @@ class Diagnostics:
                 if not found_acs and self.device_bdf:
                     self._check_acs_bypass_need()
             else:
-                log_warning_safe(log, "No IOMMU parameters found in kernel cmdline")
+                log_warning_safe(
+                    log, "No IOMMU parameters found in kernel cmdline", prefix="VFIO"
+                )
                 fix = "Enable intel_iommu=on and/or amd_iommu=on iommu=pt in grub"
                 self._append(
                     name="Kernel cmdline",
@@ -461,9 +482,12 @@ class Diagnostics:
                 )
         except Exception as e:
             log_error_safe(
-                log, "Failed to check kernel parameters: {error}", error=str(e)
+                log,
+                safe_format(
+                    "Failed to check kernel parameters: {error}.", error=str(e)
+                ),
+                prefix="VFIO",
             )
-            log_error_safe(log, "Full exception details available in logs")
             self._append(
                 name="Kernel cmdline",
                 status=Status.ERROR,
@@ -484,20 +508,31 @@ class Diagnostics:
             module_path = safe_format("/sys/module/{module}", module=module)
             if self._path_exists(module_path):
                 loaded.append(module)
-                log_debug_safe(log, "Module {module} is loaded", module=module)
+                log_debug_safe(
+                    log,
+                    safe_format("Module {module} is loaded", module=module),
+                    prefix="VFIO",
+                )
             else:
                 missing.append(module)
-                log_debug_safe(log, "Module {module} is missing", module=module)
+                log_debug_safe(
+                    log,
+                    safe_format("Module {module} is missing", module=module),
+                    prefix="VFIO",
+                )
 
         log_debug_safe(
             log,
-            "Loaded modules: {loaded}, Missing modules: {missing}",
-            loaded=loaded,
-            missing=missing,
+            safe_format(
+                "Loaded modules: {loaded}, Missing modules: {missing}",
+                loaded=loaded,
+                missing=missing,
+            ),
+            prefix="VFIO",
         )
 
         if not missing:
-            log_debug_safe(log, "All required VFIO modules are loaded")
+            log_debug_safe(log, "All required VFIO modules are loaded", prefix="VFIO")
             self._append(
                 name="Kernel modules",
                 status=Status.OK,
@@ -603,17 +638,21 @@ class Diagnostics:
                             device_names = [d.name for d in devices]
                             log_debug_safe(
                                 log,
-                                "Devices in IOMMU group {group}: {device_names}",
-                                group=group,
-                                device_names=device_names,
+                                safe_format(
+                                    "Devices in IOMMU group {group}: {device_names}",
+                                    group=group,
+                                    device_names=device_names,
+                                ),
                                 prefix="VFIO",
                             )
                         except Exception as e:
                             log_debug_safe(
                                 log,
-                                "Could not list devices in IOMMU group {group}: {error}",
-                                group=group,
-                                error=str(e),
+                                safe_format(
+                                    "Could not list devices in IOMMU group {group}: {error}",
+                                    group=group,
+                                    error=str(e),
+                                ),
                                 prefix="VFIO",
                             )
 
@@ -625,8 +664,10 @@ class Diagnostics:
             except OSError as e:
                 log_debug_safe(
                     log,
-                    "Failed to read IOMMU group symlink: {error}",
-                    error=str(e),
+                    safe_format(
+                        "Failed to read IOMMU group symlink: {error}",
+                        error=str(e),
+                    ),
                     prefix="VFIO",
                 )
                 self._append(
@@ -644,8 +685,10 @@ class Diagnostics:
             if device_path.exists():
                 log_debug_safe(
                     log,
-                    "Device {device} exists but has no IOMMU group",
-                    device=self.device_bdf,
+                    safe_format(
+                        "Device {device} exists but has no IOMMU group",
+                        device=self.device_bdf,
+                    ),
                     prefix="VFIO",
                 )
                 self._append(
@@ -657,8 +700,10 @@ class Diagnostics:
             else:
                 log_debug_safe(
                     log,
-                    "Device {device} does not exist in sysfs",
-                    device=self.device_bdf,
+                    safe_format(
+                        "Device {device} does not exist in sysfs",
+                        device=self.device_bdf,
+                    ),
                     prefix="VFIO",
                 )
                 self._append(
@@ -684,9 +729,11 @@ class Diagnostics:
         )
         log_debug_safe(
             log,
-            "Checking driver binding for {device} at {link}",
-            device=self.device_bdf,
-            link=link,
+            safe_format(
+                "Checking driver binding for {device} at {link}",
+                device=self.device_bdf,
+                link=link,
+            ),
             prefix="VFIO",
         )
 
@@ -696,9 +743,11 @@ class Diagnostics:
                 driver = os.path.basename(driver_target)
                 log_debug_safe(
                     log,
-                    "Driver link target: {driver_target}, driver: {driver}",
-                    driver_target=driver_target,
-                    driver=driver,
+                    safe_format(
+                        "Driver link target: {driver_target}, driver: {driver}",
+                        driver_target=driver_target,
+                        driver=driver,
+                    ),
                     prefix="VFIO",
                 )
 
@@ -711,9 +760,12 @@ class Diagnostics:
                 else:
                     log_debug_safe(
                         log,
-                        "Device {device} bound to {driver}, needs rebinding to vfio-pci",
-                        device=self.device_bdf,
-                        driver=driver,
+                        safe_format(
+                            "Device {device} bound to {driver}, needs rebinding to vfio-pci",
+                            device=self.device_bdf,
+                            driver=driver,
+                        ),
+                        prefix="VFIO",
                     )
                     self._append(
                         name="Driver",
@@ -725,9 +777,11 @@ class Diagnostics:
             except OSError as e:
                 log_debug_safe(
                     log,
-                    "Failed to read driver symlink for {device}: {error}",
-                    device=self.device_bdf,
-                    error=str(e),
+                    safe_format(
+                        "Failed to read driver symlink for {device}: {error}",
+                        device=self.device_bdf,
+                        error=str(e),
+                    ),
                     prefix="VFIO",
                 )
                 self._append(
@@ -740,8 +794,10 @@ class Diagnostics:
         else:
             log_debug_safe(
                 log,
-                "No driver bound to device {device}",
-                device=self.device_bdf,
+                safe_format(
+                    "No driver bound to device {device}",
+                    device=self.device_bdf,
+                ),
                 prefix="VFIO",
             )
             self._append(
@@ -774,16 +830,20 @@ class Diagnostics:
         )
         log_debug_safe(
             log,
-            "Checking VFIO device node for {device}",
-            device=self.device_bdf,
+            safe_format(
+                "Checking VFIO device node for {device}",
+                device=self.device_bdf,
+            ),
             prefix="VFIO",
         )
 
         if not link.exists():
             log_debug_safe(
                 log,
-                "IOMMU group link does not exist for {device}",
-                device=self.device_bdf,
+                safe_format(
+                    "IOMMU group link does not exist for {device}",
+                    device=self.device_bdf,
+                ),
                 prefix="VFIO",
             )
             return
@@ -793,9 +853,11 @@ class Diagnostics:
             group = os.path.basename(group_target)
             log_debug_safe(
                 log,
-                "IOMMU group for {device}: {group}",
-                device=self.device_bdf,
-                group=group,
+                safe_format(
+                    "IOMMU group for {device}: {group}",
+                    device=self.device_bdf,
+                    group=group,
+                ),
                 prefix="VFIO",
             )
 
@@ -808,16 +870,22 @@ class Diagnostics:
                     stat_info = node.stat()
                     log_debug_safe(
                         log,
-                        "VFIO node {node} permissions: {permissions}",
-                        node=node,
-                        permissions=oct(stat_info.st_mode),
+                        safe_format(
+                            "VFIO node {node} permissions: {permissions}",
+                            node=node,
+                            permissions=oct(stat_info.st_mode),
+                        ),
+                        prefix="VFIO",
                     )
                 except Exception as e:
                     log_debug_safe(
                         log,
-                        "Could not stat VFIO node {node}: {error}",
-                        node=node,
-                        error=str(e),
+                        safe_format(
+                            "Could not stat VFIO node {node}: {error}",
+                            node=node,
+                            error=str(e),
+                        ),
+                        prefix="VFIO",
                     )
 
                 self._append(
@@ -835,16 +903,20 @@ class Diagnostics:
                         vfio_entries = list(vfio_dir.iterdir())
                         log_debug_safe(
                             log,
-                            "Available VFIO entries: {entries}",
-                            entries=[e.name for e in vfio_entries],
+                            safe_format(
+                                "Available VFIO entries: {entries}",
+                                entries=[e.name for e in vfio_entries],
+                            ),
                             prefix="VFIO",
                         )
                     except Exception as e:
                         log_debug_safe(
                             log,
-                            "Could not list /dev/vfio entries: {error}",
+                            safe_format(
+                                "Could not list /dev/vfio entries: {error}",
+                                error=str(e),
+                            ),
                             prefix="VFIO",
-                            error=str(e),
                         )
                 else:
                     log_debug_safe(
@@ -861,9 +933,11 @@ class Diagnostics:
         except OSError as e:
             log_debug_safe(
                 log,
-                "Failed to read IOMMU group symlink for device node check: {error}",
+                safe_format(
+                    "Failed to read IOMMU group symlink for device node check: {error}",
+                    error=str(e),
+                ),
                 prefix="VFIO",
-                error=str(e),
             )
             self._append(
                 name="/dev/vfio node",
@@ -880,8 +954,10 @@ class Diagnostics:
 
         log_debug_safe(
             log,
-            "Checking if ACS bypass might be needed for {device}",
-            device=self.device_bdf,
+            safe_format(
+                "Checking if ACS bypass might be needed for {device}",
+                device=self.device_bdf,
+            ),
             prefix="VFIO",
         )
 
@@ -906,10 +982,12 @@ class Diagnostics:
 
             log_debug_safe(
                 log,
-                "Device {device} is in IOMMU group {group} with {count} devices",
-                device=self.device_bdf,
-                group=group,
-                count=device_count,
+                safe_format(
+                    "Device {device} is in IOMMU group {group} with {count} devices",
+                    device=self.device_bdf,
+                    group=group,
+                    count=device_count,
+                ),
                 prefix="VFIO",
             )
 

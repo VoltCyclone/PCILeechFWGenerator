@@ -8,11 +8,8 @@ cause syntax errors when split across lines.
 """
 
 import logging
-
 import os
-
 from datetime import datetime, timezone
-
 from typing import Any, Dict, List, Optional, Tuple
 
 # Define the project name constant locally to avoid circular imports

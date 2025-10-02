@@ -1,6 +1,6 @@
 import builtins
-import types
 import importlib.util
+import types
 
 import pytest
 

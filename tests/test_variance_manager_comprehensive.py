@@ -10,18 +10,15 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, mock_open
 from typing import Any, Dict, Optional
+from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 
-from src.device_clone.variance_manager import VarianceManager
+from src.device_clone.behavior_profiler import (BehaviorProfile,
+                                                RegisterAccess, TimingPattern)
 from src.device_clone.manufacturing_variance import DeviceClass, VarianceModel
-from src.device_clone.behavior_profiler import (
-    BehaviorProfile,
-    RegisterAccess,
-    TimingPattern,
-)
+from src.device_clone.variance_manager import VarianceManager
 
 
 class TestVarianceManagerInitialization:

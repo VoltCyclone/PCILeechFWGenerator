@@ -23,16 +23,11 @@ import tarfile
 from typing import Any, Dict, List, Optional, Union
 
 from src.log_config import get_logger
-from src.utils.unified_context import TemplateObject  # For context compatibility
-
 # Project logging & safe string formatting utilities (mandatory per repo style)
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
+from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format)
+from src.utils.unified_context import \
+    TemplateObject  # For context compatibility
 
 logger = get_logger(__name__)
 

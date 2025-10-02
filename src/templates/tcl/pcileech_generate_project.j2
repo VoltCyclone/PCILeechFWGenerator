@@ -53,6 +53,12 @@ if {[file exists "{{ source_file }}"]} {
     puts "  Warning: Source file not found: {{ source_file }}"
 }
 {% endfor %}
+# Ensure all *.sv files are treated as SystemVerilog
+set sv_in_proj [get_files *.sv]
+if {[llength $sv_in_proj] > 0} {
+    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
+    set_property file_type SystemVerilog $sv_in_proj
+}
 {% else %}
 # Add all SystemVerilog files from src directory
 if {[file exists $src_dir]} {
@@ -67,6 +73,13 @@ if {[file exists $src_dir]} {
     foreach v_file $v_files {
         add_files -norecurse $v_file
         puts "  Added Verilog: [file tail $v_file]"
+    }
+
+    # Ensure all *.sv files are treated as SystemVerilog
+    set sv_in_proj [get_files *.sv]
+    if {[llength $sv_in_proj] > 0} {
+        puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
+        set_property file_type SystemVerilog $sv_in_proj
     }
 }
 {% endif %}

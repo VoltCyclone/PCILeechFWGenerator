@@ -12,16 +12,14 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, mock_open
 from typing import Any, Dict, Optional
+from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 
-from src.file_management.donor_dump_manager import (
-    DonorDumpError,
-    KernelHeadersNotFoundError,
-    ModuleBuildError,
-)
+from src.file_management.donor_dump_manager import (DonorDumpError,
+                                                    KernelHeadersNotFoundError,
+                                                    ModuleBuildError)
 
 
 class TestDonorDumpError:

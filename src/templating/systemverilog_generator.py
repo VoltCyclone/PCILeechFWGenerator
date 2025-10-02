@@ -13,33 +13,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-# Project string utilities (always first of project imports)
-from src.string_utils import (
-    generate_sv_header_comment,
-    log_error_safe,
-    log_info_safe,
-    utc_timestamp,
-)
-
 # Core project modules
 from src.__version__ import __version__
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
 from src.error_utils import format_user_friendly_error
+# Project string utilities (always first of project imports)
+from src.string_utils import (generate_sv_header_comment, log_error_safe,
+                              log_info_safe, utc_timestamp)
 
-from ..utils.unified_context import (
-    DEFAULT_TIMING_CONFIG,
-    MSIX_DEFAULT,
-    PCILEECH_DEFAULT,
-    TemplateObject,
-    UnifiedContextBuilder,
-    normalize_config_to_dict,
-)
-from .advanced_sv_features import (
-    AdvancedSVFeatureGenerator,
-    ErrorHandlingConfig,
-    PerformanceConfig,
-)
+from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
+                                     PCILEECH_DEFAULT, TemplateObject,
+                                     UnifiedContextBuilder,
+                                     normalize_config_to_dict)
+from .advanced_sv_features import (AdvancedSVFeatureGenerator,
+                                   ErrorHandlingConfig, PerformanceConfig)
 from .advanced_sv_power import PowerManagementConfig
 from .sv_constants import SVConstants, SVTemplates, SVValidation
 from .sv_context_builder import SVContextBuilder
@@ -376,9 +364,7 @@ class SystemVerilogGenerator:
                         # Prefer canonical fallbacks from device_clone.constants
                         try:
                             from src.device_clone.constants import (
-                                VENDOR_ID_INTEL,
-                                DEVICE_ID_INTEL_ETH,
-                            )
+                                DEVICE_ID_INTEL_ETH, VENDOR_ID_INTEL)
 
                             cs.setdefault("vendor_id", VENDOR_ID_INTEL)
                             cs.setdefault("device_id", DEVICE_ID_INTEL_ETH)
@@ -670,7 +656,6 @@ class SystemVerilogGenerator:
             # Defer importing VFIO helpers and perform device FD acquisition first so
             # unit tests that patch get_device_fd can intercept and return mock FDs.
             import mmap
-
             # Local os import kept near usage
             import os
 

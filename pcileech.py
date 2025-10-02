@@ -270,12 +270,8 @@ if __name__ == "__main__":
 try:
     from src.error_utils import format_concise_error, log_error_with_root_cause
     from src.log_config import get_logger, setup_logging
-    from src.string_utils import (
-        log_error_safe,
-        log_info_safe,
-        log_warning_safe,
-        safe_format,
-    )
+    from src.string_utils import (log_error_safe, log_info_safe,
+                                  log_warning_safe, safe_format)
     from src.utils.validation_constants import KNOWN_DEVICE_TYPES
 except ImportError as e:
     print(f"❌ Failed to import PCILeech modules: {e}")
@@ -362,9 +358,10 @@ def rebuild_vfio_constants():
         else:
             log_warning_safe(
                 logger,
-                "VFIO constants rebuild failed: {error}",
+                safe_format(
+                    "VFIO constants rebuild failed: {error}", error=result.stderr
+                ),
                 prefix="VFIO",
-                error=result.stderr,
             )
             return False
 
@@ -373,7 +370,9 @@ def rebuild_vfio_constants():
         return False
     except Exception as e:
         log_warning_safe(
-            logger, "VFIO constants rebuild error: {error}", prefix="VFIO", error=str(e)
+            logger,
+            safe_format("VFIO constants rebuild error: {error}", error=str(e)),
+            prefix="VFIO",
         )
         return False
 
@@ -803,12 +802,8 @@ def handle_check(args):
         # Import the VFIO diagnostics functionality
         from pathlib import Path
 
-        from src.cli.vfio_diagnostics import (
-            Diagnostics,
-            Status,
-            remediation_script,
-            render,
-        )
+        from src.cli.vfio_diagnostics import (Diagnostics, Status,
+                                              remediation_script, render)
 
         log_info_safe(
             logger,
@@ -941,7 +936,8 @@ def handle_donor_template(args):
     """Handle donor template generation."""
     logger = get_logger(__name__)
     try:
-        from src.device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from src.device_clone.donor_info_template import \
+            DonorInfoTemplateGenerator
 
         # If validate flag is set, validate the file instead
         if args.validate:

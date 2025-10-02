@@ -153,7 +153,7 @@ class ErrorHandler:
         """
         # Local import to avoid top-level dependency cycles
         try:
-            from src.string_utils import utc_timestamp, safe_format
+            from src.string_utils import safe_format, utc_timestamp
         except Exception:
             # Fallbacks if utilities unavailable for any reason
 

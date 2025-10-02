@@ -16,7 +16,6 @@ import typing
 from pathlib import Path
 from unittest import mock
 
-
 import pytest
 
 # Add project root to Python path for direct test execution
@@ -24,16 +23,14 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.file_management.donor_dump_manager import (
-    DonorDumpError,
-    DonorDumpManager,
-    DonorDumpModuleError,
-    DonorDumpPermissionError,
-    DonorDumpTimeoutError,
-    KernelHeadersNotFoundError,
-    ModuleBuildError,
-    ModuleLoadError,
-)
+from src.file_management.donor_dump_manager import (DonorDumpError,
+                                                    DonorDumpManager,
+                                                    DonorDumpModuleError,
+                                                    DonorDumpPermissionError,
+                                                    DonorDumpTimeoutError,
+                                                    KernelHeadersNotFoundError,
+                                                    ModuleBuildError,
+                                                    ModuleLoadError)
 
 # ============================================================================
 # Fixtures

@@ -8,46 +8,36 @@ reduce import complexity.
 """
 
 import logging
-
 from dataclasses import dataclass, field
-
 from enum import Enum
-
 from typing import Dict, List, Optional, Set
 
 from src.utils import validation_constants as VC
 
 # Centralized version import (avoid hardcoding versions)
 try:
-    from ..__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
+    from ..__version__ import \
+        __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
 except Exception:  # pragma: no cover - fallback if package structure differs
     try:
-        from src.__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
+        from src.__version__ import \
+            __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
     except Exception:
         PCILEECH_FWGEN_VERSION = "unknown"
 
 # Import standard utilities
 try:
-    from ..string_utils import (
-        generate_sv_header_comment,
-        log_debug_safe,
-        log_error_safe,
-        log_info_safe,
-        log_warning_safe,
-        safe_format,
-    )
+    from ..string_utils import (generate_sv_header_comment, log_debug_safe,
+                                log_error_safe, log_info_safe,
+                                log_warning_safe, safe_format)
     from .template_renderer import TemplateRenderer, TemplateRenderError
 except ImportError:
     # Fallback for standalone usage
-    from src.string_utils import (
-        generate_sv_header_comment,
-        log_debug_safe,
-        log_error_safe,
-        log_info_safe,
-        log_warning_safe,
-        safe_format,
-    )
-    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
+    from src.string_utils import (generate_sv_header_comment, log_debug_safe,
+                                  log_error_safe, log_info_safe,
+                                  log_warning_safe, safe_format)
+    from src.templating.template_renderer import (TemplateRenderer,
+                                                  TemplateRenderError)
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -238,7 +228,8 @@ class AdvancedSVFeatureGenerator:
 
         try:
             # Import here to avoid circular imports
-            from .advanced_sv_error import ErrorHandlingConfig, ErrorHandlingGenerator
+            from .advanced_sv_error import (ErrorHandlingConfig,
+                                            ErrorHandlingGenerator)
 
             # Create error handling configuration from our config
             error_config = ErrorHandlingConfig(

@@ -7,37 +7,24 @@ PCI configuration space and generate SystemVerilog code for MSI-X table replicat
 """
 
 import struct
-
 from typing import Any, Dict, List, Optional, Tuple
 
 # Import project logging and string utilities
 from src.log_config import get_logger
-
-from src.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-    safe_print_format,
-    format_raw_bar_table,
-    format_kv_table,
-)
+from src.string_utils import (format_kv_table, format_raw_bar_table,
+                              log_debug_safe, log_error_safe, log_info_safe,
+                              log_warning_safe, safe_format, safe_print_format)
 
 # Import PCI capability infrastructure for extended capabilities support
 try:
     from src.pci_capability.compat import find_cap as pci_find_cap
-
     from src.pci_capability.compat import find_ext_cap
-
     from src.pci_capability.types import CapabilityType
 except ImportError:
     # Fallback for different import paths
     try:
         from pci_capability.compat import find_cap as pci_find_cap
-
         from pci_capability.compat import find_ext_cap
-
         from pci_capability.types import CapabilityType
     except ImportError:
         # Use None to indicate unavailable - will fall back to local implementation
@@ -631,7 +618,8 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
             if bar_value != 0:
 
                 try:
-                    from src.device_clone.bar_size_converter import BarSizeConverter
+                    from src.device_clone.bar_size_converter import \
+                        BarSizeConverter
 
                     size = 0  # Skip BarSizeConverter for config space parsing
                 except ImportError:

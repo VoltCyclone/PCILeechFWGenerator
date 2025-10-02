@@ -22,12 +22,8 @@ from pathlib import Path
 from typing import Any, Dict, Generator, Optional, Tuple, Union
 
 # Import VFIO exceptions
-from src.exceptions import (
-    VFIOBindError,
-    VFIODeviceNotFoundError,
-    VFIOGroupError,
-    VFIOPermissionError,
-)
+from src.exceptions import (VFIOBindError, VFIODeviceNotFoundError,
+                            VFIOGroupError, VFIOPermissionError)
 
 # Import the privilege manager - make it optional to avoid circular imports
 try:
@@ -48,30 +44,19 @@ except ImportError:
     HAS_VFIO_ASSIST = False
 
 # Import safe logging functions
-from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
-
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe, safe_format)
 # Import proper VFIO constants with kernel-compatible ioctl generation
 from .vfio_constants import VfioGroupStatus  # legacy alias
 from .vfio_constants import VfioRegionInfo  # legacy alias
-from .vfio_constants import (
-    VFIO_DEVICE_GET_REGION_INFO,
-    VFIO_GROUP_GET_DEVICE_FD,
-    VFIO_GROUP_GET_STATUS,
-    VFIO_GROUP_SET_CONTAINER,
-    VFIO_REGION_INFO_FLAG_MMAP,
-    VFIO_REGION_INFO_FLAG_READ,
-    VFIO_REGION_INFO_FLAG_WRITE,
-    VFIO_SET_IOMMU,
-    VFIO_TYPE1_IOMMU,
-    vfio_group_status,
-    vfio_region_info,
-)
+from .vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
+                             VFIO_GROUP_GET_DEVICE_FD, VFIO_GROUP_GET_STATUS,
+                             VFIO_GROUP_SET_CONTAINER,
+                             VFIO_REGION_INFO_FLAG_MMAP,
+                             VFIO_REGION_INFO_FLAG_READ,
+                             VFIO_REGION_INFO_FLAG_WRITE, VFIO_SET_IOMMU,
+                             VFIO_TYPE1_IOMMU, vfio_group_status,
+                             vfio_region_info)
 from .vfio_helpers import get_device_fd
 
 # Configure global logger

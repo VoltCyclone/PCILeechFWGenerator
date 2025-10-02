@@ -291,3 +291,216 @@ MPS_ENCODING_TO_VALUE = {v: k for k, v in MPS_VALUE_TO_ENCODING.items()}
 
 # Valid MPS values
 VALID_MPS_VALUES = list(MPS_VALUE_TO_ENCODING.keys())
+
+# =============================================================================
+# WRITEMASK CONSTANTS (used by device_clone.writemask_generator)
+# =============================================================================
+
+# Write-protected bits for standard PCI configuration space
+WRITE_PROTECTED_BITS_PCIE = (
+    "00000000",  # 0x00-0x03: Vendor ID, Device ID (read-only)
+    "00000000",  # 0x04-0x07: Command, Status
+    "ffff0000",  # 0x08-0x0B: Revision ID, Class Code (read-only upper)
+    "00000000",  # 0x0C-0x0F: Cache Line, Latency, Header, BIST
+    "ffff0000",  # 0x10-0x13: BAR0 (size bits read-only)
+    "00000000",  # 0x14-0x17: BAR1
+    "00000000",  # 0x18-0x1B: BAR2
+    "00000000",  # 0x1C-0x1F: BAR3
+    "00000000",  # 0x20-0x23: BAR4
+    "00000000",  # 0x24-0x27: BAR5
+    "ffff0000",  # 0x28-0x2B: Cardbus CIS (read-only upper)
+    "00000000",  # 0x2C-0x2F: Subsystem ID
+    "00000000",  # 0x30-0x33: Expansion ROM
+)
+
+# Write-protected bits for Power Management capability
+WRITE_PROTECTED_BITS_PM = (
+    "00000000",  # PM Cap ID, Next Ptr, PM Capabilities
+    "031F0000",  # PMCSR, PMCSR_BSE
+)
+
+# Write-protected bits for MSI capability variations
+WRITE_PROTECTED_BITS_MSI_ENABLED_0 = ("00007104",)  # MSI Control (enable bit writable)
+
+WRITE_PROTECTED_BITS_MSI_64_BIT_1 = (
+    "00007104",  # MSI Control
+    "03000000",  # Message Address Low
+    "00000000",  # Message Address High
+    "ffff0000",  # Message Data
+)
+
+WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1 = (
+    "00007104",  # MSI Control
+    "03000000",  # Message Address Low
+    "00000000",  # Message Data
+)
+
+WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1 = (
+    "00007104",  # MSI Control
+    "03000000",  # Message Address Low
+    "00000000",  # Message Data
+    "ffff0000",  # Reserved
+    "00000000",  # Reserved
+    "01000000",  # Reserved
+)
+
+# Write-protected bits for MSI-X capability variations
+WRITE_PROTECTED_BITS_MSIX_3 = (
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+)
+
+WRITE_PROTECTED_BITS_MSIX_4 = (
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+    "00000000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_MSIX_5 = (
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_MSIX_6 = (
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_MSIX_7 = (
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_MSIX_8 = (
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+)
+
+# Write-protected bits for other capabilities
+WRITE_PROTECTED_BITS_VPD = (
+    "0000ffff",  # VPD Address
+    "ffffffff",  # VPD Data
+)
+
+WRITE_PROTECTED_BITS_VSC = (
+    "000000ff",  # Vendor Specific Cap ID
+    "ffffffff",  # Vendor Specific Data
+)
+
+WRITE_PROTECTED_BITS_TPH = (
+    "00000000",  # TPH Requester Cap
+    "00000000",  # TPH Requester Control
+    "070c0000",  # ST Table
+)
+
+WRITE_PROTECTED_BITS_VSEC = (
+    "00000000",  # VSEC Cap
+    "00000000",  # VSEC Header
+    "ffffffff",  # Vendor Specific
+    "ffffffff",  # Vendor Specific
+)
+
+WRITE_PROTECTED_BITS_AER = (
+    "00000000",  # AER Cap
+    "00000000",  # Uncorrectable Error Status
+    "30F0FF07",  # Uncorrectable Error Mask
+    "30F0FF07",  # Uncorrectable Error Severity
+    "00000000",  # Correctable Error Status
+    "C1F10000",  # Correctable Error Mask
+    "40050000",  # AER Capabilities and Control
+    "00000000",  # Header Log 1
+    "00000000",  # Header Log 2
+    "00000000",  # Header Log 3
+    "00000000",  # Header Log 4
+)
+
+WRITE_PROTECTED_BITS_DSN = (
+    "00000000",  # DSN Cap
+    "00000000",  # Serial Number Low
+    "00000000",  # Serial Number High
+)
+
+WRITE_PROTECTED_BITS_LTR = (
+    "00000000",  # LTR Cap
+    "00000000",  # Max Snoop/No-Snoop Latency
+)
+
+WRITE_PROTECTED_BITS_L1PM = (
+    "00000000",  # L1 PM Substates Cap
+    "00000000",  # L1 PM Substates Control 1
+    "3f00ffe3",  # L1 PM Substates Control 2
+    "fb000000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_PTM = (
+    "00000000",  # PTM Cap
+    "00000000",  # PTM Control
+    "00000000",  # PTM Effective Granularity
+    "03ff0000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_VC = (
+    "00000000",  # VC Cap
+    "00000000",  # Port VC Cap 1
+    "00000000",  # Port VC Cap 2
+    "0F000000",  # Port VC Control
+    "00000000",  # Port VC Status
+    "FF000F87",  # VC Resource Cap
+    "00000000",  # VC Resource Control
+)
+
+# Fixed configuration space protection section
+FIXED_SECTION = (
+    "00000000",  # 0x00: Vendor/Device ID (read-only)
+    "470500f9",  # 0x04: Command/Status (partially writable)
+    "00000000",  # 0x08: Rev/Class (read-only)
+    "ffff0040",  # 0x0C: Cache/Latency/Header/BIST
+    "f0ffffff",  # 0x10: BAR0 (size bits protected)
+    "ffffffff",  # 0x14: BAR1
+    "f0ffffff",  # 0x18: BAR2
+    "ffffffff",  # 0x1C: BAR3
+    "f0ffffff",  # 0x20: BAR4
+    "f0ffffff",  # 0x24: BAR5
+    "00000000",  # 0x28: Cardbus CIS
+    "00000000",  # 0x2C: Subsystem ID
+    "01f8ffff",  # 0x30: Expansion ROM
+    "00000000",  # 0x34: Cap Pointer
+    "00000000",  # 0x38: Reserved
+    "ff000000",  # 0x3C: Int Line/Pin/Min/Max
+)
+
+# Writemask dictionary mapping capability IDs to their write-protected bits
+WRITEMASK_DICT = {
+    "0x10": WRITE_PROTECTED_BITS_PCIE,
+    "0x03": WRITE_PROTECTED_BITS_VPD,
+    "0x01": WRITE_PROTECTED_BITS_PM,
+    "0x09": WRITE_PROTECTED_BITS_VSC,
+    "0x000A": WRITE_PROTECTED_BITS_VSEC,
+    "0x0001": WRITE_PROTECTED_BITS_AER,
+    "0x0002": WRITE_PROTECTED_BITS_VC,
+    "0x0003": WRITE_PROTECTED_BITS_DSN,
+    "0x0018": WRITE_PROTECTED_BITS_LTR,
+    "0x001E": WRITE_PROTECTED_BITS_L1PM,
+    "0x001F": WRITE_PROTECTED_BITS_PTM,
+    "0x0017": WRITE_PROTECTED_BITS_TPH,
+}

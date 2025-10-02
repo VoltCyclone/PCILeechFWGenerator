@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..file_management.board_discovery import BoardDiscovery, get_board_config
 from ..file_management.repo_manager import RepoManager
 from ..file_management.template_discovery import TemplateDiscovery
-from ..string_utils import log_error_safe, log_info_safe, log_warning_safe, safe_format
+from ..string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                            safe_format)
 from ..templating.tcl_builder import BuildContext, TCLBuilder
 
 logger = logging.getLogger(__name__)
@@ -356,6 +357,15 @@ puts "Adding source files..."
             # Convert to absolute path to avoid path resolution issues in Vivado
             abs_path = Path(src_file).resolve()
             script_content += f'add_files -norecurse "{abs_path}"\n'
+
+        # Ensure all .sv files are treated as SystemVerilog
+        script_content += (
+            "set sv_in_proj [get_files *.sv]\n"
+            "if {[llength $sv_in_proj] > 0} {\n"
+            '    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"\n'
+            "    set_property file_type SystemVerilog $sv_in_proj\n"
+            "}\n"
+        )
 
         # Add constraints
         script_content += "\n# Add constraint files\n"

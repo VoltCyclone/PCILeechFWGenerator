@@ -28,7 +28,8 @@ sys.path.insert(0, str(project_root))
 from src.error_utils import log_error_with_root_cause
 from src.log_config import get_logger, setup_logging
 # Import required modules - use actual implementations
-from src.string_utils import log_error_safe, log_info_safe, log_warning_safe
+from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                              safe_format)
 
 
 def require(condition: bool, message: str, **context) -> None:
@@ -150,10 +151,12 @@ def update_vfio_constants_file(constants):
             # Add fallback values for missing constants
             log_warning_safe(
                 logger,
-                "{constant} not found in kernel headers output, using fallback value {value}",
+                safe_format(
+                    "{constant} not found in kernel headers output, using fallback value {value}",
+                    constant=missing,
+                    value=fallback_value,
+                ),
                 prefix="PATCH",
-                constant=missing,
-                value=fallback_value,
             )
             constants[missing] = fallback_value
 
@@ -192,16 +195,20 @@ def update_vfio_constants_file(constants):
 
     log_info_safe(
         logger,
-        "Updated {path} with {count} constants",
+        safe_format(
+            "Updated {path} with {count} constants",
+            path=vfio_constants_path,
+            count=len(constants),
+        ),
         prefix="PATCH",
-        path=vfio_constants_path,
-        count=len(constants),
     )
 
     # Show what was updated
     for name, value in constants.items():
         log_info_safe(
-            logger, "  {name} = {value}", prefix="PATCH", name=name, value=value
+            logger,
+            safe_format("  {name} = {value}", name=name, value=value),
+            prefix="PATCH",
         )
 
 

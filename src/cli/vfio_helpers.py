@@ -9,25 +9,13 @@ import os
 
 from src.string_utils import safe_format
 
-from .vfio_constants import (
-    VFIO_CHECK_EXTENSION,
-    VFIO_GET_API_VERSION,
-    VFIO_GROUP_FLAGS_VIABLE,
-    VFIO_GROUP_GET_DEVICE_FD,
-    VFIO_GROUP_GET_STATUS,
-    VFIO_GROUP_SET_CONTAINER,
-    VFIO_SET_IOMMU,
-    VFIO_TYPE1_IOMMU,
-    vfio_group_status,
-)
-
-from ..string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-)
-
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe)
+from .vfio_constants import (VFIO_CHECK_EXTENSION, VFIO_GET_API_VERSION,
+                             VFIO_GROUP_FLAGS_VIABLE, VFIO_GROUP_GET_DEVICE_FD,
+                             VFIO_GROUP_GET_STATUS, VFIO_GROUP_SET_CONTAINER,
+                             VFIO_SET_IOMMU, VFIO_TYPE1_IOMMU,
+                             vfio_group_status)
 
 # Setup logging
 logger = logging.getLogger(__name__)

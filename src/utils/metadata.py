@@ -13,7 +13,6 @@ from src.log_config import get_logger
 from src.string_utils import log_debug_safe, utc_timestamp
 from src.utils.version_resolver import get_package_version
 
-
 # Internal package version resolution to avoid cyclic imports
 
 
