@@ -117,6 +117,11 @@ class BuildContext:
     build_jobs: int = 4
     build_timeout: int = 3600
 
+    # Optional donor-derived PCIe capability fields
+    # If provided, these will be mapped to Xilinx enum strings for use in templates
+    pcie_max_link_speed_code: Optional[int] = None  # 1=2.5, 2=5.0, 3=8.0, 4=16.0, 5=32.0
+    pcie_max_link_width: Optional[int] = None       # lane count: 1,2,4,8,16
+
     # PCILeech-specific parameters
     pcileech_src_dir: str = "src"
     pcileech_ip_dir: str = "ip"
@@ -302,6 +307,56 @@ class BuildContext:
         # Import TemplateObject for template compatibility
         from src.utils.unified_context import TemplateObject
 
+        # Derive and validate PCIe link speed/width enums from donor/IP context
+        def _map_speed(code: Optional[int], ip_type: str) -> str:
+            mapping = {
+                1: "2.5_GT/s",
+                2: "5.0_GT/s",
+                3: "8.0_GT/s",
+                4: "16.0_GT/s",
+                5: "32.0_GT/s",
+            }
+            if code is None:
+                return "2.5_GT/s" if ip_type == "pcie_7x" else "8.0_GT/s"
+            return mapping.get(code, "2.5_GT/s")
+
+        def _map_width(width_val: Optional[int], default_lanes: int) -> str:
+            lanes = width_val or default_lanes or 1
+            return f"X{lanes}"
+
+        def _validate_enums(ip_type: str, speed_enum: str, width_enum: str) -> None:
+            if ip_type == "pcie_7x":
+                allowed_speeds = {"2.5_GT/s", "5.0_GT/s"}
+                allowed_widths = {"X1", "X2", "X4", "X8"}
+            elif ip_type == "pcie_ultrascale":
+                allowed_speeds = {"2.5_GT/s", "5.0_GT/s", "8.0_GT/s", "16.0_GT/s"}
+                allowed_widths = {"X1", "X2", "X4", "X8", "X16"}
+            else:
+                return
+
+            if speed_enum not in allowed_speeds:
+                raise TCLBuilderError(
+                    safe_format(
+                        "Unsupported link speed {speed} for IP {ip}",
+                        speed=speed_enum,
+                        ip=ip_type,
+                    )
+                )
+            if width_enum not in allowed_widths:
+                raise TCLBuilderError(
+                    safe_format(
+                        "Unsupported link width {width} for IP {ip}",
+                        width=width_enum,
+                        ip=ip_type,
+                    )
+                )
+
+        derived_speed = _map_speed(self.pcie_max_link_speed_code, self.pcie_ip_type)
+        derived_width = _map_width(self.pcie_max_link_width, self.max_lanes)
+
+        # Validate derived enums against the IP type; fail fast on mismatch
+        _validate_enums(self.pcie_ip_type, derived_speed, derived_width)
+
         return {
             # REQUIRED VARIABLES - These are critical for template validation
             "device_signature": device_signature,
@@ -395,12 +450,9 @@ class BuildContext:
             "pcileech_ip_dir": self.pcileech_ip_dir,
             "batch_mode": self.batch_mode,
             "constraint_files": [],  # Add empty constraint files list
-            # Link configuration for templates (allow dynamic override)
-            # target_link_speed must use Xilinx enum strings like "2.5_GT/s", "5.0_GT/s", "8.0_GT/s", etc.
-            # target_link_width_enum must use enums like "X1", "X2", "X4", "X8", "X16".
-            # We derive a safe default from max_lanes for width and Gen1 for speed.
-            "target_link_speed": "2.5_GT/s",
-            "target_link_width_enum": f"X{self.max_lanes}",
+            # Link configuration propagated to templates
+            "target_link_speed": derived_speed,
+            "target_link_width_enum": derived_width,
             # Context metadata for introspection and strict mode validation
             "context_metadata": context_metadata,
         }
@@ -908,6 +960,9 @@ class TCLBuilder:
             or 0x020000,  # Default to Ethernet class
             subsys_vendor_id=subsys_vendor_id or config_subsys_vendor_id,
             subsys_device_id=subsys_device_id or config_subsys_device_id,
+            # Donor-derived PCIe link fields (optional)
+            pcie_max_link_speed_code=kwargs.get("pcie_max_link_speed_code"),
+            pcie_max_link_width=kwargs.get("pcie_max_link_width"),
             synthesis_strategy=kwargs.get(
                 "synthesis_strategy", self.SYNTHESIS_STRATEGY
             ),
@@ -1427,6 +1482,7 @@ class TCLBuilder:
 
 
 # Backward compatibility aliases
+
 def create_tcl_builder(*args, **kwargs) -> TCLBuilder:
     """Factory function for creating TCL builder instances."""
     return TCLBuilder(*args, **kwargs)

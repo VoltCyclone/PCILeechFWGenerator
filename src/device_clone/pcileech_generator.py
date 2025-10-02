@@ -1390,6 +1390,9 @@ class PCILeechGenerator:
                 revision_id=template_context.get("revision_id"),
                 subsys_vendor_id=template_context.get("subsys_vendor_id"),
                 subsys_device_id=template_context.get("subsys_device_id"),
+                # Auto-plumb donor PCIe link fields for IP config derivation
+                pcie_max_link_speed_code=template_context.get("pcie_max_link_speed"),
+                pcie_max_link_width=template_context.get("pcie_max_link_width"),
             )
 
             # Generate PCILeech project script
