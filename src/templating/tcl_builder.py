@@ -119,8 +119,10 @@ class BuildContext:
 
     # Optional donor-derived PCIe capability fields
     # If provided, these will be mapped to Xilinx enum strings for use in templates
-    pcie_max_link_speed_code: Optional[int] = None  # 1=2.5, 2=5.0, 3=8.0, 4=16.0, 5=32.0
-    pcie_max_link_width: Optional[int] = None       # lane count: 1,2,4,8,16
+    pcie_max_link_speed_code: Optional[int] = (
+        None  # 1=2.5, 2=5.0, 3=8.0, 4=16.0, 5=32.0
+    )
+    pcie_max_link_width: Optional[int] = None  # lane count: 1,2,4,8,16
 
     # PCILeech-specific parameters
     pcileech_src_dir: str = "src"
@@ -1482,6 +1484,7 @@ class TCLBuilder:
 
 
 # Backward compatibility aliases
+
 
 def create_tcl_builder(*args, **kwargs) -> TCLBuilder:
     """Factory function for creating TCL builder instances."""
