@@ -24,8 +24,8 @@ catch {close_project -quiet}
 # Create Vivado project
 create_project $project_name $project_dir -part $fpga_part -force
 
-# Set project properties
-set_property target_language SystemVerilog [current_project]
+# Set project properties (Vivado supports Verilog/VHDL at project level)
+set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 set_property default_lib xil_defaultlib [current_project]
 

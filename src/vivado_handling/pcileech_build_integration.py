@@ -366,11 +366,8 @@ puts "Adding source files..."
             "}\n"
         )
 
-        # Force project target language to SystemVerilog and refresh compile order
-        script_content += (
-            "set_property target_language SystemVerilog [current_project]\n"
-            "update_compile_order -fileset sources_1\n"
-        )
+        # Refresh compile order after file-type changes
+        script_content += "update_compile_order -fileset sources_1\n"
 
         # Add constraints
         script_content += "\n# Add constraint files\n"

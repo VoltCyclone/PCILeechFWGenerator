@@ -66,8 +66,7 @@ if {[llength $sv_in_proj] > 0} {
     set_property file_type SystemVerilog $sv_in_proj
 }
 
-# Force project target language to SystemVerilog and refresh compile order
-set_property target_language SystemVerilog [current_project]
+# Refresh compile order after file-type changes
 update_compile_order -fileset sources_1
 
 # Reset runs to ensure clean build
