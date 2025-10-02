@@ -15,8 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..file_management.board_discovery import BoardDiscovery, get_board_config
 from ..file_management.repo_manager import RepoManager
 from ..file_management.template_discovery import TemplateDiscovery
-from ..string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                            safe_format)
+from ..string_utils import log_error_safe, log_info_safe, log_warning_safe, safe_format
 from ..templating.tcl_builder import BuildContext, TCLBuilder
 
 logger = logging.getLogger(__name__)
@@ -365,6 +364,12 @@ puts "Adding source files..."
             '    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"\n'
             "    set_property file_type SystemVerilog $sv_in_proj\n"
             "}\n"
+        )
+
+        # Force project target language to SystemVerilog and refresh compile order
+        script_content += (
+            "set_property target_language SystemVerilog [current_project]\n"
+            "update_compile_order -fileset sources_1\n"
         )
 
         # Add constraints

@@ -25,7 +25,7 @@ catch {close_project -quiet}
 create_project $project_name $project_dir -part $fpga_part -force
 
 # Set project properties
-set_property target_language Verilog [current_project]
+set_property target_language SystemVerilog [current_project]
 set_property simulator_language Mixed [current_project]
 set_property default_lib xil_defaultlib [current_project]
 
@@ -81,6 +81,8 @@ if {[file exists $src_dir]} {
         puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
         set_property file_type SystemVerilog $sv_in_proj
     }
+    # Refresh compile order after changing file types
+    update_compile_order -fileset sources_1
 }
 {% endif %}
 
