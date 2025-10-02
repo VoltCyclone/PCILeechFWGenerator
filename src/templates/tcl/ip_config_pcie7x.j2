@@ -100,9 +100,9 @@ safe_set $ip CONFIG.Subsystem_Vendor_ID {{ get_vendor_id(device_config, device, 
 safe_set $ip CONFIG.Subsystem_ID {0000}
 safe_set $ip CONFIG.Revision_ID {{ device.revision_id }}
 # Link speed must use exact enum values with underscores
-safe_set $ip CONFIG.Link_Speed {2.5_GT/s}
-safe_set $ip CONFIG.Link_Width {{ _lane_enum }}
-safe_set $ip CONFIG.Maximum_Link_Width {{ _lane_enum }}
+safe_set $ip CONFIG.Link_Speed {{ target_link_speed | default('2.5_GT/s') }}
+safe_set $ip CONFIG.Link_Width {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }}
+safe_set $ip CONFIG.Maximum_Link_Width {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }}
 safe_set $ip CONFIG.Support_Slot_Clk_Config {false}
 safe_set $ip CONFIG.Legacy_Interrupt {NONE}
 # MSI/MSIX configuration: disable MSI, enable MSIX

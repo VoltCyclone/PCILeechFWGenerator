@@ -101,9 +101,9 @@ safe_set $ip CONFIG.Subsystem_Vendor_ID {{ get_subsystem_vendor_id(device_config
 safe_set $ip CONFIG.Subsystem_ID {{ get_subsystem_device_id(device_config, device, device_id_int) }}
 safe_set $ip CONFIG.Revision_ID {{ device.revision_id }}
 # Link speed must use exact enum values with underscores
-safe_set $ip CONFIG.Link_Speed {2.5_GT/s}
-safe_set $ip CONFIG.Link_Width {{ _lane_enum }}
-safe_set $ip CONFIG.Maximum_Link_Width {{ _lane_enum }}
+safe_set $ip CONFIG.Link_Speed {{ target_link_speed | default('2.5_GT/s') }}
+safe_set $ip CONFIG.Link_Width {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }}
+safe_set $ip CONFIG.Maximum_Link_Width {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }}
 safe_set $ip CONFIG.Support_Slot_Clk_Config {false}
 safe_set $ip CONFIG.Legacy_Interrupt {NONE}
 # MSI/MSIX configuration: disable MSI, enable MSIX
@@ -174,8 +174,8 @@ set ip [get_ips pcie4_uscale_plus_bridge]
 
 # Configure PCIe UltraScale IP core with device-specific settings
 set_property -dict [list \
-    CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {2.5_GT/s} \
-    CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {X1} \
+    CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {{ target_link_speed | default('2.5_GT/s') }} \
+    CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }} \
     CONFIG.AXISTEN_IF_EXT_512_RQ_STRADDLE {false} \
     CONFIG.PF0_DEVICE_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
     CONFIG.PF0_VENDOR_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
