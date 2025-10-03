@@ -154,6 +154,10 @@ report_power -file power_impl.rpt
 report_drc -file drc.rpt
 report_methodology -file methodology.rpt
 
+# Clock Domain Crossing (CDC) analysis reports
+catch { report_cdc -details -name cdc_synth -file cdc_synth.rpt -scope [get_nets -hier *] }
+catch { report_cdc -details -name cdc_impl -file cdc_impl.rpt -scope [get_nets -hier *] }
+
 # Check timing closure
 set timing_met 0.0
 set hold_met 0.0
@@ -174,6 +178,33 @@ if {$timing_met < 0} {
 if {$hold_met < 0} {
     puts "WARNING: Hold timing not met (WHS: $hold_met ns)"
 }
+
+# Optionally enforce strict timing/CDC depending on template variables
+{% set _strict_timing = strict_timing | default(False) %}
+{% set _strict_cdc = strict_cdc | default(False) %}
+{% if _strict_timing %}
+if {$timing_met < 0 || $hold_met < 0} {
+    puts "ERROR: Strict timing enabled and timing not met. Failing build."
+    exit 1
+}
+{% endif %}
+
+{% if _strict_cdc %}
+# Parse CDC report for any CDC violations with severity ERROR
+set cdc_fail 0
+if {[file exists cdc_impl.rpt]} {
+    set fh [open cdc_impl.rpt r]
+    set content [read $fh]
+    close $fh
+    if {[regexp -nocase {\b(VIOLATION|ERROR)\b} $content]} {
+        set cdc_fail 1
+    }
+}
+if {$cdc_fail} {
+    puts "ERROR: Strict CDC enabled and CDC violations detected. Failing build."
+    exit 1
+}
+{% endif %}
 
 # Generate bitstream
 puts "Starting bitstream generation..."

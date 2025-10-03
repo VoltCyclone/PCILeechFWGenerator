@@ -112,33 +112,120 @@ module pcileech_fifo #(
     
     // Clock domain crossing for PCIe interface
     {% if enable_clock_crossing %}
-    // Synchronize RX data from PCIe clock domain
-    always @(posedge clk) begin
-        if (rst) begin
-            rx_data_sync <= 0;
-            rx_valid_sync <= 1'b0;
-        end else begin
-            rx_data_sync <= rx_tlp_data;
-            rx_valid_sync <= rx_tlp_valid;
+    // Preferred: true dual-clock asynchronous FIFO for RX path into core clock domain
+    // Use Xilinx Parameterized Macros (XPM) when targeting Xilinx devices
+    // Falls back to simple flopping if XPM not available in synthesis context
+    `ifdef XPM_AVAILABLE
+        // Write domain: PCIe user clock
+        wire rx_fifo_full;
+        wire rx_fifo_empty;
+        wire [DATA_WIDTH-1:0] rx_fifo_dout;
+        xpm_fifo_async #(
+            .CDC_SYNC_STAGES(2),
+            .DOUT_RESET_VALUE("0"),
+            .ECC_MODE("no_ecc"),
+            .FIFO_MEMORY_TYPE("auto"),
+            .FIFO_READ_LATENCY(0),
+            .FIFO_WRITE_DEPTH(FIFO_DEPTH),
+            .FULL_RESET_VALUE(0),
+            .PROG_EMPTY_THRESH(16),
+            .PROG_FULL_THRESH(FIFO_DEPTH-16),
+            .RD_DATA_COUNT_WIDTH(16),
+            .READ_DATA_WIDTH(DATA_WIDTH),
+            .READ_MODE("fwft"),
+            .RELATED_CLOCKS(0),
+            .SIM_ASSERT_CHK(0),
+            .USE_ADV_FEATURES("0707"),
+            .WAKEUP_TIME(0),
+            .WRITE_DATA_WIDTH(DATA_WIDTH),
+            .WR_DATA_COUNT_WIDTH(16)
+        ) u_xpm_rx (
+            .rst(~pcie_rst_n),
+            .wr_clk(pcie_clk),
+            .wr_en(rx_tlp_valid && rx_tlp_ready),
+            .din(rx_tlp_data),
+            .full(rx_fifo_full),
+            .wr_data_count(),
+            .rd_clk(clk),
+            .rd_en(fifo_wr_en),
+            .dout(rx_fifo_dout),
+            .empty(rx_fifo_empty),
+            .rd_data_count()
+        );
+        assign rx_tlp_ready = ~rx_fifo_full;
+        assign fifo_din = rx_fifo_dout;
+        assign fifo_wr_en = ~rx_fifo_empty; // pull into core domain when available
+    `else
+        // Minimal fallback: single-clock-style capture (not safe for CDC on all devices)
+        always @(posedge clk) begin
+            if (rst) begin
+                rx_data_sync <= '0;
+                rx_valid_sync <= 1'b0;
+            end else begin
+                rx_data_sync <= rx_tlp_data;
+                rx_valid_sync <= rx_tlp_valid;
+            end
         end
-    end
-    
-    // Synchronize TX data to PCIe clock domain
-    always @(posedge pcie_clk) begin
-        if (!pcie_rst_n) begin
-            tx_data_sync <= 0;
-            tx_valid_sync <= 1'b0;
-        end else begin
-            tx_data_sync <= fifo_dout;
-            tx_valid_sync <= fifo_rd_en;
+        assign fifo_din = rx_data_sync;
+        assign fifo_wr_en = rx_valid_sync && rx_tlp_ready;
+        assign rx_tlp_ready = !fifo_almost_full;
+    `endif
+
+    // TX path: core to PCIe domain
+    `ifdef XPM_AVAILABLE
+        wire tx_fifo_full;
+        wire tx_fifo_empty;
+        wire [DATA_WIDTH-1:0] tx_fifo_dout;
+        xpm_fifo_async #(
+            .CDC_SYNC_STAGES(2),
+            .DOUT_RESET_VALUE("0"),
+            .ECC_MODE("no_ecc"),
+            .FIFO_MEMORY_TYPE("auto"),
+            .FIFO_READ_LATENCY(0),
+            .FIFO_WRITE_DEPTH(FIFO_DEPTH),
+            .FULL_RESET_VALUE(0),
+            .PROG_EMPTY_THRESH(16),
+            .PROG_FULL_THRESH(FIFO_DEPTH-16),
+            .RD_DATA_COUNT_WIDTH(16),
+            .READ_DATA_WIDTH(DATA_WIDTH),
+            .READ_MODE("fwft"),
+            .RELATED_CLOCKS(0),
+            .SIM_ASSERT_CHK(0),
+            .USE_ADV_FEATURES("0707"),
+            .WAKEUP_TIME(0),
+            .WRITE_DATA_WIDTH(DATA_WIDTH),
+            .WR_DATA_COUNT_WIDTH(16)
+        ) u_xpm_tx (
+            .rst(rst),
+            .wr_clk(clk),
+            .wr_en(fifo_rd_en),
+            .din(fifo_dout),
+            .full(tx_fifo_full),
+            .wr_data_count(),
+            .rd_clk(pcie_clk),
+            .rd_en(tx_tlp_ready),
+            .dout(tx_fifo_dout),
+            .empty(tx_fifo_empty),
+            .rd_data_count()
+        );
+        assign tx_tlp_data  = tx_fifo_dout;
+        assign tx_tlp_valid = ~tx_fifo_empty;
+        assign fifo_rd_en   = ~tx_fifo_full && !fifo_empty;
+    `else
+        // Fallback: directly sample into PCIe domain
+        always @(posedge pcie_clk) begin
+            if (!pcie_rst_n) begin
+                tx_data_sync <= '0;
+                tx_valid_sync <= 1'b0;
+            end else begin
+                tx_data_sync <= fifo_dout;
+                tx_valid_sync <= fifo_rd_en;
+            end
         end
-    end
-    
-    assign fifo_din = rx_data_sync;
-    assign fifo_wr_en = rx_valid_sync && rx_tlp_ready;
-    assign fifo_rd_en = tx_tlp_ready && !fifo_empty;
-    assign tx_tlp_data = tx_data_sync;
-    assign tx_tlp_valid = tx_valid_sync;
+        assign fifo_rd_en   = tx_tlp_ready && !fifo_empty;
+        assign tx_tlp_data  = tx_data_sync;
+        assign tx_tlp_valid = tx_valid_sync;
+    `endif
     {% else %}
     // Direct connection (same clock domain)
     assign fifo_din = rx_tlp_data;

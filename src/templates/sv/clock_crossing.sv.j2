@@ -12,48 +12,83 @@
 
 module advanced_clock_crossing #(
     parameter DATA_WIDTH = 32,
-    parameter SYNC_STAGES = 3
+    parameter SYNC_STAGES = 2  // 2-FF is canonical for single-bit CDC
 ) (
-    input logic src_clk,
-    input logic dst_clk,
-    input logic reset_n,
-    input logic [DATA_WIDTH-1:0] src_data,
-    input logic src_valid,
-    output logic src_ready,
-    output logic [DATA_WIDTH-1:0] dst_data,
-    output logic dst_valid,
-    input logic dst_ready
+    input  logic                    src_clk,
+    input  logic                    dst_clk,
+    input  logic                    reset_n,
+    input  logic [DATA_WIDTH-1:0]   src_data,
+    input  logic                    src_valid,
+    output logic                    src_ready,
+    output logic [DATA_WIDTH-1:0]   dst_data,
+    output logic                    dst_valid,
+    input  logic                    dst_ready
 );
 
-    // Implementation of advanced clock domain crossing with variance compensation
-    logic [SYNC_STAGES-1:0] sync_reg;
-    logic [DATA_WIDTH-1:0] data_reg;
-    logic valid_reg;
+    // NOTE: For wide data buses use an asynchronous FIFO (e.g., XPM FIFO) rather than flopping data
+    // alongside a single-bit valid. This module provides a lightweight ready/valid pulse transfer.
 
-    // Source domain logic
+    // 2-FF single-bit synchronizer
+    function automatic logic [1:0] next_sync(input logic [1:0] cur, input logic in_bit);
+        return {cur[0], in_bit};
+    endfunction
+
+    // Pulse stretch in source domain and toggle crossing
+    logic                src_toggle;
+    logic [DATA_WIDTH-1:0] data_buf;
     always_ff @(posedge src_clk or negedge reset_n) begin
         if (!reset_n) begin
-            data_reg <= '0;
-            valid_reg <= 1'b0;
+            src_toggle <= 1'b0;
+            data_buf   <= '0;
         end else if (src_valid && src_ready) begin
-            data_reg <= src_data;
-            valid_reg <= 1'b1;
-        end else if (sync_reg[SYNC_STAGES-1]) begin
-            valid_reg <= 1'b0;
+            data_buf   <= src_data;
+            src_toggle <= ~src_toggle; // toggle indicates a new transfer
         end
     end
 
-    // Destination domain synchronizer
+    // Synchronize toggle into destination domain
+    logic [1:0] sync_tgl_ff;
     always_ff @(posedge dst_clk or negedge reset_n) begin
         if (!reset_n) begin
-            sync_reg <= '0;
+            sync_tgl_ff <= 2'b00;
         end else begin
-            sync_reg <= {sync_reg[SYNC_STAGES-2:0], valid_reg};
+            sync_tgl_ff <= next_sync(sync_tgl_ff, src_toggle);
         end
     end
 
-    assign src_ready = !valid_reg || sync_reg[SYNC_STAGES-1];
-    assign dst_data = data_reg;
-    assign dst_valid = sync_reg[SYNC_STAGES-1] && dst_ready;
+    // Edge detect of the toggle in destination domain
+    logic dst_toggle_meta;
+    assign dst_toggle_meta = sync_tgl_ff[1];
+    logic dst_toggle_q;
+    always_ff @(posedge dst_clk or negedge reset_n) begin
+        if (!reset_n) begin
+            dst_toggle_q <= 1'b0;
+        end else begin
+            dst_toggle_q <= dst_toggle_meta;
+        end
+    end
+
+    wire has_new_data = (dst_toggle_meta ^ dst_toggle_q);
+
+    // Capture data when a new toggle is seen and consumer is ready
+    logic pending;
+    always_ff @(posedge dst_clk or negedge reset_n) begin
+        if (!reset_n) begin
+            dst_data <= '0;
+            pending  <= 1'b0;
+        end else begin
+            if (has_new_data) begin
+                dst_data <= data_buf; // relies on CDC safety of data path; prefer async FIFO for wide buses
+                pending  <= 1'b1;
+            end
+            if (dst_valid && dst_ready) begin
+                pending <= 1'b0;
+            end
+        end
+    end
+
+    assign dst_valid = pending;
+    // Back-pressure: allow another transfer only when not pending
+    assign src_ready = ~pending;
 
 endmodule

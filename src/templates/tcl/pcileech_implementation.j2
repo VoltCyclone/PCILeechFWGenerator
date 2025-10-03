@@ -87,6 +87,7 @@ set_property STEPS.ROUTE_DESIGN.TCL.POST {
     report_drc -file drc_report.rpt
     report_utilization -file utilization_report.rpt
     report_clock_utilization -file clock_utilization_report.rpt
+    catch { report_cdc -details -name cdc_impl -file cdc_impl.rpt -scope [get_nets -hier *] }
 } [get_runs impl_1]
 
 # Bitstream generation settings
