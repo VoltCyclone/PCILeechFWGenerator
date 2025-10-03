@@ -130,101 +130,236 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
 {%- include 'sv/performance_counters.sv.j2' %}
 {%- endif %}
 
-    // Register access logic
+    // Configuration shadow registers and power state tracking
+    logic [15:0] cfg_command_reg;
+    logic [15:0] cfg_status_reg;
+    logic        cfg_command_int_disable;
+    logic        cfg_command_mem_enable;
+    logic        cfg_command_bus_master;
+    logic [1:0]  pm_state_q;
+    logic [1:0]  pm_state_target;
+    logic        pm_transition_active;
+    logic [15:0] pm_transition_timer;
+    logic        cfg_power_request_pending;
+{%- set _pm_d0_to_d3_cycles = power_management.transition_cycles.d0_to_d3 if (power_management is defined and power_management.transition_cycles is defined and power_management.transition_cycles.d0_to_d3 is defined) else 128 -%}
+{%- set _pm_d3_to_d0_cycles = power_management.transition_cycles.d3_to_d0 if (power_management is defined and power_management.transition_cycles is defined and power_management.transition_cycles.d3_to_d0 is defined) else 128 -%}
+    localparam int unsigned PM_LATENCY_D0_TO_D3 = {{ _pm_d0_to_d3_cycles }};
+    localparam int unsigned PM_LATENCY_D3_TO_D0 = {{ _pm_d3_to_d0_cycles }};
+
+
+    // Register access logic with configuration shadowing and host responsiveness
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
             bar_rd_data <= 32'h0;
             bar_rd_valid <= 1'b0;
             cfg_ext_read_data <= 32'h0;
             cfg_ext_read_data_valid <= 1'b0;
+            cfg_command_reg <= 16'h0000;
+            cfg_status_reg <= 16'h0000;
+            cfg_command_int_disable <= 1'b0;
+            cfg_command_mem_enable <= 1'b0;
+            cfg_command_bus_master <= 1'b0;
+            pm_state_q <= 2'b00;
+            pm_state_target <= 2'b00;
+            pm_transition_active <= 1'b0;
+            pm_transition_timer <= '0;
+            cfg_power_request_pending <= 1'b0;
+            power_ready <= 1'b1;
+            current_power_state <= 2'b00;
+            msix_interrupt <= 1'b0;
+            msix_vector <= 11'h0;
+            interrupt_pending <= 1'b0;
+            interrupt_priority <= 4'h0;
 {%- for reg in registers %}
             {{ reg.name }}_access_pending <= 1'b0;
             {{ reg.name }}_timing_counter <= 8'h0;
 {%- endfor %}
         end else begin
-            // Default assignments
+            logic [15:0] command_next = cfg_command_reg;
+            logic [15:0] status_next  = cfg_status_reg;
+            bit host_interrupt_clear_req = 1'b0;
+            bit cfg_requests_d3 = 1'b0;
+            bit cfg_requests_d0 = 1'b0;
+            bit interrupts_allowed_now;
+            interrupts_allowed_now = cfg_interrupt_msi_enable && !cfg_command_int_disable && (pm_state_q != 2'b11);
+
             bar_rd_valid <= 1'b0;
             cfg_ext_read_data_valid <= 1'b0;
-            
-            // BAR register access
+
+            // Default retention
+            power_ready <= (!pm_transition_active) && (pm_state_q == 2'b00);
+            current_power_state <= pm_state_q;
+
+            // BAR register access (gated by MEM space enable)
             if (bar_rd_en) begin
                 bar_rd_valid <= 1'b1;
+                if (cfg_command_mem_enable) begin
+                    case (bar_addr[15:2])  // Word-aligned access
+{%- for reg in registers %}
+{%- set reg_addr = (reg.offset | int(base=16)) // 4 %}
+                        14'h{{ "%04X" | format(reg_addr) }}: bar_rd_data <= {{ reg.name }}_reg;
+{%- endfor %}
+{%- if performance_counters is defined and performance_counters %}
+                        14'h1000: bar_rd_data <= perf_counter_data;
+                        14'h1001: bar_rd_data <= {28'h0, perf_counter_select};
+{%- endif %}
+                        14'h1FFE: bar_rd_data <= error_status;
+                        14'h1FFF: bar_rd_data <= debug_status;
+                        default: bar_rd_data <= 32'h00000000;
+                    endcase
+                end else begin
+                    bar_rd_data <= 32'h00000000;
+                end
+            end
+
+            if (bar_wr_en && cfg_command_mem_enable) begin
                 case (bar_addr[15:2])  // Word-aligned access
 {%- for reg in registers %}
 {%- set reg_addr = (reg.offset | int(base=16)) // 4 %}
-                    14'h{{ "%04X" | format(reg_addr) }}: bar_rd_data <= {{ reg.name }}_reg;
+                    14'h{{ "%04X" | format(reg_addr) }}: begin
+                        {{ reg.name }}_reg <= bar_wr_data;
+{%- set reg_lower = reg.name | lower -%}
+{%- if 'interrupt' in reg_lower and ('status' in reg_lower or 'ack' in reg_lower or 'clear' in reg_lower) %}
+                        host_interrupt_clear_req = 1'b1;
+{%- endif %}
+                    end
 {%- endfor %}
 {%- if performance_counters is defined and performance_counters %}
-                    14'h1000: bar_rd_data <= perf_counter_data;  // Performance counter data
-                    14'h1001: bar_rd_data <= {28'h0, perf_counter_select};  // Performance counter select
+                    14'h1001: perf_counter_select <= bar_wr_data[3:0];
 {%- endif %}
-                    14'h1FFE: bar_rd_data <= error_status;  // Error status
-                    14'h1FFF: bar_rd_data <= debug_status;  // Debug status
-                    default: bar_rd_data <= 32'h00000000;
+                    default: ;
                 endcase
             end
-            
-            if (bar_wr_en) begin
-                case (bar_addr[15:2])  // Word-aligned access
-{%- for reg in registers %}
-{%- set reg_addr = (reg.offset | int(base=16)) // 4 %}
-                    14'h{{ "%04X" | format(reg_addr) }}: {{ reg.name }}_reg <= bar_wr_data;
-{%- endfor %}
-{%- if performance_counters is defined and performance_counters %}
-                    14'h1001: perf_counter_select <= bar_wr_data[3:0];  // Performance counter select
-{%- endif %}
-                    default: ; // Ignore writes to undefined registers
-                endcase
-            end
-            
-            // Configuration space access
+
+            // Configuration space reads
             if (cfg_ext_read_received) begin
                 cfg_ext_read_data_valid <= 1'b1;
                 case (cfg_ext_register_number)
                     10'h000: cfg_ext_read_data <= {16'h{{ get_device_id(device_config, device, config_space, device_id_int) }}, 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}};
-                    10'h001: cfg_ext_read_data <= {16'h0000, 16'h0010};  // Status and Command
-                    10'h002: cfg_ext_read_data <= {8'h{{ device_config.class_code[2:4] }}, 24'h{{ device_config.class_code[4:] }}};  // Class code and revision
+                    10'h001: cfg_ext_read_data <= {status_next, command_next};
+                    10'h002: cfg_ext_read_data <= {8'h{{ device_config.class_code[2:4] }}, 24'h{{ device_config.class_code[4:] }}};
 {%- if power_management %}
-                    10'h010: cfg_ext_read_data <= {30'h0, current_power_state};  // Power management
+                    10'h010: cfg_ext_read_data <= {30'h0, pm_state_q};
 {%- endif %}
 {%- if performance_counters is defined and performance_counters %}
-                    10'h020: cfg_ext_read_data <= perf_counter_data;  // Performance data
+                    10'h020: cfg_ext_read_data <= perf_counter_data;
 {%- endif %}
-                    10'h030: cfg_ext_read_data <= error_status;  // Error status
+                    10'h030: cfg_ext_read_data <= error_status;
                     default: cfg_ext_read_data <= 32'h00000000;
                 endcase
             end
-            
+
+            // Configuration space writes
             if (cfg_ext_write_received) begin
                 case (cfg_ext_register_number)
-                    10'h001: begin  // Command register
-                        // Handle command register writes
+                    10'h001: begin
+                        if (cfg_ext_write_byte_enable[0]) command_next[7:0]  = cfg_ext_write_data[7:0];
+                        if (cfg_ext_write_byte_enable[1]) command_next[15:8] = cfg_ext_write_data[15:8];
+                        if (cfg_ext_write_byte_enable[2]) status_next[7:0]   = status_next[7:0]  & ~cfg_ext_write_data[23:16];
+                        if (cfg_ext_write_byte_enable[3]) status_next[15:8]  = status_next[15:8] & ~cfg_ext_write_data[31:24];
                     end
 {%- if power_management %}
-                    10'h010: begin  // Power management
-                        if (cfg_ext_write_data[1:0] != current_power_state) begin
-                            if (cfg_ext_write_data[1:0] == 2'b01) power_down_request <= 1'b1;
-                            else if (cfg_ext_write_data[1:0] == 2'b00) power_up_request <= 1'b1;
+                    10'h010: begin
+                        logic [1:0] req_state = cfg_ext_write_data[1:0];
+                        pm_state_target <= req_state;
+                        if (req_state != pm_state_q) begin
+                            pm_transition_active <= 1'b1;
+                            pm_transition_timer  <= '0;
+                            cfg_power_request_pending <= 1'b1;
+                        end
+                        if (req_state == 2'b11) begin
+                            cfg_requests_d3 = 1'b1;
+                        end else if (req_state == 2'b00) begin
+                            cfg_requests_d0 = 1'b1;
                         end
                     end
 {%- endif %}
 {%- if performance_counters is defined and performance_counters %}
-                    10'h020: perf_counter_select <= cfg_ext_write_data[3:0];  // Performance counter select
+                    10'h020: perf_counter_select <= cfg_ext_write_data[3:0];
 {%- endif %}
-                    default: ; // Ignore writes to read-only registers
+                    default: ;
                 endcase
             end
-            
+
+            // Power state machine / transitions
+            if (pm_transition_active) begin
+                pm_transition_timer <= pm_transition_timer + 1'b1;
+                if ((pm_state_target == 2'b11 && pm_transition_timer >= PM_LATENCY_D0_TO_D3) ||
+                    (pm_state_target == 2'b00 && pm_transition_timer >= PM_LATENCY_D3_TO_D0) ||
+                    ((pm_state_target == 2'b01 || pm_state_target == 2'b10) && pm_transition_timer >= PM_LATENCY_D0_TO_D3)) begin
+                    pm_state_q <= pm_state_target;
+                    pm_transition_active <= 1'b0;
+                    pm_transition_timer <= '0;
+                    cfg_power_request_pending <= 1'b0;
+                end
+            end else begin
+                pm_transition_timer <= '0;
+                if ((power_down_request || cfg_requests_d3) && pm_state_q != 2'b11) begin
+                    pm_state_target <= 2'b11;
+                    pm_transition_active <= 1'b1;
+                    pm_transition_timer <= '0;
+                    cfg_power_request_pending <= cfg_requests_d3;
+                end else if ((power_up_request || cfg_requests_d0) && pm_state_q != 2'b00) begin
+                    pm_state_target <= 2'b00;
+                    pm_transition_active <= 1'b1;
+                    pm_transition_timer <= '0;
+                    cfg_power_request_pending <= cfg_requests_d0;
+                end
+            end
+
+            // Interrupt management and acknowledgement
+            if (host_interrupt_clear_req) begin
+                interrupt_pending <= 1'b0;
+                interrupt_priority <= 4'h0;
+                msix_interrupt <= 1'b0;
+                status_next[3] = 1'b0;
+            end else begin
+{%- if performance_counters is defined and performance_counters %}
+                if (performance_overflow) begin
+                    interrupt_pending <= 1'b1;
+                    interrupt_priority <= 4'h8;
+                    status_next[3] = 1'b1;
+                end
+{%- endif %}
+                if (error_recovery_active) begin
+                    interrupt_pending <= 1'b1;
+                    interrupt_priority <= 4'hF;
+                    status_next[3] = 1'b1;
+                end
+            end
+
+            if (!interrupts_allowed_now) begin
+                msix_interrupt <= 1'b0;
+            end
+
+            if (interrupt_pending && interrupts_allowed_now && !msix_interrupt) begin
+                msix_interrupt <= 1'b1;
+                msix_vector <= {7'h0, interrupt_priority};
+            end
+
+            if (msix_interrupt_ack) begin
+                msix_interrupt <= 1'b0;
+                interrupt_pending <= 1'b0;
+                status_next[3] = 1'b0;
+            end
+
             // Update timing counters for register access simulation
 {%- for reg in registers %}
             if ({{ reg.name }}_access_pending) begin
                 {{ reg.name }}_timing_counter <= {{ reg.name }}_timing_counter + 1;
-                if ({{ reg.name }}_timing_counter >= 8'h10) begin  // 16 cycle access time
+                if ({{ reg.name }}_timing_counter >= 8'h10) begin
                     {{ reg.name }}_access_pending <= 1'b0;
                     {{ reg.name }}_timing_counter <= 8'h0;
                 end
             end
 {%- endfor %}
+
+            // Commit configuration shadow values
+            cfg_command_reg <= command_next;
+            cfg_status_reg  <= status_next;
+            cfg_command_bus_master <= command_next[2];
+            cfg_command_mem_enable <= command_next[1];
+            cfg_command_int_disable <= command_next[10];
         end
     end
 
@@ -260,28 +395,5 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
         device_ready,
         power_ready
     };
-
-    // MSI-X interrupt generation
-    always_ff @(posedge clk or negedge reset_n) begin
-        if (!reset_n) begin
-            msix_interrupt <= 1'b0;
-            msix_vector <= 11'h0;
-            interrupt_pending <= 1'b0;
-        end else begin
-            if (interrupt_pending && !msix_interrupt) begin
-                msix_interrupt <= 1'b1;
-                msix_vector <= {7'h0, interrupt_priority};
-            end else if (msix_interrupt_ack) begin
-                msix_interrupt <= 1'b0;
-                interrupt_pending <= 1'b0;
-            end
-            
-            // Generate interrupts based on various conditions
-            if (error_recovery_active || performance_overflow) begin
-                interrupt_pending <= 1'b1;
-                interrupt_priority <= error_recovery_active ? 4'hF : 4'h8;
-            end
-        end
-    end
 
 endmodule
