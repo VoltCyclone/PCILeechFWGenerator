@@ -46,10 +46,13 @@ if {[llength $sv_files] > 0} {
     puts "Found [llength $sv_files] SystemVerilog files"
     add_files -norecurse $sv_files
     # Ensure Vivado parses .sv files as SystemVerilog
-    set sv_in_proj [get_files *.sv]
+    set sv_in_proj [get_files -of_objects [get_filesets sources_1] *.sv]
     if {[llength $sv_in_proj] > 0} {
         puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
         set_property file_type SystemVerilog $sv_in_proj
+        foreach sv_file $sv_in_proj {
+            puts "  -> File type now: [get_property file_type [get_files $sv_file]] ($sv_file)"
+        }
     }
     # Refresh compile order after changing file types
     update_compile_order -fileset sources_1

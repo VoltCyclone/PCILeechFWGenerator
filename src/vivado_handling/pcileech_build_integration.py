@@ -359,10 +359,13 @@ puts "Adding source files..."
 
         # Ensure all .sv files are treated as SystemVerilog
         script_content += (
-            "set sv_in_proj [get_files *.sv]\n"
+            "set sv_in_proj [get_files -of_objects [get_filesets sources_1] *.sv]\n"
             "if {[llength $sv_in_proj] > 0} {\n"
             '    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"\n'
             "    set_property file_type SystemVerilog $sv_in_proj\n"
+            "    foreach sv_file $sv_in_proj {\n"
+            '        puts "  -> File type now: [get_property file_type [get_files $sv_file]] ($sv_file)"\n'
+            "    }\n"
             "}\n"
         )
 
@@ -425,14 +428,6 @@ puts "Bitstream location: $OUTPUT_DIR/$BITSTREAM_NAME"
         )
 
         script_path.write_text(script_content)
-        log_info_safe(
-            logger,
-            safe_format(
-                "Created unified build script: {script_path}",
-                script_path=str(script_path),
-            ),
-            prefix="BUILD",
-        )
 
         return script_path
 

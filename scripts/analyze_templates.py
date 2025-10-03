@@ -61,9 +61,9 @@ def get_actual_templates() -> Set[str]:
 
 
 def find_template_references() -> Dict[str, List[Tuple[str, int]]]:
-    """Find all references to templates in the codebase"""
+    """Find all references to templates in Python code (src and tests)."""
     references = defaultdict(list)
-    src_dir = PROJECT_ROOT / "src"
+    code_dirs = [PROJECT_ROOT / "src", PROJECT_ROOT / "tests"]
 
     # Patterns to find template references
     patterns = [
@@ -73,21 +73,49 @@ def find_template_references() -> Dict[str, List[Tuple[str, int]]]:
         r'["\']([^"\']+\.j2)["\']',  # General .j2 references
     ]
 
-    for py_file in src_dir.rglob("*.py"):
-        try:
-            with open(py_file, "r") as f:
-                content = f.read()
-                for line_num, line in enumerate(content.split("\n"), 1):
-                    for pattern in patterns:
-                        matches = re.findall(pattern, line)
-                        for match in matches:
-                            references[match].append(
-                                (str(py_file.relative_to(PROJECT_ROOT)), line_num)
-                            )
-        except Exception as e:
-            print(f"Error reading {py_file}: {e}")
+    for base_dir in code_dirs:
+        if not base_dir.exists():
+            continue
+        for py_file in base_dir.rglob("*.py"):
+            try:
+                with open(py_file, "r") as f:
+                    content = f.read()
+                    for line_num, line in enumerate(content.split("\n"), 1):
+                        for pattern in patterns:
+                            matches = re.findall(pattern, line)
+                            for match in matches:
+                                references[match].append(
+                                    (str(py_file.relative_to(PROJECT_ROOT)), line_num)
+                                )
+            except Exception as e:
+                print(f"Error reading {py_file}: {e}")
 
     return dict(references)
+
+
+def find_jinja_template_includes() -> Set[str]:
+    """Scan all Jinja templates for include/import references to other templates."""
+    templates_dir = PROJECT_ROOT / "src/templates"
+    include_refs: Set[str] = set()
+
+    # Regex patterns to detect Jinja include/import statements
+    patterns = [
+        r"\{%\s*include\s+[\"\']([^\"\']+\.j2)[\"\']\s*%\}",
+        r"\{%\s*import\s+[\"\']([^\"\']+\.j2)[\"\']\s+as\s+\w+\s*%\}",
+        r"\{%\s*from\s+[\"\']([^\"\']+\.j2)[\"\']\s+import\s+.+?%\}",
+    ]
+
+    for template_file in templates_dir.rglob("*.j2"):
+        try:
+            with open(template_file, "r") as f:
+                content = f.read()
+                for pattern in patterns:
+                    for match in re.findall(pattern, content):
+                        include_refs.add(match)
+        except Exception as e:
+            print(f"Error reading {template_file}: {e}")
+
+    return include_refs
 
 
 def analyze_template_variables(template_path: Path) -> Set[str]:
@@ -190,11 +218,12 @@ def find_dead_templates() -> List[str]:
     """Find templates that are not referenced anywhere"""
     actual_templates = get_actual_templates()
     references = find_template_references()
+    include_refs = find_jinja_template_includes()
     mapping = load_template_mapping()
 
     # Get all referenced templates (both old and new paths)
     referenced_templates = set()
-    for ref in references.keys():
+    for ref in list(references.keys()) + list(include_refs):
         referenced_templates.add(ref)
         # Check if this is an old path that maps to a new one
         if ref in mapping:
