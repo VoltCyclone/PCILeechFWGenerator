@@ -11,27 +11,27 @@ module msix_table #(
     parameter MSIX_PBA_OFFSET = {{ msix_config.pba_offset | default(0x2000) }}          // Offset of MSI-X PBA in the BAR
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
-    
+    input  wire         clk,
+    input  wire         reset_n,
+
     // BAR access interface
-    input  logic [31:0] bar_addr,
-    input  logic [2:0]  bar_index,
-    input  logic [31:0] bar_wr_data,
-    input  logic        bar_wr_en,
-    input  logic [3:0]  bar_wr_be,
-    input  logic        bar_rd_en,
-    output logic [31:0] bar_rd_data,
-    output logic        bar_access_match,
-    
+    input  wire [31:0]  bar_addr,
+    input  wire [2:0]   bar_index,
+    input  wire [31:0]  bar_wr_data,
+    input  wire         bar_wr_en,
+    input  wire [3:0]   bar_wr_be,
+    input  wire         bar_rd_en,
+    output wire [31:0]  bar_rd_data,
+    output wire         bar_access_match,
+
     // MSI-X control interface
-    input  logic        msix_enable,       // MSI-X function enable
-    input  logic        msix_function_mask, // MSI-X function mask
-    
+    input  wire         msix_enable,        // MSI-X function enable
+    input  wire         msix_function_mask, // MSI-X function mask
+
     // Interrupt interface
-    output logic        msix_interrupt,    // MSI-X interrupt request
-    output logic [10:0] msix_vector,       // MSI-X vector number
-    input  logic        msix_interrupt_ack  // Acknowledge from PCIe core
+    output logic        msix_interrupt,     // MSI-X interrupt request (driven in always_ff)
+    output logic [10:0] msix_vector,        // MSI-X vector number (driven in always_ff)
+    input  wire         msix_interrupt_ack  // Acknowledge from PCIe core
 );
 
     // Calculate PBA size in 32-bit words

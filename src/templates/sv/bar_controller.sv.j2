@@ -22,12 +22,12 @@ module pcileech_tlps128_bar_controller #(
     input  logic [2:0]  bar_index,
 
     // PCIe BAR interface
-    input  logic [31:0] bar_addr,
-    input  logic [31:0] bar_wr_data,
-    input  logic [3:0]  bar_wr_be,
-    input  logic        bar_wr_en,
-    input  logic        bar_rd_en,
-    output logic [31:0] bar_rd_data,
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire  [3:0]  bar_wr_be,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
+    output wire [31:0]  bar_rd_data,
 
     // PCIe configuration space interface
     input  logic        cfg_ext_read_received,
@@ -36,22 +36,22 @@ module pcileech_tlps128_bar_controller #(
     input  logic [3:0]  cfg_ext_function_number,
     input  logic [31:0] cfg_ext_write_data,
     input  logic [3:0]  cfg_ext_write_byte_enable,
-    output logic [31:0] cfg_ext_read_data,
-    output logic        cfg_ext_read_data_valid,
+    output wire [31:0]  cfg_ext_read_data,
+    output wire         cfg_ext_read_data_valid,
 
     // MSI‑X interrupt interface
     output logic        msix_interrupt,
     output logic [10:0] msix_vector,
-    input  logic        msix_interrupt_ack,
+    input  wire         msix_interrupt_ack,
 
     // --- Custom window hook --------------------------------------------------
-    output logic        custom_win_sel,
-    output logic [11:0] custom_win_addr,
-    output logic [31:0] custom_win_wdata,
-    output logic [3:0]  custom_win_be,
-    output logic        custom_win_we,
-    output logic        custom_win_re,
-    input  logic [31:0] custom_win_rdata
+    output wire         custom_win_sel,
+    output wire [11:0]  custom_win_addr,
+    output wire [31:0]  custom_win_wdata,
+    output wire [3:0]   custom_win_be,
+    output wire         custom_win_we,
+    output wire         custom_win_re,
+    input  wire [31:0]  custom_win_rdata
 );
 
     // ----------------------------------------------------------------

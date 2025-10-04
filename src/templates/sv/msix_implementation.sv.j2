@@ -1,6 +1,8 @@
 {#- MSI-X Table and PBA Implementation Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module msix_implementation #(
     parameter NUM_MSIX = {{ msix_config.num_vectors }},
     parameter MSIX_TABLE_BIR = {{ msix_config.table_bir }},
@@ -207,3 +209,5 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 endmodule
+
+`default_nettype wire
