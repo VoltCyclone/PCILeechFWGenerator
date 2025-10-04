@@ -1,6 +1,8 @@
 {#- Sampling Logic Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module sampling_logic #(
     parameter COUNTER_WIDTH = {{ config.counter_width }},
     {%- set metrics = config.metrics_to_monitor | default([]) %}
@@ -79,3 +81,5 @@ always_ff @(posedge clk or negedge rst_n) begin
 end
 
 endmodule
+
+`default_nettype wire

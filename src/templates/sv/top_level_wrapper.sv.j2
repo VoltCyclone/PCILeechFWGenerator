@@ -1,5 +1,7 @@
 {#- PCILeech Top-Level Wrapper Template -#}
 {{ header | safe }}
+
+`default_nettype none
 {% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
 
 module pcileech_top (
@@ -311,3 +313,5 @@ module pcileech_top (
     end
 
 endmodule
+
+`default_nettype wire

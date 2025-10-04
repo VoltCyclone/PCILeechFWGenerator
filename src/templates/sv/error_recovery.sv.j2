@@ -2,6 +2,8 @@
 // Handles recovery from detected errors based on configuration
 {{ header | safe }}
 
+`default_nettype none
+
 module error_recovery #(
     parameter MAX_RETRY_COUNT = {{ config.max_retry_count | default(3) }}
 ) (
@@ -190,3 +192,5 @@ assign {{ error_name }}_threshold_exceeded = ({{ error_name }}_count >= 16'd{{ t
 {% endfor %}
 
 endmodule
+
+`default_nettype wire

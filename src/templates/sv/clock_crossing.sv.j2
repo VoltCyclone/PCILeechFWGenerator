@@ -1,6 +1,8 @@
 {#- Advanced Clock Domain Crossing Module Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 {# Ensure required context variables are defined with fallbacks #}
 {% if not device_config is defined %}
 {% set device_config = {} %}
@@ -57,3 +59,5 @@ module advanced_clock_crossing #(
     assign dst_valid = sync_reg[SYNC_STAGES-1] && dst_ready;
 
 endmodule
+
+`default_nettype wire

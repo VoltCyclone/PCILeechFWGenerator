@@ -54,9 +54,6 @@ set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.MORE_OPTIONS {-critical_cell_
 {% if device.class_code == "0x020000" %}
 # Network controller optimizations
 set_property STEPS.ROUTE_DESIGN.ARGS.MORE_OPTIONS {-preserve_loops} [get_runs impl_1]
-{% elif device.class_code == "0x040300" %}
-# Audio controller optimizations
-set_property STEPS.PLACE_DESIGN.ARGS.MORE_OPTIONS {-timing_summary} [get_runs impl_1]
 {% endif %}
 
 # Power optimization for PCILeech

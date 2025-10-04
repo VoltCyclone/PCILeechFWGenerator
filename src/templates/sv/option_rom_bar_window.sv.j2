@@ -1,6 +1,8 @@
 {#- Option-ROM BAR Window Implementation Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module option_rom_bar_window #(
     parameter ROM_SIZE = {{ ROM_SIZE }},  // {{ ROM_SIZE }} bytes
     parameter ROM_BAR_INDEX = {{ ROM_BAR_INDEX }}  // BAR {{ ROM_BAR_INDEX }} for ROM
@@ -122,3 +124,5 @@ module option_rom_bar_window #(
     // end
 
 endmodule
+
+`default_nettype wire

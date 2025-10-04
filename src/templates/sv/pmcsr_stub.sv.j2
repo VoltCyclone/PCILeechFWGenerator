@@ -1,5 +1,7 @@
 {{ header | safe }}
 
+`default_nettype none
+
 module pmcsr_stub #(
     // Fabric clock frequency (Hz). Used only for the fake transition timer.
     parameter int CLK_HZ = {{ clk_hz }},
@@ -174,3 +176,5 @@ module pmcsr_stub #(
     assign wake_n = ~(in_d3cold && wake_pulse_active);
 
 endmodule
+
+`default_nettype wire

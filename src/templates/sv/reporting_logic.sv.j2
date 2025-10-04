@@ -1,5 +1,7 @@
 {{ header | safe }}
 
+`default_nettype none
+
 module reporting_logic #(
     parameter COUNTER_WIDTH = {{ config.counter_width | default(32) }},
     {%- set metrics = config.metrics_to_monitor | default([]) %}
@@ -102,17 +104,4 @@ end
 
 endmodule
 
-// Report summary for quick access
-assign report_summary = {
-    {%- if metrics -%}
-    {%- for i in range(metrics|length) -%}
-    {%- if not loop.last -%}
-    report_buffer[{{ i }}][7:0],
-    {%- else -%}
-    report_buffer[{{ i }}][7:0]
-    {%- endif -%}
-    {%- endfor -%}
-    {%- else -%}
-    report_buffer[0][7:0]
-    {%- endif -%}
-};
+`default_nettype wire

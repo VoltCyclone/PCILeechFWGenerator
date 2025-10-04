@@ -1,6 +1,8 @@
 {% from "_helpers.j2" import safe_attr %}
 {{ header | safe }}
 
+`default_nettype none
+
 module power_transitions #(
     parameter NUM_STATES = 8
 ) (
@@ -171,3 +173,5 @@ always_comb begin
 end
 
 endmodule
+
+`default_nettype wire

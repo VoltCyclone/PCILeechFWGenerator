@@ -1,6 +1,8 @@
 {#- Advanced PCIe Device Controller Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 {# Ensure board_config is always defined with fallbacks #}
 {% if not board_config is defined %}
 {% set board_config = {} %}
@@ -29,6 +31,7 @@ module advanced_pcileech_controller #(
     // PCIe interface
     input logic [31:0] bar_addr,
     input logic [31:0] bar_wr_data,
+    input logic [3:0]  bar_wr_be,
     input logic bar_wr_en,
     input logic bar_rd_en,
     output logic [31:0] bar_rd_data,
@@ -89,3 +92,5 @@ module advanced_pcileech_controller #(
 {%- endif %}
 
 endmodule
+
+`default_nettype wire

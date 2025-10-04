@@ -1,8 +1,13 @@
 {{ header | safe }}
 
     // ── Power Management Integration ─────────────────────────────────────────
-    {%- set _enable_pme = enable_pme|default(false) %}
-    {%- set _enable_wake_events = enable_wake_events|default(false) %}
+    {%- set _enable_pme = enable_pme | default(false) %}
+    {%- set _enable_wake_events = enable_wake_events | default(false) %}
+    {#- Optional glue emission for cfg-bus hookup; off by default to avoid undeclared signals -#}
+    {%- set _emit_cfg_glue = pmcsr_cfg_glue | default(false) %}
+    {#- Provide safe defaults for clock/timing if context doesn't define them -#}
+    {%- set _clk_hz = clk_hz if (clk_hz is defined) else 100000000 %}
+    {%- set _tr_ns = tr_ns if (tr_ns is defined) else (timeout_ms * 1000000 if (timeout_ms is defined) else 5000000) %}
     
     // PMCSR (Power Management Control/Status Register) signals
     logic        pmcsr_wr;
@@ -19,15 +24,15 @@
     logic        wake_n;
     // Local or top-level connected sideband
 {%- if _enable_pme %}
-    // If top-level exposes inputs, use them; else tie-offs are added below
-    logic        pme_turnoff;
-    logic        aux_pwr_present;
+    // Local sideband inputs (tie-offs by default; override at integration if needed)
+    logic        pme_turnoff_local;
+    logic        aux_pwr_present_local;
 {%- endif %}
     
     // Instantiate minimal power management stub
     pmcsr_stub #(
-        .CLK_HZ({{ clk_hz }}),
-        .TR_NS({{ tr_ns }})
+        .CLK_HZ({{ _clk_hz }}),
+        .TR_NS({{ _tr_ns }})
     ) u_pmcsr_stub (
         .clk(clk),
         .reset_n(reset_n),
@@ -39,42 +44,54 @@
 {%- else %}
         .wake_evt(1'b0),
 {%- endif %}
-    .pme_turnoff(pme_turnoff),
-    .pme_to_ack(pme_to_ack),
-    .aux_pwr_present(aux_pwr_present),
-    .wake_n(wake_n),
+        .pme_turnoff({%- if _enable_pme -%}pme_turnoff_local{%- else -%}1'b0{%- endif -%}),
+        .pme_to_ack(pme_to_ack),
+        .aux_pwr_present({%- if _enable_pme -%}aux_pwr_present_local{%- else -%}1'b1{%- endif -%}),
+        .wake_n(wake_n),
 {%- if _enable_pme %}
         .pme_req(pme_req)
 {%- else %}
-        .pme_req()  // Leave unconnected if PME disabled
+        .pme_req()  // open (PME disabled)
 {%- endif %}
     );
     
-    // Connect PMCSR to config space at offset 0x44
-    always_comb begin
-    pmcsr_wr = cfg_wr_en && (cfg_addr[7:0] == 8'h44);
-    pmcsr_wdata = cfg_wr_data[15:0];
-        
 {%- if _enable_wake_events %}
-        // Wake event can be triggered by external signals or internal logic
-        wake_evt = 1'b0;  // Connect to actual wake sources as needed
+    // Wake event can be triggered by external signals or internal logic
+    // Placeholder: tie low by default; integrate real sources as needed
+    always_comb begin
+        wake_evt = 1'b0;
+    end
 {%- endif %}
 {%- if _enable_pme %}
-    // If not driven by top-level, tie to safe defaults here
-    // synthesis translate_off
-    if (1) begin end
-    // synthesis translate_on
-    pme_turnoff = pme_turnoff; // assume connected at top
-    aux_pwr_present = aux_pwr_present; // assume connected at top
-{%- endif %}
-    end
-    
-    // Integrate PMCSR read data into config space
+    // Safe defaults for PME sideband inputs when not driven by a higher-level wrapper
+    // Default behavior: no TurnOff request; AUX power present
     always_comb begin
-        if (cfg_addr[7:0] == 8'h44) begin
-            cfg_rd_data[15:0] = pmcsr_rdata;
-            cfg_rd_data[31:16] = 16'h0;  // Upper 16 bits reserved
-        end
+        pme_turnoff_local    = 1'b0;
+        aux_pwr_present_local= 1'b1;
     end
+{%- endif %}
+
+{%- if _emit_cfg_glue %}
+    // Optional: Connect PMCSR to a simple cfg bus at offset 0x44 when provided by the wrapper
+    // Emitted only when pmcsr_cfg_glue=true is present in the render context.
+    logic        pmcsr_sel;
+    logic [31:0] pmcsr_rd32;
+
+    always_comb begin
+        pmcsr_sel   = (cfg_addr[7:0] == 8'h44);
+        pmcsr_wr    = cfg_wr_en && pmcsr_sel;
+        pmcsr_wdata = cfg_wr_data[15:0];
+    end
+    assign pmcsr_rd32 = {16'h0, pmcsr_rdata};
+{%- else %}
+    // Default tie-offs when no cfg glue is emitted
+    always_comb begin
+        pmcsr_wr    = 1'b0;
+        pmcsr_wdata = 16'h0;
+    end
+{%- endif %}
+    
+    // Note: If _emit_cfg_glue is enabled, pmcsr_sel/pmcsr_rd32 can be integrated
+    // into the wrapper's config-space read mux externally.
 
     // Optional: pme_to_ack and wake_n can be forwarded to top-level ports in the wrapper

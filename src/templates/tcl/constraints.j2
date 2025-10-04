@@ -67,9 +67,17 @@ puts "Using generic timing constraints only. You may need to add board-specific 
 {%- endif %}
 
 # Generate device-specific timing constraints file
-{% set sys_clk_period = (1000.0 / (sys_clk_freq_mhz | default(100))) | round(3) %}
+{# Determine safe system clock frequency in MHz. Prefer explicit context key; otherwise, use any board hint; finally fall back to 100. #}
+{% set _sys_clk_mhz = (sys_clk_freq_mhz | safe_int(0)) if (sys_clk_freq_mhz is defined) else 0 %}
+{% if _sys_clk_mhz <= 0 %}
+    {% set _sys_clk_mhz = (safe_attr(board, 'sys_clk_mhz', 0) | int) if (board is defined) else 0 %}
+{% endif %}
+{% if _sys_clk_mhz <= 0 %}
+    {% set _sys_clk_mhz = 100 %}
+{% endif %}
+{% set sys_clk_period = (1000.0 / _sys_clk_mhz) | round(3) %}
 set timing_constraints_content {
-# Clock constraints - {{ sys_clk_freq_mhz | default(100) }} MHz system clock
+# Clock constraints - {{ _sys_clk_mhz }} MHz system clock
 create_clock -period {{ sys_clk_period }} -name sys_clk [get_ports clk]
 
 # Input delay constraints for actual input ports

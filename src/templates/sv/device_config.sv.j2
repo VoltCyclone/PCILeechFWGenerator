@@ -2,6 +2,8 @@
 {% from "_helpers.j2" import safe_attr, get_vendor_id, get_device_id, get_subsystem_vendor_id, get_subsystem_device_id %}
 {{ header | safe }}
 
+`default_nettype none
+
 module device_config #(
     {# Use centralized helper macros for consistent ID handling #}
     parameter VENDOR_ID = {{ get_vendor_id(device_config, device, config_space, vendor_id_int) | sv_hex(16) }},
@@ -32,3 +34,5 @@ module device_config #(
 {%- endfor %}
 
 endmodule
+
+`default_nettype wire

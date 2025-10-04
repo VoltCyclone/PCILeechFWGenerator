@@ -31,7 +31,11 @@ module msix_table #(
     // Interrupt interface
     output logic        msix_interrupt,     // MSI-X interrupt request (driven in always_ff)
     output logic [10:0] msix_vector,        // MSI-X vector number (driven in always_ff)
-    input  wire         msix_interrupt_ack  // Acknowledge from PCIe core
+    input  wire         msix_interrupt_ack, // Acknowledge from PCIe core
+
+    // External interrupt trigger interface (replaces non-synthesizable function)
+    input  wire         trigger_valid,
+    input  wire [10:0]  trigger_vector
 );
 
     // Calculate PBA size in 32-bit words
@@ -53,12 +57,18 @@ module msix_table #(
     logic [31:0] table_addr;
     logic [31:0] pba_addr;
     logic [10:0] current_vector;
-    logic vector_masked;
-    logic [31:0] control_dword;
     logic interrupt_pending;
     // Indices into table structures
     logic [$clog2(NUM_MSIX)-1:0] entry_index;   // which MSI-X entry (0..NUM_MSIX-1)
     logic [1:0]                  dword_index;   // which DWORD within entry (0..3)
+
+    // Priority encoder results for pending vector detection
+    logic [$clog2(NUM_MSIX)-1:0] next_pending_idx;
+    logic                        pending_found;
+
+    // Combinational view of the pending vector's control DWORD
+    logic [31:0] pending_control_dword;
+    logic        pending_vector_masked;
     
     // Determine if access is to MSI-X table or PBA
     assign is_table_access = (bar_index == {{ msix_config.table_bir | default(0) }}) &&
@@ -132,10 +142,8 @@ module msix_table #(
                     // Mark this DWORD staged
                     msix_stage_valid[entry_index][dword_index] <= 1'b1;
 
-                    // Commit policy:
-                    // - Commit when control DWORD (index 3) is written
-                    // - Or when all 4 DWORDs have been staged
-                    if (dword_index == 2'd3 || &msix_stage_valid[entry_index]) begin
+                    // Commit policy: commit ONLY when all 4 DWORDs have been staged
+                    if (&msix_stage_valid[entry_index]) begin
                         // Copy 4 DWORDs atomically into ACTIVE table
                         for (int k = 0; k < 4; k++) begin
                             msix_table_active[(entry_index << 2) + k] <=
@@ -144,10 +152,10 @@ module msix_table #(
                         // Clear valid mask after commit
                         msix_stage_valid[entry_index] <= 4'b0000;
                     end
-{% if msix_config.write_pba_allowed | default(false) %}
                 end else if (is_pba_access) begin
-                    // PBA is typically read-only, but implement write for completeness
-                    // In a real device, software shouldn't write to PBA
+                    // PBA access handling
+{% if msix_config.write_pba_allowed | default(false) %}
+                    // PBA writes allowed (simulation/debug only)
 {% if msix_config.use_byte_enables | default(true) %}
                     if (bar_wr_be[0]) msix_pba_mem[pba_addr][7:0] <= bar_wr_data[7:0];
                     if (bar_wr_be[1]) msix_pba_mem[pba_addr][15:8] <= bar_wr_data[15:8];
@@ -157,24 +165,46 @@ module msix_table #(
                     msix_pba_mem[pba_addr] <= bar_wr_data;
 {% endif %}
 {% else %}
-                // end else if (is_pba_access) begin
-                //     // PBA is read-only - writes are ignored
+                    // PBA is read-only - writes are ignored
 {% endif %}
                 end
+            end
+
+            // External trigger sets PBA bit; acknowledge clears it.
+            // Apply set before clear so clear takes precedence if both target same bit in a cycle.
+            if (trigger_valid && (trigger_vector < NUM_MSIX)) begin
+                msix_pba_mem[trigger_vector >> 5] <=
+                    msix_pba_mem[trigger_vector >> 5] | (32'h1 << (trigger_vector[4:0]));
             end
             
             // Clear pending bit when interrupt is acknowledged
             if (msix_interrupt_ack && interrupt_pending) begin
-                msix_pba_mem[current_vector >> 5] <= msix_pba_mem[current_vector >> 5] & ~(1 << (current_vector & 5'h1F));
+                msix_pba_mem[current_vector >> 5] <=
+                    msix_pba_mem[current_vector >> 5] & ~(32'h1 << (current_vector[4:0]));
             end
         end
     end
     
+    // Priority encoder for pending vectors (synthesizable, replaces loop with break)
+    always_comb begin
+        pending_found = 1'b0;
+        next_pending_idx = '0;
+        for (int i = 0; i < NUM_MSIX; i++) begin
+            if (!pending_found && (msix_pba_mem[i >> 5] & (32'h1 << (i[4:0])))) begin
+                pending_found = 1'b1;
+                next_pending_idx = i[$clog2(NUM_MSIX)-1:0];
+            end
+        end
+    end
+
+    // Combinational control view for current pending vector
+    assign pending_control_dword = msix_table_active[pending_vector * 4 + 3];
+    assign pending_vector_masked = pending_control_dword[0];
+
     // Interrupt delivery state machine
     typedef enum logic [1:0] {
         IDLE,
         PENDING,
-        DELIVERING,
         WAITING_ACK
     } intr_state_t;
     
@@ -194,26 +224,17 @@ module msix_table #(
                 IDLE: begin
                     msix_interrupt <= 1'b0;
                     interrupt_pending <= 1'b0;
-                    
-                    // Check for pending interrupts
-                    for (int i = 0; i < {{ msix_config.num_vectors | default(16) }}; i++) begin
-                        // Check if this vector has a pending bit set
-                        if (msix_pba_mem[i >> 5] & (1 << (i & 5'h1F))) begin
-                            pending_vector <= i[10:0];
-                            intr_state <= PENDING;
-                            break;
-                        end
+
+                    // Check for pending interrupts via priority encoder
+                    if (pending_found) begin
+                        pending_vector <= next_pending_idx; // zero-extends to 11 bits
+                        intr_state <= PENDING;
                     end
                 end
                 
                 PENDING: begin
-                    // Get control DWORD (third DWORD in the entry)
-                    control_dword = msix_table_active[pending_vector * 4 + 3];
-                    
-                    // Check if vector is masked
-                    vector_masked = control_dword[0];
-                    
-                    if (msix_enable && !msix_function_mask && !vector_masked) begin
+                    // Deliver if enabled and not masked
+                    if (msix_enable && !msix_function_mask && !pending_vector_masked) begin
                         // Vector is enabled and not masked - deliver interrupt
                         msix_vector <= pending_vector;
                         msix_interrupt <= 1'b1;
@@ -237,15 +258,9 @@ module msix_table #(
             endcase
         end
     end
-    
-    // Function to trigger an MSI-X interrupt
-    // This would be called by other modules to trigger an interrupt
-    function void trigger_interrupt(input logic [10:0] vector);
-        if (vector < {{ msix_config.num_vectors | default(16) }}) begin
-            // Set the pending bit
-            msix_pba_mem[vector >> 5] = msix_pba_mem[vector >> 5] | (1 << (vector & 5'h1F));
-        end
-    endfunction
+
+    // NOTE: External modules should assert trigger_valid with a valid trigger_vector
+    // to request an interrupt; the PBA bit will be set synchronously above.
 
 {% if msix_config.init_table | default(false) %}
     // NOTE: For synthesis, memory initialization should be done in reset logic
@@ -255,7 +270,7 @@ module msix_table #(
     // end
     
     // For synthesis, add initialization in the reset section of the always_ff block above
-    // For example, in the reset section at line ~105:
+    // For example, in the reset section where the staging/active arrays are cleared:
     // for (int i = 0; i < {{ msix_config.num_vectors | default(16) }} * 4; i++) begin
     //     msix_table_mem[i] <= 32'h0;
     // end
@@ -269,7 +284,7 @@ module msix_table #(
     // end
     
     // For synthesis, add initialization in the reset section of the always_ff block above
-    // For example, in the reset section at line ~109:
+    // For example, in the reset section where the PBA array is cleared:
     // for (int i = 0; i < PBA_SIZE; i++) begin
     //     msix_pba_mem[i] <= 32'h0;
     // end

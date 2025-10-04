@@ -1,11 +1,15 @@
 {#- PCIe Configuration Space Shadow BRAM Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module pcileech_tlps128_cfgspace_shadow #(
     parameter CONFIG_SPACE_SIZE = {{ CONFIG_SPACE_SIZE }},  // {{ CONFIG_SPACE_SIZE }} byte configuration space
     parameter OVERLAY_ENTRIES = {{ OVERLAY_ENTRIES }},      // Number of overlay RAM entries
     parameter EXT_CFG_CAP_PTR = {{ EXT_CFG_CAP_PTR | default(256) }},     // Extended capability pointer (default 0x100)
-    parameter EXT_CFG_XP_CAP_PTR = {{ EXT_CFG_XP_CAP_PTR | default(256) }} // Express capability pointer in extended space
+    parameter EXT_CFG_XP_CAP_PTR = {{ EXT_CFG_XP_CAP_PTR | default(256) }}, // Express capability pointer in extended space
+    // Optional configuration-space initialization HEX file (for simulation and BRAM init capable tools)
+    parameter string CFG_INIT_HEX = ""
 ) (
     // Clock and reset
     input  logic        clk,
@@ -72,13 +76,11 @@ module pcileech_tlps128_cfgspace_shadow #(
     
     // Lookup tables are initialized in reset logic below
     
-    // Overlay lookup functions
-    function int get_overlay_index(input logic [9:0] reg_num);
-        return (overlay_indices[reg_num] == 32'hFFFFFFFF) ? -1 : int'(overlay_indices[reg_num]);
-    endfunction
-    
-    function logic [31:0] get_overlay_mask(input logic [9:0] reg_num);
-        return overlay_masks[reg_num];
+    // Helper: check if overlay index is valid for a given register number
+    function logic has_valid_overlay(input logic [9:0] reg_num);
+        int idx;
+        idx = int'(overlay_indices[reg_num]);
+        return (overlay_indices[reg_num] != 32'hFFFFFFFF) && (idx >= 0) && (idx < OVERLAY_ENTRIES);
     endfunction
     
     // Function to determine if shadow should take over from hardware
@@ -113,12 +115,7 @@ module pcileech_tlps128_cfgspace_shadow #(
     logic [31:0] read_data;
     logic read_data_valid;
     
-    // Variables for overlay processing
-    logic [31:0] overlay_idx_reg;
-    logic [31:0] overlay_mask_reg;
-    logic [31:0] current_value_reg;
-    
-    // Combinational variables for overlay processing
+    // Temporary variables for overlay processing (combinational within sequential blocks)
     int overlay_idx_comb;
     logic [31:0] overlay_mask_comb;
     
@@ -129,8 +126,7 @@ module pcileech_tlps128_cfgspace_shadow #(
             read_data_valid <= 1'b0;
             read_data <= 32'h0;
             current_reg_num <= 10'h0;
-            overlay_idx_reg <= 32'hFFFFFFFF;
-            overlay_mask_reg <= 32'h0;
+            // Default overlay helpers
             
             // Initialize lookup tables (replacing initial block)
             for (int i = 0; i < 1024; i++) begin
@@ -157,11 +153,7 @@ module pcileech_tlps128_cfgspace_shadow #(
                 overlay_ram[i] <= 32'h0;
             end
             
-            // Note: $readmemh for config_space_ram initialization cannot be directly
-            // replaced in reset logic. For synthesis, consider using a memory
-            // initialization file in your synthesis tool or initializing with
-            // default values here.
-            current_value_reg <= 32'h0;
+            // config_space_ram initialization is handled via optional initial block below
         end else begin
             case (cfg_state)
                 CFG_IDLE: begin
@@ -181,30 +173,31 @@ module pcileech_tlps128_cfgspace_shadow #(
                 CFG_READ: begin
                     // Check if we should use shadow configuration
                     if (use_shadow_cfg({2'b00, effective_reg_num} << 2)) begin
-                        // Read from configuration space shadow using effective register number
-                        read_data <= config_space_ram[effective_reg_num];
-                        
-                        // Check if CFGTLP zero data is enabled
+                        // If zeroing is requested, bypass memory reads
                         if (cfgtlp_zero) begin
-                            read_data <= 32'h00000000;  // Return zero data when cfgtlp_zero is set
+                            read_data <= 32'h00000000;
                         end else begin
-                            // Check if this register has an overlay entry
-                            overlay_idx_reg <= overlay_indices[effective_reg_num];
-                            overlay_mask_reg <= overlay_masks[effective_reg_num];
-                            
-                            if (overlay_indices[effective_reg_num] != 32'hFFFFFFFF) begin
-                                // Apply overlay data for writable bits
-                                read_data <= (config_space_ram[effective_reg_num] & ~overlay_masks[effective_reg_num]) |
-                                             (overlay_ram[overlay_indices[effective_reg_num]] & overlay_masks[effective_reg_num]);
+                            // Base read
+                            logic [31:0] base_rd;
+                            logic [31:0] ov_mask;
+                            int ov_idx;
+                            base_rd = config_space_ram[effective_reg_num];
+                            ov_mask = overlay_masks[effective_reg_num];
+                            ov_idx  = int'(overlay_indices[effective_reg_num]);
+
+                            if (has_valid_overlay(effective_reg_num)) begin
+                                // Apply overlay for writable bits
+                                read_data <= (base_rd & ~ov_mask) |
+                                             (overlay_ram[ov_idx] & ov_mask);
+                            end else begin
+                                read_data <= base_rd;
                             end
                         end
-                        
                         read_data_valid <= 1'b1;
                     end else begin
                         // For addresses below the pointer, let hardware handle it
                         read_data_valid <= 1'b0;  // Indicate shadow doesn't handle this
                     end
-                    
                     cfg_state <= CFG_COMPLETE;
                 end
                 
@@ -212,29 +205,37 @@ module pcileech_tlps128_cfgspace_shadow #(
                     // Check if we should use shadow configuration and if PCIe writes are enabled
                     if (use_shadow_cfg({2'b00, effective_reg_num} << 2) && cfgtlp_pcie_write_en) begin
                         // Handle write to configuration space shadow
-                        overlay_idx_reg <= overlay_indices[effective_reg_num];
-                        overlay_mask_reg <= overlay_masks[effective_reg_num];
-                        
-                        if (overlay_indices[effective_reg_num] != 32'hFFFFFFFF) begin
-                            // Only update writable bits in the overlay RAM
-                            current_value_reg <= overlay_ram[overlay_indices[effective_reg_num]];
-                            
-                            // Apply byte enables - build new value
-                            if (cfg_ext_write_byte_enable[0])
-                                current_value_reg[7:0] <= (cfg_ext_write_data[7:0] & overlay_masks[effective_reg_num][7:0]) |
-                                                         (overlay_ram[overlay_indices[effective_reg_num]][7:0] & ~overlay_masks[effective_reg_num][7:0]);
-                            if (cfg_ext_write_byte_enable[1])
-                                current_value_reg[15:8] <= (cfg_ext_write_data[15:8] & overlay_masks[effective_reg_num][15:8]) |
-                                                          (overlay_ram[overlay_indices[effective_reg_num]][15:8] & ~overlay_masks[effective_reg_num][15:8]);
-                            if (cfg_ext_write_byte_enable[2])
-                                current_value_reg[23:16] <= (cfg_ext_write_data[23:16] & overlay_masks[effective_reg_num][23:16]) |
-                                                           (overlay_ram[overlay_indices[effective_reg_num]][23:16] & ~overlay_masks[effective_reg_num][23:16]);
-                            if (cfg_ext_write_byte_enable[3])
-                                current_value_reg[31:24] <= (cfg_ext_write_data[31:24] & overlay_masks[effective_reg_num][31:24]) |
-                                                           (overlay_ram[overlay_indices[effective_reg_num]][31:24] & ~overlay_masks[effective_reg_num][31:24]);
-                            
-                            overlay_ram[overlay_indices[effective_reg_num]] <= current_value_reg;
+                        if (has_valid_overlay(effective_reg_num)) begin
+                            int ov_idx;
+                            logic [31:0] ov_mask;
+                            logic [31:0] next_overlay_value;
+
+                            ov_idx  = int'(overlay_indices[effective_reg_num]);
+                            ov_mask = overlay_masks[effective_reg_num];
+                            next_overlay_value = overlay_ram[ov_idx];
+
+                            // Apply byte enables - build new value using blocking assigns to temp
+                            if (cfg_ext_write_byte_enable[0]) begin
+                                next_overlay_value[7:0] = (cfg_ext_write_data[7:0] & ov_mask[7:0]) |
+                                                          (next_overlay_value[7:0] & ~ov_mask[7:0]);
+                            end
+                            if (cfg_ext_write_byte_enable[1]) begin
+                                next_overlay_value[15:8] = (cfg_ext_write_data[15:8] & ov_mask[15:8]) |
+                                                           (next_overlay_value[15:8] & ~ov_mask[15:8]);
+                            end
+                            if (cfg_ext_write_byte_enable[2]) begin
+                                next_overlay_value[23:16] = (cfg_ext_write_data[23:16] & ov_mask[23:16]) |
+                                                            (next_overlay_value[23:16] & ~ov_mask[23:16]);
+                            end
+                            if (cfg_ext_write_byte_enable[3]) begin
+                                next_overlay_value[31:24] = (cfg_ext_write_data[31:24] & ov_mask[31:24]) |
+                                                            (next_overlay_value[31:24] & ~ov_mask[31:24]);
+                            end
+
+                            // Single write to overlay RAM (no multiple drivers / stale value)
+                            overlay_ram[ov_idx] <= next_overlay_value;
                         end
+                        // If no valid overlay, ignore write (hardware handles it)
                     end
                     // If not using shadow or PCIe writes disabled, hardware handles the write
                     
@@ -264,14 +265,18 @@ module pcileech_tlps128_cfgspace_shadow #(
                 // Host write to configuration space
                 config_space_ram[host_addr[11:2]] <= host_write_data;
             end else begin
-                // Host read from configuration space
-                host_read_data <= config_space_ram[host_addr[11:2]];
-                
-                // Check if this register has an overlay entry
-                if (overlay_indices[host_addr[11:2]] != 32'hFFFFFFFF) begin
-                    // Apply overlay data for writable bits
-                    host_read_data <= (config_space_ram[host_addr[11:2]] & ~overlay_masks[host_addr[11:2]]) |
-                                     (overlay_ram[overlay_indices[host_addr[11:2]]] & overlay_masks[host_addr[11:2]]);
+                // Host read from configuration space (single assignment)
+                logic [31:0] base_rd;
+                logic [31:0] ov_mask;
+                int ov_idx;
+                base_rd = config_space_ram[host_addr[11:2]];
+                ov_mask = overlay_masks[host_addr[11:2]];
+                ov_idx  = int'(overlay_indices[host_addr[11:2]]);
+
+                if ((overlay_indices[host_addr[11:2]] != 32'hFFFFFFFF) && (ov_idx >= 0) && (ov_idx < OVERLAY_ENTRIES)) begin
+                    host_read_data <= (base_rd & ~ov_mask) | (overlay_ram[ov_idx] & ov_mask);
+                end else begin
+                    host_read_data <= base_rd;
                 end
             end
         end
@@ -285,27 +290,32 @@ module pcileech_tlps128_cfgspace_shadow #(
                 // Port B write to configuration space
                 config_space_ram[addrB[11:2]] <= dinB;
             end else begin
-                // Port B read from configuration space
-                doutB <= config_space_ram[addrB[11:2]];
-                
-                // Check if this register has an overlay entry
-                if (overlay_indices[addrB[11:2]] != 32'hFFFFFFFF) begin
-                    // Apply overlay data for writable bits
-                    doutB <= (config_space_ram[addrB[11:2]] & ~overlay_masks[addrB[11:2]]) |
-                             (overlay_ram[overlay_indices[addrB[11:2]]] & overlay_masks[addrB[11:2]]);
+                // Port B read from configuration space (single assignment)
+                logic [31:0] base_rd_B;
+                logic [31:0] ov_mask_B;
+                int ov_idx_B;
+                base_rd_B = config_space_ram[addrB[11:2]];
+                ov_mask_B = overlay_masks[addrB[11:2]];
+                ov_idx_B  = int'(overlay_indices[addrB[11:2]]);
+
+                if ((overlay_indices[addrB[11:2]] != 32'hFFFFFFFF) && (ov_idx_B >= 0) && (ov_idx_B < OVERLAY_ENTRIES)) begin
+                    doutB <= (base_rd_B & ~ov_mask_B) | (overlay_ram[ov_idx_B] & ov_mask_B);
+                end else begin
+                    doutB <= base_rd_B;
                 end
             end
         end
     end
     
 {% endif %}
-    // NOTE: For synthesis, memory initialization should be done in reset logic
-    // The following is for simulation only and may cause synthesis issues:
-    // initial begin
-    //     $readmemh("config_space_init.hex", config_space_ram);
-    // end
-    
-    // For synthesis, memory initialization should be handled in the reset logic
-    // or through memory initialization parameters in your synthesis tool
+    // Optional configuration-space initialization
+    // Many FPGA tools support BRAM init via initial blocks; for ASIC flows use tool-specific mechanisms.
+    initial begin
+        if (CFG_INIT_HEX != "") begin
+            $readmemh(CFG_INIT_HEX, config_space_ram);
+        end
+    end
 
 endmodule
+
+`default_nettype wire

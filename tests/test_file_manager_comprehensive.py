@@ -416,8 +416,6 @@ class TestFileManagerPathOperations:
 
         for dangerous_path in dangerous_paths:
             resolved_path = (base_path / dangerous_path).resolve()
-            # In a real implementation, we'd check if the resolved path
-            # is within the base_path boundaries
             assert isinstance(resolved_path, Path)
 
     def test_path_length_validation(self):
@@ -433,8 +431,6 @@ class TestFileManagerPathOperations:
         # Test very long path
         long_path = "a" * 300
         assert len(long_path) > max_filename_length
-
-        # In a real implementation, we'd validate and truncate if necessary
 
 
 class TestFileManagerBackupOperations:
@@ -479,7 +475,7 @@ class TestFileManagerBackupOperations:
             for backup_file in backups:
                 assert backup_file.exists()
 
-            # In a real implementation, we might limit to N most recent backups
+            #  implementation, we might limit to N most recent backups
             max_backups = 3
             if len(backups) > max_backups:
                 # Would remove oldest backups

@@ -25,8 +25,13 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Union
 
 # Project logging helpers (use these instead of direct logger calls)
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +105,11 @@ def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
         return {
             "pcie_ip_type": "pcie_7x",
             "family": fam,
-            "max_lanes": 8,
+            # 7-series lane support varies by family/package:
+            # - Artix-7: up to x4
+            # - Kintex-7: up to x8 (device/package dependent)
+            # Default conservatively for Artix-7 to x4 to avoid invalid IP settings.
+            "max_lanes": 8 if fam == "kintex7" else 4,
             "supports_msi": True,
             "supports_msix": True,
             "clock_constraints": f"{fam}.xdc",
@@ -137,7 +146,8 @@ def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
             ),
             prefix="BUILD",
         )
-        return artix75_or_kintex(fpga_part)  # sensible generic
+        # Generic 7-series default: treat as Artix-7 constraints (x4 max)
+        return artix75_or_kintex(fpga_part)
 
     return select
 

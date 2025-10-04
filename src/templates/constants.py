@@ -2,18 +2,25 @@
 """
 Template constants - exposes centralized constants to templates.
 """
-from src.device_clone.constants import (DEVICE_ID_GENERIC, DEVICE_ID_INTEL_ETH,
-                                        DEVICE_ID_INTEL_NVME,
-                                        DEVICE_ID_NVIDIA_GPU, VENDOR_ID_AMD,
-                                        VENDOR_ID_INTEL, VENDOR_ID_NVIDIA,
-                                        VENDOR_ID_REALTEK,
-                                        get_fallback_device_id,
-                                        get_fallback_vendor_id)
+from src.device_clone.constants import (
+    DEVICE_ID_GENERIC,
+    DEVICE_ID_INTEL_ETH,
+    DEVICE_ID_INTEL_NVME,
+    DEVICE_ID_NVIDIA_GPU,
+    VENDOR_ID_AMD,
+    VENDOR_ID_INTEL,
+    VENDOR_ID_NVIDIA,
+    VENDOR_ID_REALTEK,
+    get_fallback_device_id,
+    get_fallback_vendor_id,
+)
 
 
 def get_template_constants():
     """Return constants that can be injected into template context."""
     return {
+        # Template plumbing defaults
+        "header_includes": [],
         # Vendor ID constants
         "VENDOR_ID_INTEL": VENDOR_ID_INTEL,
         "VENDOR_ID_NVIDIA": VENDOR_ID_NVIDIA,

@@ -2,6 +2,8 @@
 {% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
 {{ header | safe }}
 
+`default_nettype none
+
 module pcileech_tlps128_bar_controller #(
     parameter BAR_APERTURE_SIZE = 131072,  // 128KB
     parameter DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
@@ -46,3 +48,5 @@ module pcileech_tlps128_bar_controller #(
     end
 
 endmodule
+
+`default_nettype wire

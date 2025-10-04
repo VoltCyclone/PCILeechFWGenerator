@@ -193,9 +193,14 @@ create_ip -name pcie_7x -vendor xilinx.com -library ip -module_name pcie_7x_brid
 {%- if not device.subsys_vendor_id %}
 {%- error "Subsystem Vendor ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
 {%- endif %}
+{# Compute a valid 7-series lane width enum: Artix-7(X1/X2/X4), Kintex-7(+X8) #}
+{% set _allow8 = (fpga_family == 'kintex7') %}
+{% set _valid = [1,2,4,8] if _allow8 else [1,2,4] %}
+{% set _lanes = max_lanes if max_lanes in _valid else (_valid|select('le', max_lanes)|list|max if (max_lanes is number) else 1) %}
+{% set _lane_enum = 'X' ~ _lanes %}
 set_property -dict [list \
     CONFIG.Link_Speed {2.5_GT/s} \
-    CONFIG.Maximum_Link_Width X1 \
+    CONFIG.Maximum_Link_Width {{ _lane_enum }} \
     CONFIG.Device_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
     CONFIG.Vendor_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
     CONFIG.Revision_ID {{ device.revision_id }} \
@@ -294,7 +299,11 @@ puts "Project: $project_name"
 puts "Location: $project_dir"
 puts "FPGA Part: $fpga_part"
 puts "PCIe IP Type: {{ pcie_ip_type }}"
+{% if pcie_ip_type != 'pcie_ultrascale' %}
+puts "Max Lanes (effective 7x): {{ _lanes }}"
+{% else %}
 puts "Max Lanes: {{ max_lanes }}"
+{% endif %}
 {% if supports_msi %}
 puts "MSI Support: Enabled"
 {% endif %}

@@ -2,6 +2,8 @@
 {#- Generates clock gating logic for power management -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module clock_gating #(
     parameter IDLE_THRESHOLD = {{ config.idle_threshold | default(1000) }}
 ) (
@@ -90,3 +92,5 @@ assign gated_clk = clk;
 {% endif %}
 
 endmodule
+
+`default_nettype wire

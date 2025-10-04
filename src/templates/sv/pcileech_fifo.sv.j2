@@ -2,6 +2,8 @@
 {% from "_helpers.j2" import get_vendor_id, get_device_id %}
 {{ header | safe }}
 
+`default_nettype none
+
 module pcileech_fifo #(
     parameter DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
     parameter VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
@@ -10,10 +12,6 @@ module pcileech_fifo #(
 ) (
     input  logic        clk,
     input  logic        rst,
-    
-    // PCIe TLP interface
-    input  logic        pcie_clk,
-    input  logic        pcie_rst_n,
     
     // TLP RX interface
     input  logic [DATA_WIDTH-1:0] rx_tlp_data,
@@ -44,119 +42,107 @@ module pcileech_fifo #(
     output logic [15:0] fifo_count
 );
 
+    // Single-clock FIFO; no clock-domain crossing in this template.
+
     // Configuration registers
     logic [255:0] rw;
     
     // FIFO signals
     logic [DATA_WIDTH-1:0] fifo_din, fifo_dout;
-    logic fifo_wr_en, fifo_rd_en;
-    logic fifo_almost_full, fifo_almost_empty;
-    
-    // Clock domain crossing signals
-    logic [DATA_WIDTH-1:0] rx_data_sync, tx_data_sync;
-    logic rx_valid_sync, tx_valid_sync;
+    logic                  fifo_wr_en, fifo_rd_en;
+    logic                  fifo_almost_full, fifo_almost_empty;
     
     // Configuration initialization is handled in reset logic below
     
-    // FIFO instantiation
-    {% if fifo_type == 'block_ram' %}
-    // Block RAM FIFO for high performance
-    fifo_generator_v13_2_5 #(
-        .C_FAMILY("{{ fpga_family | default('artix7') }}"),
-        .C_INTERFACE_TYPE(0),
-        .C_MEMORY_TYPE(2),  // Block RAM
-        .C_DATA_WIDTH(DATA_WIDTH),
-        .C_FIFO_DEPTH(FIFO_DEPTH),
-        .C_PROG_FULL_THRESH_ASSERT_VAL(FIFO_DEPTH - 16),
-        .C_PROG_EMPTY_THRESH_ASSERT_VAL(16)
-    ) u_fifo (
-        .clk(clk),
-        .srst(rst),
-        .din(fifo_din),
-        .wr_en(fifo_wr_en),
-        .rd_en(fifo_rd_en),
-        .dout(fifo_dout),
-        .full(fifo_full),
-        .empty(fifo_empty),
-        .prog_full(fifo_almost_full),
-        .prog_empty(fifo_almost_empty),
-        .data_count(fifo_count)
-    );
-    {% else %}
-    // Distributed RAM FIFO for lower latency
-    logic [{{ ((fifo_depth | default(512)) | log2) | int }}:0] wr_ptr, rd_ptr;
-    logic [DATA_WIDTH-1:0] fifo_mem [0:FIFO_DEPTH-1];
-    
-    always @(posedge clk) begin
+    // --------------------------------------------------------------------
+    // Single-clock FIFO implementation with N+1-bit pointers
+    // --------------------------------------------------------------------
+    // No CDC path; both write and read sides use 'clk'.
+
+    // Pointer width and indexing
+    localparam int LOG2_DEPTH = (FIFO_DEPTH <= 2)    ? 1 :
+                                (FIFO_DEPTH <= 4)    ? 2 :
+                                (FIFO_DEPTH <= 8)    ? 3 :
+                                (FIFO_DEPTH <= 16)   ? 4 :
+                                (FIFO_DEPTH <= 32)   ? 5 :
+                                (FIFO_DEPTH <= 64)   ? 6 :
+                                (FIFO_DEPTH <= 128)  ? 7 :
+                                (FIFO_DEPTH <= 256)  ? 8 :
+                                (FIFO_DEPTH <= 512)  ? 9 :
+                                (FIFO_DEPTH <= 1024) ? 10 : 11;
+
+    logic [LOG2_DEPTH:0] wr_ptr, rd_ptr; // extra MSB for full/empty disambiguation
+    wire  [LOG2_DEPTH-1:0] wr_idx = wr_ptr[LOG2_DEPTH-1:0];
+    wire  [LOG2_DEPTH-1:0] rd_idx = rd_ptr[LOG2_DEPTH-1:0];
+
+    // Data and sideband flag memories (flags: {SOP,EOP})
+    logic [DATA_WIDTH-1:0] fifo_mem   [0:FIFO_DEPTH-1];
+    logic [1:0]            flag_mem   [0:FIFO_DEPTH-1];
+
+    // Write path
+    always_ff @(posedge clk) begin
         if (rst) begin
-            wr_ptr <= 0;
-            rd_ptr <= 0;
+            wr_ptr <= '0;
         end else begin
             if (fifo_wr_en && !fifo_full) begin
-                fifo_mem[wr_ptr[{{ ((fifo_depth | default(512)) | log2) | int - 1 }}:0]] <= fifo_din;
-                wr_ptr <= wr_ptr + 1;
-            end
-            if (fifo_rd_en && !fifo_empty) begin
-                rd_ptr <= rd_ptr + 1;
+                fifo_mem[wr_idx] <= fifo_din;
+                flag_mem[wr_idx] <= {rx_tlp_sop, rx_tlp_eop};
+                wr_ptr <= wr_ptr + 1'b1;
             end
         end
     end
-    
-    assign fifo_dout = fifo_mem[rd_ptr[{{ ((fifo_depth | default(512)) | log2) | int - 1 }}:0]];
+
+    // Read path (pointer advance in handshake block below)
+    assign fifo_dout = fifo_mem[rd_idx];
+    wire [1:0] head_flags = flag_mem[rd_idx];
+
+    // Status and thresholds
+    wire [LOG2_DEPTH:0] fifo_level = wr_ptr - rd_ptr;
     assign fifo_empty = (wr_ptr == rd_ptr);
-    assign fifo_full = ((wr_ptr + 1) == rd_ptr);
-    assign fifo_count = wr_ptr - rd_ptr;
-    assign fifo_almost_full = (fifo_count >= (FIFO_DEPTH - 16));
-    assign fifo_almost_empty = (fifo_count <= 16);
-    {% endif %}
+    assign fifo_full  = ((wr_idx == rd_idx) && (wr_ptr[LOG2_DEPTH] != rd_ptr[LOG2_DEPTH]));
+    assign fifo_count = fifo_level[15:0];
+    assign fifo_almost_full  = (fifo_level >= (FIFO_DEPTH - 16));
+    assign fifo_almost_empty = (fifo_level <= 16);
     
-    // Clock domain crossing for PCIe interface
-    {% if enable_clock_crossing %}
-    // Synchronize RX data from PCIe clock domain
-    always @(posedge clk) begin
-        if (rst) begin
-            rx_data_sync <= 0;
-            rx_valid_sync <= 1'b0;
-        end else begin
-            rx_data_sync <= rx_tlp_data;
-            rx_valid_sync <= rx_tlp_valid;
-        end
-    end
-    
-    // Synchronize TX data to PCIe clock domain
-    always @(posedge pcie_clk) begin
-        if (!pcie_rst_n) begin
-            tx_data_sync <= 0;
-            tx_valid_sync <= 1'b0;
-        end else begin
-            tx_data_sync <= fifo_dout;
-            tx_valid_sync <= fifo_rd_en;
-        end
-    end
-    
-    assign fifo_din = rx_data_sync;
-    assign fifo_wr_en = rx_valid_sync && rx_tlp_ready;
-    assign fifo_rd_en = tx_tlp_ready && !fifo_empty;
-    assign tx_tlp_data = tx_data_sync;
-    assign tx_tlp_valid = tx_valid_sync;
-    {% else %}
-    // Direct connection (same clock domain)
-    assign fifo_din = rx_tlp_data;
+    // PCIe interface hookups and registered outputs (single-clock)
+    assign fifo_din  = rx_tlp_data;
     assign fifo_wr_en = rx_tlp_valid && rx_tlp_ready;
     assign fifo_rd_en = tx_tlp_ready && !fifo_empty;
-    assign tx_tlp_data = fifo_dout;
-    assign tx_tlp_valid = !fifo_empty;
-    {% endif %}
+
+    // rx_tlp_ready registered
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            rx_tlp_ready <= 1'b0;
+        end else begin
+            rx_tlp_ready <= ~fifo_almost_full;
+        end
+    end
+
+    // tx_tlp_* registered
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            tx_tlp_data  <= '0;
+            tx_tlp_valid <= 1'b0;
+            tx_tlp_sop   <= 1'b0;
+            tx_tlp_eop   <= 1'b0;
+        end else begin
+            // Present head-of-line data every cycle while not empty
+            tx_tlp_valid <= !fifo_empty;
+            if (!fifo_empty) begin
+                tx_tlp_data <= fifo_dout;
+                {tx_tlp_sop, tx_tlp_eop} <= head_flags;
+            end
+            // Pop on handshake
+            if (tx_tlp_ready && !fifo_empty) begin
+                rd_ptr <= rd_ptr + 1'b1;
+            end
+        end
+    end
     
-    // Flow control
-    assign rx_tlp_ready = !fifo_almost_full;
-    
-    // TLP framing (simplified)
-    assign tx_tlp_sop = tx_tlp_valid;  // Simplified: each transfer is a packet
-    assign tx_tlp_eop = tx_tlp_valid;
+    // Flow control and framing now handled in registered blocks above
     
     // Configuration register access
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
         if (rst) begin
             cfg_rdata <= 32'h0;
             cfg_ready <= 1'b0;
@@ -226,17 +212,14 @@ module pcileech_fifo #(
     end
     
     // Status register output
-    assign status_reg = {
-        {16'h0, DEVICE_ID},
-        {14'h0, fifo_full, fifo_empty}
-    };
+    assign status_reg = {14'h0, fifo_full, fifo_empty, DEVICE_ID};
     
     {% if enable_performance_counters %}
     // Performance counters
     logic [31:0] rx_packet_count, tx_packet_count;
     logic [31:0] rx_byte_count, tx_byte_count;
     
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
         if (rst) begin
             rx_packet_count <= 32'h0;
             tx_packet_count <= 32'h0;
@@ -261,13 +244,12 @@ module pcileech_fifo #(
     
     {% if enable_error_detection %}
     // Error detection and reporting
-    logic parity_error, overflow_error, underflow_error;
+    logic overflow_error, underflow_error;
     logic [31:0] error_count;
-    
-    always @(posedge clk) begin
+
+    always_ff @(posedge clk) begin
         if (rst) begin
             error_count <= 32'h0;
-            parity_error <= 1'b0;
             overflow_error <= 1'b0;
             underflow_error <= 1'b0;
         end else begin
@@ -282,13 +264,10 @@ module pcileech_fifo #(
                 underflow_error <= 1'b1;
                 error_count <= error_count + 1;
             end
-            
-            // Simple parity check on data
-            if (fifo_wr_en) begin
-                parity_error <= ^fifo_din;  // Odd parity check
-            end
         end
     end
     {% endif %}
 
 endmodule
+
+`default_nettype wire
