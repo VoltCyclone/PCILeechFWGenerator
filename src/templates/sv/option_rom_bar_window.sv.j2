@@ -8,29 +8,29 @@ module option_rom_bar_window #(
     parameter ROM_BAR_INDEX = {{ ROM_BAR_INDEX }}  // BAR {{ ROM_BAR_INDEX }} for ROM
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // PCIe BAR interface
-    input  logic [31:0] bar_addr,
-    input  logic [31:0] bar_wr_data,
-    input  logic        bar_wr_en,
-    input  logic        bar_rd_en,
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
     output logic [31:0] bar_rd_data,
-    input  logic [2:0]  bar_index,
+    input  wire  [2:0]  bar_index,
     output logic        bar_access_match,
     
     // PCIe configuration space interface
-    input  logic        cfg_ext_read_received,
-    input  logic        cfg_ext_write_received,
-    input  logic [9:0]  cfg_ext_register_number,
-    input  logic [3:0]  cfg_ext_function_number,
-    input  logic [31:0] cfg_ext_write_data,
-    input  logic [3:0]  cfg_ext_write_byte_enable,
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
     
     // Legacy ROM access interface (16-bit config cycles)
-    input  logic        legacy_rom_access,
-    input  logic [31:0] legacy_rom_addr,
+    input  wire         legacy_rom_access,
+    input  wire  [31:0] legacy_rom_addr,
     output logic [31:0] legacy_rom_data
 );
 

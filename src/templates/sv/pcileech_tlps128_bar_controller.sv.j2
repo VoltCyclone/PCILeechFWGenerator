@@ -53,16 +53,16 @@ module pcileech_tlps128_bar_controller #(
     parameter TIMEOUT_CYCLES = {{ timing_config.timeout_cycles | default(1024) }}
 ) (
     // Clock and Reset
-    input  logic                clk,
-    input  logic                reset_n,
+    input  wire                 clk,
+    input  wire                 reset_n,
     
     // PCIe TLP 128-bit Interface
-    input  logic                tlp_rx_valid,
-    input  logic [127:0]        tlp_rx_data,
-    input  logic                tlp_rx_sop,
-    input  logic                tlp_rx_eop,
-    input  logic [3:0]          tlp_rx_empty,
-    input  logic                tlp_rx_err,
+    input  wire                 tlp_rx_valid,
+    input  wire  [127:0]        tlp_rx_data,
+    input  wire                 tlp_rx_sop,
+    input  wire                 tlp_rx_eop,
+    input  wire  [3:0]          tlp_rx_empty,
+    input  wire                 tlp_rx_err,
     output logic                tlp_rx_ready,
     
     output logic                tlp_tx_valid,
@@ -70,32 +70,32 @@ module pcileech_tlps128_bar_controller #(
     output logic                tlp_tx_sop,
     output logic                tlp_tx_eop,
     output logic [3:0]          tlp_tx_empty,
-    input  logic                tlp_tx_ready,
+    input  wire                 tlp_tx_ready,
     output logic                tlp_tx_err,
     
     // BAR Access Interface
-    input  logic [31:0]         bar_addr,
-    input  logic [31:0]         bar_wr_data,
-    input  logic [3:0]          bar_wr_be,
-    input  logic                bar_wr_en,
-    input  logic                bar_rd_en,
+    input  wire  [31:0]         bar_addr,
+    input  wire  [31:0]         bar_wr_data,
+    input  wire  [3:0]          bar_wr_be,
+    input  wire                 bar_wr_en,
+    input  wire                 bar_rd_en,
     output logic [31:0]         bar_rd_data,
     output logic                bar_rd_valid,
     
     // Configuration Space Interface
-    input  logic                cfg_ext_read_received,
-    input  logic                cfg_ext_write_received,
-    input  logic [9:0]          cfg_ext_register_number,
-    input  logic [3:0]          cfg_ext_function_number,
-    input  logic [31:0]         cfg_ext_write_data,
-    input  logic [3:0]          cfg_ext_write_byte_enable,
+    input  wire                 cfg_ext_read_received,
+    input  wire                 cfg_ext_write_received,
+    input  wire  [9:0]          cfg_ext_register_number,
+    input  wire  [3:0]          cfg_ext_function_number,
+    input  wire  [31:0]         cfg_ext_write_data,
+    input  wire  [3:0]          cfg_ext_write_byte_enable,
     output logic [31:0]         cfg_ext_read_data,
     output logic                cfg_ext_read_data_valid,
     
     // MSI-X Interrupt Interface
     output logic                msix_interrupt,
     output logic [10:0]         msix_vector,
-    input  logic                msix_interrupt_ack,
+    input  wire                 msix_interrupt_ack,
     
     // --- Custom window hook (compatibility with basic controller) ---------
     output logic                custom_win_sel,
@@ -104,13 +104,13 @@ module pcileech_tlps128_bar_controller #(
     output logic [3:0]          custom_win_be,
     output logic                custom_win_we,
     output logic                custom_win_re,
-    input  logic [31:0]         custom_win_rdata,
+    input  wire  [31:0]         custom_win_rdata,
     
     // PCILeech Control Interface
-    input  logic                pcileech_enable,
-    input  logic [31:0]         pcileech_command,
-    input  logic [63:0]         pcileech_address,
-    input  logic [31:0]         pcileech_length,
+    input  wire                 pcileech_enable,
+    input  wire  [31:0]         pcileech_command,
+    input  wire  [63:0]         pcileech_address,
+    input  wire  [31:0]         pcileech_length,
     output logic [31:0]         pcileech_status,
     output logic                pcileech_ready,
     
@@ -118,15 +118,15 @@ module pcileech_tlps128_bar_controller #(
     output logic                dma_read_req,
     output logic [63:0]         dma_read_addr,
     output logic [31:0]         dma_read_len,
-    input  logic                dma_read_ack,
-    input  logic [127:0]        dma_read_data,
-    input  logic                dma_read_valid,
+    input  wire                 dma_read_ack,
+    input  wire  [127:0]        dma_read_data,
+    input  wire                 dma_read_valid,
     
     output logic                dma_write_req,
     output logic [63:0]         dma_write_addr,
     output logic [31:0]         dma_write_len,
     output logic [127:0]        dma_write_data,
-    input  logic                dma_write_ack,
+    input  wire                 dma_write_ack,
     
     // Status and Debug
     output logic [31:0]         error_status,

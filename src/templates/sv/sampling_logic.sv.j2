@@ -9,15 +9,15 @@ module sampling_logic #(
     parameter NUM_METRICS = {{ (metrics|length) if metrics else 1 }},
     parameter SAMPLING_PERIOD = {{ config.sampling_period }}
 ) (
-    input  logic clk,
-    input  logic rst_n,
+    input  wire  clk,
+    input  wire  rst_n,
     
     // Metric inputs
-    input  logic [COUNTER_WIDTH-1:0] transaction_count,
-    input  logic [COUNTER_WIDTH-1:0] latency_accumulator,
-    input  logic [COUNTER_WIDTH-1:0] bandwidth_counter,
-    input  logic [COUNTER_WIDTH-1:0] error_count,
-    input  logic [COUNTER_WIDTH-1:0] performance_data,
+    input  wire  [COUNTER_WIDTH-1:0] transaction_count,
+    input  wire  [COUNTER_WIDTH-1:0] latency_accumulator,
+    input  wire  [COUNTER_WIDTH-1:0] bandwidth_counter,
+    input  wire  [COUNTER_WIDTH-1:0] error_count,
+    input  wire  [COUNTER_WIDTH-1:0] performance_data,
     
     // Sample outputs
     output logic sample_trigger,

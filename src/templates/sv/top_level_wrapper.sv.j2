@@ -6,29 +6,29 @@
 
 module pcileech_top (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
 
     // PCIe interface (connect to PCIe hard IP)
-    input  logic [31:0] pcie_rx_data,
-    input  logic        pcie_rx_valid,
+    input  wire  [31:0] pcie_rx_data,
+    input  wire         pcie_rx_valid,
     output logic [31:0] pcie_tx_data,
     output logic        pcie_tx_valid,
 
     // Configuration space interface
-    input  logic        cfg_ext_read_received,
-    input  logic        cfg_ext_write_received,
-    input  logic [9:0]  cfg_ext_register_number,
-    input  logic [3:0]  cfg_ext_function_number,
-    input  logic [31:0] cfg_ext_write_data,
-    input  logic [3:0]  cfg_ext_write_byte_enable,
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
     output logic [31:0] cfg_ext_read_data,
     output logic        cfg_ext_read_data_valid,
 
     // MSI-X interrupt interface
     output logic        msix_interrupt,
     output logic [10:0] msix_vector,
-    input  logic        msix_interrupt_ack,
+    input  wire         msix_interrupt_ack,
 
     // Debug/status outputs
     output logic [31:0] debug_status,
@@ -43,8 +43,8 @@ module pcileech_top (
     ,
     // Optional PCIe power management sideband (expose for integration)
 {%- if _enable_pme %}
-    input  logic        pme_turnoff,
-    input  logic        aux_pwr_present,
+    input  wire         pme_turnoff,
+    input  wire         aux_pwr_present,
     output logic        pme_to_ack{%- if _enable_wake_events %},{% endif %}
 {%- endif %}
 {%- if _enable_wake_events %}

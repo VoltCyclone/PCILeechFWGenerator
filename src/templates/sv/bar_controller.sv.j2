@@ -15,11 +15,11 @@ module pcileech_tlps128_bar_controller #(
     parameter CUSTOM_WIN_BASE    = {{ CUSTOM_WIN_BASE }}  // next‑to‑top 4 KB reserved for custom regs
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
 
     // BAR selector (which BAR of the endpoint this controller is mapped to)
-    input  logic [2:0]  bar_index,
+    input  wire  [2:0]  bar_index,
 
     // PCIe BAR interface
     input  wire  [31:0] bar_addr,
@@ -30,12 +30,12 @@ module pcileech_tlps128_bar_controller #(
     output wire [31:0]  bar_rd_data,
 
     // PCIe configuration space interface
-    input  logic        cfg_ext_read_received,
-    input  logic        cfg_ext_write_received,
-    input  logic [9:0]  cfg_ext_register_number,
-    input  logic [3:0]  cfg_ext_function_number,
-    input  logic [31:0] cfg_ext_write_data,
-    input  logic [3:0]  cfg_ext_write_byte_enable,
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
     output wire [31:0]  cfg_ext_read_data,
     output wire         cfg_ext_read_data_valid,
 

@@ -8,21 +8,21 @@ module pmcsr_stub #(
     // Maximum transition time per PCIe spec ≤ 10 ms; choose a safe sub‑spec.
     parameter int TR_NS  = {{ tr_ns }}           // {{ timeout_ms }} ms
 ) (
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
 
     // ── Config‑space CSR handshake (boilerplate wrapper drives these) ────────
-    input  logic        pmcsr_wr,              // write strobe (one clk pulse)
-    input  logic [15:0] pmcsr_wdata,           // PMCSR bits [15:0]
+    input  wire         pmcsr_wr,              // write strobe (one clk pulse)
+    input  wire  [15:0] pmcsr_wdata,           // PMCSR bits [15:0]
     output logic [15:0] pmcsr_rdata,           // read‑back value
 
     // ── Optional external wake event input ──────────────────────────────────
-    input  logic        wake_evt,              // pulse => wake request
+    input  wire         wake_evt,              // pulse => wake request
     // PME TurnOff/To_Ack handshake (from/to Root Complex)
-    input  logic        pme_turnoff,           // RC requests D3hot entry
+    input  wire         pme_turnoff,           // RC requests D3hot entry
     output logic        pme_to_ack,            // device acks D3hot readiness
     // Aux power presence (1=aux present, 0=no aux -> D3cold allowed)
-    input  logic        aux_pwr_present,
+    input  wire         aux_pwr_present,
     // Sideband WAKE# (active-low) for D3cold wake
     output logic        wake_n,
     // PME# request toward PCIe hard-macro/message generator

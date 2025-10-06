@@ -22,31 +22,31 @@ module option_rom_spi_flash #(
     parameter FLASH_ADDR_OFFSET = {{ FLASH_ADDR_OFFSET }}  // Flash memory offset where ROM is stored
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // PCIe Expansion-ROM interface
-    input  logic        exp_rom_access,
-    input  logic [31:0] exp_rom_addr,
+    input  wire         exp_rom_access,
+    input  wire [31:0]  exp_rom_addr,
     output logic [31:0] exp_rom_data,
     output logic        exp_rom_data_valid,
     
     // Legacy ROM access interface (16-bit config cycles)
-    input  logic        legacy_rom_access,
-    input  logic [31:0] legacy_rom_addr,
+    input  wire         legacy_rom_access,
+    input  wire [31:0]  legacy_rom_addr,
     output logic [31:0] legacy_rom_data,
     
     // SPI Flash interface
     output logic        spi_cs_n,
     output logic        spi_clk,
     output logic        spi_mosi,
-    input  logic        spi_miso{% if USE_QSPI %},
+    input  wire         spi_miso{% if USE_QSPI %},
     
     // QSPI Flash interface
     output logic        qspi_cs_n,
     output logic        qspi_clk,
     output logic [3:0]  qspi_dq_o,
-    input  logic [3:0]  qspi_dq_i,
+    input  wire  [3:0]  qspi_dq_i,
     output logic [3:0]  qspi_dq_oe{% endif %}
 );
 

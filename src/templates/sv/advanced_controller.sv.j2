@@ -21,34 +21,34 @@ module advanced_pcileech_controller #(
     parameter COUNTER_WIDTH = {{ perf_config.counter_width if perf_config else 32 }}
 ) (
     // Clock and reset
-    input logic clk,
-    input logic reset_n,
+    input wire  clk,
+    input wire  reset_n,
 
     // Additional clock domains
-    input logic mem_clk,
-    input logic aux_clk,
+    input wire  mem_clk,
+    input wire  aux_clk,
 
     // PCIe interface
-    input logic [31:0] bar_addr,
-    input logic [31:0] bar_wr_data,
-    input logic [3:0]  bar_wr_be,
-    input logic bar_wr_en,
-    input logic bar_rd_en,
+    input wire  [31:0] bar_addr,
+    input wire  [31:0] bar_wr_data,
+    input wire  [3:0]  bar_wr_be,
+    input wire  bar_wr_en,
+    input wire  bar_rd_en,
     output logic [31:0] bar_rd_data,
 
     // Power management interface
-    input logic [1:0] power_state_req,
+    input wire  [1:0] power_state_req,
     output logic [1:0] power_state_ack,
-    input logic [1:0] link_state_req,
+    input wire  [1:0] link_state_req,
     output logic [1:0] link_state_ack,
 
     // Interrupt interface
     output logic msi_request,
-    input logic msi_ack,
+    input wire  msi_ack,
     output logic [7:0] msi_vector,
-    input logic cfg_interrupt_msi_enable,
+    input wire  cfg_interrupt_msi_enable,
     output logic cfg_interrupt,
-    input logic cfg_interrupt_ready,
+    input wire  cfg_interrupt_ready,
 
     // Error reporting interface
     output logic correctable_error,

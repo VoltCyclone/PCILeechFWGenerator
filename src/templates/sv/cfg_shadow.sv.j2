@@ -12,38 +12,38 @@ module pcileech_tlps128_cfgspace_shadow #(
     parameter string CFG_INIT_HEX = ""
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // Port A - PCIe configuration access
-    input  logic        cfg_ext_read_received,
-    input  logic        cfg_ext_write_received,
-    input  logic [9:0]  cfg_ext_register_number,
-    input  logic [3:0]  cfg_ext_function_number,
-    input  logic [31:0] cfg_ext_write_data,
-    input  logic [3:0]  cfg_ext_write_byte_enable,
-    output logic [31:0] cfg_ext_read_data,
-    output logic        cfg_ext_read_data_valid,
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
+    output wire  [31:0] cfg_ext_read_data,
+    output wire         cfg_ext_read_data_valid,
     
     // CFGTLP control inputs
-    input  logic        cfgtlp_wren,
-    input  logic        cfgtlp_zero,
-    input  logic        cfgtlp_pcie_write_en,
-    input  logic [1:0]  cfg_a7,
+    input  wire         cfgtlp_wren,
+    input  wire         cfgtlp_zero,
+    input  wire         cfgtlp_pcie_write_en,
+    input  wire  [1:0]  cfg_a7,
     
     // Port B - Host access for initialization and monitoring
-    input  logic        host_access_en,
-    input  logic        host_write_en,
-    input  logic [11:0] host_addr,
-    input  logic [31:0] host_write_data,
+    input  wire         host_access_en,
+    input  wire         host_write_en,
+    input  wire  [11:0] host_addr,
+    input  wire  [31:0] host_write_data,
     output logic [31:0] host_read_data{% if DUAL_PORT %},
     
     // Port C - Additional dual-port access
-    input  logic        clkB,
-    input  logic        enB,
-    input  logic        weB,
-    input  logic [11:0] addrB,
-    input  logic [31:0] dinB,
+    input  wire         clkB,
+    input  wire         enB,
+    input  wire         weB,
+    input  wire  [11:0] addrB,
+    input  wire  [31:0] dinB,
     output logic [31:0] doutB{% endif %}
 );
 

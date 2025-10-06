@@ -16,15 +16,15 @@ module advanced_clock_crossing #(
     parameter DATA_WIDTH = 32,
     parameter SYNC_STAGES = 3
 ) (
-    input logic src_clk,
-    input logic dst_clk,
-    input logic reset_n,
-    input logic [DATA_WIDTH-1:0] src_data,
-    input logic src_valid,
+    input wire src_clk,
+    input wire dst_clk,
+    input wire reset_n,
+    input wire [DATA_WIDTH-1:0] src_data,
+    input wire src_valid,
     output logic src_ready,
     output logic [DATA_WIDTH-1:0] dst_data,
     output logic dst_valid,
-    input logic dst_ready
+    input wire dst_ready
 );
 
     // Implementation of advanced clock domain crossing with variance compensation

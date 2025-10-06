@@ -10,14 +10,14 @@ module pcileech_fifo #(
     parameter FIFO_DEPTH = {{ fifo_depth | default(512) }},
     parameter DATA_WIDTH = {{ data_width | default(128) }}
 ) (
-    input  logic        clk,
-    input  logic        rst,
+    input  wire         clk,
+    input  wire         rst,
     
     // TLP RX interface
-    input  logic [DATA_WIDTH-1:0] rx_tlp_data,
-    input  logic        rx_tlp_valid,
-    input  logic        rx_tlp_sop,
-    input  logic        rx_tlp_eop,
+    input  wire  [DATA_WIDTH-1:0] rx_tlp_data,
+    input  wire         rx_tlp_valid,
+    input  wire         rx_tlp_sop,
+    input  wire         rx_tlp_eop,
     output logic        rx_tlp_ready,
     
     // TLP TX interface
@@ -25,13 +25,13 @@ module pcileech_fifo #(
     output logic        tx_tlp_valid,
     output logic        tx_tlp_sop,
     output logic        tx_tlp_eop,
-    input  logic        tx_tlp_ready,
+    input  wire         tx_tlp_ready,
     
     // Configuration interface
-    input  logic [31:0] cfg_addr,
-    input  logic [31:0] cfg_wdata,
-    input  logic        cfg_wr_en,
-    input  logic        cfg_rd_en,
+    input  wire  [31:0] cfg_addr,
+    input  wire  [31:0] cfg_wdata,
+    input  wire         cfg_wr_en,
+    input  wire         cfg_rd_en,
     output logic [31:0] cfg_rdata,
     output logic        cfg_ready,
     

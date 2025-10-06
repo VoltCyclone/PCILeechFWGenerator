@@ -7,16 +7,16 @@ module reporting_logic #(
     {%- set metrics = config.metrics_to_monitor | default([]) %}
     parameter NUM_METRICS = {{ (metrics|length) if metrics else 1 }}
 ) (
-    input  logic clk,
-    input  logic rst_n,
+    input  wire  clk,
+    input  wire  rst_n,
     
     // Data inputs
-    input  logic [COUNTER_WIDTH-1:0] sample_data [NUM_METRICS-1:0],
-    input  logic sample_valid,
-    input  logic [COUNTER_WIDTH-1:0] transaction_count,
-    input  logic [COUNTER_WIDTH-1:0] threshold,
-    input  logic report_ack,
-    input  logic [3:0] report_select,
+    input  wire  [COUNTER_WIDTH-1:0] sample_data [NUM_METRICS-1:0],
+    input  wire  sample_valid,
+    input  wire  [COUNTER_WIDTH-1:0] transaction_count,
+    input  wire  [COUNTER_WIDTH-1:0] threshold,
+    input  wire  report_ack,
+    input  wire  [3:0] report_select,
     
     // Report outputs
     output logic report_ready,

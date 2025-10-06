@@ -9,15 +9,15 @@ module pcileech_tlps128_bar_controller #(
     parameter DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
     parameter VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
 ) (
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // BAR interface
-    input  logic [31:0] bar_addr,
-    input  logic [31:0] bar_wr_data,
-    input  logic [3:0]  bar_wr_be,
-    input  logic        bar_wr_en,
-    input  logic        bar_rd_en,
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire  [3:0]  bar_wr_be,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
     output logic [31:0] bar_rd_data,
     
     // Custom PIO regions
@@ -25,7 +25,7 @@ module pcileech_tlps128_bar_controller #(
     output logic [15:0] custom_pio_addr,
     output logic [31:0] custom_pio_wdata,
     output logic        custom_pio_we,
-    input  logic [31:0] custom_pio_rdata
+    input  wire  [31:0] custom_pio_rdata
 );
 
     // Address decode for custom PIO regions

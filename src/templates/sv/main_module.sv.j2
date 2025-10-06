@@ -41,47 +41,47 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     parameter COUNTER_WIDTH = {{ perf_counter_width }}
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // Memory clock domain
-    input  logic        mem_clk,
-    input  logic        mem_reset_n,
+    input  wire         mem_clk,
+    input  wire         mem_reset_n,
     
     // Auxiliary clock domain  
-    input  logic        aux_clk,
-    input  logic        aux_reset_n,
+    input  wire         aux_clk,
+    input  wire         aux_reset_n,
 
     // BAR interface
-    input  logic [31:0] bar_addr,
-    input  logic [31:0] bar_wr_data,
-    input  logic        bar_wr_en,
-    input  logic        bar_rd_en,
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
     output logic [31:0] bar_rd_data,
     output logic        bar_rd_valid,
 
     // Configuration space interface
-    input  logic        cfg_ext_read_received,
-    input  logic        cfg_ext_write_received,
-    input  logic [9:0]  cfg_ext_register_number,
-    input  logic [3:0]  cfg_ext_function_number,
-    input  logic [31:0] cfg_ext_write_data,
-    input  logic [3:0]  cfg_ext_write_byte_enable,
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
     output logic [31:0] cfg_ext_read_data,
     output logic        cfg_ext_read_data_valid,
 
     // MSI-X interrupt interface
     output logic        msix_interrupt,
     output logic [10:0] msix_vector,
-    input  logic        msix_interrupt_ack,
+    input  wire         msix_interrupt_ack,
 
 {%- if device_type == 'network' %}
     // Network-specific ports
     output logic [63:0] tx_data,
     output logic        tx_valid,
-    input  logic        tx_ready,
-    input  logic [63:0] rx_data,
-    input  logic        rx_valid,
+    input  wire         tx_ready,
+    input  wire  [63:0] rx_data,
+    input  wire         rx_valid,
     output logic        rx_ready,
 {%- elif device_type == 'storage' %}
     // Storage-specific ports
@@ -89,8 +89,8 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     output logic [31:0] storage_wr_data,
     output logic        storage_wr_en,
     output logic        storage_rd_en,
-    input  logic [31:0] storage_rd_data,
-    input  logic        storage_ready,
+    input  wire  [31:0] storage_rd_data,
+    input  wire         storage_ready,
 {%- elif device_type == 'graphics' %}
     // Graphics-specific ports
     output logic [23:0] pixel_data,
@@ -104,7 +104,7 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     // Module issues requests; external PM acknowledges readiness
     output logic        power_down_request,
     output logic        power_up_request,
-    input  logic        power_ready,
+    input  wire         power_ready,
     output logic [1:0]  current_power_state,
 
     // Debug and status

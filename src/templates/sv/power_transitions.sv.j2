@@ -6,12 +6,12 @@
 module power_transitions #(
     parameter NUM_STATES = 8
 ) (
-    input  logic clk,
-    input  logic rst_n,
+    input  wire  clk,
+    input  wire  rst_n,
     
     // State inputs
-    input  logic [2:0] current_state,
-    input  logic [2:0] next_state,
+    input  wire  [2:0] current_state,
+    input  wire  [2:0] next_state,
     
     // Transition outputs
     output logic [15:0] transition_counter,
