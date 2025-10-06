@@ -197,6 +197,9 @@ module msix_table #(
         end
     end
 
+    // Declare pending_vector prior to derived combinational signals that use it
+    logic [10:0] pending_vector;
+
     // Combinational control view for current pending vector
     assign pending_control_dword = msix_table_active[pending_vector * 4 + 3];
     assign pending_vector_masked = pending_control_dword[0];
@@ -209,7 +212,6 @@ module msix_table #(
     } intr_state_t;
     
     intr_state_t intr_state = IDLE;
-    logic [10:0] pending_vector;
     
     // Interrupt delivery logic
     always_ff @(posedge clk) begin

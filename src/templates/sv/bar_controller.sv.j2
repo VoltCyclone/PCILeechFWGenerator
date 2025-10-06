@@ -27,7 +27,9 @@ module pcileech_tlps128_bar_controller #(
     input  wire  [3:0]  bar_wr_be,
     input  wire         bar_wr_en,
     input  wire         bar_rd_en,
-    output wire [31:0]  bar_rd_data,
+    // Procedural assignment below requires a variable type, not a net.
+    // Use 'logic' to allow assignment in always_comb.
+    output logic [31:0] bar_rd_data,
 
     // PCIe configuration space interface
     input  wire         cfg_ext_read_received,
@@ -167,7 +169,9 @@ module pcileech_tlps128_bar_controller #(
         .msix_function_mask(msix_fn_masked),
         .msix_interrupt    (msix_interrupt),
         .msix_vector       (msix_vector),
-        .msix_interrupt_ack(msix_interrupt_ack)
+        .msix_interrupt_ack(msix_interrupt_ack),
+        .trigger_valid     (1'b0),
+        .trigger_vector    (11'h0)
     );
 
     // ------------------------------------------------------------

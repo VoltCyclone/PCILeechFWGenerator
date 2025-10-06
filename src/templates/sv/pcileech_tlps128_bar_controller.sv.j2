@@ -794,7 +794,10 @@ module pcileech_tlps128_bar_controller #(
         .msix_function_mask(device_ctrl_mem[0][1]), // Function mask from control register
         .msix_interrupt(msix_interrupt),
         .msix_vector(msix_vector),
-        .msix_interrupt_ack(msix_interrupt_ack)
+        .msix_interrupt_ack(msix_interrupt_ack),
+        // No external trigger source wired in this controller; tie off.
+        .trigger_valid(1'b0),
+        .trigger_vector(11'h0)
     );
     
     // ========================================================================
