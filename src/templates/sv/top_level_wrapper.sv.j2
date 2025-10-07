@@ -3,13 +3,16 @@
 
 `default_nettype none
 {% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
+{#- Determine lane count from context - defaults to X1 if not specified -#}
+{% set _max_lanes = max_lanes | default(1) %}
+{% set _lane_width = (_max_lanes - 1) %}
 
 module pcileech_top (
     // PCIe physical transceiver interface
-    output wire [0:0]  pci_exp_txp,
-    output wire [0:0]  pci_exp_txn,
-    input  wire [0:0]  pci_exp_rxp,
-    input  wire [0:0]  pci_exp_rxn,
+    output wire [{{ _lane_width }}:0]  pci_exp_txp,
+    output wire [{{ _lane_width }}:0]  pci_exp_txn,
+    input  wire [{{ _lane_width }}:0]  pci_exp_rxp,
+    input  wire [{{ _lane_width }}:0]  pci_exp_rxn,
 
     // System clock and reset (external)
     input  wire        sys_clk_p,
@@ -36,34 +39,35 @@ module pcileech_top (
 );
 
     // Internal PCIe interface signals
+    {#- 7-series uses 64-bit AXI-Stream interface for x4 mode -#}
+    {%- set _data_width = 64 if _max_lanes >= 4 else 32 %}
     logic        clk;
     logic        reset_n;
     logic        device_ready;
-    logic [31:0] pcie_rx_data;
+    logic [{{ _data_width - 1 }}:0] pcie_rx_data;
     logic        pcie_rx_valid;
-    logic [31:0] pcie_tx_data;
+    logic [{{ _data_width - 1 }}:0] pcie_tx_data;
     logic        pcie_tx_valid;
     logic        pcie_tx_ready;
     
-    // Configuration space interface (internal)
-    logic        cfg_ext_read_received;
-    logic        cfg_ext_write_received;
-    logic [9:0]  cfg_ext_register_number;
-    logic [3:0]  cfg_ext_function_number;
-    logic [31:0] cfg_ext_write_data;
-    logic [3:0]  cfg_ext_write_byte_enable;
-    logic [31:0] cfg_ext_read_data;
-    logic        cfg_ext_read_data_valid;
+    // Configuration space management interface (7-series uses cfg_mgmt_*, not cfg_ext_*)
+    logic [31:0] cfg_mgmt_do;
+    logic        cfg_mgmt_rd_wr_done;
+    logic [31:0] cfg_mgmt_di;
+    logic  [3:0] cfg_mgmt_byte_en;
+    logic  [9:0] cfg_mgmt_dwaddr;
+    logic        cfg_mgmt_wr_en;
+    logic        cfg_mgmt_rd_en;
+    logic        cfg_mgmt_wr_readonly;
     
-    // MSI-X interrupt interface (internal)
-    logic        msix_interrupt;
-    logic [10:0] msix_vector;
-    logic        msix_interrupt_ack;
+    // MSI-X status signals (outputs from 7-series core, not inputs)
+    logic        cfg_interrupt_msixenable;
+    logic        cfg_interrupt_msixfm;
     
     // Debug status (internal)
     logic [31:0] debug_status;
 
-    // PCIe IP Core instantiation
+    // PCIe IP Core instantiation (7-Series)
     pcie_7x_bridge pcie_core (
         .pci_exp_txp(pci_exp_txp),
         .pci_exp_txn(pci_exp_txn),
@@ -74,52 +78,45 @@ module pcileech_top (
         .user_reset_out(reset_n),
         .user_lnk_up(device_ready),
         
-        // Connect to BAR controller
+        // AXI-Stream interface to BAR controller
         .m_axis_rx_tdata(pcie_rx_data),
         .m_axis_rx_tvalid(pcie_rx_valid),
         .s_axis_tx_tdata(pcie_tx_data),
         .s_axis_tx_tvalid(pcie_tx_valid),
         .s_axis_tx_tready(pcie_tx_ready),
         
-        // Configuration interface
-        .cfg_ext_read_received(cfg_ext_read_received),
-        .cfg_ext_write_received(cfg_ext_write_received),
-        .cfg_ext_register_number(cfg_ext_register_number),
-        .cfg_ext_function_number(cfg_ext_function_number),
-        .cfg_ext_write_data(cfg_ext_write_data),
-        .cfg_ext_write_byte_enable(cfg_ext_write_byte_enable),
-        .cfg_ext_read_data(cfg_ext_read_data),
-        .cfg_ext_read_data_valid(cfg_ext_read_data_valid),
+        // Configuration management interface (7-series)
+        .cfg_mgmt_do(cfg_mgmt_do),
+        .cfg_mgmt_rd_wr_done(cfg_mgmt_rd_wr_done),
+        .cfg_mgmt_di(cfg_mgmt_di),
+        .cfg_mgmt_byte_en(cfg_mgmt_byte_en),
+        .cfg_mgmt_dwaddr(cfg_mgmt_dwaddr),
+        .cfg_mgmt_wr_en(cfg_mgmt_wr_en),
+        .cfg_mgmt_rd_en(cfg_mgmt_rd_en),
+        .cfg_mgmt_wr_readonly(cfg_mgmt_wr_readonly),
         
-        // MSI-X interface
-        .cfg_interrupt_msix_enable(msix_interrupt),
-        .cfg_interrupt_msix_vf_enable(msix_vector),
-        .cfg_interrupt_msix_int(msix_interrupt_ack),
+        // MSI-X status (outputs from core)
+        .cfg_interrupt_msixenable(cfg_interrupt_msixenable),
+        .cfg_interrupt_msixfm(cfg_interrupt_msixfm),
         
         .sys_clk(sys_clk_p),
         .sys_rst_n(sys_rst_n)
     );
 
-    // BAR controller signals
+    // BAR controller signals  
     logic [31:0] bar_addr;
     logic [31:0] bar_wr_data;
     logic        bar_wr_en;
     logic        bar_rd_en;
     logic [31:0] bar_rd_data;
 
-    // Device configuration signals
-    logic [31:0] cfg_device_id;
-    logic [31:0] cfg_class_code;
-    logic [31:0] cfg_subsystem_id;
-    logic [31:0] cfg_bar [0:5];
-
-    // Instantiate device configuration
-    device_config device_cfg (
-        .cfg_device_id(cfg_device_id),
-        .cfg_class_code(cfg_class_code),
-        .cfg_subsystem_id(cfg_subsystem_id),
-        .cfg_bar(cfg_bar)
-    );
+    // Configuration management defaults (tie off for basic operation)
+    assign cfg_mgmt_di = 32'h0;
+    assign cfg_mgmt_byte_en = 4'h0;
+    assign cfg_mgmt_dwaddr = 10'h0;
+    assign cfg_mgmt_wr_en = 1'b0;
+    assign cfg_mgmt_rd_en = 1'b0;
+    assign cfg_mgmt_wr_readonly = 1'b0;
 
 {%- if _expose_pm_sideband %}
     // Default safe values for optional PM sideband when not wired internally
@@ -135,139 +132,33 @@ module pcileech_top (
 {%- endif %}
 {%- endif %}
 
-    // Additional BAR controller signals
-    logic [2:0]  bar_index;
-    logic [3:0]  bar_wr_be;
-    logic        custom_win_sel;
-    logic [11:0] custom_win_addr;
-    logic [31:0] custom_win_wdata;
-    logic [3:0]  custom_win_be;
-    logic        custom_win_we;
-    logic        custom_win_re;
-    logic [31:0] custom_win_rdata;
-
-    // Set BAR index to 0 for simplicity
-    assign bar_index = 3'b000;
-    assign bar_wr_be = 4'hF;  // Full word writes
-    assign custom_win_rdata = 32'h0;  // No custom window implementation
-
-    // Instantiate BAR controller
-    pcileech_tlps128_bar_controller #(
-        .BAR_APERTURE_SIZE(131072),  // 128KB
-        .NUM_MSIX({{ msix_config.num_vectors }}),
-        .MSIX_TABLE_BIR({{ msix_config.table_bir }}),
-        .MSIX_TABLE_OFFSET(32'h{{ "%X" | format(msix_config.table_offset) }}),
-        .MSIX_PBA_BIR({{ msix_config.pba_bir }}),
-        .MSIX_PBA_OFFSET(32'h{{ "%X" | format(msix_config.pba_offset) }}),
-        .CONFIG_SHDW_HI(20'hFFFFF),
-        .CUSTOM_WIN_BASE(20'hFFFFE)
-    ) bar_controller (
-        .clk(clk),
-        .reset_n(reset_n),
-        .bar_index(bar_index),
-        .bar_addr(bar_addr),
-        .bar_wr_data(bar_wr_data),
-        .bar_wr_be(bar_wr_be),
-        .bar_wr_en(bar_wr_en),
-        .bar_rd_en(bar_rd_en),
-        .bar_rd_data(bar_rd_data),
-        .cfg_ext_read_received(cfg_ext_read_received),
-        .cfg_ext_write_received(cfg_ext_write_received),
-        .cfg_ext_register_number(cfg_ext_register_number),
-        .cfg_ext_function_number(cfg_ext_function_number),
-        .cfg_ext_write_data(cfg_ext_write_data),
-        .cfg_ext_write_byte_enable(cfg_ext_write_byte_enable),
-        .cfg_ext_read_data(cfg_ext_read_data),
-        .cfg_ext_read_data_valid(cfg_ext_read_data_valid),
-        .msix_interrupt(msix_interrupt),
-        .msix_vector(msix_vector),
-        .msix_interrupt_ack(msix_interrupt_ack),
-        .custom_win_sel(custom_win_sel),
-        .custom_win_addr(custom_win_addr),
-        .custom_win_wdata(custom_win_wdata),
-        .custom_win_be(custom_win_be),
-        .custom_win_we(custom_win_we),
-        .custom_win_re(custom_win_re),
-        .custom_win_rdata(custom_win_rdata)
-    );
-
-{%- set _active_device_module = none %}
-{%- if active_device_config and active_device_config.enabled %}
-    {%- if active_device_config.module_name is defined %}
-        {%- set _active_device_module = active_device_config.module_name %}
-    {%- elif active_device_config.module_template is defined %}
-        {#- Some contexts expose module_template instead of module_name - reuse it #}
-        {%- set _active_device_module = active_device_config.module_template %}
-    {%- endif %}
-{%- endif %}
-{% if _active_device_module %}
-    // Active device interrupt controller
-    logic [{{ active_device_config.num_sources - 1 }}:0] interrupt_sources;
-    logic [{{ active_device_config.num_sources - 1 }}:0] interrupt_ack;
-    logic [3:0] source_priority[{{ active_device_config.num_sources }}];
+    // Simplified BAR memory (for basic protocol compliance)
+    // Note: Full BAR controller with cfg_ext_* requires UltraScale+ or external logic
+    logic [31:0] bar_memory [0:1023];  // 4KB simple memory
     
-    // Initialize interrupt sources and priorities
-    assign interrupt_sources = '0;  // No external sources for now
-    generate
-        for (genvar i = 0; i < {{ active_device_config.num_sources }}; i++) begin : gen_priority
-            assign source_priority[i] = {{ active_device_config.default_priority }};
+    // Initialize BAR memory to known pattern
+    initial begin
+        for (int i = 0; i < 1024; i++) begin
+            bar_memory[i] = 32'hDEADBEEF;
         end
-    endgenerate
+    end
     
-    {{ _active_device_module }} #(
-        .TIMER_PERIOD({{ active_device_config.timer_period }}),
-        .TIMER_ENABLE({{ '1\'b1' if active_device_config.timer_enable else '1\'b0' }}),
-        .MSI_VECTOR_WIDTH({{ active_device_config.msi_vector_width }}),
-        .MSI_64BIT_ADDR({{ '1\'b1' if active_device_config.msi_64bit_addr else '1\'b0' }}),
-        .NUM_MSIX({{ active_device_config.num_msix }}),
-        .MSIX_TABLE_BIR({{ active_device_config.msix_table_bir }}),
-        .MSIX_TABLE_OFFSET({{ active_device_config.msix_table_offset }}),
-        .MSIX_PBA_BIR({{ active_device_config.msix_pba_bir }}),
-        .MSIX_PBA_OFFSET({{ active_device_config.msix_pba_offset }}),
-        .DEVICE_ID(16'h{{ get_device_id(active_device_config, device, config_space, device_id_int) }}),
-        .VENDOR_ID(16'h{{ get_vendor_id(active_device_config, device, config_space, vendor_id_int) }}),
-        .COMPLETER_ID({{ active_device_config.completer_id }}),
-        .NUM_INTERRUPT_SOURCES({{ active_device_config.num_sources }}),
-        .DEFAULT_PRIORITY({{ active_device_config.default_priority }})
-    ) active_device_int (
-        .clk(clk),
-        .reset_n(reset_n),
-        .interrupt_sources(interrupt_sources),
-        .source_priority(source_priority),
-        .interrupt_ack(interrupt_ack),
-        .cfg_interrupt(),  // Connect to PCIe core if needed
-        .cfg_interrupt_assert(),
-        .cfg_interrupt_di(),
-        .cfg_interrupt_rdy(1'b1),
-        .cfg_interrupt_mmenable(3'b000),
-        .cfg_interrupt_msienable(1'b1),
-        .cfg_interrupt_msixenable(1'b0),
-        .cfg_interrupt_msixfm(1'b0),
-        .cfg_interrupt_do(),
-        .cfg_interrupt_di_in(8'h00),
-        .cfg_interrupt_stat(),
-        .cfg_pciecap_interrupt_msgnum(),
-        .tlp_tx_valid(),
-        .tlp_tx_data(),
-        .tlp_tx_sop(),
-        .tlp_tx_eop(),
-        .tlp_tx_empty(),
-        .tlp_tx_ready(1'b1),
-        .msix_table_addr(32'h0),
-        .msix_table_wr_en(1'b0),
-        .msix_table_wr_data(32'h0),
-        .msix_table_wr_be(4'h0),
-        .msix_table_rd_en(1'b0),
-        .msix_table_rd_data(),
-        .interrupt_enable(1'b1),
-        .timer_reload_value(32'd{{ active_device_config.timer_period }}),
-        .timer_interrupt_pending(),
-        .interrupt_count(),
-        .interrupt_status(),
-        .current_vector(),
-        .debug_state()
-    );
-{% endif %}
+    // Simple BAR read/write logic (placeholder for full implementation)
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            bar_rd_data <= 32'h0;
+        end else begin
+            if (bar_rd_en && bar_addr[31:12] == 20'h0) begin
+                bar_rd_data <= bar_memory[bar_addr[11:2]];
+            end
+            if (bar_wr_en && bar_addr[31:12] == 20'h0) begin
+                bar_memory[bar_addr[11:2]] <= bar_wr_data;
+            end
+        end
+    end
+
+    // Debug status signal
+    logic [31:0] debug_status;
 
     // Basic PCIe TLP processing for protocol compliance
     typedef enum logic [1:0] {
@@ -286,10 +177,9 @@ module pcileech_top (
     // Simplified PCIe TLP processing for basic protocol compliance
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
-            pcie_tx_data <= 32'h0;
+            pcie_tx_data <= '0;
             pcie_tx_valid <= 1'b0;
             debug_status <= 32'h0;
-            device_ready <= 1'b0;
             tlp_state <= TLP_IDLE;
             tlp_header_count <= 8'h0;
             bar_addr <= 32'h0;
@@ -303,27 +193,43 @@ module pcileech_top (
             case (tlp_state)
                 TLP_IDLE: begin
                     if (pcie_rx_valid) begin
+                        {%- if _data_width == 64 %}
+                        tlp_header[0] <= pcie_rx_data[31:0];
+                        {%- else %}
                         tlp_header[0] <= pcie_rx_data;
+                        {%- endif %}
                         tlp_header_count <= 8'h1;
                         tlp_state <= TLP_HEADER;
 
                         // Extract TLP type and length from first header
+                        {%- if _data_width == 64 %}
                         tlp_type <= pcie_rx_data[30:24];
                         tlp_length <= pcie_rx_data[9:0];
+                        {%- else %}
+                        tlp_type <= pcie_rx_data[30:24];
+                        tlp_length <= pcie_rx_data[9:0];
+                        {%- endif %}
                     end
-                    device_ready <= 1'b1;
                 end
 
                 TLP_HEADER: begin
                     if (pcie_rx_valid) begin
+                        {%- if _data_width == 64 %}
+                        tlp_header[tlp_header_count] <= pcie_rx_data[31:0];
+                        {%- else %}
                         tlp_header[tlp_header_count] <= pcie_rx_data;
+                        {%- endif %}
                         tlp_header_count <= tlp_header_count + 1;
 
                         // For memory requests, capture address from header[1]
                         if (tlp_header_count == 8'h1) begin
+                            {%- if _data_width == 64 %}
+                            tlp_address <= pcie_rx_data[31:0];
+                            bar_addr <= pcie_rx_data[31:0];
+                            {%- else %}
                             tlp_address <= pcie_rx_data;
-                            // Connect to BAR interface
                             bar_addr <= pcie_rx_data;
+                            {%- endif %}
                         end
 
                         // Basic TLP acknowledgment
@@ -344,7 +250,11 @@ module pcileech_top (
                     
                     // Send response if it was a read
                     if (tlp_type[6:5] == 2'b00) begin  // Memory read
+                        {%- if _data_width == 64 %}
+                        pcie_tx_data <= {bar_rd_data, 32'h0};
+                        {%- else %}
                         pcie_tx_data <= bar_rd_data;
+                        {%- endif %}
                         pcie_tx_valid <= 1'b1;
                     end
                     
