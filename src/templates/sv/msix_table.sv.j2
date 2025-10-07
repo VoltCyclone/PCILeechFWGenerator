@@ -38,6 +38,9 @@ module msix_table #(
     input  wire [10:0]  trigger_vector
 );
 
+    // Safe log2 width to avoid zero-width vectors when NUM_MSIX == 1
+    localparam int NUM_MSIX_LG2 = (NUM_MSIX <= 1) ? 1 : $clog2(NUM_MSIX);
+
     // Calculate PBA size in 32-bit words
     localparam PBA_SIZE = ({{ msix_config.num_vectors | default(16) }} + 31) / 32;
     
@@ -59,11 +62,11 @@ module msix_table #(
     logic [10:0] current_vector;
     logic interrupt_pending;
     // Indices into table structures
-    logic [$clog2(NUM_MSIX)-1:0] entry_index;   // which MSI-X entry (0..NUM_MSIX-1)
+    logic [NUM_MSIX_LG2-1:0] entry_index;   // which MSI-X entry (0..NUM_MSIX-1)
     logic [1:0]                  dword_index;   // which DWORD within entry (0..3)
 
     // Priority encoder results for pending vector detection
-    logic [$clog2(NUM_MSIX)-1:0] next_pending_idx;
+    logic [NUM_MSIX_LG2-1:0] next_pending_idx;
     logic                        pending_found;
 
     // Combinational view of the pending vector's control DWORD
@@ -192,7 +195,7 @@ module msix_table #(
         for (int i = 0; i < NUM_MSIX; i++) begin
             if (!pending_found && (msix_pba_mem[i >> 5] & (32'h1 << (i[4:0])))) begin
                 pending_found = 1'b1;
-                next_pending_idx = i[$clog2(NUM_MSIX)-1:0];
+                next_pending_idx = i[NUM_MSIX_LG2-1:0];
             end
         end
     end

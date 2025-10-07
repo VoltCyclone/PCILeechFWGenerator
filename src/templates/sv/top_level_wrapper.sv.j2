@@ -107,11 +107,11 @@ module pcileech_top (
     // Instantiate BAR controller
     pcileech_tlps128_bar_controller #(
         .BAR_APERTURE_SIZE(131072),  // 128KB
-        .NUM_MSIX(1),
-        .MSIX_TABLE_BIR(0),
-        .MSIX_TABLE_OFFSET(0),
-        .MSIX_PBA_BIR(0),
-        .MSIX_PBA_OFFSET(0),
+        .NUM_MSIX({{ msix_config.num_vectors }}),
+        .MSIX_TABLE_BIR({{ msix_config.table_bir }}),
+        .MSIX_TABLE_OFFSET(32'h{{ "%X" | format(msix_config.table_offset) }}),
+        .MSIX_PBA_BIR({{ msix_config.pba_bir }}),
+        .MSIX_PBA_OFFSET(32'h{{ "%X" | format(msix_config.pba_offset) }}),
         .CONFIG_SHDW_HI(20'hFFFFF),
         .CUSTOM_WIN_BASE(20'hFFFFE)
     ) bar_controller (
