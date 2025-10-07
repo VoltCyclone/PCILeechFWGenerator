@@ -5,34 +5,16 @@
 {% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
 
 module pcileech_top (
-    // Clock and reset
-    input  wire         clk,
-    input  wire         reset_n,
+    // PCIe physical transceiver interface
+    output wire [0:0]  pci_exp_txp,
+    output wire [0:0]  pci_exp_txn,
+    input  wire [0:0]  pci_exp_rxp,
+    input  wire [0:0]  pci_exp_rxn,
 
-    // PCIe interface (connect to PCIe hard IP)
-    input  wire  [31:0] pcie_rx_data,
-    input  wire         pcie_rx_valid,
-    output logic [31:0] pcie_tx_data,
-    output logic        pcie_tx_valid,
-
-    // Configuration space interface
-    input  wire         cfg_ext_read_received,
-    input  wire         cfg_ext_write_received,
-    input  wire  [9:0]  cfg_ext_register_number,
-    input  wire  [3:0]  cfg_ext_function_number,
-    input  wire  [31:0] cfg_ext_write_data,
-    input  wire  [3:0]  cfg_ext_write_byte_enable,
-    output logic [31:0] cfg_ext_read_data,
-    output logic        cfg_ext_read_data_valid,
-
-    // MSI-X interrupt interface
-    output logic        msix_interrupt,
-    output logic [10:0] msix_vector,
-    input  wire         msix_interrupt_ack,
-
-    // Debug/status outputs
-    output logic [31:0] debug_status,
-    output logic        device_ready
+    // System clock and reset (external)
+    input  wire        sys_clk_p,
+    input  wire        sys_clk_n,
+    input  wire        sys_rst_n
 {%- set _enable_pme = enable_pme|default(false) %}
 {%- set _enable_wake_events = enable_wake_events|default(false) %}
 {#- Expose sideband pins only when explicitly requested by context -#}
@@ -53,7 +35,72 @@ module pcileech_top (
 {%- endif %}
 );
 
-    // Internal signals
+    // Internal PCIe interface signals
+    logic        clk;
+    logic        reset_n;
+    logic        device_ready;
+    logic [31:0] pcie_rx_data;
+    logic        pcie_rx_valid;
+    logic [31:0] pcie_tx_data;
+    logic        pcie_tx_valid;
+    logic        pcie_tx_ready;
+    
+    // Configuration space interface (internal)
+    logic        cfg_ext_read_received;
+    logic        cfg_ext_write_received;
+    logic [9:0]  cfg_ext_register_number;
+    logic [3:0]  cfg_ext_function_number;
+    logic [31:0] cfg_ext_write_data;
+    logic [3:0]  cfg_ext_write_byte_enable;
+    logic [31:0] cfg_ext_read_data;
+    logic        cfg_ext_read_data_valid;
+    
+    // MSI-X interrupt interface (internal)
+    logic        msix_interrupt;
+    logic [10:0] msix_vector;
+    logic        msix_interrupt_ack;
+    
+    // Debug status (internal)
+    logic [31:0] debug_status;
+
+    // PCIe IP Core instantiation
+    pcie_7x_bridge pcie_core (
+        .pci_exp_txp(pci_exp_txp),
+        .pci_exp_txn(pci_exp_txn),
+        .pci_exp_rxp(pci_exp_rxp),
+        .pci_exp_rxn(pci_exp_rxn),
+        
+        .user_clk_out(clk),
+        .user_reset_out(reset_n),
+        .user_lnk_up(device_ready),
+        
+        // Connect to BAR controller
+        .m_axis_rx_tdata(pcie_rx_data),
+        .m_axis_rx_tvalid(pcie_rx_valid),
+        .s_axis_tx_tdata(pcie_tx_data),
+        .s_axis_tx_tvalid(pcie_tx_valid),
+        .s_axis_tx_tready(pcie_tx_ready),
+        
+        // Configuration interface
+        .cfg_ext_read_received(cfg_ext_read_received),
+        .cfg_ext_write_received(cfg_ext_write_received),
+        .cfg_ext_register_number(cfg_ext_register_number),
+        .cfg_ext_function_number(cfg_ext_function_number),
+        .cfg_ext_write_data(cfg_ext_write_data),
+        .cfg_ext_write_byte_enable(cfg_ext_write_byte_enable),
+        .cfg_ext_read_data(cfg_ext_read_data),
+        .cfg_ext_read_data_valid(cfg_ext_read_data_valid),
+        
+        // MSI-X interface
+        .cfg_interrupt_msix_enable(msix_interrupt),
+        .cfg_interrupt_msix_vf_enable(msix_vector),
+        .cfg_interrupt_msix_int(msix_interrupt_ack),
+        
+        .sys_clk(sys_clk_p),
+        .sys_rst_n(sys_rst_n)
+    );
+
+    // BAR controller signals
     logic [31:0] bar_addr;
     logic [31:0] bar_wr_data;
     logic        bar_wr_en;
@@ -303,6 +350,11 @@ module pcileech_top (
                     
                     tlp_state <= TLP_IDLE;
                 end
+
+                default: begin
+                    // Default case to ensure all LUT inputs are connected
+                    tlp_state <= TLP_IDLE;
+                end
             endcase
 
             // Update debug status with device ID and current state
@@ -311,6 +363,11 @@ module pcileech_top (
             debug_status <= {16'h{{ _vendor_str }}, 8'h{{ _device_str[:2] }}, 5'h0, tlp_state};
         end
     end
+
+{%- if board is defined and board.has_status_leds | default(false) %}
+    // LED status output - show device ready and current state
+    assign led_status = { {%- if board.num_status_leds | default(8) > 3 -%}{{ board.num_status_leds | default(8) - 3 }}'h0, {% endif %}device_ready, tlp_state};
+{%- endif %}
 
 endmodule
 

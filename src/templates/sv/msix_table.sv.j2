@@ -45,9 +45,9 @@ module msix_table #(
     localparam PBA_SIZE = ({{ msix_config.num_vectors | default(16) }} + 31) / 32;
     
     // MSI-X Table storage (4 DWORDs per entry)
-    // Staging vs Active memories to ensure atomic entry updates
-    (* ram_style="block" *) logic [31:0] msix_table_staging[0:{{ msix_config.num_vectors | default(16) }}*4-1];
-    (* ram_style="block" *) logic [31:0] msix_table_active[0:{{ msix_config.num_vectors | default(16) }}*4-1];
+    // Using proper dual-port RAM inference pattern for BlockRAM
+    logic [31:0] msix_table_staging[0:{{ msix_config.num_vectors | default(16) }}*4-1];
+    logic [31:0] msix_table_active[0:{{ msix_config.num_vectors | default(16) }}*4-1];
     // Per-entry valid bitmask for staged DWORDs; when committed, bits clear
     logic [3:0] msix_stage_valid[0:{{ msix_config.num_vectors | default(16) }}-1];
     
@@ -259,7 +259,11 @@ module msix_table #(
                     end
                 end
                 
-                default: intr_state <= IDLE;
+                default: begin
+                    // Default case to ensure all LUT inputs are connected
+                    msix_interrupt <= 1'b0;
+                    intr_state <= IDLE;
+                end
             endcase
         end
     end
