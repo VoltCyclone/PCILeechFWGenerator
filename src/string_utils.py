@@ -296,6 +296,32 @@ def build_file_size_string(size_bytes: int) -> str:
         )
 
 
+def format_size_short(size_bytes: int) -> str:
+    """
+    Return a short human-readable size string using binary units.
+
+    Examples:
+        512 -> "512B"
+        2048 -> "2.0KB"
+        1048576 -> "1.0MB"
+        1073741824 -> "1.0GB"
+
+    This helper is intended for concise in-line logs without prefixes.
+    """
+    try:
+        if size_bytes >= 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f}GB"
+        elif size_bytes >= 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f}MB"
+        elif size_bytes >= 1024:
+            return f"{size_bytes / 1024:.1f}KB"
+        else:
+            return f"{size_bytes}B"
+    except Exception:
+        # Fallback to raw bytes on any unexpected error
+        return f"{size_bytes}B"
+
+
 def get_short_timestamp() -> str:
     """
     Get a short timestamp string for logging.

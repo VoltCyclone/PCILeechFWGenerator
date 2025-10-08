@@ -22,20 +22,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
-from src.templating.template_context_validator import \
-    clear_global_template_cache
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.templating.template_context_validator import clear_global_template_cache
 from src.utils.log_phases import PhaseLogger
 
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
+
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (ConfigurationError, FileOperationError,
-                         ModuleImportError, MSIXPreloadError,
-                         PCILeechBuildError, PlatformCompatibilityError,
-                         VivadoIntegrationError)
+from .exceptions import (
+    ConfigurationError,
+    FileOperationError,
+    ModuleImportError,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    PlatformCompatibilityError,
+    VivadoIntegrationError,
+)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -302,7 +312,7 @@ class MSIXManager:
             Returns empty MSIXData on any failure (non-critical operation)
         """
         try:
-            log_info_safe(self.logger, "➤ Preloading MSI-X data before VFIO binding")
+            log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
 
             # 1) Prefer host-provided JSON (mounted into container) if available
             #    This preserves MSI-X context when container lacks sysfs/VFIO access.
@@ -321,9 +331,11 @@ class MSIXManager:
                     if msix_info and isinstance(msix_info, dict):
                         log_info_safe(
                             self.logger,
-                            "  • Loaded MSI-X from {path} ({vectors} vectors)",
-                            path=msix_json_path,
-                            vectors=msix_info.get("table_size", 0),
+                            safe_format(
+                                "Loaded MSI-X from {path} ({vectors} vectors)",
+                                path=msix_json_path,
+                                vectors=msix_info.get("table_size", 0),
+                            ),
                             prefix="MSIX",
                         )
                         return MSIXData(
@@ -338,8 +350,10 @@ class MSIXManager:
                 # Non-fatal; fall back to sysfs path
                 log_debug_safe(
                     self.logger,
-                    "MSI-X JSON ingestion skipped: {err}",
-                    err=str(e),
+                    safe_format(
+                        "MSI-X JSON ingestion skipped: {err}",
+                        err=str(e),
+                    ),
                     prefix="MSIX",
                 )
 
@@ -359,8 +373,10 @@ class MSIXManager:
             if msix_info["table_size"] > 0:
                 log_info_safe(
                     self.logger,
-                    "  • Found MSI-X capability: {vectors} vectors",
-                    vectors=msix_info["table_size"],
+                    safe_format(
+                        "Found MSI-X capability: {vectors} vectors",
+                        vectors=msix_info["table_size"],
+                    ),
                     prefix="MSIX",
                 )
                 return MSIXData(
@@ -372,9 +388,7 @@ class MSIXManager:
             else:
                 # No MSI-X capability found -> treat as not preloaded so callers
                 # don't assume hardware MSI-X values are available.
-                log_info_safe(
-                    self.logger, "  • No MSI-X capability found", prefix="MSIX"
-                )
+                log_info_safe(self.logger, "No MSI-X capability found", prefix="MSIX")
                 return MSIXData(preloaded=False, msix_info=None)
 
         except Exception as e:
@@ -997,9 +1011,15 @@ class FirmwareBuilder:
         except PlatformCompatibilityError:
             raise
         except Exception as e:
-            log_error_safe(self.logger, "Build failed: {err}", err=str(e))
+            log_error_safe(
+                self.logger,
+                safe_format("Build failed: {err}", err=str(e)),
+                prefix="BUILD",
+            )
             if self.logger.isEnabledFor(logging.DEBUG):
-                log_debug_safe(self.logger, "Full traceback while building")
+                log_debug_safe(
+                    self.logger, "Full traceback while building", prefix="BUILD"
+                )
             raise
 
     def run_vivado(self) -> None:
@@ -1020,8 +1040,10 @@ class FirmwareBuilder:
             vivado_path = self.config.vivado_path
             log_info_safe(
                 self.logger,
-                "Using user-specified Vivado path: {path}",
-                path=vivado_path,
+                safe_format(
+                    "Using user-specified Vivado path: {path}", path=vivado_path
+                ),
+                prefix="VIVADO",
             )
         else:
             # Auto-detect Vivado installation
@@ -1064,8 +1086,10 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                      PCILeechGenerator)
+        from .device_clone.pcileech_generator import (
+            PCILeechGenerationConfig,
+            PCILeechGenerator,
+        )
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1091,19 +1115,23 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import \
-                DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
-                "Loading donor template from: {path}",
-                path=self.config.donor_template,
+                safe_format(
+                    "Loading donor template from: {path}",
+                    path=self.config.donor_template,
+                ),
+                prefix="BUILD",
             )
             try:
                 template = DonorInfoTemplateGenerator.load_template(
                     self.config.donor_template
                 )
-                log_info_safe(self.logger, "Donor template loaded successfully")
+                log_info_safe(
+                    self.logger, "Donor template loaded successfully", prefix="BUILD"
+                )
                 return template
             except Exception as e:
                 log_error_safe(
@@ -1330,8 +1358,7 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1707,9 +1734,11 @@ def _maybe_emit_issue_report(
         repro_cmd = _build_reproduction_command(args)
 
     try:
-        from src.error_utils import (build_issue_report,
-                                     format_issue_report_human_hint,
-                                     write_issue_report)
+        from src.error_utils import (
+            build_issue_report,
+            format_issue_report_human_hint,
+            write_issue_report,
+        )
 
         report = None
         if want_file or want_stdout:

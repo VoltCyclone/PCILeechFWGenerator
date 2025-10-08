@@ -22,8 +22,14 @@ from typing import List, Optional, Tuple, Union
 
 # Use consistent relative imports
 from ..log_config import get_logger, setup_logging
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format, safe_print_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    safe_print_format,
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Pretty terminal helpers
@@ -270,19 +276,23 @@ class Diagnostics:
 
             log_info_safe(
                 log,
-                "Diagnostics completed. Overall status: {status}, Can proceed: {can_proceed}",
+                safe_format(
+                    "Diagnostics completed. Overall status: {status}, Can proceed: {can_proceed}",
+                    status=overall.value,
+                    can_proceed=can_proceed,
+                ),
                 prefix="VFIO",
-                status=overall.value,
-                can_proceed=can_proceed,
             )
             return Report(overall, self.checks, self.device_bdf, can_proceed)
 
         except Exception as e:
             log_error_safe(
                 log,
-                "Unexpected error during diagnostics: {error}",
+                safe_format(
+                    "Unexpected error during diagnostics: {error}",
+                    error=str(e),
+                ),
                 prefix="VFIO",
-                error=str(e),
             )
             log_error_safe(
                 log, "Full exception details available in logs", prefix="VFIO"
