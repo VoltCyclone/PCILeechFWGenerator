@@ -143,14 +143,28 @@ class TestVivadoFixValidation:
 
         internal_section = top_level[module_end:pcie_core_start]
 
+        # Detect data path width (32-bit legacy vs 64-bit standard on 7-series)
+        detected_width = None
+        for w in (64, 32):
+            if (
+                f"logic [{w-1}:0] pcie_rx_data;" in internal_section
+                or f"wire [{w-1}:0] pcie_rx_data;" in internal_section
+            ):
+                detected_width = w
+                break
+
+        assert (
+            detected_width is not None
+        ), "Could not detect pcie_rx_data internal width (expected 32 or 64 bits)"
+
         # These signals should be declared as internal (7-series uses cfg_mgmt_* not cfg_ext_*)
         required_internal_signals = [
             "logic        clk;",
             "logic        reset_n;",
             "logic        device_ready;",
-            "logic [31:0] pcie_rx_data;",
+            f"logic [{detected_width-1}:0] pcie_rx_data;",
             "logic        pcie_rx_valid;",
-            "logic [31:0] pcie_tx_data;",
+            f"logic [{detected_width-1}:0] pcie_tx_data;",
             "logic        pcie_tx_valid;",
             "logic [31:0] cfg_mgmt_do;",
             "logic        cfg_mgmt_rd_wr_done;",

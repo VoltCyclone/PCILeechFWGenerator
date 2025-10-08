@@ -39,8 +39,8 @@ module pcileech_top (
 );
 
     // Internal PCIe interface signals
-    {#- 7-series uses 64-bit AXI-Stream interface for x4 mode -#}
-    {%- set _data_width = 64 if _max_lanes >= 4 else 32 %}
+    {#- 7-series PCIe core exposes 64-bit AXI-Stream even for x1 in common configs -#}
+    {%- set _data_width = 64 %}
     logic        clk;
     logic        reset_n;
     logic        device_ready;
@@ -49,6 +49,15 @@ module pcileech_top (
     logic [{{ _data_width - 1 }}:0] pcie_tx_data;
     logic        pcie_tx_valid;
     logic        pcie_tx_ready;
+
+    // Additional AXI-Stream sideband/control signals required by core
+    logic  [({{ _data_width }} / 8) - 1:0] s_axis_tx_tkeep;
+    logic        s_axis_tx_tlast;
+    logic  [3:0] s_axis_tx_tuser;
+    logic  [({{ _data_width }} / 8) - 1:0] m_axis_rx_tkeep;
+    logic        m_axis_rx_tlast;
+    logic [21:0] m_axis_rx_tuser;
+    logic        m_axis_rx_tready;
     
     // Configuration space management interface (7-series uses cfg_mgmt_*, not cfg_ext_*)
     logic [31:0] cfg_mgmt_do;
@@ -60,9 +69,30 @@ module pcileech_top (
     logic        cfg_mgmt_rd_en;
     logic        cfg_mgmt_wr_readonly;
     
-    // MSI-X status signals (outputs from 7-series core, not inputs)
+    // Interrupt status (outputs) and INTx/MSI inputs (tied off if MSI-X only)
     logic        cfg_interrupt_msixenable;
     logic        cfg_interrupt_msixfm;
+    logic        cfg_interrupt_rdy;
+    logic  [7:0] cfg_interrupt_do;
+    logic  [2:0] cfg_interrupt_mmenable;
+    logic        cfg_interrupt_msienable;
+
+    // Tie-off inputs for legacy/MSI interrupt path (INTx/MSI)
+    logic        cfg_interrupt;                 // tie low
+    logic        cfg_interrupt_assert;          // tie low
+    logic  [7:0] cfg_interrupt_di;             // tie 0
+    logic        cfg_interrupt_stat;            // tie low
+    logic  [4:0] cfg_pciecap_interrupt_msgnum;  // tie 0
+
+    // Flow control and throttling
+    logic  [2:0] fc_sel;                        // tie 0 when unused
+
+    // Non-posted request controls
+    logic        rx_np_ok;                      // tie 1 when always ok
+    logic        rx_np_req;                     // tie 1 when always request allowed
+
+    // TX config grant (some variants require a grant)
+    logic        tx_cfg_gnt;                    // tie 1 when no arbiter present
     
     // Debug status (internal)
     logic [31:0] debug_status;
@@ -77,12 +107,21 @@ module pcileech_top (
         .user_clk_out(clk),
         .user_reset_out(reset_n),
         .user_lnk_up(device_ready),
+        .user_app_rdy(),
         
         // AXI-Stream interface to BAR controller
         .m_axis_rx_tdata(pcie_rx_data),
+        .m_axis_rx_tkeep(m_axis_rx_tkeep),
+        .m_axis_rx_tlast(m_axis_rx_tlast),
         .m_axis_rx_tvalid(pcie_rx_valid),
+        .m_axis_rx_tready(m_axis_rx_tready),
+        .m_axis_rx_tuser(m_axis_rx_tuser),
+
         .s_axis_tx_tdata(pcie_tx_data),
+        .s_axis_tx_tkeep(s_axis_tx_tkeep),
+        .s_axis_tx_tlast(s_axis_tx_tlast),
         .s_axis_tx_tvalid(pcie_tx_valid),
+        .s_axis_tx_tuser(s_axis_tx_tuser),
         .s_axis_tx_tready(pcie_tx_ready),
         
         // Configuration management interface (7-series)
@@ -95,9 +134,28 @@ module pcileech_top (
         .cfg_mgmt_rd_en(cfg_mgmt_rd_en),
         .cfg_mgmt_wr_readonly(cfg_mgmt_wr_readonly),
         
-        // MSI-X status (outputs from core)
+        // MSI/MSI-X and INTx
+        .cfg_interrupt(cfg_interrupt),
+        .cfg_interrupt_rdy(cfg_interrupt_rdy),
+        .cfg_interrupt_assert(cfg_interrupt_assert),
+        .cfg_interrupt_di(cfg_interrupt_di),
+        .cfg_interrupt_do(cfg_interrupt_do),
+        .cfg_interrupt_mmenable(cfg_interrupt_mmenable),
+        .cfg_interrupt_msienable(cfg_interrupt_msienable),
         .cfg_interrupt_msixenable(cfg_interrupt_msixenable),
         .cfg_interrupt_msixfm(cfg_interrupt_msixfm),
+        .cfg_interrupt_stat(cfg_interrupt_stat),
+        .cfg_pciecap_interrupt_msgnum(cfg_pciecap_interrupt_msgnum),
+
+        // Flow control selections
+        .fc_sel(fc_sel),
+
+        // Non-posted request controls
+        .rx_np_ok(rx_np_ok),
+        .rx_np_req(rx_np_req),
+
+        // TX config grant (tie high if unused)
+        .tx_cfg_gnt(tx_cfg_gnt),
         
         .sys_clk(sys_clk_p),
         .sys_rst_n(sys_rst_n)
@@ -117,6 +175,23 @@ module pcileech_top (
     assign cfg_mgmt_wr_en = 1'b0;
     assign cfg_mgmt_rd_en = 1'b0;
     assign cfg_mgmt_wr_readonly = 1'b0;
+
+    // AXI-Stream and basic control tie-offs to keep core happy in minimal mode
+    assign s_axis_tx_tkeep = {({{ _data_width }} / 8){1'b1}};
+    assign s_axis_tx_tlast = 1'b1;
+    assign s_axis_tx_tuser = 4'h0;
+    assign m_axis_rx_tready = 1'b1;
+    assign rx_np_ok = 1'b1;
+    assign rx_np_req = 1'b1;
+    assign fc_sel = 3'b000;
+    assign tx_cfg_gnt = 1'b1;
+
+    // Interrupt tie-offs when using MSI-X only
+    assign cfg_interrupt = 1'b0;
+    assign cfg_interrupt_assert = 1'b0;
+    assign cfg_interrupt_di = 8'h00;
+    assign cfg_interrupt_stat = 1'b0;
+    assign cfg_pciecap_interrupt_msgnum = 5'h00;
 
 {%- if _expose_pm_sideband %}
     // Default safe values for optional PM sideband when not wired internally
@@ -157,8 +232,7 @@ module pcileech_top (
         end
     end
 
-    // Debug status signal
-    logic [31:0] debug_status;
+    // Debug status signal (already declared above)
 
     // Basic PCIe TLP processing for protocol compliance
     typedef enum logic [1:0] {
