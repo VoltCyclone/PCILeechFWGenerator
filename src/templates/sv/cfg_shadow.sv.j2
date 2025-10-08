@@ -1,4 +1,4 @@
-{#- PCIe Configuration Space Shadow BRAM Template -#}
+{#- PCIe Configuration Space Shadow BRAM Template with Enhanced Architecture -#}
 {{ header | safe }}
 
 `default_nettype none
@@ -6,8 +6,12 @@
 module pcileech_tlps128_cfgspace_shadow #(
     parameter CONFIG_SPACE_SIZE = {{ CONFIG_SPACE_SIZE }},  // {{ CONFIG_SPACE_SIZE }} byte configuration space
     parameter OVERLAY_ENTRIES = {{ OVERLAY_ENTRIES }},      // Number of overlay RAM entries
-    parameter EXT_CFG_CAP_PTR = {{ EXT_CFG_CAP_PTR | default(256) }},     // Extended capability pointer (default 0x100)
-    parameter EXT_CFG_XP_CAP_PTR = {{ EXT_CFG_XP_CAP_PTR | default(256) }}, // Express capability pointer in extended space
+    parameter EXT_CFG_CAP_PTR = {{ EXT_CFG_CAP_PTR | default(256) }},     // Extended capability pointer in bytes (default 0x100)
+    parameter EXT_CFG_XP_CAP_PTR = {{ EXT_CFG_XP_CAP_PTR | default(256) }}, // Express capability pointer in bytes
+    // Enhanced architecture parameters
+    parameter HASH_TABLE_SIZE = {{ HASH_TABLE_SIZE | default(256) }},       // Hash table size for sparse mapping
+    parameter ENABLE_SPARSE_MAP = {{ ENABLE_SPARSE_MAP | default(1) }},     // Enable sparse mapping architecture
+    parameter ENABLE_BIT_TYPES = {{ ENABLE_BIT_TYPES | default(1) }},       // Enable bit-type support
     // Optional configuration-space initialization HEX file (for simulation and BRAM init capable tools)
     parameter string CFG_INIT_HEX = ""
 ) (
@@ -24,9 +28,10 @@ module pcileech_tlps128_cfgspace_shadow #(
     input  wire  [3:0]  cfg_ext_write_byte_enable,
     output wire  [31:0] cfg_ext_read_data,
     output wire         cfg_ext_read_data_valid,
+    output wire         shadow_handled,         // Indicates shadow handled the request
     
     // CFGTLP control inputs
-    input  wire         cfgtlp_wren,
+    input  wire         cfgtlp_wren,      // Kept for interface compatibility (currently unused)
     input  wire         cfgtlp_zero,
     input  wire         cfgtlp_pcie_write_en,
     input  wire  [1:0]  cfg_a7,
@@ -34,7 +39,7 @@ module pcileech_tlps128_cfgspace_shadow #(
     // Port B - Host access for initialization and monitoring
     input  wire         host_access_en,
     input  wire         host_write_en,
-    input  wire  [11:0] host_addr,
+    input  wire  [11:0] host_addr,         // Byte address (12 bits = 4KB)
     input  wire  [31:0] host_write_data,
     output logic [31:0] host_read_data{% if DUAL_PORT %},
     
@@ -47,48 +52,217 @@ module pcileech_tlps128_cfgspace_shadow #(
     output logic [31:0] doutB{% endif %}
 );
 
-    // Main configuration space BRAM ({{ CONFIG_SPACE_SIZE }} bytes = {{ CONFIG_SPACE_SIZE // 4 }} dwords)
-    (* ram_style="block" *) logic [31:0] config_space_ram[0:{{ (CONFIG_SPACE_SIZE // 4) - 1 }}];
+    // =====================================================================
+    // Bit Type Definitions (Phase 1: Core Infrastructure)
+    // =====================================================================
     
-    // Overlay RAM for writable fields ({{ OVERLAY_ENTRIES }} entries)
-    logic [31:0] overlay_ram[0:OVERLAY_ENTRIES-1];
+    // Bit type encoding (4 bits per byte)
+    localparam logic [3:0] BIT_TYPE_RO     = 4'b0000;  // Read-only
+    localparam logic [3:0] BIT_TYPE_RW     = 4'b0001;  // Read-write
+    localparam logic [3:0] BIT_TYPE_RW1C   = 4'b0010;  // Write-1-to-clear
+    localparam logic [3:0] BIT_TYPE_RW1S   = 4'b0011;  // Write-1-to-set
+    localparam logic [3:0] BIT_TYPE_RSVDP  = 4'b0100;  // Reserved, preserve on write
+    localparam logic [3:0] BIT_TYPE_RSVDZ  = 4'b0101;  // Reserved, return zero
+    localparam logic [3:0] BIT_TYPE_HWINIT = 4'b0110;  // Hardware init, software RO
+    localparam logic [3:0] BIT_TYPE_STICKY = 4'b0111;  // Sticky across soft reset
+    
+    // Enhanced overlay entry structure (96 bits total)
+    typedef struct packed {
+        logic [31:0] type_mask;  // Per-bit type encoding (4 bits per byte)
+        logic [31:0] mask;       // Writable bit mask
+        logic [31:0] data;       // Current register value
+    } overlay_entry_t;
+
+    // =====================================================================
+    // Memory Architecture
+    // =====================================================================
+
+    // Main configuration space BRAM ({{ CONFIG_SPACE_SIZE }} bytes = {{ CONFIG_SPACE_SIZE // 4 }} dwords)
+    (* ram_style="block" *)
+    (* synthesis ram_init_file = CFG_INIT_HEX *)  // Synthesis attribute for BRAM initialization (Xilinx)
+    (* ram_init_file = CFG_INIT_HEX *)           // Alternative attribute for other tools
+    logic [31:0] config_space_ram[0:{{ (CONFIG_SPACE_SIZE // 4) - 1 }}];
+    
+    // Enhanced overlay RAM with bit type support ({{ OVERLAY_ENTRIES }} entries)
+    generate
+        if (ENABLE_BIT_TYPES) begin : gen_enhanced_overlay
+            (* ram_style="block" *) overlay_entry_t overlay_ram[0:OVERLAY_ENTRIES-1];
+        end else begin : gen_legacy_overlay
+            (* ram_style="block" *) logic [31:0] overlay_ram[0:OVERLAY_ENTRIES-1];
+        end
+    endgenerate
+    
+    // =====================================================================
+    // Sparse Mapping Architecture (Phase 1)
+    // =====================================================================
+    
+    // Hash table entry for sparse mapping
+    typedef struct packed {
+        logic        valid;          // Entry is valid
+        logic [9:0]  reg_num;        // Original register number
+        logic [7:0]  overlay_index;  // Index into overlay RAM
+    } hash_entry_t;
+    
+    // Hash table for sparse mapping
+    generate
+        if (ENABLE_SPARSE_MAP) begin : gen_sparse_map
+            (* ram_style="distributed" *) hash_entry_t hash_table[0:HASH_TABLE_SIZE-1];
+        end
+    endgenerate
+    
+    // Hash function for sparse mapping
+    function automatic logic [7:0] hash_reg_num(input logic [9:0] reg_num);
+        // Simple XOR folding hash function as specified in architecture
+        return reg_num[7:0] ^ {reg_num[9:8], reg_num[7:2]};
+    endfunction
+    
+    // Linear probing collision resolution
+    function automatic logic [7:0] find_hash_entry(input logic [9:0] reg_num);
+        if (ENABLE_SPARSE_MAP) begin
+            logic [7:0] hash_idx = hash_reg_num(reg_num);
+            logic [7:0] probe_count = 0;
+            
+            // Linear probe with wrap-around
+            while (probe_count < HASH_TABLE_SIZE) begin
+                if (gen_sparse_map.hash_table[hash_idx].valid && 
+                    gen_sparse_map.hash_table[hash_idx].reg_num == reg_num) begin
+                    return gen_sparse_map.hash_table[hash_idx].overlay_index;
+                end
+                if (!gen_sparse_map.hash_table[hash_idx].valid) begin
+                    return 8'hFF; // Not found
+                end
+                hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
+                probe_count++;
+            end
+            return 8'hFF; // Table full or not found
+        end else begin
+            return 8'hFF; // Sparse mapping disabled
+        end
+    endfunction
+    
+    // =====================================================================
+    // Legacy Direct Mapping Support (for backward compatibility)
+    // =====================================================================
     
     // Auto-generated overlay constants
-    {%- if OVERLAY_MAP is mapping -%}
-        {%- for reg, mask in OVERLAY_MAP.items() -%}
-            localparam int OVR_IDX_{{ "%03X"|format(reg) }} = {{ loop.index0 }};
-            localparam logic [31:0] OVR_MASK_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(mask) }};
+    {%- if OVERLAY_MAP is not defined or OVERLAY_MAP is none -%}
+        // No overlays defined (OVERLAY_MAP is not defined or None)
+    {%- elif OVERLAY_MAP is mapping -%}
+        {%- for reg, entry in OVERLAY_MAP.items() -%}
+            {%- if entry is sequence and entry|length >= 2 -%}
+                {#- Enhanced/mapping format: [mask, type, ...] (support 2+ elements) -#}
+                localparam int OVR_IDX_{{ "%03X"|format(reg) }} = {{ loop.index0 }};
+                localparam logic [31:0] OVR_MASK_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(entry[0]) }};
+                localparam logic [31:0] OVR_TYPE_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(entry[1]) }};
+            {%- elif entry is integer -%}
+                {#- Legacy format - just mask -#}
+                localparam int OVR_IDX_{{ "%03X"|format(reg) }} = {{ loop.index0 }};
+                localparam logic [31:0] OVR_MASK_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(entry) }};
+                localparam logic [31:0] OVR_TYPE_{{ "%03X"|format(reg) }} = 32'h11111111; // Default RW for all bytes
+            {%- endif -%}
+        {%- else -%}
+        // No overlays defined (empty map)
         {%- endfor -%}
     {%- elif OVERLAY_MAP is sequence -%}
         {%- for pair in OVERLAY_MAP -%}
-            {%- set reg = pair[0] if pair|length > 0 else 0 -%}
-            {%- set mask = pair[1] if pair|length > 1 else pair[0] if pair|length>0 else 0 -%}
-            localparam int OVR_IDX_{{ "%03X"|format(reg) }} = {{ loop.index0 }};
-            localparam logic [31:0] OVR_MASK_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(mask) }};
+            {%- if pair is sequence and pair|length >= 2 -%}
+                {%- set reg = pair[0] -%}
+                {%- if pair|length >= 3 -%}
+                    {#- Enhanced format with bit types -#}
+                    localparam int OVR_IDX_{{ "%03X"|format(reg) }} = {{ loop.index0 }};
+                    localparam logic [31:0] OVR_MASK_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(pair[1]) }};
+                    localparam logic [31:0] OVR_TYPE_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(pair[2]) }};
+                {%- else -%}
+                    {#- Legacy format -#}
+                    localparam int OVR_IDX_{{ "%03X"|format(reg) }} = {{ loop.index0 }};
+                    localparam logic [31:0] OVR_MASK_{{ "%03X"|format(reg) }} = 32'h{{ "%08X"|format(pair[1]) }};
+                    localparam logic [31:0] OVR_TYPE_{{ "%03X"|format(reg) }} = 32'h11111111; // Default RW
+                {%- endif -%}
+            {%- endif -%}
+        {%- else -%}
+        // No overlays defined (empty list)
         {%- endfor -%}
-    {%- else -%}
-        // No overlays defined
     {%- endif -%}
     
-    // Overlay RAM address mapping lookup table
-    logic [31:0] overlay_indices[0:1023];
-    logic [31:0] overlay_masks[0:1023];
+    // Legacy ROM-based lookup functions (used when sparse mapping is disabled)
+    localparam bit [31:0] INVALID_INDEX = 32'hFFFFFFFF;
     
-    // Lookup tables are initialized in reset logic below
+    function automatic logic [31:0] get_overlay_index(input logic [9:0] reg_num);
+        if (ENABLE_SPARSE_MAP) begin
+            // Use hash-based lookup
+            logic [7:0] hash_idx = find_hash_entry(reg_num);
+            return (hash_idx == 8'hFF) ? INVALID_INDEX : {24'h0, hash_idx};
+        end else begin
+            // Legacy direct lookup
+            logic [31:0] result = INVALID_INDEX;
+            {%- if OVERLAY_MAP is defined and OVERLAY_MAP is not none -%}
+                {%- if OVERLAY_MAP is mapping -%}
+                    {%- for reg, entry in OVERLAY_MAP.items() %}
+            if (reg_num == {{ reg }}) result = {{ loop.index0 }};
+                    {%- endfor -%}
+                {%- elif OVERLAY_MAP is sequence -%}
+                    {%- for pair in OVERLAY_MAP -%}
+                        {%- if pair is sequence and pair|length >= 2 -%}
+                            {%- set reg = pair[0] -%}
+            if (reg_num == {{ reg }}) result = {{ loop.index0 }};
+                        {%- endif -%}
+                    {%- endfor -%}
+                {%- endif -%}
+            {%- endif -%}
+            return result;
+        end
+    endfunction
+    
+    function automatic logic [31:0] get_overlay_mask(input logic [9:0] reg_num);
+        logic [31:0] result = 32'h00000000;
+        {%- if OVERLAY_MAP is defined and OVERLAY_MAP is not none -%}
+            {%- if OVERLAY_MAP is mapping -%}
+                {%- for reg, entry in OVERLAY_MAP.items() %}
+        if (reg_num == {{ reg }}) result = OVR_MASK_{{ "%03X"|format(reg) }};
+                {%- endfor -%}
+            {%- elif OVERLAY_MAP is sequence -%}
+                {%- for pair in OVERLAY_MAP -%}
+                    {%- if pair is sequence and pair|length >= 2 -%}
+                        {%- set reg = pair[0] -%}
+        if (reg_num == {{ reg }}) result = OVR_MASK_{{ "%03X"|format(reg) }};
+                    {%- endif -%}
+                {%- endfor -%}
+            {%- endif -%}
+        {%- endif -%}
+        return result;
+    endfunction
+    
+    function automatic logic [31:0] get_overlay_type(input logic [9:0] reg_num);
+        logic [31:0] result = 32'h11111111; // Default all RW
+        {%- if OVERLAY_MAP is defined and OVERLAY_MAP is not none -%}
+            {%- if OVERLAY_MAP is mapping -%}
+                {%- for reg, entry in OVERLAY_MAP.items() %}
+        if (reg_num == {{ reg }}) result = OVR_TYPE_{{ "%03X"|format(reg) }};
+                {%- endfor -%}
+            {%- elif OVERLAY_MAP is sequence -%}
+                {%- for pair in OVERLAY_MAP -%}
+                    {%- if pair is sequence and pair|length >= 2 -%}
+                        {%- set reg = pair[0] -%}
+        if (reg_num == {{ reg }}) result = OVR_TYPE_{{ "%03X"|format(reg) }};
+                    {%- endif -%}
+                {%- endfor -%}
+            {%- endif -%}
+        {%- endif -%}
+        return result;
+    endfunction
     
     // Helper: check if overlay index is valid for a given register number
-    function logic has_valid_overlay(input logic [9:0] reg_num);
-        int idx;
-        idx = int'(overlay_indices[reg_num]);
-        return (overlay_indices[reg_num] != 32'hFFFFFFFF) && (idx >= 0) && (idx < OVERLAY_ENTRIES);
+    function automatic logic has_valid_overlay(input logic [9:0] reg_num);
+        logic [31:0] idx = get_overlay_index(reg_num);
+        return (idx != INVALID_INDEX) && (idx < OVERLAY_ENTRIES);
     endfunction
     
     // Function to determine if shadow should take over from hardware
-    function logic use_shadow_cfg(input logic [11:0] addr);
+    function logic use_shadow_cfg(input logic [11:0] byte_addr);
         // Shadow takes over for extended configuration space based on pointer values
-        if (addr >= EXT_CFG_CAP_PTR) begin
+        if (byte_addr >= EXT_CFG_CAP_PTR) begin
             return 1'b1;  // Use shadow for all extended config space
-        end else if (addr >= EXT_CFG_XP_CAP_PTR && addr < CONFIG_SPACE_SIZE) begin
+        end else if (byte_addr >= EXT_CFG_XP_CAP_PTR && byte_addr < CONFIG_SPACE_SIZE) begin
             return 1'b1;  // Use shadow for express capabilities
         end else begin
             return 1'b0;  // Use hardware for standard config space below pointers
@@ -101,143 +275,236 @@ module pcileech_tlps128_cfgspace_shadow #(
         return {reg_num[9:8], cfg_a7[1] ? cfg_a7[0] : reg_num[7], reg_num[6:0]};
     endfunction
     
+    // =====================================================================
+    // State Machine with Enhanced Bit Type Support
+    // =====================================================================
+    
     // PCIe configuration access state machine
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         CFG_IDLE,
         CFG_READ,
+        CFG_READ_DATA,      // New state for pipelined read
         CFG_WRITE,
         CFG_COMPLETE
     } cfg_state_t;
     
     cfg_state_t cfg_state;
     logic [9:0] current_reg_num;
-    logic [9:0] effective_reg_num;
     logic [31:0] read_data;
     logic read_data_valid;
+    logic shadow_handled_reg;
     
-    // Temporary variables for overlay processing (combinational within sequential blocks)
-    int overlay_idx_comb;
-    logic [31:0] overlay_mask_comb;
+    // Registered version of cfgtlp_zero to avoid race condition
+    logic cfgtlp_zero_reg;
     
-    // Configuration access state machine
+    // Pipeline registers for BRAM reads
+    logic [31:0] config_ram_readdata;
+    logic [95:0] overlay_ram_readdata;  // Enhanced for 96-bit entries
+    logic [9:0] read_reg_num_pipe;
+    logic read_in_progress;
+    
+    // Configuration access state machine with bit type support
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
             cfg_state <= CFG_IDLE;
             read_data_valid <= 1'b0;
             read_data <= 32'h0;
             current_reg_num <= 10'h0;
-            // Default overlay helpers
+            read_in_progress <= 1'b0;
+            config_ram_readdata <= 32'h0;
+            overlay_ram_readdata <= 96'h0;
+            read_reg_num_pipe <= 10'h0;
+            shadow_handled_reg <= 1'b0;
+            cfgtlp_zero_reg <= 1'b0;
             
-            // Initialize lookup tables (replacing initial block)
-            for (int i = 0; i < 1024; i++) begin
-                overlay_indices[i] <= 32'hFFFFFFFF;
-                overlay_masks[i] <= 32'h00000000;
+            // Initialize hash table if sparse mapping enabled
+            if (ENABLE_SPARSE_MAP) begin
+                for (int i = 0; i < HASH_TABLE_SIZE; i++) begin
+                    gen_sparse_map.hash_table[i].valid <= 1'b0;
+                end
             end
-            
-            // Set valid entries from OVERLAY_MAP
-            {%- if OVERLAY_MAP is mapping -%}
-                {%- for reg, mask in OVERLAY_MAP.items() -%}
-                    overlay_indices[{{ reg }}] <= OVR_IDX_{{ "%03X"|format(reg) }};
-                    overlay_masks[{{ reg }}] <= OVR_MASK_{{ "%03X"|format(reg) }};
-                {%- endfor -%}
-            {%- elif OVERLAY_MAP is sequence -%}
-                {%- for pair in OVERLAY_MAP -%}
-                    {%- set reg = pair[0] if pair|length>0 else 0 -%}
-                    overlay_indices[{{ reg }}] <= OVR_IDX_{{ "%03X"|format(reg) }};
-                    overlay_masks[{{ reg }}] <= OVR_MASK_{{ "%03X"|format(reg) }};
-                {%- endfor -%}
-            {%- endif -%}
-
-            // Initialize overlay RAM to zeros (replacing second initial block)
-            for (int i = 0; i < OVERLAY_ENTRIES; i++) begin
-                overlay_ram[i] <= 32'h0;
-            end
-            
-            // config_space_ram initialization is handled via optional initial block below
         end else begin
             case (cfg_state)
                 CFG_IDLE: begin
                     read_data_valid <= 1'b0;
+                    shadow_handled_reg <= 1'b0;
+                    
+                    // Register cfgtlp_zero here to avoid race condition
+                    cfgtlp_zero_reg <= cfgtlp_zero;
                     
                     if (cfg_ext_read_received) begin
                         cfg_state <= CFG_READ;
                         current_reg_num <= cfg_ext_register_number;
-                        effective_reg_num <= get_effective_reg_num(cfg_ext_register_number, cfg_a7);
+                        read_in_progress <= 1'b1;
                     end else if (cfg_ext_write_received) begin
                         cfg_state <= CFG_WRITE;
                         current_reg_num <= cfg_ext_register_number;
-                        effective_reg_num <= get_effective_reg_num(cfg_ext_register_number, cfg_a7);
                     end
                 end
                 
                 CFG_READ: begin
+                    // Calculate effective register number
+                    logic [9:0] effective_reg_num;
+                    logic [11:0] byte_addr;
+                    logic [31:0] ov_idx;
+                    
+                    effective_reg_num = get_effective_reg_num(current_reg_num, cfg_a7);
+                    byte_addr = {effective_reg_num, 2'b00};  // Convert to byte address
+                    
                     // Check if we should use shadow configuration
-                    if (use_shadow_cfg({2'b00, effective_reg_num} << 2)) begin
-                        // If zeroing is requested, bypass memory reads
-                        if (cfgtlp_zero) begin
+                    if (use_shadow_cfg(byte_addr)) begin
+                        shadow_handled_reg <= 1'b1;  // Shadow is handling this request
+                        
+                        // Use registered cfgtlp_zero to avoid race condition
+                        if (cfgtlp_zero_reg) begin
                             read_data <= 32'h00000000;
-                        end else begin
-                            // Base read
-                            logic [31:0] base_rd;
-                            logic [31:0] ov_mask;
-                            int ov_idx;
-                            base_rd = config_space_ram[effective_reg_num];
-                            ov_mask = overlay_masks[effective_reg_num];
-                            ov_idx  = int'(overlay_indices[effective_reg_num]);
-
-                            if (has_valid_overlay(effective_reg_num)) begin
-                                // Apply overlay for writable bits
-                                read_data <= (base_rd & ~ov_mask) |
-                                             (overlay_ram[ov_idx] & ov_mask);
+                            read_data_valid <= 1'b1;
+                            cfg_state <= CFG_COMPLETE;
+                        end else if (read_in_progress) begin
+                            // First cycle: initiate BRAM reads
+                            // Bounds check before accessing BRAM
+                            if (effective_reg_num < (CONFIG_SPACE_SIZE / 4)) begin
+                                config_ram_readdata <= config_space_ram[effective_reg_num];
                             end else begin
-                                read_data <= base_rd;
+                                config_ram_readdata <= 32'hDEADBEEF;  // Invalid access marker
                             end
+                            
+                            ov_idx = get_overlay_index(effective_reg_num);
+                            if (has_valid_overlay(effective_reg_num)) begin
+                                if (ENABLE_BIT_TYPES) begin
+                                    // Read full 96-bit enhanced entry
+                                    overlay_ram_readdata <= gen_enhanced_overlay.overlay_ram[ov_idx];
+                                end else begin
+                                    // Legacy 32-bit read
+                                    overlay_ram_readdata[31:0] <= gen_legacy_overlay.overlay_ram[ov_idx];
+                                    overlay_ram_readdata[63:32] <= get_overlay_mask(effective_reg_num);
+                                    overlay_ram_readdata[95:64] <= 32'h11111111; // Default RW
+                                end
+                            end
+                            
+                            read_reg_num_pipe <= effective_reg_num;
+                            read_in_progress <= 1'b0;
+                            cfg_state <= CFG_READ_DATA;
                         end
-                        read_data_valid <= 1'b1;
                     end else begin
                         // For addresses below the pointer, let hardware handle it
+                        shadow_handled_reg <= 1'b0;  // Shadow not handling this
                         read_data_valid <= 1'b0;  // Indicate shadow doesn't handle this
+                        cfg_state <= CFG_COMPLETE;
                     end
+                end
+                
+                CFG_READ_DATA: begin
+                    // Second cycle: use pipelined BRAM data
+                    if (has_valid_overlay(read_reg_num_pipe)) begin
+                        logic [31:0] ov_data = overlay_ram_readdata[31:0];
+                        logic [31:0] ov_mask = overlay_ram_readdata[63:32];
+                        
+                        // Apply overlay for writable bits using pipelined data
+                        read_data <= (config_ram_readdata & ~ov_mask) | (ov_data & ov_mask);
+                    end else begin
+                        read_data <= config_ram_readdata;
+                    end
+                    
+                    read_data_valid <= 1'b1;
                     cfg_state <= CFG_COMPLETE;
                 end
                 
                 CFG_WRITE: begin
+                    // Calculate effective register number
+                    logic [9:0] effective_reg_num;
+                    logic [11:0] byte_addr;
+                    
+                    effective_reg_num = get_effective_reg_num(current_reg_num, cfg_a7);
+                    byte_addr = {effective_reg_num, 2'b00};  // Convert to byte address
+                    
                     // Check if we should use shadow configuration and if PCIe writes are enabled
-                    if (use_shadow_cfg({2'b00, effective_reg_num} << 2) && cfgtlp_pcie_write_en) begin
+                    if (use_shadow_cfg(byte_addr) && cfgtlp_pcie_write_en) begin
+                        shadow_handled_reg <= 1'b1;  // Shadow is handling this request
+                        
                         // Handle write to configuration space shadow
                         if (has_valid_overlay(effective_reg_num)) begin
-                            int ov_idx;
-                            logic [31:0] ov_mask;
-                            logic [31:0] next_overlay_value;
-
-                            ov_idx  = int'(overlay_indices[effective_reg_num]);
-                            ov_mask = overlay_masks[effective_reg_num];
-                            next_overlay_value = overlay_ram[ov_idx];
-
-                            // Apply byte enables - build new value using blocking assigns to temp
-                            if (cfg_ext_write_byte_enable[0]) begin
-                                next_overlay_value[7:0] = (cfg_ext_write_data[7:0] & ov_mask[7:0]) |
-                                                          (next_overlay_value[7:0] & ~ov_mask[7:0]);
+                            logic [31:0] ov_idx;
+                            overlay_entry_t current_entry;
+                            logic [31:0] new_data;
+                            
+                            // Get overlay info
+                            ov_idx = get_overlay_index(effective_reg_num);
+                            
+                            if (ENABLE_BIT_TYPES) begin
+                                // Read current enhanced overlay entry
+                                current_entry = gen_enhanced_overlay.overlay_ram[ov_idx];
+                            end else begin
+                                // Legacy mode - construct entry
+                                current_entry.data = gen_legacy_overlay.overlay_ram[ov_idx];
+                                current_entry.mask = get_overlay_mask(effective_reg_num);
+                                current_entry.type_mask = 32'h11111111; // Default RW
                             end
-                            if (cfg_ext_write_byte_enable[1]) begin
-                                next_overlay_value[15:8] = (cfg_ext_write_data[15:8] & ov_mask[15:8]) |
-                                                           (next_overlay_value[15:8] & ~ov_mask[15:8]);
+                            
+                            new_data = current_entry.data;
+                            
+                            // Process each byte based on its type
+                            for (int byte_idx = 0; byte_idx < 4; byte_idx++) begin
+                                if (cfg_ext_write_byte_enable[byte_idx]) begin
+                                    logic [3:0] byte_type = current_entry.type_mask[byte_idx*4 +: 4];
+                                    logic [7:0] write_byte = cfg_ext_write_data[byte_idx*8 +: 8];
+                                    logic [7:0] current_byte = current_entry.data[byte_idx*8 +: 8];
+                                    logic [7:0] mask_byte = current_entry.mask[byte_idx*8 +: 8];
+                                    
+                                    case (byte_type)
+                                        BIT_TYPE_RW: begin
+                                            // Standard read-write
+                                            new_data[byte_idx*8 +: 8] = 
+                                                (write_byte & mask_byte) | 
+                                                (current_byte & ~mask_byte);
+                                        end
+                                        
+                                        BIT_TYPE_RW1C: begin
+                                            // Write-1-to-clear
+                                            new_data[byte_idx*8 +: 8] = 
+                                                current_byte & ~(write_byte & mask_byte);
+                                        end
+                                        
+                                        BIT_TYPE_RW1S: begin
+                                            // Write-1-to-set
+                                            new_data[byte_idx*8 +: 8] = 
+                                                current_byte | (write_byte & mask_byte);
+                                        end
+                                        
+                                        BIT_TYPE_RSVDP: begin
+                                            // Reserved, preserve current value
+                                            new_data[byte_idx*8 +: 8] = current_byte;
+                                        end
+                                        
+                                        BIT_TYPE_HWINIT,
+                                        BIT_TYPE_RO: begin
+                                            // Hardware controlled or read-only, ignore writes
+                                            new_data[byte_idx*8 +: 8] = current_byte;
+                                        end
+                                        
+                                        default: begin
+                                            // Undefined type - preserve value
+                                            new_data[byte_idx*8 +: 8] = current_byte;
+                                        end
+                                    endcase
+                                end
                             end
-                            if (cfg_ext_write_byte_enable[2]) begin
-                                next_overlay_value[23:16] = (cfg_ext_write_data[23:16] & ov_mask[23:16]) |
-                                                            (next_overlay_value[23:16] & ~ov_mask[23:16]);
+                            
+                            // Update overlay entry
+                            if (ENABLE_BIT_TYPES) begin
+                                // Update only the data portion of the enhanced entry
+                                current_entry.data = new_data;
+                                gen_enhanced_overlay.overlay_ram[ov_idx] <= current_entry;
+                            end else begin
+                                // Legacy mode - just update data
+                                gen_legacy_overlay.overlay_ram[ov_idx] <= new_data;
                             end
-                            if (cfg_ext_write_byte_enable[3]) begin
-                                next_overlay_value[31:24] = (cfg_ext_write_data[31:24] & ov_mask[31:24]) |
-                                                            (next_overlay_value[31:24] & ~ov_mask[31:24]);
-                            end
-
-                            // Single write to overlay RAM (no multiple drivers / stale value)
-                            overlay_ram[ov_idx] <= next_overlay_value;
                         end
                         // If no valid overlay, ignore write (hardware handles it)
+                    end else begin
+                        // If not using shadow or PCIe writes disabled, hardware handles the write
+                        shadow_handled_reg <= 1'b0;  // Shadow not handling this
                     end
-                    // If not using shadow or PCIe writes disabled, hardware handles the write
                     
                     cfg_state <= CFG_COMPLETE;
                 end
@@ -255,29 +522,50 @@ module pcileech_tlps128_cfgspace_shadow #(
     // Output assignments
     assign cfg_ext_read_data = read_data;
     assign cfg_ext_read_data_valid = read_data_valid;
+    assign shadow_handled = shadow_handled_reg;
     
     // Host access port (Port B) - synchronous read/write
     always_ff @(posedge clk) begin
         if (!reset_n) begin
             host_read_data <= 32'h0;
         end else if (host_access_en) begin
-            if (host_write_en) begin
-                // Host write to configuration space
-                config_space_ram[host_addr[11:2]] <= host_write_data;
-            end else begin
-                // Host read from configuration space (single assignment)
-                logic [31:0] base_rd;
-                logic [31:0] ov_mask;
-                int ov_idx;
-                base_rd = config_space_ram[host_addr[11:2]];
-                ov_mask = overlay_masks[host_addr[11:2]];
-                ov_idx  = int'(overlay_indices[host_addr[11:2]]);
-
-                if ((overlay_indices[host_addr[11:2]] != 32'hFFFFFFFF) && (ov_idx >= 0) && (ov_idx < OVERLAY_ENTRIES)) begin
-                    host_read_data <= (base_rd & ~ov_mask) | (overlay_ram[ov_idx] & ov_mask);
+            logic [9:0] reg_num;
+            reg_num = host_addr[11:2];  // Convert byte address to DWORD index
+            
+            // Bounds checking to prevent out-of-range access
+            if (reg_num < (CONFIG_SPACE_SIZE / 4)) begin
+                if (host_write_en) begin
+                    // Host write to configuration space
+                    config_space_ram[reg_num] <= host_write_data;
                 end else begin
-                    host_read_data <= base_rd;
+                    // Host read from configuration space
+                    logic [31:0] base_rd;
+                    logic [31:0] ov_mask;
+                    logic [31:0] ov_idx;
+                    logic [31:0] ov_data;
+                    
+                    base_rd = config_space_ram[reg_num];
+                    
+                    // Get overlay info
+                    ov_idx = get_overlay_index(reg_num);
+
+                    if ((ov_idx != INVALID_INDEX) && (ov_idx < OVERLAY_ENTRIES)) begin
+                        if (ENABLE_BIT_TYPES) begin
+                            overlay_entry_t entry = gen_enhanced_overlay.overlay_ram[ov_idx];
+                            ov_data = entry.data;
+                            ov_mask = entry.mask;
+                        end else begin
+                            ov_data = gen_legacy_overlay.overlay_ram[ov_idx];
+                            ov_mask = get_overlay_mask(reg_num);
+                        end
+                        host_read_data <= (base_rd & ~ov_mask) | (ov_data & ov_mask);
+                    end else begin
+                        host_read_data <= base_rd;
+                    end
                 end
+            end else begin
+                // Out of bounds access
+                host_read_data <= 32'hDEADBEEF;  // Return error marker for invalid access
             end
         end
     end
@@ -286,35 +574,126 @@ module pcileech_tlps128_cfgspace_shadow #(
     // Additional dual-port access (Port C)
     always_ff @(posedge clkB) begin
         if (enB) begin
-            if (weB) begin
-                // Port B write to configuration space
-                config_space_ram[addrB[11:2]] <= dinB;
-            end else begin
-                // Port B read from configuration space (single assignment)
-                logic [31:0] base_rd_B;
-                logic [31:0] ov_mask_B;
-                int ov_idx_B;
-                base_rd_B = config_space_ram[addrB[11:2]];
-                ov_mask_B = overlay_masks[addrB[11:2]];
-                ov_idx_B  = int'(overlay_indices[addrB[11:2]]);
-
-                if ((overlay_indices[addrB[11:2]] != 32'hFFFFFFFF) && (ov_idx_B >= 0) && (ov_idx_B < OVERLAY_ENTRIES)) begin
-                    doutB <= (base_rd_B & ~ov_mask_B) | (overlay_ram[ov_idx_B] & ov_mask_B);
+            logic [9:0] reg_num_B;
+            reg_num_B = addrB[11:2];  // Convert byte address to DWORD index
+            
+            // Bounds checking
+            if (reg_num_B < (CONFIG_SPACE_SIZE / 4)) begin
+                if (weB) begin
+                    // Port B write to configuration space
+                    config_space_ram[reg_num_B] <= dinB;
                 end else begin
-                    doutB <= base_rd_B;
+                    // Port B read from configuration space
+                    logic [31:0] base_rd_B;
+                    logic [31:0] ov_mask_B;
+                    logic [31:0] ov_idx_B;
+                    logic [31:0] ov_data_B;
+                    
+                    base_rd_B = config_space_ram[reg_num_B];
+                    
+                    // Get overlay info
+                    ov_idx_B = get_overlay_index(reg_num_B);
+
+                    if ((ov_idx_B != INVALID_INDEX) && (ov_idx_B < OVERLAY_ENTRIES)) begin
+                        if (ENABLE_BIT_TYPES) begin
+                            overlay_entry_t entry_B = gen_enhanced_overlay.overlay_ram[ov_idx_B];
+                            ov_data_B = entry_B.data;
+                            ov_mask_B = entry_B.mask;
+                        end else begin
+                            ov_data_B = gen_legacy_overlay.overlay_ram[ov_idx_B];
+                            ov_mask_B = get_overlay_mask(reg_num_B);
+                        end
+                        doutB <= (base_rd_B & ~ov_mask_B) | (ov_data_B & ov_mask_B);
+                    end else begin
+                        doutB <= base_rd_B;
+                    end
                 end
+            end else begin
+                // Out of bounds access
+                doutB <= 32'hDEADBEEF;  // Return error marker
             end
         end
     end
     
 {% endif %}
-    // Optional configuration-space initialization
-    // Many FPGA tools support BRAM init via initial blocks; for ASIC flows use tool-specific mechanisms.
+    // =====================================================================
+    // Initialization and Hash Table Setup
+    // =====================================================================
+    
+    // synthesis translate_off
     initial begin
+        // Initialize overlay RAM (moved from reset block to enable BRAM synthesis)
+        if (ENABLE_BIT_TYPES) begin
+            for (int i = 0; i < OVERLAY_ENTRIES; i++) begin
+                gen_enhanced_overlay.overlay_ram[i] = 96'h0;
+            end
+        end else begin
+            for (int i = 0; i < OVERLAY_ENTRIES; i++) begin
+                gen_legacy_overlay.overlay_ram[i] = 32'h0;
+            end
+        end
+        
+        // Initialize hash table for sparse mapping
+        if (ENABLE_SPARSE_MAP) begin
+            for (int i = 0; i < HASH_TABLE_SIZE; i++) begin
+                gen_sparse_map.hash_table[i] = '{valid: 1'b0, reg_num: 10'h0, overlay_index: 8'h0};
+            end
+            
+            // Populate hash table with configured overlays
+            {%- if OVERLAY_MAP is defined and OVERLAY_MAP is not none -%}
+                {%- if OVERLAY_MAP is mapping -%}
+                    {%- for reg, entry in OVERLAY_MAP.items() %}
+            // Add register 0x{{ "%03X"|format(reg) }} to hash table
+            begin
+                logic [7:0] hash_idx = hash_reg_num({{ reg }});
+                logic [7:0] probe_count = 0;
+                // Find empty slot using linear probing
+                while (gen_sparse_map.hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
+                    hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
+                    probe_count++;
+                end
+                if (!gen_sparse_map.hash_table[hash_idx].valid) begin
+                    gen_sparse_map.hash_table[hash_idx] = '{
+                        valid: 1'b1,
+                        reg_num: {{ reg }},
+                        overlay_index: {{ loop.index0 }}
+                    };
+                end
+            end
+                    {%- endfor -%}
+                {%- elif OVERLAY_MAP is sequence -%}
+                    {%- for pair in OVERLAY_MAP -%}
+                        {%- if pair is sequence and pair|length >= 2 -%}
+                            {%- set reg = pair[0] -%}
+            // Add register 0x{{ "%03X"|format(reg) }} to hash table
+            begin
+                logic [7:0] hash_idx = hash_reg_num({{ reg }});
+                logic [7:0] probe_count = 0;
+                // Find empty slot using linear probing
+                while (gen_sparse_map.hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
+                    hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
+                    probe_count++;
+                end
+                if (!gen_sparse_map.hash_table[hash_idx].valid) begin
+                    gen_sparse_map.hash_table[hash_idx] = '{
+                        valid: 1'b1,
+                        reg_num: {{ reg }},
+                        overlay_index: {{ loop.index0 }}
+                    };
+                end
+            end
+                        {%- endif -%}
+                    {%- endfor -%}
+                {%- endif -%}
+            {%- endif %}
+        end
+        
+        // Initialize configuration space BRAM if hex file provided
         if (CFG_INIT_HEX != "") begin
             $readmemh(CFG_INIT_HEX, config_space_ram);
         end
     end
+    // synthesis translate_on
 
 endmodule
 
