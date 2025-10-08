@@ -29,6 +29,7 @@ from src.templating.sv_constants import (
     SV_TEMPLATES,
     SVConstants,
     SVTemplates,
+    SVValidation,
 )
 
 from ..utils.unified_context import (
@@ -120,10 +121,7 @@ class MSIXHelper:
             return "\n".join(f"{value:08X}" for value in table_data) + "\n"
 
         # In production, require actual hardware data
-        raise TemplateRenderError(
-            "MSI-X table data must be read from actual hardware. "
-            "Cannot generate safe firmware without real MSI-X values."
-        )
+        raise TemplateRenderError(SVValidation.NO_MSIX_HARDWARE_DATA_ERROR)
 
 
 class SystemVerilogGenerator:
@@ -142,6 +140,7 @@ class SystemVerilogGenerator:
         device_config: Optional[DeviceSpecificLogic] = None,
         template_dir: Optional[Path] = None,
         use_pcileech_primary: bool = True,
+        prefix: str = "SV_GEN",
     ):
         """Initialize the SystemVerilog generator with improved architecture."""
         self.logger = logging.getLogger(__name__)
@@ -158,8 +157,9 @@ class SystemVerilogGenerator:
         self.context_builder = SVContextBuilder(self.logger)
         self.renderer = TemplateRenderer(template_dir)
         self.module_generator = SVModuleGenerator(
-            self.renderer, self.logger, prefix="SV_GEN"
+            self.renderer, self.logger, prefix=prefix
         )
+        self.prefix = prefix
 
         # Validate device configuration
         self.validator.validate_device_config(self.device_config)
@@ -167,7 +167,7 @@ class SystemVerilogGenerator:
         log_info_safe(
             self.logger,
             "SystemVerilogGenerator initialized successfully",
-            use_pcileech=self.use_pcileech_primary,
+            prefix=prefix,
         )
 
     # Local timestamp helper removed; use utc_timestamp from string_utils
@@ -211,12 +211,9 @@ class SystemVerilogGenerator:
                     vid=vendor_id or "MISSING",
                     did=device_id or "MISSING",
                 ),
-                prefix="SV_GEN",
+                prefix=self.prefix,
             )
-            raise TemplateRenderError(
-                "Missing required device identifiers in context. "
-                "Cannot generate firmware without vendor_id and device_id."
-            )
+            raise TemplateRenderError(SVValidation.NO_DONOR_DEVICE_IDS_ERROR)
 
         # Create unified context builder and generate proper active_device_config
         builder = UnifiedContextBuilder(self.logger)
@@ -358,7 +355,7 @@ class SystemVerilogGenerator:
                                     len(te) if isinstance(te, (list, tuple)) else 0
                                 ),
                             ),
-                            prefix="MSIX",
+                            prefix=self.prefix,
                         )
                     except Exception:
                         pass
@@ -381,7 +378,7 @@ class SystemVerilogGenerator:
                                     vectors=msix_cfg.get("num_vectors", 0),
                                     upstream=("msix_data" in template_context),
                                 ),
-                                prefix="MSIX",
+                                prefix=self.prefix,
                             )
                     except Exception:
                         pass
@@ -398,8 +395,6 @@ class SystemVerilogGenerator:
                 cs.setdefault("class_code", SVConstants.DEFAULT_CLASS_CODE_INT)
                 cs.setdefault("revision_id", SVConstants.DEFAULT_REVISION_ID_INT)
 
-                # Only propagate device identifiers if already present in device_config
-                # Never hardcode or guess VID/PID - fail fast if missing
                 device_cfg = enhanced_context.get("device_config")
                 if (
                     isinstance(device_cfg, dict)
@@ -413,7 +408,7 @@ class SystemVerilogGenerator:
                     log_info_safe(
                         self.logger,
                         "No device_config provided; skipping config_space VID/DID defaults",
-                        prefix="SV_GEN",
+                        prefix=self.prefix,
                     )
 
             enhanced_context.setdefault(
@@ -464,7 +459,7 @@ class SystemVerilogGenerator:
 
         except Exception as e:
             error_msg = format_user_friendly_error(e, "SystemVerilog generation")
-            log_error_safe(self.logger, error_msg)
+            log_error_safe(self.logger, error_msg, prefix=self.prefix)
             raise TemplateRenderError(error_msg) from e
 
     # Backward compatibility methods
@@ -535,7 +530,7 @@ class SystemVerilogGenerator:
             pass
 
         log_info_safe(
-            self.logger, "Cleared SystemVerilog generator cache", prefix="SV_GEN"
+            self.logger, "Cleared SystemVerilog generator cache", prefix=self.prefix
         )
 
     # Additional backward compatibility methods
@@ -604,12 +599,9 @@ class SystemVerilogGenerator:
                         vid=derived_vendor_id or "MISSING",
                         did=derived_device_id or "MISSING",
                     ),
-                    prefix="ADVANCED",
+                    prefix=self.prefix,
                 )
-                raise TemplateRenderError(
-                    "Missing required device identifiers (vendor_id/device_id). "
-                    "Cannot generate donor-unique firmware without these values."
-                )
+                raise TemplateRenderError(SVValidation.NO_DONOR_DEVICE_IDS_ERROR)
             rid = derived_revision_id or "00"
             derived_signature = (
                 f"{_fmt(derived_vendor_id,4)}:{_fmt(derived_device_id,4)}:{_fmt(rid,2)}"
@@ -717,7 +709,7 @@ class SystemVerilogGenerator:
                     logger,
                     "VFIO helpers not available: {error}",
                     error=str(e),
-                    prefix="RDMSIX",
+                    prefix=self.prefix,
                 )
                 return None
 
@@ -725,7 +717,7 @@ class SystemVerilogGenerator:
                 logger,
                 "Reading MSI-X table for {vectors} vectors",
                 vectors=num_vectors,
-                prefix="RDMSIX",
+                prefix=self.prefix,
             )
 
             # Get device file descriptors - need a device BDF
@@ -745,7 +737,7 @@ class SystemVerilogGenerator:
                     logger,
                     "Failed to acquire VFIO device fds: {error}",
                     error=str(e),
-                    prefix="RDMSIX",
+                    prefix=self.prefix,
                 )
                 return None
 
@@ -764,7 +756,7 @@ class SystemVerilogGenerator:
                             "VFIO binding verification failed: {error}",
                             error=str(e),
                         ),
-                        prefix="RDMSIX",
+                        prefix=self.prefix,
                     )
             except Exception:
                 # Swallow any unexpected errors from binding verification
@@ -804,7 +796,7 @@ class SystemVerilogGenerator:
                             "Error closing device_fd: {error}",
                             error=str(e),
                         ),
-                        prefix="GEN",
+                        prefix=self.prefix,
                     )
                 try:
                     os.close(container_fd)
@@ -816,14 +808,14 @@ class SystemVerilogGenerator:
                             "Error closing container_fd: {error}",
                             error=str(e),
                         ),
-                        prefix="GEN",
+                        prefix=self.prefix,
                     )
 
         except ImportError:
-            log_error_safe(logger, "VFIO module not available", prefix="GEN")
+            log_error_safe(logger, "VFIO module not available", prefix=self.prefix)
             return None
         except OSError:
-            log_error_safe(logger, "Failed to read MSI-X table", prefix="GEN")
+            log_error_safe(logger, "Failed to read MSI-X table", prefix=self.prefix)
             return None
         except Exception as e:
             log_error_safe(
@@ -832,7 +824,7 @@ class SystemVerilogGenerator:
                     "Unexpected error reading MSI-X table: {error}",
                     error=str(e),
                 ),
-                prefix="GEN",
+                prefix=self.prefix,
             )
             return None
 
@@ -940,7 +932,7 @@ class SystemVerilogGenerator:
             Dictionary mapping module names to generated code
         """
         log_info_safe(
-            self.logger, "Generating advanced PCILeech modules", prefix="ADVANCED"
+            self.logger, "Generating advanced PCILeech modules", prefix=self.prefix
         )
 
         # Extract registers from behavior profile

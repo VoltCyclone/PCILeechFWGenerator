@@ -6,9 +6,13 @@ from typing import Any, Dict, List
 from src.string_utils import log_error_safe, log_warning_safe, safe_format
 from src.utils.validation_constants import SV_FILE_HEADER
 
-from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
-                                     PCILEECH_DEFAULT, TemplateObject,
-                                     normalize_config_to_dict)
+from ..utils.unified_context import (
+    DEFAULT_TIMING_CONFIG,
+    MSIX_DEFAULT,
+    PCILEECH_DEFAULT,
+    TemplateObject,
+    normalize_config_to_dict,
+)
 from .sv_constants import SV_CONSTANTS
 from .template_renderer import TemplateRenderError
 
@@ -25,6 +29,7 @@ class SVContextBuilder:
         self.logger = logger
         self.constants = SV_CONSTANTS
         self._context_cache = {}
+        self.prefix = "TEMPLATING"
 
     def build_enhanced_context(
         self,
@@ -181,7 +186,10 @@ class SVContextBuilder:
             return vars(device_config)
         else:
             raise TemplateRenderError(
-                f"Cannot normalize device_config of type {type(device_config).__name__}"
+                safe_format(
+                    "Cannot normalize device_config of type {type}",
+                    type=type(device_config).__name__,
+                )
             )
 
     def _add_device_identification(
@@ -201,7 +209,7 @@ class SVContextBuilder:
                     vid=vendor_id,
                     did=device_id,
                 ),
-                prefix="TEMPLATING",
+                prefix=self.prefix,
             )
             # Do not terminate the process here; raise a template error to be handled upstream
             raise TemplateRenderError(
@@ -277,8 +285,8 @@ class SVContextBuilder:
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                safe_format(f"Failed to build power context: {e}"),
-                prefix="TEMPLATING",
+                safe_format("Failed to build power context: {e}", e=str(e)),
+                prefix=self.prefix,
             )
             context["power_management"] = TemplateObject(
                 {"has_interface_signals": False}
@@ -296,7 +304,7 @@ class SVContextBuilder:
                 safe_format(
                     "Failed to build error handling context: {error}", error=str(e)
                 ),
-                prefix="TEMPLATING",
+                prefix=self.prefix,
             )
             context["error_handling"] = TemplateObject({"enable_error_logging": False})
             context["error_config"] = TemplateObject({"enable_error_detection": False})
@@ -312,7 +320,7 @@ class SVContextBuilder:
                 safe_format(
                     "Failed to build performance context: {error}", error=str(e)
                 ),
-                prefix="TEMPLATING",
+                prefix=self.prefix,
             )
             context["performance_counters"] = TemplateObject({})
             context["perf_config"] = TemplateObject({})
@@ -359,7 +367,6 @@ class SVContextBuilder:
                 "num_sources": int(
                     context.get("num_sources", SV_CONSTANTS.DEFAULT_NUM_SOURCES)
                 ),
-                # No fallback device ID - should use actual device_id from context
                 "FALLBACK_DEVICE_ID": device_config_dict["device_id"],
             }
         )

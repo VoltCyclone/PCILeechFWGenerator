@@ -40,6 +40,7 @@ class VivadoRunner:
         vivado_path: str,
         logger: Optional[logging.Logger] = None,
         device_config: Optional[Dict[str, Any]] = None,
+        prefix: str = "VIVADO",
     ):
         """Initialize VivadoRunner with simplified configuration.
 
@@ -62,6 +63,7 @@ class VivadoRunner:
 
         # Extract version from path (simple heuristic)
         self.vivado_version: str = self._extract_version_from_path(vivado_path)
+        self.prefix: str = prefix
 
     def _extract_version_from_path(self, path: str) -> str:
         """Extract Vivado version from installation path."""
@@ -101,7 +103,7 @@ class VivadoRunner:
         log_info_safe(
             self.logger,
             "Dropping out of container to run Vivado on host",
-            prefix="VIVADO",
+            prefix=self.prefix,
         )
 
         # Prepare the host command to run Vivado
@@ -148,12 +150,12 @@ echo "Vivado synthesis completed on host"
                     "Created host execution script: {path}",
                     path=str(host_script),
                 ),
-                prefix="VIVADO",
+                prefix=self.prefix,
             )
             log_info_safe(
                 self.logger,
                 "To complete Vivado synthesis, run this on the host:",
-                prefix="VIVADO",
+                prefix=self.prefix,
             )
 
             raise VivadoIntegrationError(
@@ -180,7 +182,7 @@ echo "Vivado synthesis completed on host"
             log_info_safe(
                 self.logger,
                 "Container detected - dropping out to host for Vivado execution",
-                prefix="VIVADO",
+                prefix=self.prefix,
             )
             self._run_vivado_on_host()
             return
@@ -191,7 +193,7 @@ echo "Vivado synthesis completed on host"
                 "Starting Vivado build for board: {board}",
                 board=self.board,
             ),
-            prefix="VIVADO",
+            prefix=self.prefix,
         )
         log_info_safe(
             self.logger,
@@ -199,7 +201,7 @@ echo "Vivado synthesis completed on host"
                 "Output directory: {dir}",
                 dir=str(self.output_dir),
             ),
-            prefix="VIVADO",
+            prefix=self.prefix,
         )
 
         # Import these functions dynamically to avoid circular dependencies
@@ -222,7 +224,7 @@ echo "Vivado synthesis completed on host"
                     "Using integrated build script: {path}",
                     path=str(build_script),
                 ),
-                prefix="VIVADO",
+                prefix=self.prefix,
             )
             build_tcl = build_script
         except Exception as e:
@@ -232,7 +234,7 @@ echo "Vivado synthesis completed on host"
                     "Failed to use integrated build, falling back to generated scripts: {err}",
                     err=str(e),
                 ),
-                prefix="VIVADO",
+                prefix=self.prefix,
             )
             build_tcl = self.output_dir / "vivado_build.tcl"
 
@@ -265,7 +267,7 @@ echo "Vivado synthesis completed on host"
         log_info_safe(
             self.logger,
             "Vivado implementation finished successfully ✓",
-            prefix="VIVADO",
+            prefix=self.prefix,
         )
 
     def get_vivado_info(self) -> Dict[str, str]:

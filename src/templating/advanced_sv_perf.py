@@ -107,6 +107,7 @@ class PerformanceCounterGenerator:
         device_type: DeviceType = DeviceType.GENERIC,
         renderer=None,
         logger: Optional[logging.Logger] = None,
+        prefix: str = "PERF",
     ):
         """Initialize the performance counter generator."""
         self.config = config or PerformanceCounterConfig()
@@ -121,7 +122,7 @@ class PerformanceCounterGenerator:
             self.config.enable_latency_measurement = self.config.enable_latency_tracking
         self.device_type = device_type
         self.logger = logger or logging.getLogger(__name__)
-
+        self.prefix = prefix
         # Initialize template renderer
         if renderer is None:
             from .template_renderer import TemplateRenderer
@@ -136,7 +137,7 @@ class PerformanceCounterGenerator:
                 "Initialized PerformanceCounterGenerator for device type: {device_type}",
                 device_type=device_type.value,
             ),
-            prefix="PERF",
+            prefix=prefix,
         )
 
     def generate_perf_declarations(self) -> str:
@@ -229,11 +230,13 @@ class PerformanceCounterGenerator:
 
         log_info_safe(
             self.logger,
-            "Built performance context with {count} parameters for device type {device_type}",
-            count=len(context),
-            device_type=context["device_type"],
+            safe_format(
+                "Built performance context with {count} parameters for device type {device_type}",
+                count=len(context),
+                device_type=context["device_type"],
+            ),
+            prefix=self.prefix,
         )
-
         return context
 
     def _get_device_specific_param(
@@ -354,7 +357,7 @@ class PerformanceCounterGenerator:
                 "Generating complete performance counters for device type: {device_type}",
                 device_type=context["device_type"],
             ),
-            prefix="PERF",
+            prefix=self.prefix,
         )
 
         return self.renderer.render_template(

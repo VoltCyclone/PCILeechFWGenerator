@@ -14,9 +14,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 from src.__version__ import __version__
-from src.string_utils import (generate_tcl_header_comment, log_debug_safe,
-                              log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from src.templates.template_mapping import update_template_path
 from src.utils.unified_context import ensure_template_compatibility
 
@@ -25,10 +30,19 @@ from .sv_constants import SV_CONSTANTS
 __import__ = builtins.__import__
 
 try:
-    from jinja2 import (BaseLoader, Environment, FileSystemLoader,
-                        StrictUndefined, Template, TemplateError,
-                        TemplateNotFound, TemplateRuntimeError, Undefined,
-                        meta, nodes)
+    from jinja2 import (
+        BaseLoader,
+        Environment,
+        FileSystemLoader,
+        StrictUndefined,
+        Template,
+        TemplateError,
+        TemplateNotFound,
+        TemplateRuntimeError,
+        Undefined,
+        meta,
+        nodes,
+    )
     from jinja2.bccache import FileSystemBytecodeCache
     from jinja2.ext import Extension
     from jinja2.sandbox import SandboxedEnvironment
@@ -87,6 +101,7 @@ class TemplateRenderer:
         sandboxed: bool = False,
         bytecode_cache_dir: Optional[Union[str, Path]] = None,
         auto_reload: bool = True,
+        prefix: str = "TEMPL",
     ):
         """
         Initialize the template renderer.
@@ -103,6 +118,7 @@ class TemplateRenderer:
         template_dir = Path(template_dir or Path(__file__).parent.parent / "templates")
         template_dir.mkdir(parents=True, exist_ok=True)
         self.template_dir = template_dir
+        self.prefix = prefix
 
         # Choose undefined class based on strict mode
         undefined_cls = StrictUndefined if strict else Undefined
@@ -141,7 +157,7 @@ class TemplateRenderer:
                 "Template renderer initialized with directory: {template_dir}",
                 template_dir=self.template_dir,
             ),
-            prefix="TEMPLATE",
+            prefix=prefix,
         )
 
     def _setup_custom_filters(self):
@@ -452,7 +468,7 @@ class TemplateRenderer:
                     log_debug_safe(
                         logger,
                         "Template constants not available",
-                        prefix="TEMPLATE",
+                        prefix=self.prefix,
                     )
 
             except Exception as e:
@@ -463,7 +479,7 @@ class TemplateRenderer:
                         "ensure_template_compatibility failed, using original context: {error}",
                         error=e,
                     ),
-                    prefix="TEMPLATE",
+                    prefix=self.prefix,
                 )
                 compatible = context
 
@@ -471,8 +487,9 @@ class TemplateRenderer:
             # to ensure optional defaults (e.g., constraint_files) are present
             # across all templates, without relaxing required keys.
             try:
-                from src.templating.template_context_validator import \
-                    validate_template_context
+                from src.templating.template_context_validator import (
+                    validate_template_context,
+                )
 
                 compatible = validate_template_context(
                     template_name, compatible, strict=False
@@ -485,7 +502,7 @@ class TemplateRenderer:
                         "TemplateContextValidator unavailable or failed: {error}",
                         error=e,
                     ),
-                    prefix="TEMPLATE",
+                    prefix=self.prefix,
                 )
 
             # Render the template with the validated/compatible context
@@ -505,7 +522,7 @@ class TemplateRenderer:
                 template_name=template_name,
                 error=e,
             )
-            log_error_safe(logger, error_msg, prefix="TEMPLATE")
+            log_error_safe(logger, error_msg, prefix=self.prefix)
             raise TemplateRenderError(error_msg) from e
 
     def render_string(self, template_string: str, context: Dict[str, Any]) -> str:
@@ -673,8 +690,9 @@ class TemplateRenderer:
         try:
             # Try to use the centralized validator if available, but don't fail if it's not
             try:
-                from src.templating.template_context_validator import \
-                    validate_template_context
+                from src.templating.template_context_validator import (
+                    validate_template_context,
+                )
 
                 # Apply centralized validation with non-strict mode
                 validated_context = validate_template_context(
@@ -694,7 +712,7 @@ class TemplateRenderer:
                         "TemplateContextValidator failed, falling back to basic preparation: {error}",
                         error=e,
                     ),
-                    prefix="TEMPLATE",
+                    prefix=self.prefix,
                 )
                 validated_context = context.copy()
 
@@ -713,7 +731,7 @@ class TemplateRenderer:
                                 "Failed to convert timing_config dataclass: {error}",
                                 error=e,
                             ),
-                            prefix="TEMPLATE",
+                            prefix=self.prefix,
                         )
 
             return validated_context
@@ -727,7 +745,7 @@ class TemplateRenderer:
                     name=(template_name or "unknown"),
                     error=e,
                 ),
-                prefix="TEMPLATE",
+                prefix=self.prefix,
             )
             return context.copy()
 
@@ -739,8 +757,9 @@ class TemplateRenderer:
 
         # Clear template context validator cache
         try:
-            from src.templating.template_context_validator import \
-                clear_global_template_cache
+            from src.templating.template_context_validator import (
+                clear_global_template_cache,
+            )
 
             clear_global_template_cache()
         except ImportError:
@@ -749,7 +768,7 @@ class TemplateRenderer:
         log_debug_safe(
             logger,
             "Cleared template renderer caches",
-            prefix="TEMPLATE",
+            prefix=self.prefix,
         )
 
 

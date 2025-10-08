@@ -257,6 +257,14 @@ class SVValidation:
         "validation_failed": CEM.TEMPLATE_VALIDATION_FAILED,
         "missing_behavior_profile": CEM.MISSING_BEHAVIOR_PROFILE,
     }
+    NO_DONOR_DEVICE_IDS_ERROR: str = (
+        "Missing required device identifiers (vendor_id/device_id). "
+        "Cannot generate donor-unique firmware without these values."
+    )
+    NO_MSIX_HARDWARE_DATA_ERROR: str = (
+        "MSI-X table data must be read from actual hardware. "
+        "Cannot generate safe firmware without real MSI-X values."
+    )
 
 
 # Create singleton instances

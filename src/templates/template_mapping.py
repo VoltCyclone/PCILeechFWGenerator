@@ -118,4 +118,12 @@ def update_template_path(template_name: str) -> str:
         return template_name
 
     # Otherwise, map it
-    return get_new_template_path(template_name)
+    mapped = get_new_template_path(template_name)
+
+    # Convenience fallback: if caller provided a bare SystemVerilog template
+    # filename (e.g. "top_level_wrapper.sv.j2") without a directory prefix,
+    # assume it lives under the "sv/" folder.
+    if "/" not in mapped and mapped.endswith(".sv.j2"):
+        return f"sv/{mapped}"
+
+    return mapped
