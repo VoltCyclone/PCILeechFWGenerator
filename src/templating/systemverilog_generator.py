@@ -9,31 +9,53 @@ This is the improved modular version that replaces the original monolithic imple
 """
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-# Core project modules
 from src.__version__ import __version__
-from src.device_clone.device_config import DeviceClass, DeviceType
-from src.device_clone.manufacturing_variance import VarianceModel
 from src.error_utils import format_user_friendly_error
-# Project string utilities (always first of project imports)
-from src.string_utils import (generate_sv_header_comment, log_error_safe,
-                              log_info_safe, utc_timestamp)
+from src.pci_capability.constants import MSIX_TABLE_ENTRY_SIZE
+from src.string_utils import (
+    format_bar_summary_table,
+    format_bar_table,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    safe_format,
+    utc_timestamp,
+)
+from src.templating.sv_constants import (
+    SV_CONSTANTS,
+    SV_TEMPLATES,
+    SVConstants,
+    SVTemplates,
+)
 
-from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
-                                     PCILEECH_DEFAULT, TemplateObject,
-                                     UnifiedContextBuilder,
-                                     normalize_config_to_dict)
-from .advanced_sv_features import (AdvancedSVFeatureGenerator,
-                                   ErrorHandlingConfig, PerformanceConfig)
+from ..utils.unified_context import (
+    DEFAULT_TIMING_CONFIG,
+    MSIX_DEFAULT,
+    PCILEECH_DEFAULT,
+    TemplateObject,
+    UnifiedContextBuilder,
+)
+
+from .advanced_sv_features import (
+    ErrorHandlingConfig,
+    PerformanceConfig,
+)
+
 from .advanced_sv_power import PowerManagementConfig
-from .sv_constants import SVConstants, SVTemplates, SVValidation
+
+from .sv_constants import SVConstants, SVTemplates
+
 from .sv_context_builder import SVContextBuilder
+
 from .sv_device_config import DeviceSpecificLogic
+
 from .sv_module_generator import SVModuleGenerator
+
 from .sv_validator import SVValidator
+
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
 
@@ -56,7 +78,9 @@ class MSIXHelper:
         Returns:
             Hex string representation of PBA initialization data
         """
-        pba_size = (num_vectors + 31) // 32
+        # PBA uses 32 bits per DWORD, need ceiling division
+        PBA_BITS_PER_ENTRY = 32
+        pba_size = (num_vectors + (PBA_BITS_PER_ENTRY - 1)) // PBA_BITS_PER_ENTRY
         hex_lines = ["00000000" for _ in range(pba_size)]
         return "\n".join(hex_lines) + "\n"
 
@@ -156,6 +180,9 @@ class SystemVerilogGenerator:
 
         This uses the existing UnifiedContextBuilder to create a properly structured
         active_device_config instead of relying on empty dict fallbacks.
+
+        Raises:
+            TemplateRenderError: If required device identifiers are missing
         """
         # Extract device identifiers from context if available
         device_config = enhanced_context.get("device_config", {})
@@ -166,15 +193,30 @@ class SystemVerilogGenerator:
             enhanced_context.get("vendor_id")
             or device_config.get("vendor_id")
             or config_space.get("vendor_id")
-            or "0000"  # Fallback
         )
 
         device_id = (
             enhanced_context.get("device_id")
             or device_config.get("device_id")
             or config_space.get("device_id")
-            or "0000"  # Fallback
         )
+
+        # Fail fast if identifiers are missing - no silent fallbacks
+        if not vendor_id or not device_id:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Cannot create active_device_config: missing identifiers "
+                    "(vendor_id={vid}, device_id={did})",
+                    vid=vendor_id or "MISSING",
+                    did=device_id or "MISSING",
+                ),
+                prefix="SV_GEN",
+            )
+            raise TemplateRenderError(
+                "Missing required device identifiers in context. "
+                "Cannot generate firmware without vendor_id and device_id."
+            )
 
         # Create unified context builder and generate proper active_device_config
         builder = UnifiedContextBuilder(self.logger)
@@ -303,23 +345,22 @@ class SystemVerilogGenerator:
                         enhanced_context["template_context"]["msix_data"] = (
                             template_context["msix_data"]
                         )
-                    # Targeted diagnostics: verify persistence of MSI-X payload
                     try:
                         md = enhanced_context.get("msix_data") or {}
                         tih = md.get("table_init_hex")
                         te = md.get("table_entries") or []
                         log_info_safe(
                             self.logger,
-                            (
-                                "Pre-render MSI-X: "
-                                "init_hex_len={ihl}, entries={entries}"
+                            safe_format(
+                                "Pre-render MSI-X: init_hex_len={ihl}, entries={entries}",
+                                ihl=(len(tih) if isinstance(tih, str) else 0),
+                                entries=(
+                                    len(te) if isinstance(te, (list, tuple)) else 0
+                                ),
                             ),
-                            ihl=(len(tih) if isinstance(tih, str) else 0),
-                            entries=(len(te) if isinstance(te, (list, tuple)) else 0),
                             prefix="MSIX",
                         )
                     except Exception:
-                        # Logging must never break generation
                         pass
                 else:
                     # If MSI-X appears supported but msix_data is absent, emit
@@ -333,55 +374,48 @@ class SystemVerilogGenerator:
                         if supported and not template_context.get("msix_data"):
                             log_info_safe(
                                 self.logger,
-                                (
+                                safe_format(
                                     "MSI-X supported (vectors={vectors}) but "
                                     "msix_data missing before render; "
-                                    "upstream_template_has_msix_data={upstream}"
+                                    "upstream_template_has_msix_data={upstream}",
+                                    vectors=msix_cfg.get("num_vectors", 0),
+                                    upstream=("msix_data" in template_context),
                                 ),
-                                vectors=msix_cfg.get("num_vectors", 0),
-                                upstream=("msix_data" in template_context),
                                 prefix="MSIX",
                             )
                     except Exception:
                         pass
             except Exception:
-                # Non-fatal: absence simply disables MSI-X table init rendering
                 pass
 
             # Ensure config_space has sensible defaults for commonly accessed fields
             # but only when device_config is either absent or completely valid
             cs = enhanced_context.get("config_space")
-            try:
-                if isinstance(cs, dict):
-                    cs.setdefault("status", SVConstants.DEFAULT_PCI_STATUS)
-                    cs.setdefault("command", SVConstants.DEFAULT_PCI_COMMAND)
-                    cs.setdefault("class_code", SVConstants.DEFAULT_CLASS_CODE_INT)
-                    cs.setdefault("revision_id", SVConstants.DEFAULT_REVISION_ID_INT)
+            if isinstance(cs, dict):
+                # Set non-unique PCI register defaults (safe fallbacks)
+                cs.setdefault("status", SVConstants.DEFAULT_PCI_STATUS)
+                cs.setdefault("command", SVConstants.DEFAULT_PCI_COMMAND)
+                cs.setdefault("class_code", SVConstants.DEFAULT_CLASS_CODE_INT)
+                cs.setdefault("revision_id", SVConstants.DEFAULT_REVISION_ID_INT)
 
-                    device_cfg = enhanced_context.get("device_config")
+                # Only propagate device identifiers if already present in device_config
+                # Never hardcode or guess VID/PID - fail fast if missing
+                device_cfg = enhanced_context.get("device_config")
+                if (
+                    isinstance(device_cfg, dict)
+                    and device_cfg.get("vendor_id")
+                    and device_cfg.get("device_id")
+                ):
+                    cs.setdefault("vendor_id", device_cfg["vendor_id"])
+                    cs.setdefault("device_id", device_cfg["device_id"])
+                elif device_cfg is None:
+                    # No device_config provided - downstream validation will catch this
+                    log_info_safe(
+                        self.logger,
+                        "No device_config provided; skipping config_space VID/DID defaults",
+                        prefix="SV_GEN",
+                    )
 
-                    if device_cfg is None:
-                        # Prefer canonical fallbacks from device_clone.constants
-                        try:
-                            from src.device_clone.constants import (
-                                DEVICE_ID_INTEL_ETH, VENDOR_ID_INTEL)
-
-                            cs.setdefault("vendor_id", VENDOR_ID_INTEL)
-                            cs.setdefault("device_id", DEVICE_ID_INTEL_ETH)
-                        except Exception:
-                            cs.setdefault("vendor_id", 0x8086)
-                            cs.setdefault("device_id", 0x1533)
-                    elif (
-                        isinstance(device_cfg, dict)
-                        and device_cfg.get("vendor_id")
-                        and device_cfg.get("device_id")
-                    ):
-                        cs.setdefault("vendor_id", device_cfg["vendor_id"])
-                        cs.setdefault("device_id", device_cfg["device_id"])
-            except Exception:
-                pass
-
-            # Ensure a minimal pci leech config exists
             enhanced_context.setdefault(
                 "pcileech_config",
                 enhanced_context.get("pcileech_config", PCILEECH_DEFAULT),
@@ -500,7 +534,9 @@ class SystemVerilogGenerator:
         except Exception:
             pass
 
-        log_info_safe(self.logger, "Cleared SystemVerilog generator cache")
+        log_info_safe(
+            self.logger, "Cleared SystemVerilog generator cache", prefix="SV_GEN"
+        )
 
     # Additional backward compatibility methods
 
@@ -536,6 +572,9 @@ class SystemVerilogGenerator:
                 dc_dict = {}
         elif isinstance(dc_raw, dict):
             dc_dict = dc_raw
+        elif hasattr(dc_raw, "__dict__"):
+            # Handle dataclasses and other objects with __dict__
+            dc_dict = getattr(dc_raw, "__dict__", {})
 
         derived_vendor_id = dc_dict.get("vendor_id") or dc_dict.get(
             "identification", {}
@@ -549,26 +588,37 @@ class SystemVerilogGenerator:
         ).get("revision_id")
         derived_signature = dc_dict.get("device_signature")
 
-        # Build canonical signature when identifiers are present; otherwise
-        # use a minimal placeholder that passes validation but is not unique.
-
         def _fmt(val: Any, width: int) -> str:
             s = str(val)
             s = s.replace("0x", "").replace("0X", "").upper()
             return s.zfill(width)
 
+        # Fail fast if required identifiers are missing - no silent fallbacks
         if not derived_signature:
-            if derived_vendor_id and derived_device_id:
-                rid = derived_revision_id or "00"
-                derived_signature = f"{_fmt(derived_vendor_id,4)}:{_fmt(derived_device_id,4)}:{_fmt(rid,2)}"
-            else:
-                # Safe placeholder; templates will render but this is not donor-bound
-                derived_signature = "0000:0000:00"
+            if not derived_vendor_id or not derived_device_id:
+                log_error_safe(
+                    self.logger,
+                    safe_format(
+                        "Cannot generate advanced SystemVerilog: missing device "
+                        "identifiers (vendor_id={vid}, device_id={did})",
+                        vid=derived_vendor_id or "MISSING",
+                        did=derived_device_id or "MISSING",
+                    ),
+                    prefix="ADVANCED",
+                )
+                raise TemplateRenderError(
+                    "Missing required device identifiers (vendor_id/device_id). "
+                    "Cannot generate donor-unique firmware without these values."
+                )
+            rid = derived_revision_id or "00"
+            derived_signature = (
+                f"{_fmt(derived_vendor_id,4)}:{_fmt(derived_device_id,4)}:{_fmt(rid,2)}"
+            )
 
         # Construct device_config without hardcoding VID/DID. Include only when present.
         device_cfg_payload: Dict[str, Any] = {
             "enable_advanced_features": True,
-            "max_payload_size": 256,  # Default payload size (not donor-unique)
+            "max_payload_size": SV_CONSTANTS.DEFAULT_MPS_BYTES,
             "enable_perf_counters": True,
             "enable_error_handling": True,
             "enable_power_management": False,
@@ -587,7 +637,7 @@ class SystemVerilogGenerator:
             # Keep non-unique, conservative defaults for peripheral config
             "bar_config": {
                 "bars": [],
-                "aperture_size": 65536,
+                "aperture_size": SV_CONSTANTS.MAX_QUEUE_DEPTH,  # 64KB default
                 "bar_index": 0,
                 "bar_type": 0,
                 "prefetchable": False,
@@ -596,16 +646,15 @@ class SystemVerilogGenerator:
                 "is_supported": False,
                 "num_vectors": 4,
                 "table_bir": 0,
-                "table_offset": 0x1000,
+                "table_offset": SV_CONSTANTS.DEFAULT_MSIX_TABLE_OFFSET,
                 "pba_bir": 0,
-                "pba_offset": 0x2000,
+                "pba_offset": SV_CONSTANTS.DEFAULT_MSIX_PBA_OFFSET,
             },
             "timing_config": {
-                "read_latency": 4,
-                "write_latency": 2,
-                "burst_length": 16,
-                "inter_burst_gap": 8,
-                "timeout_cycles": 1024,
+                "clock_frequency_mhz": 100,
+                "read_latency": 2,
+                "write_latency": 1,
+                "timeout_cycles": 1024,  # Timeout for PCIe transactions
             },
             "generation_metadata": {
                 "generator_version": __version__,
@@ -656,6 +705,7 @@ class SystemVerilogGenerator:
             # Defer importing VFIO helpers and perform device FD acquisition first so
             # unit tests that patch get_device_fd can intercept and return mock FDs.
             import mmap
+
             # Local os import kept near usage
             import os
 
@@ -710,8 +760,10 @@ class SystemVerilogGenerator:
                     # have device fds (this preserves test hermeticity)
                     log_error_safe(
                         logger,
-                        "VFIO binding verification failed: {error}",
-                        error=str(e),
+                        safe_format(
+                            "VFIO binding verification failed: {error}",
+                            error=str(e),
+                        ),
                         prefix="RDMSIX",
                     )
             except Exception:
@@ -721,14 +773,14 @@ class SystemVerilogGenerator:
             try:
                 # Attempt to map MSI-X table region
                 table_offset = msix_config.get("table_offset", 0)
-                table_size = num_vectors * 16  # Each MSI-X entry is 16 bytes
+                table_size = num_vectors * MSIX_TABLE_ENTRY_SIZE
 
                 # Map the MSI-X table region
                 with mmap.mmap(device_fd, table_size, offset=table_offset) as mm:
                     # Read MSI-X table entries
                     table_entries = []
                     for i in range(num_vectors):
-                        entry_offset = i * 16
+                        entry_offset = i * MSIX_TABLE_ENTRY_SIZE
                         entry_data = mm[entry_offset : entry_offset + 16]
                         table_entries.append(
                             {
@@ -748,8 +800,10 @@ class SystemVerilogGenerator:
                     # Non-fatal error while closing device_fd. Log and continue.
                     log_error_safe(
                         logger,
-                        "Error closing device_fd: {error}",
-                        error=str(e),
+                        safe_format(
+                            "Error closing device_fd: {error}",
+                            error=str(e),
+                        ),
                         prefix="GEN",
                     )
                 try:
@@ -758,8 +812,10 @@ class SystemVerilogGenerator:
                     # Non-fatal error while closing container_fd. Log and continue.
                     log_error_safe(
                         logger,
-                        "Error closing container_fd: {error}",
-                        error=str(e),
+                        safe_format(
+                            "Error closing container_fd: {error}",
+                            error=str(e),
+                        ),
                         prefix="GEN",
                     )
 
@@ -813,12 +869,8 @@ class SystemVerilogGenerator:
                                 has_direct = True
                                 break
             except Exception:
-                # Keep best-effort behavior; do not fail detection
                 pass
 
-        # Allow an explicit override for environments where VFIO probing isn't
-        # possible but integration generation should proceed (e.g. CI or
-        # constrained sandboxes).
         try:
             import os as _os
 
@@ -830,9 +882,6 @@ class SystemVerilogGenerator:
         except Exception:
             skip_check = False
 
-        # Only a raw path without a verified flag is insufficient; tests rely on
-        # this to trigger the error condition when no active VFIO evidence. Keep
-        # original contract unless our extended detection or override applies.
         if not (has_direct or was_verified or skip_check):
             raise TemplateRenderError("VFIO device access failed")
 

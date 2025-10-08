@@ -143,7 +143,7 @@ class TestVivadoFixValidation:
 
         internal_section = top_level[module_end:pcie_core_start]
 
-        # These signals should be declared as internal
+        # These signals should be declared as internal (7-series uses cfg_mgmt_* not cfg_ext_*)
         required_internal_signals = [
             "logic        clk;",
             "logic        reset_n;",
@@ -152,12 +152,11 @@ class TestVivadoFixValidation:
             "logic        pcie_rx_valid;",
             "logic [31:0] pcie_tx_data;",
             "logic        pcie_tx_valid;",
-            "logic        cfg_ext_read_received;",
-            "logic        cfg_ext_write_received;",
-            "logic [9:0]  cfg_ext_register_number;",
-            "logic [31:0] cfg_ext_read_data;",
-            "logic        msix_interrupt;",
-            "logic [10:0] msix_vector;",
+            "logic [31:0] cfg_mgmt_do;",
+            "logic        cfg_mgmt_rd_wr_done;",
+            "logic [31:0] cfg_mgmt_di;",
+            "logic  [3:0] cfg_mgmt_byte_en;",
+            "logic  [9:0] cfg_mgmt_dwaddr;",
             "logic [31:0] debug_status;",
         ]
 
@@ -177,7 +176,7 @@ class TestVivadoFixValidation:
             "pcie_7x_bridge pcie_core" in top_level
         ), "Missing PCIe core instantiation"
 
-        # Check key port connections
+        # Check key port connections (7-series core, not UltraScale+)
         required_connections = [
             ".pci_exp_txp(pci_exp_txp)",
             ".pci_exp_txn(pci_exp_txn)",
@@ -190,7 +189,7 @@ class TestVivadoFixValidation:
             ".m_axis_rx_tvalid(pcie_rx_valid)",
             ".s_axis_tx_tdata(pcie_tx_data)",
             ".s_axis_tx_tvalid(pcie_tx_valid)",
-            ".cfg_ext_read_data(cfg_ext_read_data)",
+            ".cfg_mgmt_do(cfg_mgmt_do)",
             ".sys_clk(sys_clk_p)",
             ".sys_rst_n(sys_rst_n)",
         ]

@@ -26,9 +26,11 @@ from test_helpers import requires_hardware
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.device_clone.manufacturing_variance import VarianceModel
-from src.templating.advanced_sv_features import (ErrorHandlingConfig,
-                                                 PerformanceConfig,
-                                                 PowerManagementConfig)
+from src.templating.advanced_sv_features import (
+    ErrorHandlingConfig,
+    PerformanceConfig,
+    PowerManagementConfig,
+)
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 from src.templating.template_renderer import TemplateRenderError
 
@@ -506,6 +508,16 @@ class TestAdvancedSystemVerilogFeatures:
 
     def test_advanced_feature_config_integration(self, advanced_generator):
         """Test integration of advanced feature configurations."""
+        # Provide required device identifiers for the advanced generator
+        # by creating a proper device_config dict
+        device_config_dict = {
+            "vendor_id": "0x8086",
+            "device_id": "0x1533",
+            "revision_id": "0x01",
+            "device_signature": "8086:1533:01",
+        }
+        advanced_generator.device_config = device_config_dict
+
         registers = [
             {"name": "CTRL_REG", "offset": 0x00, "width": 32},
             {"name": "STATUS_REG", "offset": 0x04, "width": 32},

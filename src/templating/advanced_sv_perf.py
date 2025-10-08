@@ -132,8 +132,11 @@ class PerformanceCounterGenerator:
 
         log_info_safe(
             self.logger,
-            "Initialized PerformanceCounterGenerator for device type: {device_type}",
-            device_type=device_type.value,
+            safe_format(
+                "Initialized PerformanceCounterGenerator for device type: {device_type}",
+                device_type=device_type.value,
+            ),
+            prefix="PERF",
         )
 
     def generate_perf_declarations(self) -> str:
@@ -347,8 +350,11 @@ class PerformanceCounterGenerator:
 
         log_info_safe(
             self.logger,
-            "Generating complete performance counters for device type: {device_type}",
-            device_type=context["device_type"],
+            safe_format(
+                "Generating complete performance counters for device type: {device_type}",
+                device_type=context["device_type"],
+            ),
+            prefix="PERF",
         )
 
         return self.renderer.render_template(

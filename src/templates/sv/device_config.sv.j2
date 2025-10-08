@@ -8,12 +8,12 @@ module device_config #(
     {# Use centralized helper macros for consistent ID handling #}
     parameter [15:0] VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
     parameter [15:0] DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
-    parameter [23:0] CLASS_CODE = 24'h{{ "%06X" | format(device_config.class_code if device_config.class_code is defined else 0) }},
+    parameter [23:0] CLASS_CODE = 24'h{{ "%06X"|format((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0)) }},
     parameter [15:0] SUBSYSTEM_VENDOR_ID = 16'h{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }},
     parameter [15:0] SUBSYSTEM_DEVICE_ID = 16'h{{ get_subsystem_device_id(device_config, device, device_id_int) }},
 {%- for i in range(6) %}
     {# guard bars indexing and coerce numeric default for apertures #}
-    parameter [31:0] BAR{{ i }}_APERTURE = 32'h{{ "%08X" | format((safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0)) }}{{ "," if not loop.last else "" }}
+    parameter [31:0] BAR{{ i }}_APERTURE = 32'h{{ "%08X"|format((safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0)|safe_int(0)) }}{{ "," if not loop.last else "" }}
 {%- endfor %}
 ) (
     // Configuration space interface
