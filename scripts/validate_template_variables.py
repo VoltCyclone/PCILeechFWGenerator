@@ -357,8 +357,12 @@ class TemplateVariableValidator:
             ):
                 local_names.add(m.group(1))
 
-            # For-loop targets: {% for a, b in ... %} or {% for item in ... %}
-            for m in re.finditer(r"{%\s*for\s+([^\s]+)\s+in\s+", template_source):
+            # For-loop targets: handle normal and trimmed tags
+            # Patterns cover:
+            #   {% for a, b in ... %}
+            #   {%- for item in ... %}
+            #   {% for (a, b) in ... %}
+            for m in re.finditer(r"{%-?\s*for\s+([^\s]+)\s+in\s+", template_source):
                 target = m.group(1)
                 # split on comma for multiple targets
                 for t in target.split(","):

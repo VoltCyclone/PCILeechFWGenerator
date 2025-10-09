@@ -448,6 +448,10 @@ module pcileech_tlps128_bar_controller #(
     end
     
     always_comb begin
+        // Local scratch signals (declare before any statements for tool compatibility)
+        logic [7:0] cmd_opcode;
+        logic       is_read_tlp;
+
         next_state = current_state;
         tlp_rx_ready_n = 1'b0;
         tlp_tx_valid_n = 1'b0;
@@ -457,10 +461,8 @@ module pcileech_tlps128_bar_controller #(
         tlp_tx_empty_n = '0;
         tlp_tx_err_n = 1'b0;
         // Decode command opcode once for clarity
-        logic [7:0] cmd_opcode;
         cmd_opcode = pcileech_command[7:0];
         // Is current parsed TLP a Memory Read request?
-        logic is_read_tlp;
         is_read_tlp = (tlp_type == TLP_MEM_READ_32) || (tlp_type == TLP_MEM_READ_64);
         
         case (current_state)

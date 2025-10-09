@@ -88,10 +88,13 @@ module option_rom_bar_window #(
     
     // Legacy ROM access (16-bit config cycles)
     always_comb begin
+        // Declarations must be at the top of the block for tool compatibility
+        logic [31:0] legacy_word_addr;
+
         if (legacy_rom_access) begin
             // Legacy ROM access uses byte addressing
-            logic [31:0] legacy_word_addr = legacy_rom_addr >> 2;
-            
+            legacy_word_addr = legacy_rom_addr >> 2;
+
             if (legacy_word_addr < ROM_WORDS) begin
                 legacy_rom_data = rom_memory[legacy_word_addr];
             end else begin

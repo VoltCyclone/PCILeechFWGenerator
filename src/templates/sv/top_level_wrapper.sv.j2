@@ -581,6 +581,8 @@ module pcileech_top (
                 end
 
                 TLP_HEADER: begin
+                    // Declare local variables at the beginning of the block to satisfy tool constraints
+                    logic header_complete;
                     if (pcie_rx_valid) begin
                         {%- if _data_width == 64 %}
                         // Continue reading header DWs
@@ -607,7 +609,6 @@ module pcileech_top (
                         {%- endif %}
 
                         // Check if we have enough header DWs based on format
-                        logic header_complete;
                         header_complete = tlp_fmt_4dw ? (tlp_header_count >= 8'h4) : (tlp_header_count >= 8'h3);
                         
                         if (header_complete) begin

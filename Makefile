@@ -1,6 +1,6 @@
 # Makefile for PCILeech Firmware Generator
 
-.PHONY: help clean install install-dev test lint format build build-pypi upload-test upload-pypi release container container-rebuild docker-build build-container vfio-constants vfio-constants-clean check-templates check-templates-strict check-templates-fix check-templates-errors
+.PHONY: help clean install install-dev test lint format build build-pypi upload-test upload-pypi release container container-rebuild docker-build build-container vfio-constants vfio-constants-clean check-templates check-templates-strict check-templates-fix check-templates-errors sv-lint
 
 # Default target
 help:
@@ -17,6 +17,7 @@ help:
 	@echo "  check-templates - Validate template variables and syntax"
 	@echo "  check-templates-strict - Validate templates with strict mode"
 	@echo "  check-templates-errors - Treat template warnings as errors"
+	@echo "  sv-lint      - Lint SystemVerilog templates for decl-after-stmt issues"
 	@echo "  lint         - Run code linting"
 	@echo "  format       - Format code with black and isort"
 	@echo "  clean        - Clean build artifacts"
@@ -87,6 +88,11 @@ check-templates-fix:
 check-templates-errors:
 	@echo "Validating templates with warnings as errors..."
 	./scripts/check_templates.sh --warnings-as-errors
+
+# SystemVerilog linter target
+sv-lint:
+	@echo "Running SystemVerilog declaration-order linter..."
+	python3 scripts/lint_sv_block_decls.py --strict
 
 lint:
 	flake8 src/ tests/

@@ -8,10 +8,10 @@ module pcileech_tlps128_cfgspace_shadow #(
     parameter OVERLAY_ENTRIES = {{ OVERLAY_ENTRIES }},      // Number of overlay RAM entries
     parameter EXT_CFG_CAP_PTR = {{ EXT_CFG_CAP_PTR | default(256) }},     // Extended capability pointer in bytes (default 0x100)
     parameter EXT_CFG_XP_CAP_PTR = {{ EXT_CFG_XP_CAP_PTR | default(256) }}, // Express capability pointer in bytes
-    // Enhanced architecture parameters
-    parameter HASH_TABLE_SIZE = {{ HASH_TABLE_SIZE | default(256) }},       // Hash table size for sparse mapping
-    parameter ENABLE_SPARSE_MAP = {{ ENABLE_SPARSE_MAP | default(1) }},     // Enable sparse mapping architecture
-    parameter ENABLE_BIT_TYPES = {{ ENABLE_BIT_TYPES | default(1) }},       // Enable bit-type support
+    // Enhanced architecture parameters (values provided via context fallbacks)
+    parameter HASH_TABLE_SIZE = {{ HASH_TABLE_SIZE }},       // Hash table size for sparse mapping
+    parameter ENABLE_SPARSE_MAP = {{ ENABLE_SPARSE_MAP }},   // Enable sparse mapping architecture
+    parameter ENABLE_BIT_TYPES = {{ ENABLE_BIT_TYPES }},     // Enable bit-type support
     // Optional configuration-space initialization HEX file (for simulation and BRAM init capable tools)
     parameter string CFG_INIT_HEX = ""
 ) (
@@ -305,6 +305,18 @@ module pcileech_tlps128_cfgspace_shadow #(
     
     // Configuration access state machine with bit type support
     always_ff @(posedge clk or negedge reset_n) begin
+        // Declarations at top of block for tool compatibility
+        logic [9:0]   effective_reg_num;
+        logic [11:0]  byte_addr;
+        logic [31:0]  ov_idx;
+        logic [31:0]  ov_data;
+        logic [31:0]  ov_mask;
+        overlay_entry_t current_entry;
+        logic [31:0]  new_data;
+        logic [3:0]   byte_type;
+        logic [7:0]   write_byte;
+        logic [7:0]   current_byte;
+        logic [7:0]   mask_byte;
         if (!reset_n) begin
             cfg_state <= CFG_IDLE;
             read_data_valid <= 1'b0;
@@ -344,9 +356,6 @@ module pcileech_tlps128_cfgspace_shadow #(
                 
                 CFG_READ: begin
                     // Calculate effective register number
-                    logic [9:0] effective_reg_num;
-                    logic [11:0] byte_addr;
-                    logic [31:0] ov_idx;
                     
                     effective_reg_num = get_effective_reg_num(current_reg_num, cfg_a7);
                     byte_addr = {effective_reg_num, 2'b00};  // Convert to byte address
@@ -395,42 +404,38 @@ module pcileech_tlps128_cfgspace_shadow #(
                 end
                 
                 CFG_READ_DATA: begin
+
                     // Second cycle: use pipelined BRAM data
                     if (has_valid_overlay(read_reg_num_pipe)) begin
-                        logic [31:0] ov_data = overlay_ram_readdata[31:0];
-                        logic [31:0] ov_mask = overlay_ram_readdata[63:32];
-                        
+                        ov_data = overlay_ram_readdata[31:0];
+                        ov_mask = overlay_ram_readdata[63:32];
+
                         // Apply overlay for writable bits using pipelined data
                         read_data <= (config_ram_readdata & ~ov_mask) | (ov_data & ov_mask);
                     end else begin
                         read_data <= config_ram_readdata;
                     end
-                    
+
                     read_data_valid <= 1'b1;
                     cfg_state <= CFG_COMPLETE;
                 end
                 
                 CFG_WRITE: begin
+                    // Use pre-declared block variables for tool compatibility
+
                     // Calculate effective register number
-                    logic [9:0] effective_reg_num;
-                    logic [11:0] byte_addr;
-                    
                     effective_reg_num = get_effective_reg_num(current_reg_num, cfg_a7);
                     byte_addr = {effective_reg_num, 2'b00};  // Convert to byte address
-                    
+
                     // Check if we should use shadow configuration and if PCIe writes are enabled
                     if (use_shadow_cfg(byte_addr) && cfgtlp_pcie_write_en) begin
                         shadow_handled_reg <= 1'b1;  // Shadow is handling this request
-                        
+
                         // Handle write to configuration space shadow
                         if (has_valid_overlay(effective_reg_num)) begin
-                            logic [31:0] ov_idx;
-                            overlay_entry_t current_entry;
-                            logic [31:0] new_data;
-                            
                             // Get overlay info
                             ov_idx = get_overlay_index(effective_reg_num);
-                            
+
                             if (ENABLE_BIT_TYPES) begin
                                 // Read current enhanced overlay entry
                                 current_entry = gen_enhanced_overlay.overlay_ram[ov_idx];
@@ -440,48 +445,48 @@ module pcileech_tlps128_cfgspace_shadow #(
                                 current_entry.mask = get_overlay_mask(effective_reg_num);
                                 current_entry.type_mask = 32'h11111111; // Default RW
                             end
-                            
+
                             new_data = current_entry.data;
-                            
+
                             // Process each byte based on its type
                             for (int byte_idx = 0; byte_idx < 4; byte_idx++) begin
                                 if (cfg_ext_write_byte_enable[byte_idx]) begin
-                                    logic [3:0] byte_type = current_entry.type_mask[byte_idx*4 +: 4];
-                                    logic [7:0] write_byte = cfg_ext_write_data[byte_idx*8 +: 8];
-                                    logic [7:0] current_byte = current_entry.data[byte_idx*8 +: 8];
-                                    logic [7:0] mask_byte = current_entry.mask[byte_idx*8 +: 8];
-                                    
+                                    byte_type = current_entry.type_mask[byte_idx*4 +: 4];
+                                    write_byte = cfg_ext_write_data[byte_idx*8 +: 8];
+                                    current_byte = current_entry.data[byte_idx*8 +: 8];
+                                    mask_byte = current_entry.mask[byte_idx*8 +: 8];
+
                                     case (byte_type)
                                         BIT_TYPE_RW: begin
                                             // Standard read-write
-                                            new_data[byte_idx*8 +: 8] = 
-                                                (write_byte & mask_byte) | 
+                                            new_data[byte_idx*8 +: 8] =
+                                                (write_byte & mask_byte) |
                                                 (current_byte & ~mask_byte);
                                         end
-                                        
+
                                         BIT_TYPE_RW1C: begin
                                             // Write-1-to-clear
-                                            new_data[byte_idx*8 +: 8] = 
+                                            new_data[byte_idx*8 +: 8] =
                                                 current_byte & ~(write_byte & mask_byte);
                                         end
-                                        
+
                                         BIT_TYPE_RW1S: begin
                                             // Write-1-to-set
-                                            new_data[byte_idx*8 +: 8] = 
+                                            new_data[byte_idx*8 +: 8] =
                                                 current_byte | (write_byte & mask_byte);
                                         end
-                                        
+
                                         BIT_TYPE_RSVDP: begin
                                             // Reserved, preserve current value
                                             new_data[byte_idx*8 +: 8] = current_byte;
                                         end
-                                        
+
                                         BIT_TYPE_HWINIT,
                                         BIT_TYPE_RO: begin
                                             // Hardware controlled or read-only, ignore writes
                                             new_data[byte_idx*8 +: 8] = current_byte;
                                         end
-                                        
+
                                         default: begin
                                             // Undefined type - preserve value
                                             new_data[byte_idx*8 +: 8] = current_byte;
@@ -489,7 +494,7 @@ module pcileech_tlps128_cfgspace_shadow #(
                                     endcase
                                 end
                             end
-                            
+
                             // Update overlay entry
                             if (ENABLE_BIT_TYPES) begin
                                 // Update only the data portion of the enhanced entry
@@ -505,7 +510,7 @@ module pcileech_tlps128_cfgspace_shadow #(
                         // If not using shadow or PCIe writes disabled, hardware handles the write
                         shadow_handled_reg <= 1'b0;  // Shadow not handling this
                     end
-                    
+
                     cfg_state <= CFG_COMPLETE;
                 end
                 
@@ -526,10 +531,18 @@ module pcileech_tlps128_cfgspace_shadow #(
     
     // Host access port (Port B) - synchronous read/write
     always_ff @(posedge clk) begin
+        // Declarations at the top of the block
+        logic [9:0] reg_num;
+        logic [31:0] base_rd;
+        logic [31:0] ov_mask;
+        logic [31:0] ov_idx;
+        logic [31:0] ov_data;
+        overlay_entry_t entry;
+
         if (!reset_n) begin
             host_read_data <= 32'h0;
         end else if (host_access_en) begin
-            logic [9:0] reg_num;
+
             reg_num = host_addr[11:2];  // Convert byte address to DWORD index
             
             // Bounds checking to prevent out-of-range access
@@ -539,11 +552,6 @@ module pcileech_tlps128_cfgspace_shadow #(
                     config_space_ram[reg_num] <= host_write_data;
                 end else begin
                     // Host read from configuration space
-                    logic [31:0] base_rd;
-                    logic [31:0] ov_mask;
-                    logic [31:0] ov_idx;
-                    logic [31:0] ov_data;
-                    
                     base_rd = config_space_ram[reg_num];
                     
                     // Get overlay info
@@ -551,7 +559,7 @@ module pcileech_tlps128_cfgspace_shadow #(
 
                     if ((ov_idx != INVALID_INDEX) && (ov_idx < OVERLAY_ENTRIES)) begin
                         if (ENABLE_BIT_TYPES) begin
-                            overlay_entry_t entry = gen_enhanced_overlay.overlay_ram[ov_idx];
+                            entry = gen_enhanced_overlay.overlay_ram[ov_idx];
                             ov_data = entry.data;
                             ov_mask = entry.mask;
                         end else begin
@@ -573,8 +581,15 @@ module pcileech_tlps128_cfgspace_shadow #(
 {% if DUAL_PORT %}
     // Additional dual-port access (Port C)
     always_ff @(posedge clkB) begin
+        // Declarations at the top of the block
+        logic [9:0] reg_num_B;
+        logic [31:0] base_rd_B;
+        logic [31:0] ov_mask_B;
+        logic [31:0] ov_idx_B;
+        logic [31:0] ov_data_B;
+        overlay_entry_t entry_B;
+
         if (enB) begin
-            logic [9:0] reg_num_B;
             reg_num_B = addrB[11:2];  // Convert byte address to DWORD index
             
             // Bounds checking
@@ -584,11 +599,6 @@ module pcileech_tlps128_cfgspace_shadow #(
                     config_space_ram[reg_num_B] <= dinB;
                 end else begin
                     // Port B read from configuration space
-                    logic [31:0] base_rd_B;
-                    logic [31:0] ov_mask_B;
-                    logic [31:0] ov_idx_B;
-                    logic [31:0] ov_data_B;
-                    
                     base_rd_B = config_space_ram[reg_num_B];
                     
                     // Get overlay info
@@ -596,7 +606,7 @@ module pcileech_tlps128_cfgspace_shadow #(
 
                     if ((ov_idx_B != INVALID_INDEX) && (ov_idx_B < OVERLAY_ENTRIES)) begin
                         if (ENABLE_BIT_TYPES) begin
-                            overlay_entry_t entry_B = gen_enhanced_overlay.overlay_ram[ov_idx_B];
+                            entry_B = gen_enhanced_overlay.overlay_ram[ov_idx_B];
                             ov_data_B = entry_B.data;
                             ov_mask_B = entry_B.mask;
                         end else begin

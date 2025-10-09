@@ -151,6 +151,12 @@ class FallbackManager:
         "error_value": 0,
         # Template include list for SystemVerilog header template
         "header_includes": [],
+        # Architecture/feature toggles for SV templates (non-device-unique)
+        "ENABLE_BIT_TYPES": 1,
+        "ENABLE_SPARSE_MAP": 1,
+        "HASH_TABLE_SIZE": 256,
+        # Power management CFG glue emission toggle
+        "pmcsr_cfg_glue": False,
     }
 
     # Regex patterns for template variable detection

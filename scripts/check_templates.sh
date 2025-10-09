@@ -93,21 +93,45 @@ echo -e "${BLUE}📋 Running template variable analysis...${NC}"
 echo "Command: $VALIDATION_CMD"
 echo ""
 
-# Run the validation
-if eval "$VALIDATION_CMD"; then
-    echo ""
+# Run the validation (don't exit immediately; aggregate results with SV linter)
+VALID_EXIT=0
+if ! eval "$VALIDATION_CMD"; then
+    VALID_EXIT=$?
+fi
+
+# Run the SystemVerilog declaration-order linter
+echo ""
+echo -e "${BLUE}📐 Running SystemVerilog declaration-order linter...${NC}"
+SV_LINT_CMD="python3 scripts/lint_sv_block_decls.py"
+if [[ "$STRICT" == true || "$WARNINGS_AS_ERRORS" == true ]]; then
+    SV_LINT_CMD="$SV_LINT_CMD --strict"
+fi
+echo "Command: $SV_LINT_CMD"
+
+SV_LINT_EXIT=0
+if ! eval "$SV_LINT_CMD"; then
+    SV_LINT_EXIT=$?
+fi
+
+echo ""
+if [[ $VALID_EXIT -eq 0 && $SV_LINT_EXIT -eq 0 ]]; then
     echo -e "${GREEN}✅ Template validation completed successfully!${NC}"
     exit 0
 else
-    EXIT_CODE=$?
-    echo ""
-    if [[ "$STRICT" == true || "$WARNINGS_AS_ERRORS" == true ]]; then
+    if [[ "$STRICT" == true || "$WARNINGS_AS_ERRORS" == true || $VALID_EXIT -ne 0 ]]; then
         echo -e "${RED}❌ Template validation failed with issues${NC}"
+        # Prefer returning the validation tool's exit code if non-zero; otherwise linter's
+        if [[ $VALID_EXIT -ne 0 ]]; then
+            exit $VALID_EXIT
+        else
+            exit $SV_LINT_EXIT
+        fi
     else
         echo -e "${YELLOW}⚠️  Template validation found warnings (non-critical)${NC}"
         echo -e "${YELLOW}    Use --strict to treat critical errors as blocking${NC}"
         echo -e "${YELLOW}    Use --warnings-as-errors to treat warnings as blocking${NC}"
         echo -e "${YELLOW}    Use --fix to see suggested fixes${NC}"
+        # Non-strict + only linter warnings: keep exit 0
+        exit 0
     fi
-    exit $EXIT_CODE
 fi
