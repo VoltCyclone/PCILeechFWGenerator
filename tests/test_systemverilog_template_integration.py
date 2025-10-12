@@ -13,8 +13,8 @@ import pytest
 
 from src.device_clone.device_config import DeviceClass, DeviceType
 from src.exceptions import TemplateRenderError
-from src.templating.advanced_sv_features import (ErrorHandlingConfig,
-                                                 PerformanceConfig)
+from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+from src.device_clone.overlay_utils import compute_sparse_hash_table_size
 from src.templating.advanced_sv_power import PowerManagementConfig
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 
@@ -79,7 +79,7 @@ class TemplateContextBuilder:
     @staticmethod
     def create_minimal_context() -> Dict[str, Any]:
         """Create a minimal valid template context."""
-        return {
+        base_context = {
             "device_config": TemplateContextBuilder._create_device_config(),
             "device_signature": DEFAULT_DEVICE_SIGNATURE,
             "msix_config": TemplateContextBuilder._create_msix_config(),
@@ -92,6 +92,18 @@ class TemplateContextBuilder:
             "generation_metadata": TemplateContextBuilder._create_generation_metadata(),
             "active_device_config": TemplateContextBuilder._create_active_device_config(),
         }
+
+        base_context.update(
+            {
+                "OVERLAY_MAP": [],
+                "OVERLAY_ENTRIES": 0,
+                "ENABLE_SPARSE_MAP": 0,
+                "ENABLE_BIT_TYPES": 1,
+                "HASH_TABLE_SIZE": compute_sparse_hash_table_size(0),
+            }
+        )
+
+        return base_context
 
     @staticmethod
     def _create_device_config(
@@ -554,8 +566,7 @@ class TestSystemVerilogTemplateIntegration:
 
     def test_template_validation_compatibility(self):
         """Test compatibility with TemplateContextValidator requirements."""
-        from src.templating.template_context_validator import \
-            TemplateContextValidator
+        from src.templating.template_context_validator import TemplateContextValidator
 
         validator = TemplateContextValidator()
         template_context = self.context_builder.create_minimal_context()

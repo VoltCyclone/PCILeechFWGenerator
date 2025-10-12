@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List
 
+from src.device_clone.overlay_utils import compute_sparse_hash_table_size
 from src.string_utils import log_error_safe, log_warning_safe, safe_format
 from src.utils.validation_constants import SV_FILE_HEADER
 
@@ -574,6 +575,37 @@ class SVContextBuilder:
             "OVERLAY_MAP",
             overlay_map if isinstance(overlay_map, (dict, list, tuple)) else {},
         )
+
+        def _coerce_toggle(value: Any, default: int) -> int:
+            if value is None:
+                return default
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"0", "false", "off", "no"}:
+                    return 0
+                if normalized in {"1", "true", "on", "yes"}:
+                    return 1
+            try:
+                return int(bool(value))
+            except Exception:
+                return default
+
+        sparse_toggle = template_context.get("ENABLE_SPARSE_MAP")
+        sparse_default = _coerce_toggle(
+            sparse_toggle, int(context.get("OVERLAY_ENTRIES", 0) > 0)
+        )
+        context.setdefault("ENABLE_SPARSE_MAP", sparse_default)
+
+        bit_toggle = template_context.get("ENABLE_BIT_TYPES")
+        bit_default = _coerce_toggle(bit_toggle, 1)
+        context.setdefault("ENABLE_BIT_TYPES", bit_default)
+
+        hash_size = template_context.get("HASH_TABLE_SIZE")
+        if not isinstance(hash_size, int) or hash_size <= 0:
+            hash_size = compute_sparse_hash_table_size(
+                int(context.get("OVERLAY_ENTRIES", 0))
+            )
+        context.setdefault("HASH_TABLE_SIZE", hash_size)
 
         # Uppercase aliases for extended capability pointers used by cfg_shadow
         try:

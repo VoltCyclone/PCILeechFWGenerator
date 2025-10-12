@@ -14,26 +14,35 @@ from datetime import datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import (Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar,
-                    Union)
+from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
 
 from src.error_utils import extract_root_cause
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from src.utils.context_error_messages import (
-    MISSING_IDENTIFIERS, STRICT_MODE_MISSING,
-    TEMPLATE_CONTEXT_VALIDATION_FAILED)
+    MISSING_IDENTIFIERS,
+    STRICT_MODE_MISSING,
+    TEMPLATE_CONTEXT_VALIDATION_FAILED,
+)
 from src.utils.version_resolver import get_package_version
 
-from .validation_constants import (CORE_DEVICE_IDS,
-                                   CRITICAL_TEMPLATE_CONTEXT_KEYS,
-                                   DEFAULT_COUNTER_WIDTH,
-                                   DEFAULT_PROCESS_VARIATION,
-                                   DEFAULT_TEMPERATURE_COEFFICIENT,
-                                   DEFAULT_VOLTAGE_VARIATION,
-                                   DEVICE_CLASS_MAPPINGS, KNOWN_DEVICE_TYPES,
-                                   POWER_TRANSITION_CYCLES,
-                                   SUBSYSTEM_ID_FIELDS)
+from .validation_constants import (
+    CORE_DEVICE_IDS,
+    CRITICAL_TEMPLATE_CONTEXT_KEYS,
+    DEFAULT_COUNTER_WIDTH,
+    DEFAULT_PROCESS_VARIATION,
+    DEFAULT_TEMPERATURE_COEFFICIENT,
+    DEFAULT_VOLTAGE_VARIATION,
+    DEVICE_CLASS_MAPPINGS,
+    KNOWN_DEVICE_TYPES,
+    POWER_TRANSITION_CYCLES,
+    SUBSYSTEM_ID_FIELDS,
+)
 
 # Type aliases for clarity
 HexString = str
@@ -1045,8 +1054,7 @@ class UnifiedContextBuilder:
         # -----------------------------------------------------------------
         if device_config.enable_advanced_features:
             try:
-                from src.pci_capability.constants import \
-                    AER_CAPABILITY_VALUES as _AER
+                from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
 
                 aer_ctx = {
                     # Store as integers; template will format as 8-hex digits
@@ -1329,8 +1337,47 @@ class UnifiedContextBuilder:
         context.setdefault(
             "integration_type", kwargs.get("integration_type", "default")
         )
-        context.setdefault("OVERLAY_ENTRIES", kwargs.get("OVERLAY_ENTRIES", []))
-        context.setdefault("OVERLAY_MAP", kwargs.get("OVERLAY_MAP", {}))
+        overlay_entries_value = kwargs.get(
+            "OVERLAY_ENTRIES", context.get("OVERLAY_ENTRIES", 0)
+        )
+
+        if isinstance(overlay_entries_value, (list, tuple, set, dict)):
+            normalized_overlay_entries = len(overlay_entries_value)
+        else:
+            try:
+                normalized_overlay_entries = int(overlay_entries_value)
+            except (TypeError, ValueError):
+                normalized_overlay_entries = 0
+
+        context.setdefault("OVERLAY_ENTRIES", normalized_overlay_entries)
+        context.setdefault("OVERLAY_MAP", kwargs.get("OVERLAY_MAP", []))
+
+        def _coerce_toggle(value: Any, default: int) -> int:
+            if value is None:
+                return default
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"0", "false", "off", "no"}:
+                    return 0
+                if normalized in {"1", "true", "on", "yes"}:
+                    return 1
+            try:
+                return int(bool(value))
+            except Exception:
+                return default
+
+        sparse_default = _coerce_toggle(
+            kwargs.get("ENABLE_SPARSE_MAP"), int(normalized_overlay_entries > 0)
+        )
+        bit_types_default = _coerce_toggle(kwargs.get("ENABLE_BIT_TYPES"), 1)
+
+        context.setdefault("ENABLE_SPARSE_MAP", sparse_default)
+        context.setdefault("ENABLE_BIT_TYPES", bit_types_default)
+
+        hash_table_size = kwargs.get("HASH_TABLE_SIZE")
+        if hash_table_size is None:
+            hash_table_size = 16
+        context.setdefault("HASH_TABLE_SIZE", hash_table_size)
         context.setdefault("ROM_BAR_INDEX", kwargs.get("ROM_BAR_INDEX", 0))
         context.setdefault("FLASH_ADDR_OFFSET", kwargs.get("FLASH_ADDR_OFFSET", 0))
         context.setdefault("CONFIG_SHDW_HI", kwargs.get("CONFIG_SHDW_HI", 0xFFFF))
@@ -1475,8 +1522,7 @@ class UnifiedContextBuilder:
         # even if empty or partial.
         try:
             # Import from shared driver enrichment module to avoid cyclic dependency
-            from src.utils.context_driver_enrichment import \
-                enrich_context_with_driver
+            from src.utils.context_driver_enrichment import enrich_context_with_driver
 
             enrich_context_with_driver(
                 template_context,
