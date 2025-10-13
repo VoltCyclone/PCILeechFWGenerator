@@ -16,14 +16,21 @@ from typing import Dict, List, Optional, Union
 from ..device_clone import DeviceConfiguration as NewDeviceConfiguration
 from ..device_clone import VarianceModel
 from ..device_clone.manufacturing_variance import DeviceClass
+
 # Import from centralized utils
 from ..string_utils import generate_sv_header_comment
 from ..utils.unified_context import TemplateObject
-from ..utils.validation_constants import POWER_TRANSITION_CYCLES
+from ..utils.validation_constants import get_power_transition_cycles
+
 # Import template renderer
 from . import TemplateRenderer, TemplateRenderError
+
 # Import centralized enums and constants
 from .advanced_sv_features import LinkState, PowerState
+
+
+_DEFAULT_TRANSITION_CYCLES = get_power_transition_cycles()
+_TRANSITION_KEYS = tuple(_DEFAULT_TRANSITION_CYCLES.keys())
 
 
 class ErrorType(Enum):
@@ -57,10 +64,18 @@ class PowerManagementConfig:
     )
 
     # Power transition timing (in clock cycles)
-    d0_to_d1_cycles: int = POWER_TRANSITION_CYCLES.get("d0_to_d1", 100)
-    d1_to_d0_cycles: int = POWER_TRANSITION_CYCLES.get("d1_to_d0", 200)
-    d0_to_d3_cycles: int = POWER_TRANSITION_CYCLES.get("d0_to_d3", 500)
-    d3_to_d0_cycles: int = POWER_TRANSITION_CYCLES.get("d3_to_d0", 1000)
+    d0_to_d1_cycles: int = field(
+        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d0_to_d1"]
+    )
+    d1_to_d0_cycles: int = field(
+        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d1_to_d0"]
+    )
+    d0_to_d3_cycles: int = field(
+        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d0_to_d3"]
+    )
+    d3_to_d0_cycles: int = field(
+        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d3_to_d0"]
+    )
 
     # Link state transition timing
     l0_to_l0s_cycles: int = 10
@@ -235,19 +250,21 @@ class SystemVerilogGenerator:
 
     def _build_power_context(self) -> TemplateObject:
         """Build power management context for templates."""
+        transition_cycles = {
+            key: getattr(
+                self.power_config,
+                f"{key}_cycles",
+                _DEFAULT_TRANSITION_CYCLES[key],
+            )
+            for key in _TRANSITION_KEYS
+        }
+
         return TemplateObject(
             {
                 "supported_states": [
                     state.value for state in self.power_config.supported_power_states
                 ],
-                "transition_cycles": TemplateObject(
-                    {
-                        "d0_to_d1": self.power_config.d0_to_d1_cycles,
-                        "d1_to_d0": self.power_config.d1_to_d0_cycles,
-                        "d0_to_d3": self.power_config.d0_to_d3_cycles,
-                        "d3_to_d0": self.power_config.d3_to_d0_cycles,
-                    }
-                ),
+                "transition_cycles": TemplateObject(transition_cycles),
                 "enable_clock_gating": self.power_config.enable_clock_gating,
                 "enable_power_gating": self.power_config.enable_power_gating,
             }

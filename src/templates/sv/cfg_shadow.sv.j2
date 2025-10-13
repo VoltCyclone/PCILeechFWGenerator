@@ -65,6 +65,9 @@ module pcileech_tlps128_cfgspace_shadow #(
     localparam logic [3:0] BIT_TYPE_RSVDZ  = 4'b0101;  // Reserved, return zero
     localparam logic [3:0] BIT_TYPE_HWINIT = 4'b0110;  // Hardware init, software RO
     localparam logic [3:0] BIT_TYPE_STICKY = 4'b0111;  // Sticky across soft reset
+
+    // Sentinel returned on out-of-range accesses (context-driven for uniqueness)
+    localparam logic [31:0] OUT_OF_RANGE_SENTINEL = 32'h{{ (OUT_OF_RANGE_SENTINEL | default('DEADBEEF')) | upper }};
     
     // Enhanced overlay entry structure (96 bits total)
     typedef struct packed {
@@ -79,8 +82,7 @@ module pcileech_tlps128_cfgspace_shadow #(
 
     // Main configuration space BRAM ({{ CONFIG_SPACE_SIZE }} bytes = {{ CONFIG_SPACE_SIZE // 4 }} dwords)
     (* ram_style="block" *)
-    (* synthesis ram_init_file = CFG_INIT_HEX *)  // Synthesis attribute for BRAM initialization (Xilinx)
-    (* ram_init_file = CFG_INIT_HEX *)           // Alternative attribute for other tools
+    (* ram_init_file = CFG_INIT_HEX *)           // BRAM initialization attribute (tool-resolved string constant)
     logic [31:0] config_space_ram[0:{{ (CONFIG_SPACE_SIZE // 4) - 1 }}];
     
     // Enhanced overlay RAM with bit type support ({{ OVERLAY_ENTRIES }} entries)
@@ -375,7 +377,7 @@ module pcileech_tlps128_cfgspace_shadow #(
                             if (effective_reg_num < (CONFIG_SPACE_SIZE / 4)) begin
                                 config_ram_readdata <= config_space_ram[effective_reg_num];
                             end else begin
-                                config_ram_readdata <= 32'hDEADBEEF;  // Invalid access marker
+                                config_ram_readdata <= OUT_OF_RANGE_SENTINEL;  // Invalid access marker
                             end
                             
                             ov_idx = get_overlay_index(effective_reg_num);
@@ -573,7 +575,7 @@ module pcileech_tlps128_cfgspace_shadow #(
                 end
             end else begin
                 // Out of bounds access
-                host_read_data <= 32'hDEADBEEF;  // Return error marker for invalid access
+                host_read_data <= OUT_OF_RANGE_SENTINEL;  // Return error marker for invalid access
             end
         end
     end
@@ -620,7 +622,7 @@ module pcileech_tlps128_cfgspace_shadow #(
                 end
             end else begin
                 // Out of bounds access
-                doutB <= 32'hDEADBEEF;  // Return error marker
+                doutB <= OUT_OF_RANGE_SENTINEL;  // Return error marker
             end
         end
     end

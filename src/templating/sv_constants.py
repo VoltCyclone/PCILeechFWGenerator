@@ -70,6 +70,7 @@ class SVConstants:
     DEFAULT_ENABLE_PERF_COUNTERS: bool = True
     DEFAULT_ENABLE_ERROR_DETECTION: bool = True
     DEFAULT_ENABLE_CUSTOM_CONFIG: bool = True
+    DEFAULT_OUT_OF_RANGE_SENTINEL: str = "DEADBEEF"
 
     # PCI config-space default words commonly referenced by generators
     DEFAULT_PCI_STATUS: int = 0x0010

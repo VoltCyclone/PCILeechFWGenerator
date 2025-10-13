@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List
 
+from src.device_clone.identifier_normalizer import IdentifierNormalizer
 from src.device_clone.overlay_utils import compute_sparse_hash_table_size
 from src.string_utils import log_error_safe, log_warning_safe, safe_format
 from src.utils.validation_constants import SV_FILE_HEADER
@@ -14,7 +15,9 @@ from ..utils.unified_context import (
     TemplateObject,
     normalize_config_to_dict,
 )
+
 from .sv_constants import SV_CONSTANTS
+
 from .template_renderer import TemplateRenderError
 
 # Module-level defaults are sourced from SV_CONSTANTS to avoid drift
@@ -529,9 +532,7 @@ class SVContextBuilder:
         #   (defaults to 0x100 = 256) without fabricating donor-unique values
         # ------------------------------------------------------------------
 
-        # Many SV templates gate an extra RAM port with DUAL_PORT. Provide a
-        # conservative default of False unless explicitly requested by the
-        # caller. This avoids strict-undefined errors in cfg_shadow.sv.j2.
+        # avoids strict-undefined errors in cfg_shadow.sv.j2.
         context.setdefault("DUAL_PORT", SV_CONSTANTS.DEFAULT_DUAL_PORT)
 
         # Derive CONFIG_SPACE_SIZE from explicit config_space_data when provided,
@@ -627,6 +628,49 @@ class SVContextBuilder:
             # Defaults already cover typical cases; do not fail context build
             context.setdefault("EXT_CFG_CAP_PTR", EXT_CAP_PTR_DEFAULT)
             context.setdefault("EXT_CFG_XP_CAP_PTR", EXT_CAP_PTR_DEFAULT)
+
+        # Normalize out-of-range sentinel so templates can drive error markers dynamically
+        sentinel_candidates: List[Any] = []
+        sentinel_candidates.append(template_context.get("OUT_OF_RANGE_SENTINEL"))
+        sentinel_candidates.append(template_context.get("out_of_range_sentinel"))
+
+        cfg_shadow_ctx = template_context.get("cfg_shadow")
+        if isinstance(cfg_shadow_ctx, dict):
+            sentinel_candidates.append(cfg_shadow_ctx.get("OUT_OF_RANGE_SENTINEL"))
+            sentinel_candidates.append(cfg_shadow_ctx.get("out_of_range_sentinel"))
+
+        sentinel_value = next(
+            (value for value in sentinel_candidates if value not in (None, "")),
+            None,
+        )
+
+        fallback_sentinel = self.constants.DEFAULT_OUT_OF_RANGE_SENTINEL
+        if sentinel_value is None:
+            sentinel_value = fallback_sentinel
+
+        normalized_sentinel = IdentifierNormalizer.normalize_hex(sentinel_value, 8)
+
+        if normalized_sentinel == "00000000" and str(
+            sentinel_value
+        ).strip().lower() not in {
+            "0",
+            "0x0",
+            "00000000",
+        }:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Invalid OUT_OF_RANGE_SENTINEL override '{value}'; defaulting to {default}",
+                    value=sentinel_value,
+                    default=fallback_sentinel,
+                ),
+                prefix=self.prefix,
+            )
+            normalized_sentinel = IdentifierNormalizer.normalize_hex(
+                fallback_sentinel, 8
+            )
+
+        context.setdefault("OUT_OF_RANGE_SENTINEL", normalized_sentinel.upper())
 
     def _ensure_template_object(self, obj: Any) -> TemplateObject:
         """Convert any object to TemplateObject for consistent template access."""

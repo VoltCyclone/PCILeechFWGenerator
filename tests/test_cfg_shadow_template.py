@@ -362,9 +362,19 @@ class TestCfgShadowTemplate:
 
         # Verify bounds checking in read logic
         assert "if (effective_reg_num < (CONFIG_SPACE_SIZE / 4))" in result
-        assert "32'hDEADBEEF" in result  # Invalid access marker
+        assert "OUT_OF_RANGE_SENTINEL" in result  # Invalid access marker defined once
 
         self.validate_systemverilog_syntax(result)
+
+    def test_custom_out_of_range_sentinel(self, template_content, minimal_context):
+        """Ensure callers can override the out-of-range sentinel via context."""
+        context = minimal_context.copy()
+        context["OUT_OF_RANGE_SENTINEL"] = "BADC0DE5"
+
+        result = self.render_template(template_content, context)
+
+        assert "32'hBADC0DE5" in result
+        assert "OUT_OF_RANGE_SENTINEL" in result
 
     def test_extended_config_space_addresses(self, template_content, minimal_context):
         """Test with extended config space addresses (>= 256)."""
@@ -502,7 +512,6 @@ class TestCfgShadowTemplate:
 
         # Check for synthesis attributes
         assert '(* ram_style="block" *)' in result
-        assert "(* synthesis ram_init_file = CFG_INIT_HEX *)" in result
         assert "(* ram_init_file = CFG_INIT_HEX *)" in result
 
         # Check for synthesis pragmas
