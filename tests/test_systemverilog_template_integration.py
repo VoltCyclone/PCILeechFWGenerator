@@ -91,6 +91,7 @@ class TemplateContextBuilder:
             "pcileech_config": TemplateContextBuilder._create_pcileech_config(),
             "generation_metadata": TemplateContextBuilder._create_generation_metadata(),
             "active_device_config": TemplateContextBuilder._create_active_device_config(),
+            "device_serial_number_int": 0x1234567890ABCDEF,
         }
 
         base_context.update(
@@ -334,6 +335,7 @@ class TemplateContextBuilder:
         # Enhanced generation metadata
         context["generation_metadata"]["build_id"] = "test-build-123"
         context["generation_metadata"]["timestamp"] = "2024-01-01T12:00:00Z"
+        context["device_serial_number_int"] = 0xFEDCBA9876543210
 
         return context
 

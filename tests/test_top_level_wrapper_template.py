@@ -50,6 +50,7 @@ class TestTopLevelWrapperTemplate:
             "vendor_id_int": 0x10EE,
             "device_id_int": 0x7024,
             "config_space": bytes(256),
+            "device_serial_number_int": 0xAABBCCDDEEFF0011,
             "device": {"vendor_id": "0x10ee", "device_id": "0x7024"},
             "active_device_config": {"vendor_id": "0x10ee", "device_id": "0x7024"},
             "board": {"max_lanes": 4, "has_status_leds": True, "num_status_leds": 8},
@@ -67,6 +68,7 @@ class TestTopLevelWrapperTemplate:
             "vendor_id_int": 0x1234,
             "device_id_int": 0x5678,
             "config_space": bytes(256),
+            "device_serial_number_int": 0,
         }
 
     def test_basic_template_rendering(self, template_env, base_context):
@@ -79,11 +81,13 @@ class TestTopLevelWrapperTemplate:
         assert "module pcileech_top" in result
         assert "`default_nettype wire" in result
 
-        # Verify reset is active-high (not reset_n)
+        # Verify reset is active-high and reset_n appears only in internal plumbing
         assert "logic        reset;" in result
-        assert "reset_n" not in result.replace(
-            "sys_rst_n", ""
-        )  # Exclude system reset input
+        module_decl_start = result.find("module pcileech_top")
+        module_decl_end = result.find(");", module_decl_start)
+        port_section = result[module_decl_start:module_decl_end]
+        assert "reset_n" not in port_section
+        assert ".reset_n(" in result  # Internal modules receive active-low reset
 
         # Verify vendor/device ID usage
         assert "0x10ee" in result
@@ -154,6 +158,20 @@ class TestTopLevelWrapperTemplate:
         assert "tlp_header[0] <= pcie_rx_data[31:0];   // DW0" in result
         assert "tlp_header[1] <= pcie_rx_data[63:32];  // DW1" in result
 
+    def test_cfg_dsn_and_mgmt_tieoffs(self, template_env, base_context):
+        """Ensure cfg_dsn and cfg_mgmt_wr_rw1c_as_rw are wired and tied off correctly."""
+        template = template_env.get_template("sv/top_level_wrapper.sv.j2")
+        result = template.render(base_context)
+
+        assert (
+            "localparam logic [63:0] DEVICE_SERIAL_NUMBER = 64'hAABBCCDDEEFF0011;"
+            in result
+        )
+        assert "assign cfg_mgmt_wr_rw1c_as_rw = 1'b1;" in result
+        assert "assign cfg_dsn = DEVICE_SERIAL_NUMBER;" in result
+        assert ".cfg_mgmt_wr_rw1c_as_rw(cfg_mgmt_wr_rw1c_as_rw)" in result
+        assert ".cfg_dsn(cfg_dsn)" in result
+
     def test_tlp_type_decoding(self, template_env, base_context):
         """Test TLP type decoding uses all 7 bits."""
         template = template_env.get_template("sv/top_level_wrapper.sv.j2")
@@ -223,20 +241,17 @@ class TestTopLevelWrapperTemplate:
         assert "first_be <= pcie_rx_data[35:32];  // DW1[3:0]" in result
         assert "last_be <= pcie_rx_data[39:36];   // DW1[7:4]" in result
 
-        # Verify byte enable application in writes
-        assert "if (current_be[i])" in result
+        # Verify byte enable propagation into BAR controller
+        assert ".bar_wr_be(current_be)" in result
 
     def test_bar_memory_implementation(self, template_env, base_context):
         """Test BAR memory implementation."""
         template = template_env.get_template("sv/top_level_wrapper.sv.j2")
         result = template.render(base_context)
 
-        # Verify BAR memory declaration
-        assert "logic [31:0] bar_memory [0:1023];" in result
-
-        # Verify initialization
-        assert "initial begin" in result
-        assert "bar_memory[i] = 32'hDEADBEEF;" in result
+        # Verify BAR controller instantiation instead of local memory array
+        assert "pcileech_tlps128_bar_controller" in result
+        assert ".bar_rd_data(bar_rd_data)" in result
 
         # Verify BAR access pipeline
         assert "logic        bar_rd_valid;" in result

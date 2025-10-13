@@ -12,8 +12,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,8 @@ class TemplateContextValidator:
     that some template variables may be undefined. It ensures all required
     template variables are always defined in the template context.
     """
+
+    prefix = "TMPL_VALID"
 
     # Define template variable requirements for each template type
     TEMPLATE_REQUIREMENTS = {
@@ -268,6 +275,7 @@ class TemplateContextValidator:
         """Initialize the template context validator."""
         self.template_cache: Dict[str, TemplateVariableRequirements] = {}
         self._template_mtime_cache: Dict[str, float] = {}
+        self.prefix = "TMPL_VALID"
 
     def get_template_requirements(
         self, template_name: str
@@ -297,7 +305,7 @@ class TemplateContextValidator:
                         logger,
                         "Template '{tpl}' modified, invalidating cache",
                         tpl=template_name,
-                        prefix="TEMPLATE_CACHE",
+                        prefix=self.prefix,
                     )
                     del self.template_cache[template_name]
                 self._template_mtime_cache[template_name] = current_mtime
@@ -365,13 +373,13 @@ class TemplateContextValidator:
         # pruning & synthesis
         if template_name.startswith("tcl/"):
             self._prune_unused_tcl_requirements(
-                template_name, requirements, logger_prefix="TEMPLATE_VALIDATION"
+                template_name, requirements, logger_prefix=self.prefix
             )
             self._synthesize_device_if_needed(
                 template_name,
                 requirements,
                 validated_context,
-                logger_prefix="TEMPLATE_VALIDATION",
+                logger_prefix=self.prefix,
             )
 
         # Detect variables that the template itself assigns via `{% set var = ... %}`
@@ -403,14 +411,16 @@ class TemplateContextValidator:
                 if var not in validated_context or validated_context[var] is None:
                     missing_required.append(var)
                     validation_errors.append(
-                        f"Required variable '{var}' is missing or None"
+                        safe_format("Missing required variable '{var}'", var=var)
                     )
 
             none_values = []
             for var, value in validated_context.items():
                 if value is None:
                     none_values.append(var)
-                    validation_errors.append(f"Variable '{var}' has None value")
+                    validation_errors.append(
+                        safe_format("Variable '{var}' has None value", var=var)
+                    )
 
             if validation_errors:
                 error_msg = (
@@ -425,7 +435,7 @@ class TemplateContextValidator:
                     logger,
                     "{msg}",
                     msg=error_msg,
-                    prefix="TEMPLATE_VALIDATION",
+                    prefix=self.prefix,
                 )
                 raise ValueError(error_msg)
         else:
@@ -702,7 +712,7 @@ class TemplateContextValidator:
         log_debug_safe(
             logger,
             "Cleared template requirements cache",
-            prefix="TEMPLATE_CACHE",
+            prefix=self.prefix,
         )
 
     def invalidate_template(self, template_name: str) -> None:
@@ -715,7 +725,7 @@ class TemplateContextValidator:
             logger,
             "Invalidated cache for template '{tpl}'",
             tpl=template_name,
-            prefix="TEMPLATE_CACHE",
+            prefix=self.prefix,
         )
 
 

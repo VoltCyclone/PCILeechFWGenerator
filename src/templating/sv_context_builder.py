@@ -70,6 +70,9 @@ class SVContextBuilder:
         # Add device identification
         self._add_device_identification(enhanced_context, device_config_dict)
 
+        # Add donor-provided device serial number (used for cfg_dsn wiring)
+        self._add_device_serial_number(enhanced_context, template_context)
+
         # Add configuration objects
         self._add_configuration_objects(
             enhanced_context, template_context, device_config_dict
@@ -237,6 +240,123 @@ class SVContextBuilder:
         # Also add to device_config for consistency
         device_config["vendor_id_int"] = context["vendor_id_int"]
         device_config["device_id_int"] = context["device_id_int"]
+
+    def _add_device_serial_number(
+        self, context: Dict[str, Any], template_context: Dict[str, Any]
+    ) -> None:
+        """Extract and normalize the donor device serial number (DSN)."""
+
+        serial_candidate = self._extract_device_serial_number(template_context)
+        serial_int = self._safe_hex_to_int(serial_candidate)
+
+        # Normalize to 64-bit range
+        serial_int &= 0xFFFFFFFFFFFFFFFF
+
+        if serial_int == 0:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Device serial number unavailable; cfg_dsn will default to 0"
+                ),
+                prefix=self.prefix,
+            )
+
+        context["device_serial_number_int"] = serial_int
+        context["device_serial_number_hex"] = safe_format(
+            "0x{value:016X}", value=serial_int
+        )
+        context["device_serial_number_valid"] = bool(serial_int)
+        context["device_serial_number_hi"] = (serial_int >> 32) & 0xFFFFFFFF
+        context["device_serial_number_lo"] = serial_int & 0xFFFFFFFF
+
+    def _extract_device_serial_number(self, template_context: Dict[str, Any]) -> Any:
+        """Gather DSN candidates from the template context."""
+
+        candidates = []
+
+        # Top-level fields
+        for key in (
+            "device_serial_number_int",
+            "device_serial_number",
+            "dsn",
+        ):
+            if key in template_context:
+                candidates.append(template_context.get(key))
+
+        # Generation metadata often carries donor-specific identifiers
+        metadata = template_context.get("generation_metadata") or {}
+        for key in (
+            "device_serial_number_int",
+            "device_serial_number",
+            "dsn",
+            "dsn_value",
+        ):
+            if key in metadata:
+                candidates.append(metadata.get(key))
+
+        # Config space (raw or processed) may expose DSN values
+        config_space = (
+            template_context.get("config_space")
+            or template_context.get("config_space_data")
+            or {}
+        )
+        for key in (
+            "device_serial_number",
+            "device_serial",
+            "dsn",
+            "dsn_value",
+        ):
+            if isinstance(config_space, dict) and key in config_space:
+                candidates.append(config_space.get(key))
+
+        # Extended capabilities frequently store DSN as hi/lo words
+        extended_caps = {}
+        if isinstance(config_space, dict):
+            extended_caps = config_space.get("extended_capabilities") or {}
+
+        for source in (
+            template_context,
+            metadata,
+            config_space if isinstance(config_space, dict) else {},
+            extended_caps if isinstance(extended_caps, dict) else {},
+        ):
+            if not isinstance(source, dict):
+                continue
+
+            hi = source.get("dsn_hi") or source.get("device_serial_hi")
+            lo = source.get("dsn_lo") or source.get("device_serial_lo")
+            if hi is not None and lo is not None:
+                try:
+                    hi_int = self._safe_hex_to_int(hi)
+                    lo_int = self._safe_hex_to_int(lo)
+                    return (hi_int << 32) | (lo_int & 0xFFFFFFFF)
+                except Exception:
+                    pass
+
+            composite = source.get("device_serial_number")
+            if isinstance(composite, dict):
+                hi_val = composite.get("hi") or composite.get("dsn_hi")
+                lo_val = composite.get("lo") or composite.get("dsn_lo")
+                value = composite.get("value")
+                if hi_val is not None and lo_val is not None:
+                    try:
+                        hi_int = self._safe_hex_to_int(hi_val)
+                        lo_int = self._safe_hex_to_int(lo_val)
+                        return (hi_int << 32) | (lo_int & 0xFFFFFFFF)
+                    except Exception:
+                        pass
+                if value is not None:
+                    candidates.append(value)
+
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                return self._safe_hex_to_int(candidate)
+            except Exception:
+                continue
+
+        return 0
 
     def _add_configuration_objects(
         self,

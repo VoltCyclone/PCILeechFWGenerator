@@ -16,6 +16,18 @@
         (max_lanes if max_lanes is defined else 1))) %}
 {% set _max_lanes = _ctx_max_lanes | int %}
 {% set _lane_width = (_max_lanes - 1) %}
+{%- set _dsn_raw = (
+    device_serial_number_int if device_serial_number_int is defined and device_serial_number_int is not none else
+    (device_serial_number if device_serial_number is defined and device_serial_number is not none else 0)
+) %}
+{%- if _dsn_raw is string %}
+    {%- set _dsn_value = int(_dsn_raw, 0) %}
+{%- else %}
+    {%- set _dsn_value = _dsn_raw %}
+{%- endif %}
+{%- set _dsn_value = (_dsn_value % (2 ** 64)) %}
+{%- set _dsn_hex = "{:016X}".format(_dsn_value) %}
+{%- set _dsn_valid = (_dsn_value != 0) %}
 
 module pcileech_top (
     // PCIe physical transceiver interface
@@ -80,6 +92,12 @@ module pcileech_top (
     logic        cfg_mgmt_wr_en;
     logic        cfg_mgmt_rd_en;
     logic        cfg_mgmt_wr_readonly;
+    logic        cfg_mgmt_wr_rw1c_as_rw;
+    logic [63:0] cfg_dsn;
+    localparam logic [63:0] DEVICE_SERIAL_NUMBER = 64'h{{ _dsn_hex }};
+{%- if not _dsn_valid %}
+    // NOTE: Donor did not report a DSN; cfg_dsn defaults to zero for compliance.
+{%- endif %}
     
     // Interrupt status (outputs) and INTx/MSI inputs (tied off if MSI-X only)
     logic        cfg_interrupt_msixenable;
@@ -221,6 +239,8 @@ module pcileech_top (
         .cfg_mgmt_wr_en(cfg_mgmt_wr_en),
         .cfg_mgmt_rd_en(cfg_mgmt_rd_en),
         .cfg_mgmt_wr_readonly(cfg_mgmt_wr_readonly),
+        .cfg_mgmt_wr_rw1c_as_rw(cfg_mgmt_wr_rw1c_as_rw),
+        .cfg_dsn(cfg_dsn),
         
         // MSI/MSI-X and INTx
         .cfg_interrupt(cfg_interrupt),
@@ -291,6 +311,25 @@ module pcileech_top (
     logic        bar_wr_en;
     logic        bar_rd_en;
     logic [31:0] bar_rd_data;
+    logic        bar_controller_reset_n;
+    logic        cfg_ext_read_received;
+    logic        cfg_ext_write_received;
+    logic  [9:0] cfg_ext_register_number;
+    logic  [3:0] cfg_ext_function_number;
+    logic [31:0] cfg_ext_write_data;
+    logic  [3:0] cfg_ext_write_byte_enable;
+    logic [31:0] cfg_ext_read_data;
+    logic        cfg_ext_read_data_valid;
+    logic        msix_interrupt;
+    logic [10:0] msix_vector;
+    logic        msix_interrupt_ack;
+    logic        custom_win_sel;
+    logic [11:0] custom_win_addr;
+    logic [31:0] custom_win_wdata;
+    logic  [3:0] custom_win_be;
+    logic        custom_win_we;
+    logic        custom_win_re;
+    logic [31:0] custom_win_rdata;
     
     // Sideband signal decoding from m_axis_rx_tuser
     logic [2:0]  bar_hit;        // Which BAR was hit
@@ -309,6 +348,8 @@ module pcileech_top (
     assign cfg_mgmt_wr_en = 1'b0;
     assign cfg_mgmt_rd_en = 1'b0;
     assign cfg_mgmt_wr_readonly = 1'b0;
+    assign cfg_mgmt_wr_rw1c_as_rw = 1'b1;
+    assign cfg_dsn = DEVICE_SERIAL_NUMBER;
 
     // AXI-Stream control signals - removed static tie-offs for proper handling
     // s_axis_tx_tkeep and s_axis_tx_tlast are now driven by TLP completion logic
@@ -325,6 +366,18 @@ module pcileech_top (
     assign cfg_interrupt_di = 8'h00;
     assign cfg_interrupt_stat = 1'b0;
     assign cfg_pciecap_interrupt_msgnum = 5'h00;
+
+    // BAR controller interface tie-offs for 7-series core (no cfg_ext support)
+    assign bar_controller_reset_n = ~reset;
+    assign cfg_ext_read_received = 1'b0;
+    assign cfg_ext_write_received = 1'b0;
+    assign cfg_ext_register_number = 10'h000;
+    assign cfg_ext_function_number = 4'h0;
+    assign cfg_ext_write_data = 32'h0;
+    assign cfg_ext_write_byte_enable = 4'h0;
+    assign msix_interrupt_ack = 1'b0;
+    assign custom_win_rdata = 32'h0;
+
 
 {%- if _expose_pm_sideband %}
     // Default safe values for optional PM sideband when not wired internally
@@ -359,35 +412,45 @@ module pcileech_top (
     assign transaction_fifo_full = (transaction_count == 6'd32);
     assign transaction_fifo_empty = (transaction_count == 6'd0);
 
-    // Simplified BAR memory (for basic protocol compliance)
-    // Note: Full BAR controller with cfg_ext_* requires UltraScale+ or external logic
-    logic [31:0] bar_memory [0:1023];  // 4KB simple memory
-    
-    // Initialize BAR memory to known pattern
-    initial begin
-        for (int i = 0; i < 1024; i++) begin
-            bar_memory[i] = 32'hDEADBEEF;
-        end
-    end
-    
-    // Simple BAR read/write logic (placeholder for full implementation)
-    always_ff @(posedge clk) begin
-        if (reset) begin
-            bar_rd_data <= 32'h0;
-        end else begin
-            if (bar_rd_en && bar_addr[31:12] == 20'h0) begin
-                bar_rd_data <= bar_memory[bar_addr[11:2]];
-            end
-            if (bar_wr_en && bar_addr[31:12] == 20'h0) begin
-                // Apply byte enables to memory write
-                for (int i = 0; i < 4; i++) begin
-                    if (current_be[i]) begin
-                        bar_memory[bar_addr[11:2]][i*8 +: 8] <= bar_wr_data[i*8 +: 8];
-                    end
-                end
-            end
-        end
-    end
+    // PCIe BAR controller integrates config shadow, MSI-X, and custom window plumbing
+    pcileech_tlps128_bar_controller #(
+        .BAR_APERTURE_SIZE({{ BAR_APERTURE_SIZE | default(4096) }}),
+        .NUM_MSIX({{ NUM_MSIX | default(0) }}),
+        .MSIX_TABLE_BIR({{ MSIX_TABLE_BIR | default(0) }}),
+        .MSIX_TABLE_OFFSET({{ MSIX_TABLE_OFFSET | default(0) }}),
+        .MSIX_PBA_BIR({{ MSIX_PBA_BIR | default(0) }}),
+        .MSIX_PBA_OFFSET({{ MSIX_PBA_OFFSET | default(0) }}),
+        .CONFIG_SHDW_HI({{ CONFIG_SHDW_HI | default(0) }}),
+        .CUSTOM_WIN_BASE({{ CUSTOM_WIN_BASE | default(0) }})
+    ) bar_controller_i (
+        .clk(clk),
+        .reset_n(bar_controller_reset_n),
+        .bar_index(3'd{{ MSIX_TABLE_BIR | default(0) }}),
+        .bar_addr(bar_addr),
+        .bar_wr_data(bar_wr_data),
+        .bar_wr_be(current_be),
+        .bar_wr_en(bar_wr_en),
+        .bar_rd_en(bar_rd_en),
+        .bar_rd_data(bar_rd_data),
+        .cfg_ext_read_received(cfg_ext_read_received),
+        .cfg_ext_write_received(cfg_ext_write_received),
+        .cfg_ext_register_number(cfg_ext_register_number),
+        .cfg_ext_function_number(cfg_ext_function_number),
+        .cfg_ext_write_data(cfg_ext_write_data),
+        .cfg_ext_write_byte_enable(cfg_ext_write_byte_enable),
+        .cfg_ext_read_data(cfg_ext_read_data),
+        .cfg_ext_read_data_valid(cfg_ext_read_data_valid),
+        .msix_interrupt(msix_interrupt),
+        .msix_vector(msix_vector),
+        .msix_interrupt_ack(msix_interrupt_ack),
+        .custom_win_sel(custom_win_sel),
+        .custom_win_addr(custom_win_addr),
+        .custom_win_wdata(custom_win_wdata),
+        .custom_win_be(custom_win_be),
+        .custom_win_we(custom_win_we),
+        .custom_win_re(custom_win_re),
+        .custom_win_rdata(custom_win_rdata)
+    );
 
     // TLP Completion Header Generation Function
     function logic [95:0] generate_cpld_header;

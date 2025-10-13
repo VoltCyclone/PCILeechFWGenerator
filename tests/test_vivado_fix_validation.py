@@ -81,6 +81,7 @@ class TestVivadoFixValidation:
                 "version": "2.0.0",
                 "generator": "PCILeechFWGenerator",
             },
+            "device_serial_number_int": 0x1122334455667788,
             "OVERLAY_MAP": [],
             "OVERLAY_ENTRIES": 0,
             "ENABLE_SPARSE_MAP": 0,
@@ -303,7 +304,7 @@ class TestVivadoFixValidation:
                 # Key ports should be connected
                 required_bar_connections = [
                     ".clk(clk)",
-                    ".reset_n(reset_n)",
+                    ".reset_n(bar_controller_reset_n)",
                     ".cfg_ext_read_data(cfg_ext_read_data)",
                     ".cfg_ext_read_received(cfg_ext_read_received)",
                     ".msix_interrupt(msix_interrupt)",

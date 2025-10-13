@@ -4,11 +4,15 @@ import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.string_utils import (generate_sv_header_comment, log_debug_safe,
-                              log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
-from src.utils.attribute_access import (get_attr_or_raise, has_attr,
-                                        safe_get_attr)
+from src.string_utils import (
+    generate_sv_header_comment,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.utils.attribute_access import get_attr_or_raise, has_attr, safe_get_attr
 
 from .sv_constants import SV_CONSTANTS, SV_TEMPLATES, SV_VALIDATION
 from .template_renderer import TemplateRenderer, TemplateRenderError
@@ -84,9 +88,11 @@ class SVModuleGenerator:
         except Exception as e:
             log_error_safe(
                 self.logger,
-                "PCILeech module generation failed: {error}",
+                safe_format(
+                    "PCILeech module generation failed: {error}",
+                    error=str(e),
+                ),
                 prefix=self.prefix,
-                error=str(e),
             )
             raise
 
@@ -122,10 +128,12 @@ class SVModuleGenerator:
             except Exception as e:
                 log_error_safe(
                     self.logger,
-                    "Failed to generate module {module}: {error}",
+                    safe_format(
+                        "Failed to generate module {module}: {error}",
+                        module=module_template,
+                        error=str(e),
+                    ),
                     prefix=self.prefix,
-                    module=module_template,
-                    error=str(e),
                 )
                 failed_modules.append(module_template)
 
@@ -251,20 +259,18 @@ class SVModuleGenerator:
         did = device_obj.get("device_id") or device_cfg.get("device_id")
 
         if not vid or not did:
+            error_msg = safe_format(
+                "Missing required device identifiers: vendor_id={vid}, device_id={did}",
+                vid=str(vid),
+                did=str(did),
+            )
             # Fail fast with actionable logs; these values must be present.
             log_error_safe(
                 self.logger,
-                safe_format(
-                    "Missing required device identifiers: vendor_id={vid}, device_id={did}",
-                    vid=str(vid),
-                    did=str(did),
-                ),
+                error_msg,
                 prefix=self.prefix,
             )
-            raise TemplateRenderError(
-                self.messages.get("missing_device_config")
-                or "Missing device configuration"
-            )
+            raise TemplateRenderError(error_msg)
 
         # Normalize `device` in context without mutating original input.
         if (
@@ -305,7 +311,17 @@ class SVModuleGenerator:
             "ERROR_MISSING_DEVICE_SIGNATURE"
             in modules["pcileech_tlps128_bar_controller"]
         ):
-            raise TemplateRenderError(self.messages["missing_device_signature"])
+            error_msg = safe_format(
+                self.messages["missing_device_signature"],
+                vid=str(vid),
+                did=str(did),
+            )
+            log_error_safe(
+                self.logger,
+                error_msg,
+                prefix=self.prefix,
+            )
+            raise TemplateRenderError(error_msg)
 
         # FIFO controller
         log_debug_safe(
@@ -359,11 +375,15 @@ class SVModuleGenerator:
                 "systemverilog/cfg_shadow.sv.j2", context
             )
         except Exception as e:
-            # Surface a clear error since the BAR controller instantiates this
-            # module; without it synthesis will fail with 'module not found'.
-            raise TemplateRenderError(
-                safe_format("Failed to render cfg_shadow.sv: {error}", error=str(e))
-            ) from e
+            error_msg = safe_format(
+                self.messages["failed_to_render_cfg_shadow"], error=str(e)
+            )
+            log_error_safe(
+                self.logger,
+                error_msg,
+                prefix=self.prefix,
+            )
+            raise TemplateRenderError(error_msg)
 
     def _generate_msix_modules_if_needed(
         self, context: Dict[str, Any], modules: Dict[str, str]
@@ -474,14 +494,16 @@ class SVModuleGenerator:
                 )
                 return f"{main_module}\n\n// CLOCK CROSSING MODULE\n{clock_module}"
             except Exception as e:
-                log_warning_safe(
+                error_msg = safe_format(
+                    self.messages["failed_to_render_clock_crossing"],
+                    error=str(e),
+                )
+                log_error_safe(
                     self.logger,
-                    safe_format(
-                        "Failed to render clock crossing: {error}",
-                        error=str(e),
-                    ),
+                    error_msg,
                     prefix=self.prefix,
                 )
+                raise TemplateRenderError(error_msg)
 
         return main_module
 

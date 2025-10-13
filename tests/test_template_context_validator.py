@@ -13,9 +13,12 @@ from typing import Any, Dict
 import pytest
 
 from src.templating.template_context_validator import (
-    TemplateContextValidator, TemplateVariableRequirements,
-    analyze_template_variables, get_template_requirements,
-    validate_template_context)
+    TemplateContextValidator,
+    TemplateVariableRequirements,
+    analyze_template_variables,
+    get_template_requirements,
+    validate_template_context,
+)
 
 
 class TestTemplateContextValidator:
@@ -114,9 +117,7 @@ class TestTemplateContextValidator:
 
         # Check for security-focused error message
         assert "SECURITY VIOLATION" in str(exc_info.value)
-        assert "Required variable 'device_config' is missing or None" in str(
-            exc_info.value
-        )
+        assert "- Missing required variable 'device_config'" in str(exc_info.value)
 
     def test_pattern_matching(self):
         """Test that template pattern matching works correctly."""
@@ -428,8 +429,9 @@ class TestTemplateContextValidator:
             if temp_path.exists():
                 temp_path.unlink()
             # Invalidate any cached requirements for this temp template
-            from src.templating.template_context_validator import \
-                invalidate_global_template
+            from src.templating.template_context_validator import (
+                invalidate_global_template,
+            )
 
             invalidate_global_template(f"tcl/{temp_name}")
 

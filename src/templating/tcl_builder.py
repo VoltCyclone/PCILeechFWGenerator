@@ -8,25 +8,36 @@ using the template system, integrating with constants and build helpers.
 
 import logging
 import shutil
+
 # Use absolute imports for better compatibility
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Dict, List, Optional, Protocol, Union,
-                    runtime_checkable)
+from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.exceptions import (DeviceConfigError, TCLBuilderError,
-                            TemplateNotFoundError, XDCConstraintError)
+from src.exceptions import (
+    DeviceConfigError,
+    TCLBuilderError,
+    TemplateNotFoundError,
+    XDCConstraintError,
+)
 from src.import_utils import safe_import, safe_import_class
+
 # String utilities (always use these)
-from src.string_utils import (generate_tcl_header_comment, get_project_name,
-                              log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    generate_tcl_header_comment,
+    get_project_name,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
@@ -420,8 +431,10 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from file_management.repo_manager import (get_xdc_files,
-                                                      is_repository_accessible)
+            from file_management.repo_manager import (
+                get_xdc_files,
+                is_repository_accessible,
+            )
 
             if not is_repository_accessible(board_name):
                 raise XDCConstraintError("Repository is not accessible")
@@ -560,6 +573,7 @@ class TCLBuilder:
         template_dir: Optional[Union[str, Path]] = None,
         output_dir: Optional[Union[str, Path]] = None,
         device_profile: Optional[str] = None,
+        prefix: str = "TCL_BLDER",
     ):
         """
         Initialize the TCL builder.
@@ -572,6 +586,7 @@ class TCLBuilder:
         self.logger = logging.getLogger(__name__)
         self.output_dir = Path(output_dir) if output_dir else Path(".")
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.prefix = prefix
 
         # Initialize components
         self._init_template_renderer(template_dir)
@@ -634,15 +649,18 @@ class TCLBuilder:
             log_warning_safe(
                 self.logger,
                 safe_format("Device config module unavailable: {error}", error=e),
+                prefix=self.prefix,
             )
             self.device_config = None
 
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from build_helpers import (batch_write_tcl_files,
-                                       create_fpga_strategy_selector,
-                                       validate_fpga_part)
+            from build_helpers import (
+                batch_write_tcl_files,
+                create_fpga_strategy_selector,
+                validate_fpga_part,
+            )
 
             self.batch_write_tcl_files = batch_write_tcl_files
             self.fpga_strategy_selector = create_fpga_strategy_selector()
@@ -666,7 +684,7 @@ class TCLBuilder:
             log_warning_safe(
                 self.logger,
                 safe_format("Using fallback constants: {error}", error=e),
-                prefix="CONSTANTS",
+                prefix=self.prefix,
             )
             fallback = self._create_fallback_constants()
             for attr_name in dir(fallback):
@@ -709,7 +727,7 @@ class TCLBuilder:
             log_warning_safe(
                 self.logger,
                 safe_format("Constraint manager unavailable: {error}", error=e),
-                prefix="CONSTRAINTS",
+                prefix=self.prefix,
             )
             self.constraint_manager = None
 
@@ -930,10 +948,13 @@ class TCLBuilder:
                     copied_files[0] if copied_files else None
                 )
             except XDCConstraintError as e:
-                log_error_safe(
-                    self.logger, safe_format("XDC constraint error: {error}", error=e)
+                log_warning_safe(
+                    self.logger,
+                    safe_format("XDC file handling failed: {error}", error=e),
+                    prefix=self.prefix,
                 )
                 raise
+                # Proceed without XDC files if copying fails
 
         # Add required variables for constraints template
         template_context.setdefault("sys_clk_freq_mhz", 100)  # Default to 100MHz
@@ -1229,7 +1250,9 @@ class TCLBuilder:
             return {filename: True for filename in tcl_contents.keys()}
         except Exception as e:
             log_error_safe(
-                self.logger, safe_format("Failed to write TCL files: {error}", error=e)
+                self.logger,
+                safe_format("Failed to write TCL files: {error}", error=e),
+                prefix=self.prefix,
             )
             # Return failure status for all files if batch write fails
             return {filename: False for filename in tcl_contents.keys()}
