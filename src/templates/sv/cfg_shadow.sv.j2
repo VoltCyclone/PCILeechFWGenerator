@@ -68,13 +68,7 @@ module pcileech_tlps128_cfgspace_shadow #(
 
     // Sentinel returned on out-of-range accesses (context-driven for uniqueness)
     localparam logic [31:0] OUT_OF_RANGE_SENTINEL = 32'h{{ (OUT_OF_RANGE_SENTINEL | default('DEADBEEF')) | upper }};
-    
-    // Enhanced overlay entry structure (96 bits total)
-    typedef struct packed {
-        logic [31:0] type_mask;  // Per-bit type encoding (4 bits per byte)
-        logic [31:0] mask;       // Writable bit mask
-        logic [31:0] data;       // Current register value
-    } overlay_entry_t;
+    localparam logic [31:0] DEFAULT_RW_TYPE       = 32'h11111111;  // Default RW mask for legacy overlays
 
     // =====================================================================
     // Memory Architecture
@@ -88,9 +82,11 @@ module pcileech_tlps128_cfgspace_shadow #(
     // Enhanced overlay RAM with bit type support ({{ OVERLAY_ENTRIES }} entries)
     generate
         if (ENABLE_BIT_TYPES) begin : gen_enhanced_overlay
-            (* ram_style="block" *) overlay_entry_t overlay_ram[0:OVERLAY_ENTRIES-1];
+            (* ram_style="block" *) logic [31:0] overlay_type_ram[0:OVERLAY_ENTRIES-1];
+            (* ram_style="block" *) logic [31:0] overlay_mask_ram[0:OVERLAY_ENTRIES-1];
+            (* ram_style="block" *) logic [31:0] overlay_data_ram[0:OVERLAY_ENTRIES-1];
         end else begin : gen_legacy_overlay
-            (* ram_style="block" *) logic [31:0] overlay_ram[0:OVERLAY_ENTRIES-1];
+            (* ram_style="block" *) logic [31:0] overlay_data_ram[0:OVERLAY_ENTRIES-1];
         end
     endgenerate
     
@@ -235,7 +231,7 @@ module pcileech_tlps128_cfgspace_shadow #(
     endfunction
     
     function automatic logic [31:0] get_overlay_type(input logic [9:0] reg_num);
-        logic [31:0] result = 32'h11111111; // Default all RW
+        logic [31:0] result = DEFAULT_RW_TYPE; // Default all RW
         {%- if OVERLAY_MAP is defined and OVERLAY_MAP is not none -%}
             {%- if OVERLAY_MAP is mapping -%}
                 {%- for reg, entry in OVERLAY_MAP.items() %}
@@ -301,9 +297,10 @@ module pcileech_tlps128_cfgspace_shadow #(
     
     // Pipeline registers for BRAM reads
     logic [31:0] config_ram_readdata;
-    logic [95:0] overlay_ram_readdata;  // Enhanced for 96-bit entries
-    logic [9:0] read_reg_num_pipe;
-    logic read_in_progress;
+    logic [31:0] overlay_data_pipe;
+    logic [31:0] overlay_mask_pipe;
+    logic [9:0]  read_reg_num_pipe;
+    logic        read_in_progress;
     
     // Configuration access state machine with bit type support
     always_ff @(posedge clk or negedge reset_n) begin
@@ -312,13 +309,15 @@ module pcileech_tlps128_cfgspace_shadow #(
         logic [11:0]  byte_addr;
         logic [31:0]  ov_idx;
         logic [31:0]  ov_data;
-        logic [31:0]  ov_mask;
-        overlay_entry_t current_entry;
-        logic [31:0]  new_data;
-        logic [3:0]   byte_type;
-        logic [7:0]   write_byte;
-        logic [7:0]   current_byte;
-        logic [7:0]   mask_byte;
+    logic [31:0]  ov_mask;
+    logic [31:0]  new_data;
+    logic [31:0]  current_mask;
+    logic [31:0]  current_type_mask;
+    logic [31:0]  current_data_field;
+    logic [3:0]   byte_type;
+    logic [7:0]   write_byte;
+    logic [7:0]   current_byte;
+    logic [7:0]   mask_byte;
         if (!reset_n) begin
             cfg_state <= CFG_IDLE;
             read_data_valid <= 1'b0;
@@ -326,7 +325,8 @@ module pcileech_tlps128_cfgspace_shadow #(
             current_reg_num <= 10'h0;
             read_in_progress <= 1'b0;
             config_ram_readdata <= 32'h0;
-            overlay_ram_readdata <= 96'h0;
+            overlay_data_pipe   <= 32'h0;
+            overlay_mask_pipe   <= 32'h0;
             read_reg_num_pipe <= 10'h0;
             shadow_handled_reg <= 1'b0;
             cfgtlp_zero_reg <= 1'b0;
@@ -380,16 +380,22 @@ module pcileech_tlps128_cfgspace_shadow #(
                                 config_ram_readdata <= OUT_OF_RANGE_SENTINEL;  // Invalid access marker
                             end
                             
+                            overlay_data_pipe <= 32'h0;
+                            overlay_mask_pipe <= 32'h0;
+
                             ov_idx = get_overlay_index(effective_reg_num);
                             if (has_valid_overlay(effective_reg_num)) begin
+                                int unsigned overlay_idx;
+                                overlay_idx = ov_idx;
+
                                 if (ENABLE_BIT_TYPES) begin
-                                    // Read full 96-bit enhanced entry
-                                    overlay_ram_readdata <= gen_enhanced_overlay.overlay_ram[ov_idx];
+                                    // Read discrete enhanced entry fields
+                                    overlay_data_pipe <= gen_enhanced_overlay.overlay_data_ram[overlay_idx];
+                                    overlay_mask_pipe <= gen_enhanced_overlay.overlay_mask_ram[overlay_idx];
                                 end else begin
-                                    // Legacy 32-bit read
-                                    overlay_ram_readdata[31:0] <= gen_legacy_overlay.overlay_ram[ov_idx];
-                                    overlay_ram_readdata[63:32] <= get_overlay_mask(effective_reg_num);
-                                    overlay_ram_readdata[95:64] <= 32'h11111111; // Default RW
+                                    // Legacy 32-bit read with mask from static map
+                                    overlay_data_pipe <= gen_legacy_overlay.overlay_data_ram[overlay_idx];
+                                    overlay_mask_pipe <= get_overlay_mask(effective_reg_num);
                                 end
                             end
                             
@@ -409,8 +415,8 @@ module pcileech_tlps128_cfgspace_shadow #(
 
                     // Second cycle: use pipelined BRAM data
                     if (has_valid_overlay(read_reg_num_pipe)) begin
-                        ov_data = overlay_ram_readdata[31:0];
-                        ov_mask = overlay_ram_readdata[63:32];
+                        ov_data = overlay_data_pipe;
+                        ov_mask = overlay_mask_pipe;
 
                         // Apply overlay for writable bits using pipelined data
                         read_data <= (config_ram_readdata & ~ov_mask) | (ov_data & ov_mask);
@@ -434,79 +440,83 @@ module pcileech_tlps128_cfgspace_shadow #(
                         shadow_handled_reg <= 1'b1;  // Shadow is handling this request
 
                         // Handle write to configuration space shadow
-                        if (has_valid_overlay(effective_reg_num)) begin
-                            // Get overlay info
-                            ov_idx = get_overlay_index(effective_reg_num);
+                            if (has_valid_overlay(effective_reg_num)) begin
+                                // Get overlay info
+                                ov_idx = get_overlay_index(effective_reg_num);
 
-                            if (ENABLE_BIT_TYPES) begin
-                                // Read current enhanced overlay entry
-                                current_entry = gen_enhanced_overlay.overlay_ram[ov_idx];
-                            end else begin
-                                // Legacy mode - construct entry
-                                current_entry.data = gen_legacy_overlay.overlay_ram[ov_idx];
-                                current_entry.mask = get_overlay_mask(effective_reg_num);
-                                current_entry.type_mask = 32'h11111111; // Default RW
-                            end
+                                int unsigned overlay_idx;
+                                overlay_idx = ov_idx;
 
-                            new_data = current_entry.data;
+                                current_data_field = 32'h0;
+                                current_mask       = 32'h0;
+                                current_type_mask  = DEFAULT_RW_TYPE;
 
-                            // Process each byte based on its type
-                            for (int byte_idx = 0; byte_idx < 4; byte_idx++) begin
-                                if (cfg_ext_write_byte_enable[byte_idx]) begin
-                                    byte_type = current_entry.type_mask[byte_idx*4 +: 4];
-                                    write_byte = cfg_ext_write_data[byte_idx*8 +: 8];
-                                    current_byte = current_entry.data[byte_idx*8 +: 8];
-                                    mask_byte = current_entry.mask[byte_idx*8 +: 8];
+                                if (ENABLE_BIT_TYPES) begin
+                                    current_data_field = gen_enhanced_overlay.overlay_data_ram[overlay_idx];
+                                    current_mask       = gen_enhanced_overlay.overlay_mask_ram[overlay_idx];
+                                    current_type_mask  = gen_enhanced_overlay.overlay_type_ram[overlay_idx];
+                                end else begin
+                                    current_data_field = gen_legacy_overlay.overlay_data_ram[overlay_idx];
+                                    current_mask       = get_overlay_mask(effective_reg_num);
+                                    current_type_mask  = get_overlay_type(effective_reg_num);
+                                end
 
-                                    case (byte_type)
-                                        BIT_TYPE_RW: begin
-                                            // Standard read-write
-                                            new_data[byte_idx*8 +: 8] =
-                                                (write_byte & mask_byte) |
-                                                (current_byte & ~mask_byte);
-                                        end
+                                new_data = current_data_field;
 
-                                        BIT_TYPE_RW1C: begin
-                                            // Write-1-to-clear
-                                            new_data[byte_idx*8 +: 8] =
-                                                current_byte & ~(write_byte & mask_byte);
-                                        end
+                                // Process each byte based on its type
+                                for (int byte_idx = 0; byte_idx < 4; byte_idx++) begin
+                                    if (cfg_ext_write_byte_enable[byte_idx]) begin
+                                        byte_type   = current_type_mask[byte_idx*4 +: 4];
+                                        write_byte  = cfg_ext_write_data[byte_idx*8 +: 8];
+                                        current_byte = current_data_field[byte_idx*8 +: 8];
+                                        mask_byte    = current_mask[byte_idx*8 +: 8];
 
-                                        BIT_TYPE_RW1S: begin
-                                            // Write-1-to-set
-                                            new_data[byte_idx*8 +: 8] =
-                                                current_byte | (write_byte & mask_byte);
-                                        end
+                                        case (byte_type)
+                                            BIT_TYPE_RW: begin
+                                                // Standard read-write
+                                                new_data[byte_idx*8 +: 8] =
+                                                    (write_byte & mask_byte) |
+                                                    (current_byte & ~mask_byte);
+                                            end
 
-                                        BIT_TYPE_RSVDP: begin
-                                            // Reserved, preserve current value
-                                            new_data[byte_idx*8 +: 8] = current_byte;
-                                        end
+                                            BIT_TYPE_RW1C: begin
+                                                // Write-1-to-clear
+                                                new_data[byte_idx*8 +: 8] =
+                                                    current_byte & ~(write_byte & mask_byte);
+                                            end
 
-                                        BIT_TYPE_HWINIT,
-                                        BIT_TYPE_RO: begin
-                                            // Hardware controlled or read-only, ignore writes
-                                            new_data[byte_idx*8 +: 8] = current_byte;
-                                        end
+                                            BIT_TYPE_RW1S: begin
+                                                // Write-1-to-set
+                                                new_data[byte_idx*8 +: 8] =
+                                                    current_byte | (write_byte & mask_byte);
+                                            end
 
-                                        default: begin
-                                            // Undefined type - preserve value
-                                            new_data[byte_idx*8 +: 8] = current_byte;
-                                        end
-                                    endcase
+                                            BIT_TYPE_RSVDP: begin
+                                                // Reserved, preserve current value
+                                                new_data[byte_idx*8 +: 8] = current_byte;
+                                            end
+
+                                            BIT_TYPE_HWINIT,
+                                            BIT_TYPE_RO: begin
+                                                // Hardware controlled or read-only, ignore writes
+                                                new_data[byte_idx*8 +: 8] = current_byte;
+                                            end
+
+                                            default: begin
+                                                // Undefined type - preserve value
+                                                new_data[byte_idx*8 +: 8] = current_byte;
+                                            end
+                                        endcase
+                                    end
+                                end
+
+                                // Update overlay entry
+                                if (ENABLE_BIT_TYPES) begin
+                                    gen_enhanced_overlay.overlay_data_ram[overlay_idx] <= new_data;
+                                end else begin
+                                    gen_legacy_overlay.overlay_data_ram[overlay_idx] <= new_data;
                                 end
                             end
-
-                            // Update overlay entry
-                            if (ENABLE_BIT_TYPES) begin
-                                // Update only the data portion of the enhanced entry
-                                current_entry.data = new_data;
-                                gen_enhanced_overlay.overlay_ram[ov_idx] <= current_entry;
-                            end else begin
-                                // Legacy mode - just update data
-                                gen_legacy_overlay.overlay_ram[ov_idx] <= new_data;
-                            end
-                        end
                         // If no valid overlay, ignore write (hardware handles it)
                     end else begin
                         // If not using shadow or PCIe writes disabled, hardware handles the write
@@ -539,7 +549,7 @@ module pcileech_tlps128_cfgspace_shadow #(
         logic [31:0] ov_mask;
         logic [31:0] ov_idx;
         logic [31:0] ov_data;
-        overlay_entry_t entry;
+        logic [31:0] overlay_idx_cast;
 
         if (!reset_n) begin
             host_read_data <= 32'h0;
@@ -560,12 +570,12 @@ module pcileech_tlps128_cfgspace_shadow #(
                     ov_idx = get_overlay_index(reg_num);
 
                     if ((ov_idx != INVALID_INDEX) && (ov_idx < OVERLAY_ENTRIES)) begin
+                        overlay_idx_cast = ov_idx;
                         if (ENABLE_BIT_TYPES) begin
-                            entry = gen_enhanced_overlay.overlay_ram[ov_idx];
-                            ov_data = entry.data;
-                            ov_mask = entry.mask;
+                            ov_data = gen_enhanced_overlay.overlay_data_ram[overlay_idx_cast];
+                            ov_mask = gen_enhanced_overlay.overlay_mask_ram[overlay_idx_cast];
                         end else begin
-                            ov_data = gen_legacy_overlay.overlay_ram[ov_idx];
+                            ov_data = gen_legacy_overlay.overlay_data_ram[overlay_idx_cast];
                             ov_mask = get_overlay_mask(reg_num);
                         end
                         host_read_data <= (base_rd & ~ov_mask) | (ov_data & ov_mask);
@@ -589,7 +599,7 @@ module pcileech_tlps128_cfgspace_shadow #(
         logic [31:0] ov_mask_B;
         logic [31:0] ov_idx_B;
         logic [31:0] ov_data_B;
-        overlay_entry_t entry_B;
+    logic [31:0] overlay_idx_B_cast;
 
         if (enB) begin
             reg_num_B = addrB[11:2];  // Convert byte address to DWORD index
@@ -607,12 +617,12 @@ module pcileech_tlps128_cfgspace_shadow #(
                     ov_idx_B = get_overlay_index(reg_num_B);
 
                     if ((ov_idx_B != INVALID_INDEX) && (ov_idx_B < OVERLAY_ENTRIES)) begin
+                        overlay_idx_B_cast = ov_idx_B;
                         if (ENABLE_BIT_TYPES) begin
-                            entry_B = gen_enhanced_overlay.overlay_ram[ov_idx_B];
-                            ov_data_B = entry_B.data;
-                            ov_mask_B = entry_B.mask;
+                            ov_data_B = gen_enhanced_overlay.overlay_data_ram[overlay_idx_B_cast];
+                            ov_mask_B = gen_enhanced_overlay.overlay_mask_ram[overlay_idx_B_cast];
                         end else begin
-                            ov_data_B = gen_legacy_overlay.overlay_ram[ov_idx_B];
+                            ov_data_B = gen_legacy_overlay.overlay_data_ram[overlay_idx_B_cast];
                             ov_mask_B = get_overlay_mask(reg_num_B);
                         end
                         doutB <= (base_rd_B & ~ov_mask_B) | (ov_data_B & ov_mask_B);
@@ -637,11 +647,13 @@ module pcileech_tlps128_cfgspace_shadow #(
         // Initialize overlay RAM (moved from reset block to enable BRAM synthesis)
         if (ENABLE_BIT_TYPES) begin
             for (int i = 0; i < OVERLAY_ENTRIES; i++) begin
-                gen_enhanced_overlay.overlay_ram[i] = 96'h0;
+                gen_enhanced_overlay.overlay_data_ram[i] = 32'h0;
+                gen_enhanced_overlay.overlay_mask_ram[i] = 32'h0;
+                gen_enhanced_overlay.overlay_type_ram[i] = DEFAULT_RW_TYPE;
             end
         end else begin
             for (int i = 0; i < OVERLAY_ENTRIES; i++) begin
-                gen_legacy_overlay.overlay_ram[i] = 32'h0;
+                gen_legacy_overlay.overlay_data_ram[i] = 32'h0;
             end
         end
         

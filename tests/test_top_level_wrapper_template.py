@@ -117,6 +117,17 @@ class TestTopLevelWrapperTemplate:
         result = template.render(base_context)
         assert "output wire [15:0]  pci_exp_txp" in result
 
+    def test_lane_width_prefers_pcie_config_when_broader(self, template_env, base_context):
+        """Ensure PCIe link width follows generated IP configuration over board defaults."""
+        template = template_env.get_template("sv/top_level_wrapper.sv.j2")
+
+        base_context["board"]["max_lanes"] = 1
+        base_context["pcie_config"] = {"max_lanes": 4}
+
+        result = template.render(base_context)
+
+        assert "output wire [3:0]  pci_exp_txp" in result
+
     def test_power_management_sideband(self, template_env, base_context):
         """Test power management sideband signal generation."""
         template = template_env.get_template("sv/top_level_wrapper.sv.j2")

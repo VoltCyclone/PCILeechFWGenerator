@@ -10,11 +10,23 @@
 // Device IDs: vendor=0x{{ _vendor_str }}, device=0x{{ _device_str }}
 {#- Determine lane count from context.
     Prefer explicit board/pcie_config values; fall back to max_lanes, else X1. -#}
-{% set _ctx_max_lanes =
-     (board.max_lanes if board is defined and board is not none and board.max_lanes is not none else
-      (pcie_config.max_lanes if pcie_config is defined and pcie_config is not none and pcie_config.max_lanes is not none else
-        (max_lanes if max_lanes is defined else 1))) %}
-{% set _max_lanes = _ctx_max_lanes | int %}
+{% set lane_ns = namespace(values=[]) %}
+{% if board is defined and board is not none and board.max_lanes is not none %}
+    {% set _ = lane_ns.values.append((safe_int(board.max_lanes, default=0) | int)) %}
+{% endif %}
+{% if pcie_config is defined and pcie_config is not none %}
+    {% for key in ["max_lanes", "link_width", "maximum_link_width", "pl_link_cap_max_link_width", "configured_lanes"] %}
+        {% if key in pcie_config and pcie_config[key] is not none %}
+            {% set _ = lane_ns.values.append((safe_int(pcie_config[key], default=0) | int)) %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+{% if max_lanes is defined %}
+    {% set _ = lane_ns.values.append((safe_int(max_lanes, default=0) | int)) %}
+{% endif %}
+{% set _ = lane_ns.values.append(1) %}
+{% set _max_lanes = (lane_ns.values | max) %}
+{% set _max_lanes = (_max_lanes if _max_lanes > 0 else 1) %}
 {% set _lane_width = (_max_lanes - 1) %}
 {%- set _dsn_raw = (
     device_serial_number_int if device_serial_number_int is defined and device_serial_number_int is not none else

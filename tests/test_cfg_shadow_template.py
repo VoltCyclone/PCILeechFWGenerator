@@ -217,8 +217,8 @@ class TestCfgShadowTemplate:
 
         result = self.render_template(template_content, context)
 
-        # Verify legacy overlay RAM is used
-        assert "logic [31:0] overlay_ram[0:OVERLAY_ENTRIES-1]" in result
+        # Verify legacy overlay data RAM is used
+        assert "logic [31:0] overlay_data_ram[0:OVERLAY_ENTRIES-1]" in result
 
         # Verify bit type constants are still defined but not used in RAM
         assert "BIT_TYPE_RW     = 4'b0001" in result
