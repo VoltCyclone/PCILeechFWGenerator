@@ -119,7 +119,7 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
 {%- endif %}
 
 {%- if error_handling %}
-{%- include 'sv/error_handling.sv.j2' %}
+{%- include 'sv/error_handling/error_handling_complete.sv.j2' %}
 {%- else %}
     // Safe fallbacks when error handling block not included
     logic [31:0] error_status = 32'h0;

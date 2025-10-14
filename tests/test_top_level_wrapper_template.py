@@ -171,6 +171,21 @@ class TestTopLevelWrapperTemplate:
         assert "tlp_header[0] <= pcie_rx_data[31:0];   // DW0" in result
         assert "tlp_header[1] <= pcie_rx_data[63:32];  // DW1" in result
 
+    def test_data_width_clamps_nonstandard_values(self, template_env, base_context):
+        """Non-standard data widths should clamp to supported 64-bit path."""
+        template = template_env.get_template("sv/top_level_wrapper.sv.j2")
+
+        base_context["data_width"] = 40
+        result = template.render(base_context)
+
+        # Should fall back to the 64-bit code path
+        assert "logic [63:0] pcie_rx_data;" in result
+        assert "s_axis_tx_tkeep <= {(64 / 8){1'b1}};" in result
+
+        # Ensure 32-bit specific path is not emitted
+        assert "logic [31:0] pcie_rx_data;" not in result
+        assert "For 32-bit interface - send header DWs" not in result
+
     def test_cfg_dsn_and_mgmt_tieoffs(self, template_env, base_context):
         """Ensure cfg_dsn and cfg_mgmt_wr_rw1c_as_rw are wired and tied off correctly."""
         template = template_env.get_template("sv/top_level_wrapper.sv.j2")

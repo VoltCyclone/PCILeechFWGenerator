@@ -13,9 +13,11 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from src.string_utils import log_info_safe, safe_format
-from src.templating.advanced_sv_perf import (DeviceType,
-                                             PerformanceCounterConfig,
-                                             PerformanceCounterGenerator)
+from src.templating.advanced_sv_perf import (
+    DeviceType,
+    PerformanceCounterConfig,
+    PerformanceCounterGenerator,
+)
 
 
 class TestDeviceType:
@@ -311,7 +313,7 @@ class TestPerformanceCounterGenerator:
 
         assert result == "transaction_counter_code"
         self.mock_renderer.render_template.assert_called_once_with(
-            "systemverilog/advanced/performance_counters.sv.j2",
+            "sv/performance_counters.sv.j2",
             generator._build_context_from_template_context({}),
         )
 
@@ -469,7 +471,7 @@ class TestPerformanceCounterGenerator:
 
         assert result == "complete_perf_code"
         self.mock_renderer.render_template.assert_called_once_with(
-            "systemverilog/advanced/performance_counters.sv.j2",
+            "sv/performance_counters.sv.j2",
             generator._build_context_from_template_context(template_context),
         )
 

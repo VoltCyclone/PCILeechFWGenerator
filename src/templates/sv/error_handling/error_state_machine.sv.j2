@@ -33,10 +33,10 @@
         end
     end
 
-    {# Provide safe defaults if config or fields are missing in the template context #}
-    {%- set max_retry_count = config.max_retry_count if (config is defined and config.max_retry_count is defined) else 3 -%}
-    {%- set error_recovery_cycles = config.error_recovery_cycles if (config is defined and config.error_recovery_cycles is defined) else 16 -%}
-    {%- set enable_error_logging = config.enable_error_logging if (config is defined and config.enable_error_logging is defined) else false -%}
+    {# Provide safe defaults if error_config or fields are missing in the template context #}
+    {%- set max_retry_count = error_config.max_retry_count if (error_config is defined and error_config.max_retry_count is defined) else 3 -%}
+    {%- set error_recovery_cycles = error_config.error_recovery_cycles if (error_config is defined and error_config.error_recovery_cycles is defined) else 16 -%}
+    {%- set enable_error_logging = error_config.enable_error_logging if (error_config is defined and error_config.enable_error_logging is defined) else false -%}
 
     // Error state combinational logic
     always_comb begin

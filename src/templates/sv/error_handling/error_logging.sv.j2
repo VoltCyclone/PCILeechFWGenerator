@@ -1,5 +1,5 @@
 {#- Error Logging Logic Template -#}
-{%- if config.enable_error_logging %}
+{%- if error_config.enable_error_logging or false %}
     // Error Logging Logic
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin

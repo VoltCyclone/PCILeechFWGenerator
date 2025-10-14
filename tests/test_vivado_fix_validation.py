@@ -13,14 +13,17 @@ Tests that the fixes for DRC PLIOBUF-3 errors are correctly applied:
 These tests validate the template rendering to ensure Vivado synthesis will succeed.
 """
 
-import pytest
+from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import Mock
+
+import pytest
 
 from src.device_clone.overlay_utils import compute_sparse_hash_table_size
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 from src.templating.advanced_sv_power import PowerManagementConfig
 from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+from src.templating.template_renderer import TemplateRenderer
 
 
 class TestVivadoFixValidation:
@@ -413,6 +416,47 @@ class TestVivadoFixValidation:
                 assert (
                     "default" in case_block
                 ), f"Case statement in {module_name} missing default case"
+
+            # Ensure the completion block keeps the default assignment that zeroes unused data
+            template_dir = Path(__file__).parent.parent / "src/templates"
+            renderer = TemplateRenderer(template_dir=str(template_dir))
+            manual_context = {
+                "header": "// Generated PCIe Top Level Wrapper",
+                "vendor_id": "0x10ee",
+                "device_id": "0x7024",
+                "vendor_id_int": 0x10EE,
+                "device_id_int": 0x7024,
+                "config_space": bytes(256),
+                "device_serial_number_int": 0xAABBCCDDEEFF0011,
+                "device": {"vendor_id": "0x10ee", "device_id": "0x7024"},
+                "active_device_config": {"vendor_id": "0x10ee", "device_id": "0x7024"},
+                "board": {
+                    "max_lanes": 4,
+                    "has_status_leds": True,
+                    "num_status_leds": 8,
+                },
+                "enable_pme": False,
+                "enable_wake_events": False,
+                "expose_pm_sideband": False,
+                "power_management": {"has_interface_signals": False},
+            }
+            manual_context["data_width"] = 32
+            rendered_top_level = renderer.env.get_template(
+                "sv/top_level_wrapper.sv.j2"
+            ).render(manual_context)
+
+            completion_case_pos = rendered_top_level.find("case (tlp_current_beat)")
+            assert completion_case_pos != -1, "TLP completion case block missing"
+            completion_case_end = rendered_top_level.find(
+                "endcase", completion_case_pos
+            )
+            assert completion_case_end != -1, "TLP completion case block not terminated"
+            completion_case_block = rendered_top_level[
+                completion_case_pos:completion_case_end
+            ]
+            assert (
+                "pcie_tx_data <= 32'h0000_0000;" in completion_case_block
+            ), "Completion default assignment missing for 32-bit data width"
 
 
 class TestConstraintsTemplateValidation:

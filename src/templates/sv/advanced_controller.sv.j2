@@ -72,7 +72,7 @@ module advanced_pcileech_controller #(
 {%- endif %}
 
 {%- if error_config %}
-{%- include 'sv/error_handling.sv.j2' %}
+{%- include 'sv/error_handling/error_handling_complete.sv.j2' %}
 {%- endif %}
 
 {%- if clock_domain_logic is defined %}

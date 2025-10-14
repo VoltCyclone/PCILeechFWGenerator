@@ -223,9 +223,7 @@ class SystemVerilogGenerator:
             raise TemplateRenderError(f"Missing required template fields: {missing}")
 
         # Render main module template
-        return self.renderer.render_template(
-            "systemverilog/advanced/main_module.sv.j2", context
-        )
+        return self.renderer.render_template("sv/main_module.sv.j2", context)
 
     def _build_device_config_context(self) -> TemplateObject:
         """Build device config context for templates, with all required fields."""
@@ -324,9 +322,7 @@ class SystemVerilogGenerator:
         }
 
         # Render template using the existing TemplateRenderer
-        return self.renderer.render_template(
-            "systemverilog/advanced/clock_crossing.sv.j2", context
-        )
+        return self.renderer.render_template("sv/clock_crossing.sv.j2", context)
 
 
 # Alias for backward compatibility

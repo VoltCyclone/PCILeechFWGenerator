@@ -5,7 +5,7 @@
 `default_nettype none
 
 module error_recovery #(
-    parameter MAX_RETRY_COUNT = {{ config.max_retry_count | default(3) }}
+    parameter MAX_RETRY_COUNT = {{ error_config.max_retry_count | default(3) }}
 ) (
     input  wire  clk,
     input  wire  rst_n,
@@ -126,7 +126,7 @@ always_comb begin
         
         RECOVERY_RETRY: begin
             recovery_active = 1'b1;
-            if (retry_count >= 8'd{{ config.max_retry_count | default(3) }}) begin
+            if (retry_count >= 8'd{{ error_config.max_retry_count | default(3) }}) begin
                 next_recovery_state = RECOVERY_FAILED;
             end else if (recovery_timer >= 32'd1000) begin
                 // Retry attempt complete, check if error persists

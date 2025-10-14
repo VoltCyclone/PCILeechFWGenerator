@@ -209,8 +209,8 @@ class SVTemplates:
     DEVICE_SPECIFIC_PORTS: str = (
         "systemverilog/components/" "device_specific_ports.sv.j2"
     )
-    MAIN_ADVANCED_CONTROLLER: str = "systemverilog/advanced/advanced_controller.sv.j2"
-    CLOCK_CROSSING: str = "systemverilog/advanced/clock_crossing.sv.j2"
+    MAIN_ADVANCED_CONTROLLER: str = "sv/advanced_controller.sv.j2"
+    CLOCK_CROSSING: str = "sv/clock_crossing.sv.j2"
     BUILD_INTEGRATION: str = "python/build_integration.py.j2"
     PCILEECH_INTEGRATION: str = "python/pcileech_build_integration.py.j2"
     PCILEECH_TLPS_BAR_CONTROLLER: str = (

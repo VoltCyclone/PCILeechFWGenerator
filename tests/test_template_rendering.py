@@ -281,7 +281,9 @@ class TestTemplateRendering:
         )
 
         # Template should handle both string and dict formats
-        result = renderer.render_template("sv/error_recovery.sv.j2", context)
+        result = renderer.render_template(
+            "sv/error_handling/error_recovery.sv.j2", context
+        )
         assert "ERROR_TIMEOUT" in result
         assert "ERROR_CRC" in result
 

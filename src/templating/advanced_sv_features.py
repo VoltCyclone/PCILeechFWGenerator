@@ -575,14 +575,18 @@ endmodule
             "fatal_errors": list(self.config.error_handling.fatal_errors),
             "error_thresholds": self.config.error_handling.error_thresholds,
         }
-        return self.renderer.render_template("sv/error_recovery.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/error_handling/error_recovery.sv.j2", context
+        )
 
     def _generate_error_logging_logic(self) -> str:
         """Generate error logging logic."""
         log_debug_safe(logger, "Generating error logging logic", prefix="ERROR_LOGIC")
 
         context = {"config": self.config.error_handling}
-        return self.renderer.render_template("sv/error_logging.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/error_handling/error_logging.sv.j2", context
+        )
 
     def _generate_counter_logic(self) -> str:
         """Generate performance counter logic."""

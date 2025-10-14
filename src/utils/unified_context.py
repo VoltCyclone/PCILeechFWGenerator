@@ -768,12 +768,20 @@ class UnifiedContextBuilder:
 
     def create_power_management_config(self, **kwargs) -> TemplateObject:
         """Create power management configuration for templates."""
+        from src.templating.sv_constants import SV_CONSTANTS
+        
         config = dict(self.config.power_defaults)
 
         config.update(
             {
                 "enable_power_management": kwargs.get("enable_power_management", True),
                 "has_interface_signals": kwargs.get("has_interface_signals", False),
+                "pmcsr_bits": {
+                    "power_state_msb": SV_CONSTANTS.PMCSR_POWER_STATE_MSB,
+                    "power_state_lsb": SV_CONSTANTS.PMCSR_POWER_STATE_LSB,
+                    "pme_enable_bit": SV_CONSTANTS.PMCSR_PME_ENABLE_BIT,
+                    "pme_status_bit": SV_CONSTANTS.PMCSR_PME_STATUS_BIT,
+                },
             }
         )
 
@@ -919,6 +927,7 @@ class UnifiedContextBuilder:
         )
 
         # Build base context
+        from src.templating.sv_constants import SV_CONSTANTS
         from src.utils.validation_constants import SV_FILE_HEADER
 
         context = {
@@ -940,6 +949,13 @@ class UnifiedContextBuilder:
             "error_handling": error_handling_config,
             "error_config": error_handling_config,
             "performance_counters": perf_config,
+            # Add pmcsr_bits at top level for templates that access it directly
+            "pmcsr_bits": {
+                "power_state_msb": SV_CONSTANTS.PMCSR_POWER_STATE_MSB,
+                "power_state_lsb": SV_CONSTANTS.PMCSR_POWER_STATE_LSB,
+                "pme_enable_bit": SV_CONSTANTS.PMCSR_PME_ENABLE_BIT,
+                "pme_status_bit": SV_CONSTANTS.PMCSR_PME_STATUS_BIT,
+            },
             # Merge device signals
             **device_signals.to_dict(),
             # Template logic flags
