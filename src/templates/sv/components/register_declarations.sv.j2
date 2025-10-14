@@ -1,0 +1,102 @@
+{{ header | safe }}
+
+{#- Register Declarations Template -#}
+    // Power Management Signals
+    logic [1:0] current_power_state = 2'b00;  // D0 state
+    logic [1:0] current_link_state = 2'b00;   // L0 state
+    logic [15:0] power_transition_timer = 16'h0;
+    logic power_state_changing = 1'b0;
+    logic power_down_request = 1'b0;
+    logic power_up_request = 1'b0;
+    logic power_ready;
+
+    // Error Handling Signals
+    logic [7:0] error_status = 8'h0;
+    logic [7:0] correctable_error_count = 8'h0;
+    logic [7:0] uncorrectable_error_count = 8'h0;
+    logic error_recovery_active = 1'b0;
+    logic [15:0] error_recovery_timer = 16'h0;
+    
+    // Error detection signals
+    logic parity_error = 1'b0;
+    logic crc_error = 1'b0;
+    logic timeout_error = 1'b0;
+    logic protocol_error = 1'b0;
+    logic system_error = 1'b0;
+    logic internal_error = 1'b0;
+
+    // Performance Counter Signals
+{%- if performance_counters %}
+    logic [3:0] perf_counter_select = 4'h0;
+    logic [{{ performance_counters.counter_width - 1 }}:0] perf_counter_data;
+    logic performance_overflow;
+{%- endif %}
+
+    // Clock Domain Management
+    logic [2:0] clock_domain_status = 3'b111;
+    logic mem_clk_valid = 1'b1;
+    logic aux_clk_valid = 1'b1;
+
+    // Interrupt Management
+    logic [7:0] interrupt_vector = 8'h0;
+    logic interrupt_pending = 1'b0;
+    logic [3:0] interrupt_priority = 4'h0;
+
+    // Register-Specific Declarations
+{%- for reg in registers %}
+    {%- set name = reg.name %}
+    {%- set initial_value = reg.value %}
+    {%- if variance_model %}
+        {%- set varied_value = (initial_value | int(base=16) * (1.0 + (range(-0.005, 0.005) | random))) | int %}
+    logic [31:0] {{ name }}_reg = 32'h{{ "%08X" | format(varied_value) }};
+    {%- else %}
+    logic [31:0] {{ name }}_reg = {{ initial_value }};
+    {%- endif %}
+    logic {{ name }}_access_pending = 1'b0;
+    logic [7:0] {{ name }}_timing_counter = 8'h0;
+{%- endfor %}
+
+    // Device-specific signals based on device type
+{#- Handle device_type: can be string, dict, or object with .value -#}
+{%- if device_config.device_type is string -%}
+    {%- set device_type = device_config.device_type -%}
+{%- elif device_config.device_type is mapping -%}
+    {%- set device_type = device_config.device_type.get('value', device_config.device_type.get('name', 'generic')) -%}
+{%- elif device_config.device_type is defined and device_config.device_type.value is defined -%}
+    {%- set device_type = device_config.device_type.value -%}
+{%- else -%}
+    {%- set device_type = 'generic' -%}
+{%- endif -%}
+{%- if device_type == 'network' %}
+    // Network controller specific signals
+    logic [31:0] packet_count = 32'h0;
+    logic [31:0] byte_count = 32'h0;
+    logic link_up = 1'b0;
+    logic [3:0] link_speed = 4'h1;
+{%- elif device_type == 'storage' %}
+    // Storage controller specific signals
+    logic [31:0] sector_count = 32'h0;
+    logic [31:0] read_ops = 32'h0;
+    logic [31:0] write_ops = 32'h0;
+    logic storage_ready = 1'b1;
+{%- elif device_type == 'graphics' %}
+    // Graphics controller specific signals
+    logic [31:0] frame_count = 32'h0;
+    logic [31:0] pixel_clock = 32'h0;
+    logic display_active = 1'b0;
+    logic [1:0] resolution_mode = 2'b00;
+{%- else %}
+    // Generic device signals
+    logic [31:0] device_status = 32'h00000001;
+    logic [31:0] device_control = 32'h00000000;
+{%- endif %}
+
+    // Manufacturing variance signals (if enabled)
+{%- if variance_model %}
+{%- set process_var = (variance_model.process_variation * 65535) | int %}
+{%- set temp_coeff = (variance_model.temperature_coefficient * 65535) | int %}
+{%- set voltage_var = (variance_model.voltage_variation * 65535) | int %}
+    logic [15:0] process_variation = 16'h{{ "%04X" | format(process_var) }};
+    logic [15:0] temperature_coefficient = 16'h{{ "%04X" | format(temp_coeff) }};
+    logic [15:0] voltage_variation = 16'h{{ "%04X" | format(voltage_var) }};
+{%- endif %}

@@ -112,7 +112,7 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     output logic        device_ready
 );
 
-{%- include 'sv/register_declarations.sv.j2' %}
+{%- include 'sv/components/register_declarations.sv.j2' %}
 
 {%- if power_management %}
 {%- include 'sv/power_management.sv.j2' %}

@@ -1,0 +1,41 @@
+{#- Device-Specific Port Declarations Template -#}
+{# Ensure device_type is always defined with fallbacks #}
+{%- if not device_config is defined or not device_config.device_type is defined -%}
+    {%- set device_type = "generic" -%}
+{%- elif device_config.device_type is string -%}
+    {%- set device_type = device_config.device_type -%}
+{%- elif device_config.device_type is mapping -%}
+    {%- set device_type = device_config.device_type.get('value', device_config.device_type.get('name', 'generic')) -%}
+{%- else -%}
+    {# Handle enum types that have a .value attribute #}
+    {%- set device_type = device_config.device_type.value if device_config.device_type is defined and device_config.device_type.value is defined else "generic" -%}
+{%- endif -%}
+{# Ensure board_config is always defined with fallbacks #}
+{%- if not board_config is defined -%}
+    {%- set board_config = {} -%}
+{%- endif -%}
+
+{%- if device_type == "network" %}
+// Network controller ports
+    output logic link_up,
+    output logic [1:0] link_speed,
+    input wire [7:0] phy_data,
+    output logic [7:0] mac_data
+{%- elif device_type == "storage" %}
+// Storage controller ports
+    output logic storage_ready,
+    output logic [7:0] queue_depth,
+    input wire [31:0] sector_addr,
+    output logic [31:0] data_out
+{%- elif device_type == "graphics" %}
+// Graphics controller ports
+    output logic display_active,
+    output logic [7:0] gpu_utilization,
+    input wire [23:0] pixel_data,
+    output logic vsync, hsync
+{%- else %}
+// Generic device ports
+    output logic device_ready,
+    input wire [31:0] generic_input,
+    output logic [31:0] generic_output
+{%- endif %}

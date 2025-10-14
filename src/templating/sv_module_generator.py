@@ -1,7 +1,9 @@
 """Module generator for SystemVerilog code generation."""
 
 import logging
+
 from functools import lru_cache
+
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.string_utils import (
@@ -15,6 +17,7 @@ from src.string_utils import (
 from src.utils.attribute_access import get_attr_or_raise, has_attr, safe_get_attr
 
 from .sv_constants import SV_CONSTANTS, SV_TEMPLATES, SV_VALIDATION
+
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
 
@@ -282,28 +285,52 @@ class SVModuleGenerator:
             context = dict(context)  # Make a shallow copy before modification
             context["device"] = {"vendor_id": vid, "device_id": did}
 
-        # TLP BAR controller (select enhanced variant only when explicitly requested)
+        # TLP BAR controller (controller_variant governs behavior)
         bar_config = safe_get_attr(context, "bar_config", {}) or {}
-        use_enhanced_bar = bool(
-            safe_get_attr(bar_config, "use_enhanced_controller", False)
+
+        if isinstance(bar_config, dict):
+            normalized_bar_config = dict(bar_config)
+        else:
+            log_warning_safe(
+                self.logger,
+                "bar_config is not a mapping; coercing to empty dict",
+                prefix=self.prefix,
+            )
+            normalized_bar_config = {}
+
+        requested_variant = safe_get_attr(normalized_bar_config, "controller_variant")
+        if requested_variant:
+            requested_variant = str(requested_variant).strip().lower()
+
+        use_enhanced_flag = bool(
+            safe_get_attr(normalized_bar_config, "use_enhanced_controller", False)
         )
 
-        bar_template = (
-            self.templates.ENHANCED_PCILEECH_TLPS_BAR_CONTROLLER
-            if use_enhanced_bar
-            else self.templates.PCILEECH_TLPS_BAR_CONTROLLER
-        )
+        valid_variants = {"legacy", "enhanced", "basic"}
+        if use_enhanced_flag:
+            controller_variant = "enhanced"
+        elif requested_variant in valid_variants:
+            controller_variant = requested_variant
+        else:
+            controller_variant = "legacy"
+
+        normalized_bar_config["controller_variant"] = controller_variant
+
+        if context.get("bar_config") is not normalized_bar_config:
+            context = dict(context)
+            context["bar_config"] = normalized_bar_config
 
         log_debug_safe(
             self.logger,
             safe_format(
                 "Rendering core template: TLPS128 BAR controller (variant={variant})",
-                variant="enhanced" if use_enhanced_bar else "legacy",
+                variant=controller_variant,
             ),
             prefix=self.prefix,
         )
         modules["pcileech_tlps128_bar_controller"] = self.renderer.render_template(
-            bar_template, context
+            self.templates.PCILEECH_TLPS_BAR_CONTROLLER,
+            context,
         )
 
         # Check for error markers

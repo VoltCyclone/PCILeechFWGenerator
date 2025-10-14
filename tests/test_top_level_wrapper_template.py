@@ -117,7 +117,9 @@ class TestTopLevelWrapperTemplate:
         result = template.render(base_context)
         assert "output wire [15:0]  pci_exp_txp" in result
 
-    def test_lane_width_prefers_pcie_config_when_broader(self, template_env, base_context):
+    def test_lane_width_prefers_pcie_config_when_broader(
+        self, template_env, base_context
+    ):
         """Ensure PCIe link width follows generated IP configuration over board defaults."""
         template = template_env.get_template("sv/top_level_wrapper.sv.j2")
 

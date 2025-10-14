@@ -1,0 +1,18 @@
+{{ header | safe }}
+
+    // ── Minimal Power Management Declarations ──────────────────────────────
+    // Power state tracking (simplified)
+    logic [1:0] current_power_state;  // 00=D0, 11=D3hot
+    logic       power_management_enabled;
+    
+    // PME (Power Management Event) signals
+{%- if enable_pme %}
+    logic       pme_enable;
+    logic       pme_status;
+{%- endif %}
+{%- if enable_wake_events %}
+    
+    // Wake event signals
+    logic       wake_event_pending;
+    logic       external_wake_source;
+{%- endif %}

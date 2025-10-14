@@ -63,7 +63,7 @@ module advanced_pcileech_controller #(
 
     // Device-specific interfaces
 {%- if device_specific_ports is defined %}
-{%- include 'sv/device_specific_ports.sv.j2' %}
+{%- include 'sv/components/device_specific_ports.sv.j2' %}
 {%- endif %}
 );
 
@@ -76,19 +76,19 @@ module advanced_pcileech_controller #(
 {%- endif %}
 
 {%- if clock_domain_logic is defined %}
-{%- include 'sv/clock_domain_logic.sv.j2' %}
+{%- include 'sv/components/clock_domain_logic.sv.j2' %}
 {%- endif %}
 
 {%- if interrupt_logic is defined %}
-{%- include 'sv/interrupt_logic.sv.j2' %}
+{%- include 'sv/components/interrupt_logic.sv.j2' %}
 {%- endif %}
 
 {%- if register_logic is defined %}
-{%- include 'sv/register_logic.sv.j2' %}
+{%- include 'sv/components/register_logic.sv.j2' %}
 {%- endif %}
 
 {%- if read_logic is defined %}
-{%- include 'sv/read_logic.sv.j2' %}
+{%- include 'sv/components/read_logic.sv.j2' %}
 {%- endif %}
 
 endmodule

@@ -1,0 +1,37 @@
+{{ header | safe }}
+
+{#- Main Read Logic Template -#}
+    // Main read logic with advanced features
+    always_comb begin
+        bar_rd_data = 32'h0;
+        
+        unique case(bar_addr)
+            // Power management registers
+            32'h00000000: bar_rd_data = {30'b0, current_power_state};
+            32'h00000004: bar_rd_data = {30'b0, current_link_state};
+            
+            // Error status registers
+            32'h00000008: bar_rd_data = {24'b0, error_status};
+            32'h0000000C: bar_rd_data = {24'b0, error_code};
+            
+            // Performance counter registers
+            32'h00000010: bar_rd_data = perf_counter_0;
+            32'h00000014: bar_rd_data = perf_counter_1;
+            32'h00000018: bar_rd_data = perf_counter_2;
+            32'h0000001C: bar_rd_data = perf_counter_3;
+            
+            // Device identification
+            32'h00000020: bar_rd_data = {{ device_signature | sv_hex(32) }};  // Advanced controller signature
+            32'h00000024: bar_rd_data = {16'h0, DEVICE_TYPE[15:0]};
+            
+            // Advanced status registers
+            32'h00000028: bar_rd_data = {24'b0, performance_grade};
+            32'h0000002C: bar_rd_data = {29'b0, high_bandwidth_detected, high_latency_detected, high_error_rate_detected};
+            
+{%- for reg in registers %}
+            {{ reg.offset | sv_hex(32) }}: bar_rd_data = {{ reg.name }}_reg;
+{%- endfor %}
+            
+            default: bar_rd_data = 32'h0;
+        endcase
+    end

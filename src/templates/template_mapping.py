@@ -43,14 +43,14 @@ TEMPLATE_PATH_MAPPING = {
     "systemverilog/advanced/reporting_logic.sv.j2": "sv/reporting_logic.sv.j2",
     "systemverilog/advanced/sampling_logic.sv.j2": "sv/sampling_logic.sv.j2",
     # Component templates
-    "systemverilog/components/clock_domain_logic.sv.j2": "sv/clock_domain_logic.sv.j2",
-    "systemverilog/components/device_specific_ports.sv.j2": "sv/device_specific_ports.sv.j2",
-    "systemverilog/components/interrupt_logic.sv.j2": "sv/interrupt_logic.sv.j2",
-    "systemverilog/components/power_declarations.sv.j2": "sv/power_declarations.sv.j2",
-    "systemverilog/components/power_integration.sv.j2": "sv/power_integration.sv.j2",
-    "systemverilog/components/read_logic.sv.j2": "sv/read_logic.sv.j2",
-    "systemverilog/components/register_declarations.sv.j2": "sv/register_declarations.sv.j2",
-    "systemverilog/components/register_logic.sv.j2": "sv/register_logic.sv.j2",
+    "systemverilog/components/clock_domain_logic.sv.j2": "sv/components/clock_domain_logic.sv.j2",
+    "systemverilog/components/device_specific_ports.sv.j2": "sv/components/device_specific_ports.sv.j2",
+    "systemverilog/components/interrupt_logic.sv.j2": "sv/components/interrupt_logic.sv.j2",
+    "systemverilog/components/power_declarations.sv.j2": "sv/components/power_declarations.sv.j2",
+    "systemverilog/components/power_integration.sv.j2": "sv/components/power_integration.sv.j2",
+    "systemverilog/components/read_logic.sv.j2": "sv/components/read_logic.sv.j2",
+    "systemverilog/components/register_declarations.sv.j2": "sv/components/register_declarations.sv.j2",
+    "systemverilog/components/register_logic.sv.j2": "sv/components/register_logic.sv.j2",
     # Module templates
     "systemverilog/modules/pmcsr_stub.sv.j2": "sv/pmcsr_stub.sv.j2",
     # TCL templates

@@ -1,9 +1,323 @@
-{#- Enhanced PCILeech TLP 128-bit BAR Controller Template -#}
+{#- Unified PCILeech BAR Controller Template -#}
 {{ header | safe }}
+
+{% set _bar_config = bar_config if bar_config is defined and bar_config is not none else {} %}
+{% set _controller_variant = _bar_config.controller_variant | default(None) %}
+{% if _bar_config.use_enhanced_controller | default(false) %}
+    {% set _controller_variant = "enhanced" %}
+{% elif _controller_variant is none %}
+    {% set _controller_variant = "legacy" %}
+{% endif %}
+{% if device_signature %}
+    {% set _device_signature_literal = device_signature | sv_hex(32) %}
+{% else %}
+    {% set _device_signature_literal = "32'hDEAD_BEEF" %}
+{% endif %}
+{% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
 
 `default_nettype none
 
-{% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
+{% if _controller_variant == "basic" %}
+module pcileech_tlps128_bar_controller #(
+    parameter BAR_APERTURE_SIZE = 131072,  // 128KB
+    parameter DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
+    parameter VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
+) (
+    input  wire         clk,
+    input  wire         reset_n,
+    
+    // BAR interface
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire  [3:0]  bar_wr_be,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
+    output logic [31:0] bar_rd_data,
+    
+    // Custom PIO regions
+    output logic        custom_pio_sel,
+    output logic [15:0] custom_pio_addr,
+    output logic [31:0] custom_pio_wdata,
+    output logic        custom_pio_we,
+    input  wire  [31:0] custom_pio_rdata
+);
+
+    // Address decode for custom PIO regions
+    logic device_control_sel = (bar_addr[15:8] == 8'h00);  // 0x0000-0x00FF
+    logic status_regs_sel    = (bar_addr[15:8] == 8'h01);  // 0x0100-0x01FF
+    logic data_buffer_sel    = (bar_addr[15:9] == 7'h01);  // 0x0200-0x03FF
+    
+    assign custom_pio_sel = device_control_sel || status_regs_sel || data_buffer_sel;
+    assign custom_pio_addr = bar_addr[15:0];
+    assign custom_pio_wdata = bar_wr_data;
+    assign custom_pio_we = bar_wr_en && custom_pio_sel;
+    
+    // Read data multiplexing
+    always_comb begin
+        if (custom_pio_sel) begin
+            bar_rd_data = custom_pio_rdata;
+        end else begin
+            bar_rd_data = 32'h00000000;  // Default for unmapped regions
+        end
+    end
+
+endmodule
+{% elif _controller_variant == "legacy" %}
+module pcileech_tlps128_bar_controller #(
+    parameter BAR_APERTURE_SIZE   = {{ BAR_APERTURE_SIZE }},  // {{ BAR_APERTURE_SIZE }} bytes by default
+    parameter NUM_MSIX           = {{ NUM_MSIX }},
+    parameter MSIX_TABLE_BIR     = {{ MSIX_TABLE_BIR }},
+    parameter MSIX_TABLE_OFFSET  = {{ MSIX_TABLE_OFFSET }},
+    parameter MSIX_PBA_BIR       = {{ MSIX_PBA_BIR }},
+    parameter MSIX_PBA_OFFSET    = {{ MSIX_PBA_OFFSET }},
+    // Address map (all offsets within *this* BAR)
+    parameter CONFIG_SHDW_HI     = {{ CONFIG_SHDW_HI }}, // top 4 KB reserved for cfg space shadow
+    parameter CUSTOM_WIN_BASE    = {{ CUSTOM_WIN_BASE }}  // next-to-top 4 KB reserved for custom regs
+) (
+    // Clock and reset
+    input  wire         clk,
+    input  wire         reset_n,
+
+    // BAR selector (which BAR of the endpoint this controller is mapped to)
+    input  wire  [2:0]  bar_index,
+
+    // PCIe BAR interface
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire  [3:0]  bar_wr_be,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
+    // Procedural assignment below requires a variable type, not a net.
+    // Use 'logic' to allow assignment in always_comb.
+    output logic [31:0] bar_rd_data,
+
+    // PCIe configuration space interface
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
+    output wire [31:0]  cfg_ext_read_data,
+    output wire         cfg_ext_read_data_valid,
+
+    // MSI-X interrupt interface
+    output logic        msix_interrupt,
+    output logic [10:0] msix_vector,
+    input  wire         msix_interrupt_ack,
+
+    // --- Custom window hook --------------------------------------------------
+    output wire         custom_win_sel,
+    output wire [11:0]  custom_win_addr,
+    output wire [31:0]  custom_win_wdata,
+    output wire [3:0]   custom_win_be,
+    output wire         custom_win_we,
+    output wire         custom_win_re,
+    input  wire [31:0]  custom_win_rdata
+);
+
+    // ----------------------------------------------------------------
+    // Device signature constant (for debug/identification in builds)
+    // ----------------------------------------------------------------
+    localparam [31:0] DEVICE_SIGNATURE = {{ _device_signature_literal }};
+
+    // ------------------------------------------------------------
+    // Internal signal declarations (declare before use)
+    // ------------------------------------------------------------
+    logic [31:0] cfg_shdw_rdata;
+    logic [31:0] msix_tbl_rdata;
+{% if device_config is defined and (device_config.enable_perf_counters | default(false, true)) %}
+    logic [31:0] perf_rd_count;
+    logic [31:0] perf_wr_count;
+{% endif %}
+    
+    // ------------------------------------------------------------
+    // Address decode helpers (declared early so downstream modules can use)
+    // ------------------------------------------------------------
+    logic bar_access_cfg;
+    logic bar_access_msix;
+    logic bar_access_cust;
+    logic bar_access_mem;
+
+    assign bar_access_cfg  = (bar_addr[31:12] == {{ CONFIG_SHDW_HI }});
+    assign bar_access_cust = (bar_addr[31:12] == {{ CUSTOM_WIN_BASE }});
+    assign bar_access_mem  = !bar_access_cfg && !bar_access_msix && !bar_access_cust;
+
+    // ------------------------------------------------------------
+    // Configuration-space shadow BRAM
+    // ------------------------------------------------------------
+    pcileech_tlps128_cfgspace_shadow cfg_shdw (
+        .clk                       (clk),
+        .reset_n                   (reset_n),
+        .cfg_ext_read_received     (cfg_ext_read_received),
+        .cfg_ext_write_received    (cfg_ext_write_received),
+        .cfg_ext_register_number   (cfg_ext_register_number),
+        .cfg_ext_function_number   (cfg_ext_function_number),
+        .cfg_ext_write_data        (cfg_ext_write_data),
+        .cfg_ext_write_byte_enable (cfg_ext_write_byte_enable),
+        .cfg_ext_read_data         (cfg_ext_read_data),
+        .cfg_ext_read_data_valid   (cfg_ext_read_data_valid),
+        .host_access_en            (bar_access_cfg),
+        .host_write_en             (bar_wr_en && bar_access_cfg),
+        .host_addr                 (bar_addr[11:0]),
+        .host_write_data           (bar_wr_data),
+        .host_read_data            (cfg_shdw_rdata)
+    );
+
+    // ------------------------------------------------------------
+    // MSI-X capability runtime registers
+    // Replaces static decode from shadow BRAM so driver writes to the
+    // MSI-X Message Control register update enable/mask semantics.
+    // ------------------------------------------------------------
+    localparam [9:0] MSIX_CAP_REG = 10'h1C; // Base dword index for MSI-X cap (0x70 >> 2)
+
+    // Write detection for MSI-X capability dword window (0x70 - 0x7C)
+    logic        msix_cap_wr;
+    logic [31:0] msix_cap_addr;
+    logic [31:0] msix_cap_wdata;
+    logic [3:0]  msix_cap_be;
+    logic        msix_enabled;
+    logic        msix_fn_masked;
+    wire  [10:0] msix_table_size_ro;
+
+    assign msix_cap_wr   = cfg_ext_write_received &&
+                           (cfg_ext_register_number >= MSIX_CAP_REG) &&
+                           (cfg_ext_register_number <= (MSIX_CAP_REG + 4));
+    // Capability-internal byte address (low 4 bits used inside module)
+    assign msix_cap_addr = {28'h0, (cfg_ext_register_number - MSIX_CAP_REG), 2'b00};
+    assign msix_cap_wdata = cfg_ext_write_data;
+    assign msix_cap_be    = cfg_ext_write_byte_enable;
+
+    msix_capability_registers #(
+        .TABLE_SIZE_MINUS_ONE (NUM_MSIX-1),
+        .TABLE_OFFSET_BIR     (MSIX_TABLE_OFFSET + MSIX_TABLE_BIR),
+        .PBA_OFFSET_BIR       (MSIX_PBA_OFFSET + MSIX_PBA_BIR)
+    ) msix_caps (
+        .clk               (clk),
+        .reset_n           (reset_n),
+        .msix_cap_wr       (msix_cap_wr),
+        .msix_cap_addr     (msix_cap_addr),
+        .msix_cap_wdata    (msix_cap_wdata),
+        .msix_cap_be       (msix_cap_be),
+        .msix_cap_rdata    (/* unused */),
+        .msix_enable       (msix_enabled),
+        .msix_function_mask(msix_fn_masked),
+        .msix_table_size   (msix_table_size_ro)
+    );
+
+    // ------------------------------------------------------------
+    // MSI-X table sub-module
+    // ------------------------------------------------------------
+    msix_table #(
+        .NUM_MSIX          (NUM_MSIX),
+        .MSIX_TABLE_BIR    (MSIX_TABLE_BIR),
+        .MSIX_TABLE_OFFSET (MSIX_TABLE_OFFSET),
+        .MSIX_PBA_BIR      (MSIX_PBA_BIR),
+        .MSIX_PBA_OFFSET   (MSIX_PBA_OFFSET)
+    ) msix_tbl (
+        .clk               (clk),
+        .reset_n           (reset_n),
+        .bar_addr          (bar_addr),
+        .bar_index         (bar_index),
+        .bar_wr_data       (bar_wr_data),
+        .bar_wr_en         (bar_wr_en),
+        .bar_wr_be         (bar_wr_be),
+        .bar_rd_en         (bar_rd_en),
+        .bar_rd_data       (msix_tbl_rdata),
+        .bar_access_match  (bar_access_msix),
+        .msix_enable       (msix_enabled),
+        .msix_function_mask(msix_fn_masked),
+        .msix_interrupt    (msix_interrupt),
+        .msix_vector       (msix_vector),
+        .msix_interrupt_ack(msix_interrupt_ack),
+        .trigger_valid     (1'b0),
+        .trigger_vector    (11'h0)
+    );
+
+    // ------------------------------------------------------------
+    // BAR memory (block-RAM-friendly, synchronous read)
+    // ------------------------------------------------------------
+    (* ram_style = "block" *) logic [31:0] bar_mem [({{ BAR_APERTURE_SIZE }}/4)-1:0];
+    logic [31:0] bar_mem_q;
+
+    always_ff @(posedge clk) begin
+        if (bar_wr_en && bar_access_mem && (bar_addr[31:2] < ({{ BAR_APERTURE_SIZE }}/4))) begin
+{% if USE_BYTE_ENABLES %}
+            for (int b=0; b<4; b++) begin
+                if (bar_wr_be[b])
+                    bar_mem[bar_addr[31:2]][8*b +: 8] <= bar_wr_data[8*b +: 8];
+            end
+{% else %}
+            bar_mem[bar_addr[31:2]] <= bar_wr_data;
+{% endif %}
+        end
+        if (bar_rd_en && bar_access_mem && (bar_addr[31:2] < ({{ BAR_APERTURE_SIZE }}/4))) begin
+            bar_mem_q <= bar_mem[bar_addr[31:2]];
+        end
+    end
+
+    // ------------------------------------------------------------
+    // Custom window bus out
+    // ------------------------------------------------------------
+    assign custom_win_sel   = bar_access_cust;
+    assign custom_win_addr  = bar_addr[11:0];
+    assign custom_win_wdata = bar_wr_data;
+    assign custom_win_be    = bar_wr_be;
+    assign custom_win_we    = bar_wr_en  && bar_access_cust;
+    assign custom_win_re    = bar_rd_en  && bar_access_cust;
+
+    // ------------------------------------------------------------
+    // Read data mux
+    // ------------------------------------------------------------
+    always_comb begin
+        unique case (1'b1)
+            bar_access_cfg  : bar_rd_data = cfg_shdw_rdata;
+            bar_access_msix : bar_rd_data = msix_tbl_rdata;
+            bar_access_cust : bar_rd_data = custom_win_rdata;
+            bar_access_mem  : bar_rd_data = bar_mem_q;
+            default         : bar_rd_data = 32'h00000000;
+        endcase
+    end
+
+{% if device_config is defined and (device_config.enable_perf_counters | default(false, true)) %}
+    // ------------------------------------------------------------
+    // Lightweight performance counters for BAR transactions
+    // ------------------------------------------------------------
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            perf_rd_count <= 32'h0;
+            perf_wr_count <= 32'h0;
+        end else begin
+            if (bar_rd_en && bar_access_mem) begin
+                perf_rd_count <= perf_rd_count + 32'd1;
+            end
+            if (bar_wr_en && bar_access_mem) begin
+                perf_wr_count <= perf_wr_count + 32'd1;
+            end
+        end
+    end
+{% else %}
+    // Performance counters disabled in configuration
+{% endif %}
+
+    // ------------------------------------------------------------
+    // Initial BAR memory clear (simulation only)
+    // ------------------------------------------------------------
+`ifdef XILINX_SIMULATOR
+    initial begin
+        for (int i=0; i<({{ BAR_APERTURE_SIZE }}/4); i++) bar_mem[i] = 32'h0;
+    end
+`endif
+
+    // ------------------------------------------------------------
+    // Helper task for SW models
+    // ------------------------------------------------------------
+    task automatic trigger_msix_interrupt(input logic [10:0] vec);
+        if (vec < NUM_MSIX) msix_tbl.trigger_interrupt(vec);
+    endtask
+
+endmodule
+{% else %}
 module pcileech_tlps128_bar_controller #(
     // BAR Configuration Parameters
     parameter BAR_APERTURE_SIZE = {{ bar_config.aperture_size | default(65536) }},
@@ -140,7 +454,7 @@ module pcileech_tlps128_bar_controller #(
     // ========================================================================
     // Device signature constant, used in status/debug registers
     // Force into a sized SV hex literal to avoid malformed tokens
-    localparam [31:0] DEVICE_SIGNATURE = {% if device_signature %}{{ device_signature | sv_hex(32) }}{% else %}32'hDEAD_BEEF{% endif %};
+    localparam [31:0] DEVICE_SIGNATURE = {{ _device_signature_literal }};
     
     // TLP Types
     localparam [4:0] TLP_MEM_READ_32    = 5'b00000;
@@ -1091,3 +1405,4 @@ module pcileech_tlps128_bar_controller #(
 endmodule
 
 `default_nettype wire
+{% endif %}

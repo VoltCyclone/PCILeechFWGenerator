@@ -1,0 +1,109 @@
+{{ header | safe }}
+
+{#- Advanced Register Access Logic Template -#}
+    // Advanced Register Access Logic
+    logic [31:0] register_access_timer = 32'h0;
+    logic register_write_pending = 1'b0;
+
+    // Register Declarations
+{%- for reg in registers %}
+    {%- if reg.name == "pcileech_tlps128_cfgspace_shadow_status" %}
+    logic [31:0] {{ reg.name }}_reg = 32'h1;
+    {%- else %}
+    {#- Handle reg.value which might be a dict, string, or object with .value attribute -#}
+    {%- if reg.value is number %}
+        {%- set reg_value = reg.value %}
+    {%- elif reg.value is string %}
+        {%- set reg_value = reg.value %}
+    {%- elif reg.value is mapping %}
+        {%- set reg_value = reg.value.get('value', reg.value.get('default', 0)) %}
+    {%- elif reg.value is defined and reg.value.value is defined %}
+        {%- set reg_value = reg.value.value %}
+    {%- else %}
+        {%- set reg_value = 0 %}
+    {%- endif %}
+    logic [31:0] {{ reg.name }}_reg = {{ reg_value | sv_hex(32) }};
+    {%- endif %}
+    logic {{ reg.name }}_access_pending = 1'b0;
+    logic [7:0] {{ reg.name }}_timing_counter = 8'h0;
+{%- endfor %}
+
+    // Global register access timing
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            register_access_timer <= 32'h0;
+            register_write_pending <= 1'b0;
+        end else begin
+            register_access_timer <= register_access_timer + 1;
+            
+            if (bar_wr_en && !register_write_pending) begin
+                register_write_pending <= 1'b1;
+            end else if (register_write_pending && register_access_timer[3:0] == 4'hF) begin
+                register_write_pending <= 1'b0;
+            end
+        end
+    end
+
+{%- for reg in registers %}
+{%- if reg.rw is defined and reg.rw in ["rw", "wo"] %}
+    // Write logic for {{ reg.name }}
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            {#- Handle reg.value which might be a dict, string, or object with .value attribute -#}
+            {%- if reg.value is number %}
+                {%- set reg_value = reg.value %}
+            {%- elif reg.value is string %}
+                {%- set reg_value = reg.value %}
+            {%- elif reg.value is mapping %}
+                {%- set reg_value = reg.value.get('value', reg.value.get('default', 0)) %}
+            {%- elif reg.value is defined and reg.value.value is defined %}
+                {%- set reg_value = reg.value.value %}
+            {%- else %}
+                {%- set reg_value = 0 %}
+            {%- endif %}
+            {{ reg.name }}_reg <= {{ reg_value | sv_hex(32) }};
+            {{ reg.name }}_timing_counter <= 8'h0;
+            {{ reg.name }}_access_pending <= 1'b0;
+        end else if (bar_wr_en && (bar_addr[31:2] == {{ (reg.offset | int(base=16)) // 4 | sv_hex(30) }})) begin
+            // Apply per-byte enables with optional write policies (rw/w1c/w1s)
+            {% set write_policy = 'rw' %}
+            {%- set write_policy = 'rw' -%}
+            {%- if reg.write_policy is defined and reg.write_policy %}
+                {%- set write_policy = reg.write_policy | lower %}
+            {%- elif reg.w1c is defined and reg.w1c %}
+                {%- set write_policy = 'w1c' %}
+            {%- elif reg.w1s is defined and reg.w1s %}
+                {%- set write_policy = 'w1s' %}
+            {%- endif %}
+            for (int b = 0; b < 4; b++) begin
+                if (bar_wr_be[b]) begin
+                    {%- if write_policy == 'w1c' %}
+                    // Write-1-to-Clear: clear bits where 1s are written
+                    {{ reg.name }}_reg[8*b +: 8] <= {{ reg.name }}_reg[8*b +: 8] & ~bar_wr_data[8*b +: 8];
+                    {%- elif write_policy == 'w1s' %}
+                    // Write-1-to-Set: set bits where 1s are written
+                    {{ reg.name }}_reg[8*b +: 8] <= {{ reg.name }}_reg[8*b +: 8] | bar_wr_data[8*b +: 8];
+                    {%- else %}
+                    // Default RW: overwrite selected bytes
+                    {{ reg.name }}_reg[8*b +: 8] <= bar_wr_data[8*b +: 8];
+                    {%- endif %}
+                end
+            end
+            {%- if variance_model %}
+            {{ reg.name }}_access_pending <= 1'b1;
+            {{ reg.name }}_timing_counter <= 8'd{{ variance_model.register_timing_jitter_ns // 10 if variance_model.register_timing_jitter_ns else 1 }};
+        end else if ({{ reg.name }}_access_pending) begin
+            if ({{ reg.name }}_timing_counter > 0) begin
+                {{ reg.name }}_timing_counter <= {{ reg.name }}_timing_counter - 1;
+            end else begin
+                // Finalize pending write (byte enables already applied above)
+                {{ reg.name }}_access_pending <= 1'b0;
+            end
+            {%- else %}
+            // Non-jittered path: already applied via byte enables
+            {%- endif %}
+        end
+    end
+
+{%- endif %}
+{%- endfor %}

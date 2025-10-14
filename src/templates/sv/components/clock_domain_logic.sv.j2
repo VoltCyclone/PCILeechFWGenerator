@@ -1,0 +1,38 @@
+{#- Clock Domain Management Logic Template -#}
+    // Clock Domain Management
+    logic [15:0] clk_monitor_counter = 16'h0;
+    logic [15:0] mem_clk_monitor_counter = 16'h0;
+    logic [15:0] aux_clk_monitor_counter = 16'h0;
+    // Use reg instead of logic to avoid dual-driving (by both initial value and assign)
+    reg [2:0] clock_domain_status_reg = 3'b111;
+    logic mem_clk_valid = 1'b1;
+    logic aux_clk_valid = 1'b1;
+    
+    // Performance monitoring declarations
+    logic [7:0] performance_grade = 8'h0;
+    logic high_bandwidth_detected = 1'b0;
+    logic high_latency_detected = 1'b0;
+    logic high_error_rate_detected = 1'b0;
+    logic [3:0] current_link_state = 4'h0;
+
+    // Clock domain monitoring
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            clk_monitor_counter <= 16'h0;
+        end else begin
+            clk_monitor_counter <= clk_monitor_counter + 1;
+        end
+    end
+
+    // Update clock domain status in procedural block to avoid dual-driving
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            clock_domain_status_reg <= 3'b111;
+        end else begin
+            clock_domain_status_reg <= {aux_clk_valid, mem_clk_valid, 1'b1};
+        end
+    end
+    
+    // Create the output status using the register via continuous assignment
+    wire [2:0] clock_domain_status;
+    assign clock_domain_status = clock_domain_status_reg;

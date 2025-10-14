@@ -1,52 +1,11 @@
-{#- Enhanced PCIe BAR Controller Template -#}
-{% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
-{{ header | safe }}
-
-`default_nettype none
-
-module pcileech_tlps128_bar_controller #(
-    parameter BAR_APERTURE_SIZE = 131072,  // 128KB
-    parameter DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
-    parameter VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }}
-) (
-    input  wire         clk,
-    input  wire         reset_n,
-    
-    // BAR interface
-    input  wire  [31:0] bar_addr,
-    input  wire  [31:0] bar_wr_data,
-    input  wire  [3:0]  bar_wr_be,
-    input  wire         bar_wr_en,
-    input  wire         bar_rd_en,
-    output logic [31:0] bar_rd_data,
-    
-    // Custom PIO regions
-    output logic        custom_pio_sel,
-    output logic [15:0] custom_pio_addr,
-    output logic [31:0] custom_pio_wdata,
-    output logic        custom_pio_we,
-    input  wire  [31:0] custom_pio_rdata
-);
-
-    // Address decode for custom PIO regions
-    logic device_control_sel = (bar_addr[15:8] == 8'h00);  // 0x0000-0x00FF
-    logic status_regs_sel    = (bar_addr[15:8] == 8'h01);  // 0x0100-0x01FF
-    logic data_buffer_sel    = (bar_addr[15:9] == 7'h01);  // 0x0200-0x03FF
-    
-    assign custom_pio_sel = device_control_sel || status_regs_sel || data_buffer_sel;
-    assign custom_pio_addr = bar_addr[15:0];
-    assign custom_pio_wdata = bar_wr_data;
-    assign custom_pio_we = bar_wr_en && custom_pio_sel;
-    
-    // Read data multiplexing
-    always_comb begin
-        if (custom_pio_sel) begin
-            bar_rd_data = custom_pio_rdata;
-        end else begin
-            bar_rd_data = 32'h00000000;  // Default for unmapped regions
-        end
-    end
-
-endmodule
-
-`default_nettype wire
+{#- Compatibility wrapper for basic BAR controller template -#}
+{% set cfg_ns = namespace(value={}) %}
+{% if bar_config is defined and bar_config is mapping %}
+    {% set cfg_ns.value = bar_config.copy() %}
+{% else %}
+    {% set cfg_ns.value = {} %}
+{% endif %}
+{% set _ = cfg_ns.value.update({'controller_variant': 'basic'}) %}
+{% with bar_config = cfg_ns.value %}
+{% include "sv/pcileech_tlps128_bar_controller.sv.j2" %}
+{% endwith %}

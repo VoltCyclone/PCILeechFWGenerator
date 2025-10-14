@@ -1,0 +1,38 @@
+{#- Advanced Interrupt Handling Logic Template -#}
+    // Advanced Interrupt Handling
+    logic interrupt_pending = 1'b0;
+    logic [7:0] interrupt_vector = 8'h0;
+    logic [3:0] interrupt_priority = 4'h0;
+
+    // Interrupt generation logic
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            interrupt_pending <= 1'b0;
+            interrupt_vector <= 8'h0;
+            interrupt_priority <= 4'h0;
+        end else begin
+            // Priority-based interrupt handling
+            if (uncorrectable_error) begin
+                interrupt_pending <= 1'b1;
+                interrupt_vector <= 8'h02;  // High priority
+                interrupt_priority <= 4'hF;
+            end else if (correctable_error) begin
+                interrupt_pending <= 1'b1;
+                interrupt_vector <= 8'h01;  // Medium priority
+                interrupt_priority <= 4'h8;
+            end else if (bar_wr_en || bar_rd_en) begin
+                interrupt_pending <= 1'b1;
+                interrupt_vector <= 8'h00;  // Low priority
+                interrupt_priority <= 4'h4;
+            end else if (msi_ack) begin
+                interrupt_pending <= 1'b0;
+                interrupt_vector <= 8'h0;
+                interrupt_priority <= 4'h0;
+            end
+        end
+    end
+
+    // Interrupt output assignments
+    assign msi_request = interrupt_pending && cfg_interrupt_msi_enable;
+    assign msi_vector = interrupt_vector;
+    assign cfg_interrupt = interrupt_pending && !cfg_interrupt_msi_enable;

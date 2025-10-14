@@ -1,0 +1,101 @@
+    // PCIe IP Core instantiation (7-Series)
+    pcie_7x_bridge pcie_core (
+        .pci_exp_txp(pci_exp_txp),
+        .pci_exp_txn(pci_exp_txn),
+        .pci_exp_rxp(pci_exp_rxp),
+        .pci_exp_rxn(pci_exp_rxn),
+        
+        .user_clk_out(clk),
+        .user_reset_out(reset),  // Active-high reset
+        .user_lnk_up(device_ready),
+        .user_app_rdy(),
+        
+        // AXI-Stream interface to BAR controller
+        .m_axis_rx_tdata(pcie_rx_data),
+        .m_axis_rx_tkeep(m_axis_rx_tkeep),
+        .m_axis_rx_tlast(m_axis_rx_tlast),
+        .m_axis_rx_tvalid(pcie_rx_valid),
+        .m_axis_rx_tready(m_axis_rx_tready),
+        .m_axis_rx_tuser(m_axis_rx_tuser),
+
+        .s_axis_tx_tdata(pcie_tx_data),
+        .s_axis_tx_tkeep(s_axis_tx_tkeep),
+        .s_axis_tx_tlast(s_axis_tx_tlast),
+        .s_axis_tx_tvalid(pcie_tx_valid),
+        .s_axis_tx_tuser(s_axis_tx_tuser),
+        .s_axis_tx_tready(pcie_tx_ready),
+        
+        // Configuration management interface (7-series)
+        .cfg_mgmt_do(cfg_mgmt_do),
+        .cfg_mgmt_rd_wr_done(cfg_mgmt_rd_wr_done),
+        .cfg_mgmt_di(cfg_mgmt_di),
+        .cfg_mgmt_byte_en(cfg_mgmt_byte_en),
+        .cfg_mgmt_dwaddr(cfg_mgmt_dwaddr),
+        .cfg_mgmt_wr_en(cfg_mgmt_wr_en),
+        .cfg_mgmt_rd_en(cfg_mgmt_rd_en),
+        .cfg_mgmt_wr_readonly(cfg_mgmt_wr_readonly),
+        .cfg_mgmt_wr_rw1c_as_rw(cfg_mgmt_wr_rw1c_as_rw),
+        .cfg_dsn(cfg_dsn),
+        
+        // MSI/MSI-X and INTx
+        .cfg_interrupt(cfg_interrupt),
+        .cfg_interrupt_rdy(cfg_interrupt_rdy),
+        .cfg_interrupt_assert(cfg_interrupt_assert),
+        .cfg_interrupt_di(cfg_interrupt_di),
+        .cfg_interrupt_do(cfg_interrupt_do),
+        .cfg_interrupt_mmenable(cfg_interrupt_mmenable),
+        .cfg_interrupt_msienable(cfg_interrupt_msienable),
+        .cfg_interrupt_msixenable(cfg_interrupt_msixenable),
+        .cfg_interrupt_msixfm(cfg_interrupt_msixfm),
+        .cfg_interrupt_stat(cfg_interrupt_stat),
+        .cfg_pciecap_interrupt_msgnum(cfg_pciecap_interrupt_msgnum),
+
+        // Flow control selections
+        .fc_sel(fc_sel),
+
+        // Non-posted request controls
+        .rx_np_ok(rx_np_ok),
+        .rx_np_req(rx_np_req),
+
+        // TX config grant (tie high if unused)
+        .tx_cfg_gnt(tx_cfg_gnt),
+        // PIPE clocking inputs (tie-offs)
+        .pipe_pclk_in(pipe_pclk_in),
+        .pipe_rxusrclk_in(pipe_rxusrclk_in),
+        .pipe_rxoutclk_in(pipe_rxoutclk_in),
+        .pipe_dclk_in(pipe_dclk_in),
+        .pipe_userclk1_in(pipe_userclk1_in),
+        .pipe_userclk2_in(pipe_userclk2_in),
+        .pipe_oobclk_in(pipe_oobclk_in),
+        .pipe_mmcm_lock_in(pipe_mmcm_lock_in),
+
+        // Error/control inputs (tie-offs)
+        .cfg_err_ecrc(cfg_err_ecrc),
+        .cfg_err_ur(cfg_err_ur),
+        .cfg_err_cpl_timeout(cfg_err_cpl_timeout),
+        .cfg_err_cpl_unexpect(cfg_err_cpl_unexpect),
+        .cfg_err_cpl_abort(cfg_err_cpl_abort),
+        .cfg_err_posted(cfg_err_posted),
+        .cfg_err_cor(cfg_err_cor),
+        .cfg_err_atomic_egress_blocked(cfg_err_atomic_egress_blocked),
+        .cfg_err_internal_cor(cfg_err_internal_cor),
+        .cfg_err_malformed(cfg_err_malformed),
+        .cfg_err_mc_blocked(cfg_err_mc_blocked),
+        .cfg_err_poisoned(cfg_err_poisoned),
+        .cfg_err_norecovery(cfg_err_norecovery),
+        .cfg_err_locked(cfg_err_locked),
+        .cfg_err_acs(cfg_err_acs),
+        .cfg_err_internal_uncor(cfg_err_internal_uncor),
+        .cfg_err_tlp_cpl_header(cfg_err_tlp_cpl_header),
+        .cfg_trn_pending(cfg_trn_pending),
+        .cfg_pm_halt_aspm_l0s(cfg_pm_halt_aspm_l0s),
+        .cfg_pm_halt_aspm_l1(cfg_pm_halt_aspm_l1),
+        .cfg_pm_force_state_en(cfg_pm_force_state_en),
+        .cfg_pm_force_state(cfg_pm_force_state),
+        .cfg_pm_wake(cfg_pm_wake),
+        .cfg_to_turnoff(cfg_to_turnoff),
+        .cfg_turnoff_ok(cfg_turnoff_ok),
+
+        .sys_clk(sys_clk_p),
+        .sys_rst_n(sys_rst_n)
+    );
