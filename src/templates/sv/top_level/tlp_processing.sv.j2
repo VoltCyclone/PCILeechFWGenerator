@@ -521,6 +521,7 @@
                             11'h0: pcie_tx_data <= cpld_header[31:0];
                             11'h1: pcie_tx_data <= cpld_header[63:32];
                             11'h2: pcie_tx_data <= cpld_header[95:64];
+                            default: pcie_tx_data <= 32'h0000_0000;
                         endcase
                         pcie_tx_valid <= 1'b1;
                         s_axis_tx_tkeep <= 4'b1111;  // All 4 bytes valid

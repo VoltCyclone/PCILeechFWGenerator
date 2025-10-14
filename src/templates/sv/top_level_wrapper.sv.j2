@@ -32,6 +32,15 @@
 {%- set _dsn_value = (_dsn_value % (2 ** 64)) %}
 {%- set _dsn_hex = "{:016X}".format(_dsn_value) %}
 {%- set _dsn_valid = (_dsn_value != 0) %}
+{#- Normalize data width for 7-series core: clamp to supported 32/64-bit paths -#}
+{% set _raw_data_width = (data_width | default(64) | safe_int(64)) %}
+{% if _raw_data_width < 32 %}
+    {% set _raw_data_width = 32 %}
+{% endif %}
+{% if _raw_data_width not in [32, 64] %}
+    {% set _raw_data_width = 64 if _raw_data_width > 64 else 32 %}
+{% endif %}
+{% set data_width = _raw_data_width %}
 
 module pcileech_top (
     // PCIe physical transceiver interface

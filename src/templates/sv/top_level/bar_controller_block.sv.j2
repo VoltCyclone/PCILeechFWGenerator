@@ -2,6 +2,7 @@
     {% set _local_expose_pm_sideband = expose_pm_sideband | default(power_management.has_interface_signals if power_management is defined else false) %}
     {% set _local_enable_pme = enable_pme | default(false) %}
     {% set _local_enable_wake_events = enable_wake_events | default(false) %}
+    {% set BAR_APERTURE_SIZE = BAR_APERTURE_SIZE | default(4096) %}
 
     // BAR controller signals
     logic [31:0] bar_addr;
