@@ -1319,6 +1319,11 @@ class FirmwareBuilder:
         subsys_vendor_id = _optional_int(device_config.get("subsystem_vendor_id"))
         subsys_device_id = _optional_int(device_config.get("subsystem_device_id"))
 
+        # Extract PCIe link speed and width from template context
+        # These are critical for donor-unique firmware generation
+        pcie_max_link_speed = ctx.get("pcie_max_link_speed")
+        pcie_max_link_width = ctx.get("pcie_max_link_width")
+
         self.tcl.build_all_tcl_scripts(
             board=self.config.board,
             device_id=device_config["device_id"],
@@ -1329,6 +1334,8 @@ class FirmwareBuilder:
             subsys_device_id=subsys_device_id,
             build_jobs=self.config.vivado_jobs,
             build_timeout=self.config.vivado_timeout,
+            pcie_max_link_speed_code=pcie_max_link_speed,
+            pcie_max_link_width=pcie_max_link_width,
         )
 
         log_info_safe(
