@@ -58,6 +58,8 @@ pip install pcileechfwgenerator[tui]
 sudo modprobe vfio vfio-pci
 ```
 
+> **Python 3.12+ / Debian 12+ Users**: If you see `externally-managed-environment` errors, see [Installation on Python 3.12+](site/docs/installation-python312.md) for detailed instructions on using virtual environments with sudo.
+
 ### Requirements
 
 - **Python ≥ 3.9**
@@ -120,7 +122,7 @@ sudo -E python3 pcileech.py tui
 Having issues? Check our comprehensive **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** which covers:
 
 - **VFIO Setup Issues** - IOMMU configuration, module loading, device binding
-- **Installation Problems** - Package dependencies, container setup
+- **Installation Problems** - Package dependencies, container setup, Python 3.12+ externally-managed environments
 - **BAR Detection Issues** - Power state problems, device compatibility  
 - **Device-Specific Issues** - Known problems with specific hardware
 
@@ -128,6 +130,22 @@ Quick diagnostic command:
 ```bash
 # Check VFIO setup and device compatibility
 sudo python3 pcileech.py check --device 0000:03:00.0 --interactive
+```
+
+### Common Installation Issues
+
+**"externally-managed-environment" error on Python 3.12+/Debian 12+**
+
+See [Installation on Python 3.12+](site/docs/installation-python312.md) for detailed solutions. Quick fix:
+
+```bash
+# Create venv and install
+python3 -m venv ~/.pcileech-venv
+source ~/.pcileech-venv/bin/activate
+pip install pcileechfwgenerator[tui]
+
+# Run with venv's Python directly
+sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
 ``` 
 
 ## Direct Documentation Links

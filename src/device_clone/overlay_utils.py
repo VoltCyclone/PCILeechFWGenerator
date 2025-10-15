@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+from string_utils import log_debug_safe, safe_format
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_overlay_entry_count(overlay_data: Any) -> int:
@@ -27,8 +32,17 @@ def normalize_overlay_entry_count(overlay_data: Any) -> int:
         # Handle numeric strings
         if isinstance(overlay_data, str) and overlay_data.strip():
             return max(0, int(overlay_data, 0))
-    except ValueError:
-        pass
+    except ValueError as e:
+        log_debug_safe(
+            logger,
+            safe_format(
+                "Failed to parse overlay_data string as integer: {data} | error={err}",
+                prefix="OVERLAY",
+                data=overlay_data,
+                err=str(e),
+            ),
+        )
+        # Continue to next fallback handler
 
     # Sequence types represent entry collections directly
     if isinstance(overlay_data, (list, tuple, set)):

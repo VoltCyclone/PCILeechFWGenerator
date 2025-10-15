@@ -19,6 +19,7 @@ from pathlib import Path
 
 from typing import Dict, List, Optional, Tuple
 
+from src.exceptions import FileOperationError
 
 from src.string_utils import (
     log_debug_safe,
@@ -148,7 +149,9 @@ class WritemaskGenerator:
                 safe_format("Failed to read configuration space: {error}", error=e),
                 prefix="WRITEMASK",
             )
-            raise
+            raise FileOperationError(
+                f"Failed to read configuration space from {file_path}: {str(e)}"
+            ) from e
 
         return dword_map
 

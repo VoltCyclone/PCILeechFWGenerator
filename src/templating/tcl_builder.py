@@ -40,28 +40,45 @@ from src.string_utils import (
 )
 
 
-def format_hex_id(val: Union[int, str, None], width: int = 4) -> str:
+def format_hex_id(
+    val: Union[int, str, None], width: int = 4, permissive: bool = True
+) -> str:
     """
-    Format device ID values as hex strings with proper defaults for None values.
+    Format device ID values as hex strings with optional permissive defaults.
 
-    This function provides safe defaults for device identification values
-    to prevent template validation errors while maintaining backwards compatibility.
+    In strict mode (permissive=False), this enforces donor-uniqueness by requiring
+    explicit values and failing fast when None is encountered.
+
+    In permissive mode (permissive=True), legacy defaults are provided for
+    testing/development purposes.
 
     Args:
         val: Value to format (int, str, or None)
         width: Width of hex string (2, 4, or 6)
+        permissive: If True, use legacy defaults for None values
 
     Returns:
         Formatted hex string without 0x prefix
+
+    Raises:
+        ValueError: If val is None and permissive=False
     """
     if val is None:
-        # Return safe defaults instead of None to prevent template validation errors
-        if width == 2:
-            return "15"  # Default revision
-        elif width == 6:
-            return "020000"  # Default Ethernet class code
+        if permissive:
+            # Legacy defaults for testing/development
+            # These are NOT production values - use only in permissive mode
+            _PERMISSIVE_DEFAULTS = {
+                2: 0x15,  # revision_id default
+                4: 0x10EC,  # vendor_id default (Realtek)
+                6: 0x020000,  # class_code default (Ethernet controller)
+            }
+            val = _PERMISSIVE_DEFAULTS.get(width, 0x10EC)
         else:
-            return "10EC"  # Default Realtek vendor ID
+            raise ValueError(
+                f"Cannot format None value as hex ID (width={width}). "
+                "Donor-unique device identification values are required."
+            )
+
     # Coerce Enum values to their underlying integer before formatting
     if isinstance(val, Enum):
         # Prefer numeric value; if not available, fall back to string handling below
@@ -141,13 +158,15 @@ class BuildContext:
         if not self.board_name:
             raise ValueError("board_name is required and cannot be empty")
 
-    def to_template_context(self, strict: bool = False) -> Dict[str, Any]:
+    # no-dd-sa
+    def to_template_context(self, strict: bool = True) -> Dict[str, Any]:
         """Convert build context to template context dictionary with all
         required variables.
 
         Args:
-            strict: If True, raises ValueError if any implicit defaults
-                are used
+            strict: If True (default), raises ValueError if any implicit defaults
+                are used, enforcing donor-uniqueness. If False, uses legacy
+                defaults for testing/development.
 
         Returns:
             Dictionary containing template context with metadata about
@@ -160,72 +179,78 @@ class BuildContext:
             "explicit_values": {},
         }
 
-        # Enhanced subsystem ID handling with proper defaults
-        subsys_vendor_id = getattr(self, "subsys_vendor_id", None) or self.vendor_id
-        subsys_device_id = getattr(self, "subsys_device_id", None) or self.device_id
+        # In strict mode, enforce donor-uniqueness: require all critical device IDs
+        if strict:
+            if self.vendor_id is None:
+                raise ValueError(
+                    "Strict mode enabled: Missing required vendor_id. Cannot generate "
+                    "donor-unique firmware without explicit vendor identification from "
+                    "donor device profiling."
+                )
+            if self.device_id is None:
+                raise ValueError(
+                    "Strict mode enabled: Missing required device_id. Cannot generate "
+                    "donor-unique firmware without explicit device identification from "
+                    "donor device profiling."
+                )
+            if self.revision_id is None:
+                raise ValueError(
+                    "Strict mode enabled: Missing required revision_id. Cannot generate "
+                    "donor-unique firmware without explicit revision from donor device "
+                    "profiling."
+                )
+            if self.class_code is None:
+                raise ValueError(
+                    "Strict mode enabled: Missing required class_code. Cannot generate "
+                    "donor-unique firmware without explicit class code from donor device "
+                    "profiling."
+                )
 
-        # Ensure all critical values have defaults to prevent None values
-        try:
-            # Prefer centralized fallbacks for vendor and class code
-            from src.device_clone.constants import VENDOR_ID_REALTEK
-            from src.templating.sv_constants import SVConstants
-
-            default_vendor = VENDOR_ID_REALTEK
-            default_class = SVConstants.DEFAULT_CLASS_CODE_INT
-        except Exception:
-            default_vendor = 0x10EC
-            default_class = 0x020000
-        # Preserve legacy default device_id expected by tests
-        default_device = 0x8168
-
-        vendor_id = self.vendor_id or default_vendor
-        device_id = self.device_id or default_device
-        revision_id = self.revision_id or 0x15  # Default revision
-        class_code = self.class_code or default_class  # Default to Ethernet controller
-
-        # Track which values were defaulted vs explicitly provided
-        if self.vendor_id is None:
-            context_metadata["defaults_used"]["vendor_id"] = default_vendor
+        # Apply values (with permissive defaults if not strict)
+        # Legacy defaults: vendor_id=0x10EC (Realtek), device_id=0x8168 (RTL8168)
+        # revision_id=0x15, class_code=0x020000 (Ethernet)
+        vendor_id = self.vendor_id
+        if vendor_id is None:
+            vendor_id = 0x10EC  # Legacy default
+            context_metadata["defaults_used"]["vendor_id"] = 0x10EC
         else:
-            context_metadata["explicit_values"]["vendor_id"] = self.vendor_id
+            context_metadata["explicit_values"]["vendor_id"] = vendor_id
 
-        if self.device_id is None:
-            context_metadata["defaults_used"]["device_id"] = default_device
+        device_id = self.device_id
+        if device_id is None:
+            device_id = 0x8168  # Legacy default
+            context_metadata["defaults_used"]["device_id"] = 0x8168
         else:
-            context_metadata["explicit_values"]["device_id"] = self.device_id
+            context_metadata["explicit_values"]["device_id"] = device_id
 
-        if self.revision_id is None:
+        revision_id = self.revision_id
+        if revision_id is None:
+            revision_id = 0x15  # Legacy default
             context_metadata["defaults_used"]["revision_id"] = 0x15
         else:
-            context_metadata["explicit_values"]["revision_id"] = self.revision_id
+            context_metadata["explicit_values"]["revision_id"] = revision_id
 
-        if self.class_code is None:
-            context_metadata["defaults_used"]["class_code"] = default_class
+        class_code = self.class_code
+        if class_code is None:
+            class_code = 0x020000  # Legacy default (Ethernet controller)
+            context_metadata["defaults_used"]["class_code"] = 0x020000
         else:
-            context_metadata["explicit_values"]["class_code"] = self.class_code
+            context_metadata["explicit_values"]["class_code"] = class_code
 
-        if getattr(self, "subsys_vendor_id", None) is None:
-            context_metadata["defaults_used"]["subsys_vendor_id"] = self.vendor_id
+        # Subsystem IDs: require explicit values or fallback to main IDs
+        subsys_vendor_id = getattr(self, "subsys_vendor_id", None)
+        if subsys_vendor_id is None:
+            subsys_vendor_id = self.vendor_id
+            context_metadata["defaults_used"]["subsys_vendor_id"] = "vendor_id"
         else:
-            context_metadata["explicit_values"][
-                "subsys_vendor_id"
-            ] = self.subsys_vendor_id
+            context_metadata["explicit_values"]["subsys_vendor_id"] = subsys_vendor_id
 
-        if getattr(self, "subsys_device_id", None) is None:
-            context_metadata["defaults_used"]["subsys_device_id"] = self.device_id
+        subsys_device_id = getattr(self, "subsys_device_id", None)
+        if subsys_device_id is None:
+            subsys_device_id = self.device_id
+            context_metadata["defaults_used"]["subsys_device_id"] = "device_id"
         else:
-            context_metadata["explicit_values"][
-                "subsys_device_id"
-            ] = self.subsys_device_id
-
-        # In strict mode, reject any implicit defaults
-        if strict and context_metadata["defaults_used"]:
-            default_keys = list(context_metadata["defaults_used"].keys())
-            raise ValueError(
-                f"Strict mode enabled: Cannot use implicit defaults for "
-                f"{default_keys}. Please provide explicit values for these "
-                "fields."
-            )
+            context_metadata["explicit_values"]["subsys_device_id"] = subsys_device_id
 
         # Generate device signature for security compliance
         device_signature = safe_format(
@@ -310,7 +335,7 @@ class BuildContext:
         from src.utils.unified_context import TemplateObject
 
         # Derive and validate PCIe link speed/width enums from donor/IP context
-        def _map_speed(code: Optional[int], ip_type: str) -> str:
+        def _map_speed(code: Optional[int], ip_type: str, strict: bool) -> str:
             mapping = {
                 1: "2.5_GT/s",
                 2: "5.0_GT/s",
@@ -319,11 +344,44 @@ class BuildContext:
                 5: "32.0_GT/s",
             }
             if code is None:
-                return "2.5_GT/s" if ip_type == "pcie_7x" else "8.0_GT/s"
-            return mapping.get(code, "2.5_GT/s")
+                if strict:
+                    raise TCLBuilderError(
+                        "Missing required PCIe link speed from donor device profiling. "
+                        "Cannot generate donor-unique firmware without speed capability data."
+                    )
+                # Non-strict mode: provide safe default for testing
+                # Track this default in context_metadata
+                context_metadata["defaults_used"]["pcie_max_link_speed_code"] = 2
+                return "5.0_GT/s"  # Gen2 - safe default for most 7-series boards
+            if code not in mapping:
+                raise TCLBuilderError(
+                    safe_format(
+                        "Invalid PCIe speed code {code} from donor device (valid: 1-5)",
+                        code=code,
+                    )
+                )
+            return mapping[code]
 
-        def _map_width(width_val: Optional[int], default_lanes: int) -> str:
-            lanes = width_val or default_lanes or 1
+        def _map_width(
+            width_val: Optional[int], default_lanes: int, strict: bool
+        ) -> str:
+            lanes = width_val or default_lanes
+            if lanes is None or lanes == 0:
+                if strict:
+                    raise TCLBuilderError(
+                        "Missing required PCIe link width from donor device profiling. "
+                        "Cannot generate donor-unique firmware without lane configuration data."
+                    )
+                # Non-strict mode: use max_lanes as fallback for testing
+                lanes = default_lanes if default_lanes > 0 else 1
+                context_metadata["defaults_used"]["pcie_max_link_width"] = lanes
+            if lanes < 1 or lanes > 16:
+                raise TCLBuilderError(
+                    safe_format(
+                        "Invalid PCIe link width {lanes} from donor device (valid: 1-16)",
+                        lanes=lanes,
+                    )
+                )
             return f"X{lanes}"
 
         def _validate_enums(ip_type: str, speed_enum: str, width_enum: str) -> None:
@@ -353,8 +411,10 @@ class BuildContext:
                     )
                 )
 
-        derived_speed = _map_speed(self.pcie_max_link_speed_code, self.pcie_ip_type)
-        derived_width = _map_width(self.pcie_max_link_width, self.max_lanes)
+        derived_speed = _map_speed(
+            self.pcie_max_link_speed_code, self.pcie_ip_type, strict
+        )
+        derived_width = _map_width(self.pcie_max_link_width, self.max_lanes, strict)
 
         # Validate derived enums against the IP type; fail fast on mismatch
         _validate_enums(self.pcie_ip_type, derived_speed, derived_width)
@@ -418,7 +478,7 @@ class BuildContext:
                     "coefficient_files": self.coefficient_file_list or [],
                 }
             ),
-            # Flat variables for backward compatibility (with safe defaults)
+            # Flat variables for backward compatibility (donor-derived values required)
             "board_name": self.board_name,
             "fpga_part": self.fpga_part,
             "pcie_ip_type": self.pcie_ip_type,
@@ -428,13 +488,10 @@ class BuildContext:
             "supports_msix": self.supports_msix,
             "synthesis_strategy": self.synthesis_strategy,
             "implementation_strategy": self.implementation_strategy,
-            "vendor_id": vendor_id,  # Use safe default
-            "device_id": device_id,  # Use safe default
-            "revision_id": revision_id,  # Use safe default
-            "class_code": class_code,  # Use safe default
-            "project_name": self.project_name,
-            "project_dir": self.project_dir,
-            "output_dir": self.output_dir,
+            "vendor_id": vendor_id,  # Required from donor device
+            "device_id": device_id,  # Required from donor device
+            "revision_id": revision_id,  # Required from donor device
+            "class_code": class_code,  # Required from donor device
             "project_name": self.project_name,
             "project_dir": self.project_dir,
             "output_dir": self.output_dir,

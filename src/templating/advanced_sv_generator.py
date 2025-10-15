@@ -51,7 +51,7 @@ class DeviceType(Enum):
     AUDIO_CONTROLLER = "audio"
 
 
-@dataclass
+@dataclass(slots=True)
 class PowerManagementConfig:
     """Configuration for power management features."""
 
@@ -89,7 +89,7 @@ class PowerManagementConfig:
     enable_dynamic_voltage_scaling: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class PerformanceConfig:
     """Configuration for performance monitoring features."""
 
@@ -106,7 +106,7 @@ class PerformanceConfig:
     enable_threshold_alerts: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class ErrorHandlingConfig:
     """Configuration for error handling features."""
 

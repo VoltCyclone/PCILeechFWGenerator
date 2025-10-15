@@ -6,11 +6,14 @@ from unittest.mock import Mock, mock_open, patch
 
 import pytest
 
-from src.device_clone.config_space_manager import (BarInfo,
-                                                   ConfigSpaceConstants,
-                                                   ConfigSpaceError,
-                                                   ConfigSpaceManager,
-                                                   SysfsError, VFIOError)
+from src.device_clone.config_space_manager import (
+    BarInfo,
+    ConfigSpaceConstants,
+    ConfigSpaceManager,
+    VFIOError,
+    SysfsError,
+)
+from src.exceptions import ConfigSpaceError, VFIOConfigSpaceError, SysfsConfigSpaceError
 
 
 class TestBarInfo:

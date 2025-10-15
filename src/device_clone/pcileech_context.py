@@ -59,6 +59,7 @@ from src.error_utils import extract_root_cause
 from src.exceptions import ContextError
 from src.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
 from src.string_utils import (
+    log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
@@ -447,7 +448,12 @@ class VFIODeviceManager:
             if fd is not None:
                 try:
                     os.close(fd)
-                except OSError:
+                except OSError as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format("Failed to close VFIO FD: {error}", error=e),
+                        prefix="VFIO",
+                    )
                     pass
         self._device_fd = None
         self._container_fd = None
@@ -884,7 +890,12 @@ class PCILeechContextBuilder:
                 did_int = context.get("device_id_int", DEVICE_ID_FALLBACK)
                 context["device_config"]._data.setdefault("vendor_id_int", vid_int)
                 context["device_config"]._data.setdefault("device_id_int", did_int)
-            except Exception:
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format("Failed to set numeric ID aliases: {error}", error=e),
+                    prefix="PCILEECH",
+                )
                 pass
 
     def _finalize_context(self, context):
@@ -1525,8 +1536,16 @@ class PCILeechContextBuilder:
                 device_id=identifiers.device_id,
             )
             device_config = get_device_config(profile_name)
-        except:
-            pass
+        except Exception as e:
+            # Device config not found or invalid - use defaults
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Device config lookup failed, using timing defaults: {error}",
+                    prefix="TIMING",
+                    error=str(e),
+                ),
+            )
 
         if device_config and hasattr(device_config, "capabilities"):
             # Use the device-specific timing configuration from capabilities
@@ -1756,7 +1775,12 @@ class PCILeechContextBuilder:
                 parts = result.stdout.strip().split('"')
                 if len(parts) > 3:
                     return parts[3]
-        except Exception:
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format("Failed to get vendor name: {error}", error=e),
+                prefix="PCILEECH",
+            )
             pass
         return safe_format("Vendor {vendor_id}", vendor_id=vendor_id)
 
@@ -1788,7 +1812,12 @@ class PCILeechContextBuilder:
                 parts = result.stdout.strip().split('"')
                 if len(parts) > 5:
                     return parts[5]
-        except Exception:
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format("Failed to get device name: {error}", error=e),
+                prefix="PCILEECH",
+            )
             pass
         return safe_format("Device {device_id}", device_id=device_id)
 
@@ -1819,7 +1848,7 @@ class PCILeechContextBuilder:
             raw_entry_count = overlay_result.get("OVERLAY_ENTRIES", overlay_map)
             overlay_entries = normalize_overlay_entry_count(raw_entry_count)
 
-            def _coerce_toggle(value: Any, default: int) -> int:
+            def _coerce_toggle(value: Union[None, str, bool, int], default: int) -> int:
                 if value is None:
                     return default
                 if isinstance(value, str):

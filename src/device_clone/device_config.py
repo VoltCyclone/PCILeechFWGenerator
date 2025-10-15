@@ -15,8 +15,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..utils.validation_constants import (DEVICE_CAPABILITY_ERROR_MESSAGES,
-                                          KNOWN_DEVICE_TYPES)
+from ..utils.validation_constants import (
+    DEVICE_CAPABILITY_ERROR_MESSAGES,
+    KNOWN_DEVICE_TYPES,
+)
 
 try:
     import yaml
@@ -26,8 +28,13 @@ except ImportError:
     yaml = None
     YAML_AVAILABLE = False
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +85,7 @@ class DeviceClass(Enum):
     EMBEDDED = "embedded"
 
 
-@dataclass
+@dataclass(slots=True)
 class PCIeRegisters:
     """PCIe configuration space register values."""
 
@@ -100,7 +107,7 @@ class PCIeRegisters:
             raise ValueError(f"Invalid revision ID: 0x{self.revision_id:02X}")
 
 
-@dataclass
+@dataclass(slots=True)
 class DeviceIdentification:
     """PCIe device identification parameters."""
 
@@ -169,7 +176,7 @@ class DeviceIdentification:
         return f"0x{self.class_code:06X}"
 
 
-@dataclass
+@dataclass(slots=True)
 class ActiveDeviceConfig:
     """Active device interrupt configuration."""
 
@@ -208,7 +215,7 @@ class ActiveDeviceConfig:
             )
 
 
-@dataclass
+@dataclass(slots=True)
 class DeviceCapabilities:
     """PCIe device capabilities configuration."""
 
@@ -232,8 +239,10 @@ class DeviceCapabilities:
     def validate(self) -> None:
         """Validate capability values."""
         # Import here to avoid circular dependency
-        from src.device_clone.payload_size_config import (PayloadSizeConfig,
-                                                          PayloadSizeError)
+        from src.device_clone.payload_size_config import (
+            PayloadSizeConfig,
+            PayloadSizeError,
+        )
 
         # Validate payload size using the new payload size configuration
         try:
@@ -327,7 +336,7 @@ class DeviceCapabilities:
         return payload_config.check_tiny_pcie_algo_issues()
 
 
-@dataclass
+@dataclass(slots=True)
 class DeviceConfiguration:
     """Complete device configuration."""
 

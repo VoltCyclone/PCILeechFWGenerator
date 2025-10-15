@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.cli.container import BuildConfig, _build_podman_command
+from src.exceptions import ConfigurationError
 
 
 def test_bdf_validation_success():
@@ -13,7 +14,7 @@ def test_bdf_validation_success():
 
 
 def test_bdf_validation_failure():
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigurationError):
         BuildConfig(bdf="invalid", board="pcileech_35t325_x4")
 
 

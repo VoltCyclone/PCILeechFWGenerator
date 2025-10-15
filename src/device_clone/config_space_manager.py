@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.exceptions import (
+    ConfigSpaceError,
+    VFIOConfigSpaceError,
+    SysfsConfigSpaceError,
+)
 from src.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -173,22 +178,11 @@ class BarInfo:
             return str(self)
 
 
-class ConfigSpaceError(Exception):
-    """Base exception for configuration space operations."""
-
-    pass
-
-
-class VFIOError(ConfigSpaceError):
-    """VFIO-specific errors."""
-
-    pass
-
-
-class SysfsError(ConfigSpaceError):
-    """Sysfs-specific errors."""
-
-    pass
+# ConfigSpaceError, VFIOConfigSpaceError, and SysfsConfigSpaceError
+# are now imported from src.exceptions for consistency across the codebase.
+# Legacy aliases maintained for backward compatibility:
+VFIOError = VFIOConfigSpaceError
+SysfsError = SysfsConfigSpaceError
 
 
 class ConfigSpaceManager:

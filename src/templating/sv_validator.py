@@ -222,36 +222,50 @@ class SVValidator:
 
                 # Compute checksum if not present and attach for downstream consumers
                 rom_checksum = _get("rom_checksum", None)
-                if rom_checksum is None:
-                    try:
-                        if isinstance(rom_data, (bytes, bytearray)):
-                            digest = hashlib.sha256(rom_data).hexdigest()
-                        elif isinstance(rom_data, str):
-                            # If provided as hex string
-                            digest = hashlib.sha256(bytes.fromhex(rom_data)).hexdigest()
-                        else:
-                            digest = None
-                        if digest:
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "Computed ROM checksum: {csum}",
-                                    csum=digest[:16],
-                                ),
-                                prefix="VALID",
-                            )
-                    except Exception:
-                        log_error_safe(
+                if rom_checksum is not None:
+                    return
+
+                try:
+                    digest = self._compute_rom_digest(rom_data)
+                    if digest:
+                        log_info_safe(
                             self.logger,
-                            "Failed to compute ROM checksum",
+                            safe_format(
+                                "Computed ROM checksum: {csum}",
+                                csum=digest[:16],
+                            ),
                             prefix="VALID",
                         )
-                        pass
+                except Exception:
+                    log_error_safe(
+                        self.logger,
+                        "Failed to compute ROM checksum",
+                        prefix="VALID",
+                    )
+
+    def _compute_rom_digest(
+        self, rom_data: Union[bytes, bytearray, str, Any]
+    ) -> Optional[str]:
+        """
+        Compute SHA256 digest of ROM data.
+
+        Args:
+            rom_data: ROM data as bytes, bytearray, or hex string
+
+        Returns:
+            SHA256 hex digest or None if type unsupported
+        """
+        if isinstance(rom_data, (bytes, bytearray)):
+            return hashlib.sha256(rom_data).hexdigest()
+        if isinstance(rom_data, str):
+            # If provided as hex string
+            return hashlib.sha256(bytes.fromhex(rom_data)).hexdigest()
+        return None
 
     def validate_numeric_range(
         self,
         param_name: str,
-        value: Any,
+        value: Union[int, float],
         min_value: Union[int, float],
         max_value: Union[int, float],
     ) -> Optional[str]:

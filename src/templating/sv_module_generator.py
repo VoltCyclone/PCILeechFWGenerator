@@ -6,6 +6,8 @@ from functools import lru_cache
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.exceptions import PCILeechGenerationError
+
 from src.string_utils import (
     generate_sv_header_comment,
     log_debug_safe,
@@ -97,7 +99,9 @@ class SVModuleGenerator:
                 ),
                 prefix=self.prefix,
             )
-            raise
+            raise PCILeechGenerationError(
+                f"PCILeech module generation failed: {str(e)}"
+            ) from e
 
     def generate_legacy_modules(
         self, context: Dict[str, Any], behavior_profile: Optional[Any] = None
@@ -694,6 +698,72 @@ class SVModuleGenerator:
         hex_lines = ["00000000" for _ in range(pba_size)]
         return "\n".join(hex_lines) + "\n"
 
+    def _extract_msix_entry_bytes(self, entries: List[Any], index: int) -> bytes:
+        """Extract bytes from MSI-X table entry at given index.
+
+        Args:
+            entries: List of MSI-X table entries
+            index: Entry index to extract
+
+        Returns:
+            Entry bytes, or empty bytes if not available
+        """
+        if index >= len(entries):
+            return b""
+
+        ent = entries[index]
+        data_hex = None
+
+        if isinstance(ent, dict):
+            data_hex = ent.get("data")
+        elif isinstance(ent, (bytes, bytearray)):
+            data_hex = bytes(ent).hex()
+        elif isinstance(ent, str):
+            data_hex = ent
+
+        if not data_hex:
+            return b""
+
+        try:
+            return bytes.fromhex(data_hex)
+        except Exception:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X entry {index} has invalid hex data; padding to 16 bytes",
+                    index=index,
+                ),
+                prefix=self.prefix,
+            )
+            return b""
+
+    def _pad_msix_entry(self, data_bytes: bytes, index: int) -> bytes:
+        """Pad MSI-X entry to 16 bytes if needed.
+
+        Args:
+            data_bytes: Entry bytes to pad
+            index: Entry index for logging
+
+        Returns:
+            Padded bytes (always 16 bytes)
+        """
+        original_size = len(data_bytes)
+        if original_size >= 16:
+            return data_bytes
+
+        if original_size > 0:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X entry {index} is {size} bytes; padding to 16",
+                    index=index,
+                    size=original_size,
+                ),
+                prefix=self.prefix,
+            )
+
+        return data_bytes.ljust(16, b"\x00")
+
     def _generate_msix_table_init(
         self, num_vectors: int, context: Dict[str, Any]
     ) -> str:
@@ -737,49 +807,8 @@ class SVModuleGenerator:
                 # shorter than 16 bytes, pad with zeros and log a warning.
                 table_lines = []
                 for i in range(num_vectors):
-                    if i < len(entries):
-                        ent = entries[i]
-                        data_hex = None
-                        if isinstance(ent, dict):
-                            data_hex = ent.get("data")
-                        elif isinstance(ent, (bytes, bytearray)):
-                            data_hex = bytes(ent).hex()
-                        elif isinstance(ent, str):
-                            data_hex = ent
-
-                        if data_hex:
-                            try:
-                                data_bytes = bytes.fromhex(data_hex)
-                            except Exception:
-                                # If parsing fails, treat as missing
-                                log_warning_safe(
-                                    self.logger,
-                                    safe_format(
-                                        "MSI-X entry {index} has invalid hex data; padding to 16 bytes",
-                                        index=i,
-                                    ),
-                                    prefix=self.prefix,
-                                )
-                                data_bytes = b""
-                        else:
-                            data_bytes = b""
-
-                    else:
-                        data_bytes = b""
-
-                    # Ensure 16 bytes per entry
-                    if len(data_bytes) < 16:
-                        if len(data_bytes) != 0:
-                            log_warning_safe(
-                                self.logger,
-                                safe_format(
-                                    "MSI-X entry {index} is {size} bytes; padding to 16",
-                                    index=i,
-                                    size=len(data_bytes),
-                                ),
-                                prefix=self.prefix,
-                            )
-                        data_bytes = data_bytes.ljust(16, b"\x00")
+                    data_bytes = self._extract_msix_entry_bytes(entries, i)
+                    data_bytes = self._pad_msix_entry(data_bytes, i)
 
                     # Split into four 32-bit little-endian words
                     for w in range(4):

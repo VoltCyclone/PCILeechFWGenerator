@@ -339,7 +339,7 @@ class SafeDefaults:
     voltage_variation = DEFAULT_VOLTAGE_VARIATION
 
 
-@dataclass
+@dataclass(slots=True)
 class UnifiedDeviceConfig:
     """Unified device configuration with all fields needed by templates."""
 
@@ -1203,6 +1203,15 @@ class UnifiedContextBuilder:
                 "batch_mode": kwargs.get("batch_mode", False),
             }
         )
+
+        # PCIe link configuration (safe defaults for testing)
+        # In production, these come from donor device profiling
+        context["target_link_speed"] = kwargs.get(
+            "target_link_speed", "5.0_GT/s"
+        )  # Gen2 default
+        context["target_link_width_enum"] = kwargs.get(
+            "target_link_width_enum", "X4"
+        )  # x4 lanes default
 
     def _add_compatibility_aliases(self, context: Dict[str, Any], **kwargs) -> None:
         """Add compatibility aliases for legacy templates."""

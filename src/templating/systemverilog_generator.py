@@ -172,6 +172,32 @@ class SystemVerilogGenerator:
 
     # Local timestamp helper removed; use utc_timestamp from string_utils
 
+    def _detect_vfio_environment(self) -> bool:
+        """
+        Detect if VFIO is available in the current environment.
+
+        Returns:
+            True if VFIO environment is detected, False otherwise
+        """
+        try:
+            import os
+
+            # Check for main VFIO device
+            if os.path.exists("/dev/vfio/vfio"):
+                return True
+
+            # Check for any VFIO IOMMU group devices
+            if not os.path.isdir("/dev/vfio"):
+                return False
+
+            for name in os.listdir("/dev/vfio"):
+                if name.isdigit():
+                    return True
+
+            return False
+        except Exception:
+            return False
+
     def _create_default_active_device_config(
         self, enhanced_context: Dict[str, Any]
     ) -> TemplateObject:
@@ -226,6 +252,280 @@ class SystemVerilogGenerator:
             interrupt_vectors=1,  # Default interrupt vectors
         )
 
+    def _prepare_initial_context(
+        self, template_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Prepare initial context with basic defaults for non-critical fields.
+
+        Args:
+            template_context: Input template context
+
+        Returns:
+            Context with basic defaults applied
+        """
+        context_with_defaults = template_context.copy()
+
+        # Only provide defaults for non-critical template convenience fields
+        if "bar_config" not in context_with_defaults:
+            context_with_defaults["bar_config"] = {}
+        if "generation_metadata" not in context_with_defaults:
+            context_with_defaults["generation_metadata"] = {
+                "generator_version": __version__,
+                "timestamp": utc_timestamp(),
+            }
+
+        return context_with_defaults
+
+    def _validate_input_context(self, context: Dict[str, Any]) -> None:
+        """
+        Validate input context for critical fields and device identification.
+
+        Args:
+            context: Context to validate
+
+        Raises:
+            TemplateRenderError: If validation fails
+        """
+        device_config = context.get("device_config")
+        if device_config is not None:
+            # If device_config exists, it must be complete and valid
+            self.validator.validate_device_identification(device_config)
+
+        # Validate input context (enforces critical fields like device_signature)
+        self.validator.validate_template_context(context)
+
+    def _apply_template_defaults(self, enhanced_context: Dict[str, Any]) -> None:
+        """
+        Apply template compatibility defaults for commonly expected keys.
+
+        This provides conservative defaults so strict template rendering doesn't
+        fail during the compatibility stabilization phase.
+
+        Args:
+            enhanced_context: Context to enhance with defaults (modified in-place)
+        """
+        enhanced_context.setdefault("device", enhanced_context.get("device", {}))
+        enhanced_context.setdefault(
+            "perf_config", enhanced_context.get("perf_config", None)
+        )
+        enhanced_context.setdefault(
+            "timing_config",
+            enhanced_context.get("timing_config", DEFAULT_TIMING_CONFIG),
+        )
+        enhanced_context.setdefault(
+            "msix_config",
+            enhanced_context.get("msix_config", MSIX_DEFAULT or {}),
+        )
+        enhanced_context.setdefault(
+            "bar_config", enhanced_context.get("bar_config", {})
+        )
+        enhanced_context.setdefault(
+            "board_config", enhanced_context.get("board_config", {})
+        )
+        enhanced_context.setdefault(
+            "generation_metadata",
+            enhanced_context.get(
+                "generation_metadata",
+                {"generator_version": __version__, "timestamp": utc_timestamp()},
+            ),
+        )
+        enhanced_context.setdefault(
+            "device_type", enhanced_context.get("device_type", "GENERIC")
+        )
+        enhanced_context.setdefault(
+            "device_class", enhanced_context.get("device_class", "CONSUMER")
+        )
+        enhanced_context.setdefault(
+            "pcileech_config",
+            enhanced_context.get("pcileech_config", PCILEECH_DEFAULT),
+        )
+        enhanced_context.setdefault("device_specific_config", {})
+
+    def _propagate_msix_data(
+        self, enhanced_context: Dict[str, Any], template_context: Dict[str, Any]
+    ) -> None:
+        """
+        Propagate MSI-X data from template context to enhanced context.
+
+        SV module generator relies on context["msix_data"] to build the
+        msix_table_init.hex from real hardware bytes in production.
+
+        Args:
+            enhanced_context: Enhanced context (modified in-place)
+            template_context: Original template context with MSI-X data
+        """
+        try:
+            if "template_context" not in enhanced_context:
+                enhanced_context["template_context"] = template_context
+
+            # Only set msix_data when provided by upstream generation
+            if "msix_data" in template_context and template_context.get("msix_data"):
+                enhanced_context["msix_data"] = template_context["msix_data"]
+
+                # Mirror into nested template_context for consumers that probe there
+                if isinstance(enhanced_context.get("template_context"), dict):
+                    enhanced_context["template_context"]["msix_data"] = (
+                        template_context["msix_data"]
+                    )
+
+                # Log MSI-X data metrics
+                try:
+                    md = enhanced_context.get("msix_data") or {}
+                    tih = md.get("table_init_hex")
+                    te = md.get("table_entries") or []
+                    log_info_safe(
+                        self.logger,
+                        safe_format(
+                            "Pre-render MSI-X: init_hex_len={ihl}, entries={entries}",
+                            ihl=(len(tih) if isinstance(tih, str) else 0),
+                            entries=(len(te) if isinstance(te, (list, tuple)) else 0),
+                        ),
+                        prefix=self.prefix,
+                    )
+                except Exception as e:
+                    log_error_safe(
+                        self.logger,
+                        safe_format(
+                            "Unexpected error logging MSI-X metrics: {error}",
+                            error=str(e),
+                        ),
+                        prefix=self.prefix,
+                    )
+            else:
+                # If MSI-X appears supported but msix_data is absent, emit diagnostic
+                self._log_missing_msix_diagnostic(enhanced_context, template_context)
+
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Unexpected error during MSI-X data propagation: {error}",
+                    error=str(e),
+                ),
+                prefix=self.prefix,
+            )
+
+    def _log_missing_msix_diagnostic(
+        self, enhanced_context: Dict[str, Any], template_context: Dict[str, Any]
+    ) -> None:
+        """
+        Log diagnostic message when MSI-X is supported but data is missing.
+
+        Args:
+            enhanced_context: Enhanced context to check
+            template_context: Original template context
+        """
+        try:
+            msix_cfg = enhanced_context.get("msix_config") or {}
+            supported = (
+                bool(msix_cfg.get("is_supported"))
+                or (msix_cfg.get("num_vectors", 0) or 0) > 0
+            )
+            if supported and not template_context.get("msix_data"):
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X supported (vectors={vectors}) but "
+                        "msix_data missing before render; "
+                        "upstream_template_has_msix_data={upstream}",
+                        vectors=msix_cfg.get("num_vectors", 0),
+                        upstream=("msix_data" in template_context),
+                    ),
+                    prefix=self.prefix,
+                )
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Unexpected error during MSI-X diagnostic: {error}",
+                    error=str(e),
+                ),
+                prefix=self.prefix,
+            )
+
+    def _ensure_config_space(
+        self, enhanced_context: Dict[str, Any], template_context: Dict[str, Any]
+    ) -> None:
+        """
+        Ensure config_space exists and has sensible defaults for common fields.
+
+        Only applies defaults when device_config is absent or completely valid.
+
+        Args:
+            enhanced_context: Enhanced context (modified in-place)
+            template_context: Original template context
+        """
+        # Ensure config_space exists
+        if (
+            "config_space" not in enhanced_context
+            or enhanced_context.get("config_space") is None
+        ):
+            enhanced_context["config_space"] = (
+                template_context.get(
+                    "config_space", template_context.get("config_space_data", {})
+                )
+                or {}
+            )
+
+        # Set non-unique PCI register defaults (safe fallbacks)
+        cs = enhanced_context.get("config_space")
+        if isinstance(cs, dict):
+            cs.setdefault("status", SVConstants.DEFAULT_PCI_STATUS)
+            cs.setdefault("command", SVConstants.DEFAULT_PCI_COMMAND)
+            cs.setdefault("class_code", SVConstants.DEFAULT_CLASS_CODE_INT)
+            cs.setdefault("revision_id", SVConstants.DEFAULT_REVISION_ID_INT)
+
+            # Only set VID/DID if device_config provides them
+            device_cfg = enhanced_context.get("device_config")
+            if (
+                isinstance(device_cfg, dict)
+                and device_cfg.get("vendor_id")
+                and device_cfg.get("device_id")
+            ):
+                cs.setdefault("vendor_id", device_cfg["vendor_id"])
+                cs.setdefault("device_id", device_cfg["device_id"])
+            elif device_cfg is None:
+                log_info_safe(
+                    self.logger,
+                    "No device_config provided; skipping config_space VID/DID defaults",
+                    prefix=self.prefix,
+                )
+
+    def _normalize_device_config(self, enhanced_context: Dict[str, Any]) -> None:
+        """
+        Normalize device_config to dict format and ensure expected flags exist.
+
+        Handles TemplateObject conversion and adds boolean flags without
+        clobbering device identifiers.
+
+        Args:
+            enhanced_context: Enhanced context (modified in-place)
+        """
+        device_config = enhanced_context.get("device_config", {})
+
+        if isinstance(device_config, TemplateObject):
+            # Convert TemplateObject to dict (preserves fields like class_code)
+            try:
+                device_config_dict = device_config.to_dict()
+            except Exception:
+                device_config_dict = {}
+            device_config_dict.setdefault("enable_advanced_features", False)
+            device_config_dict.setdefault("enable_perf_counters", False)
+            enhanced_context["device_config"] = device_config_dict
+
+        elif isinstance(device_config, dict):
+            # Ensure expected boolean flags exist without altering identifiers
+            device_config.setdefault("enable_advanced_features", False)
+            device_config.setdefault("enable_perf_counters", False)
+
+        else:
+            # Fallback minimal structure; keep generation resilient
+            enhanced_context["device_config"] = {
+                "enable_advanced_features": False,
+                "enable_perf_counters": False,
+            }
+
     def generate_modules(
         self,
         template_context: Dict[str, Any],
@@ -245,26 +545,11 @@ class SystemVerilogGenerator:
             TemplateRenderError: If generation fails
         """
         try:
-            context_with_defaults = template_context.copy()
+            # Prepare initial context with basic defaults
+            context_with_defaults = self._prepare_initial_context(template_context)
 
-            # Only provide defaults for non-critical template convenience fields
-            # if they're missing. Critical security fields are validated strictly.
-            if "bar_config" not in context_with_defaults:
-                context_with_defaults["bar_config"] = {}
-            if "generation_metadata" not in context_with_defaults:
-                context_with_defaults["generation_metadata"] = {
-                    "generator_version": __version__,
-                    "timestamp": utc_timestamp(),
-                }
-
-            device_config = context_with_defaults.get("device_config")
-            if device_config is not None:
-                # If device_config exists, it must be complete and valid
-                self.validator.validate_device_identification(device_config)
-
-            # Validate input context (still enforces critical fields like
-            # device_signature)
-            self.validator.validate_template_context(context_with_defaults)
+            # Validate critical fields and device identification
+            self._validate_input_context(context_with_defaults)
 
             # Build enhanced context efficiently
             enhanced_context = self.context_builder.build_enhanced_context(
@@ -275,173 +560,19 @@ class SystemVerilogGenerator:
                 self.device_config,
             )
 
-            # Templates assume keys like `device`, `timing_config`, `msix_config`,
-            # `bar_config`, `board_config`, and `generation_metadata` are present.
-            # Provide conservative defaults here so strict template rendering doesn't
-            # fail during the compatibility stabilization phase.
-            enhanced_context.setdefault("device", enhanced_context.get("device", {}))
-            enhanced_context.setdefault(
-                "perf_config", enhanced_context.get("perf_config", None)
-            )
-            # Use centralized default timing config if available
-            enhanced_context.setdefault(
-                "timing_config",
-                enhanced_context.get("timing_config", DEFAULT_TIMING_CONFIG),
-            )
-            enhanced_context.setdefault(
-                "msix_config",
-                enhanced_context.get("msix_config", MSIX_DEFAULT or {}),
-            )
-            enhanced_context.setdefault(
-                "bar_config", enhanced_context.get("bar_config", {})
-            )
-            enhanced_context.setdefault(
-                "board_config", enhanced_context.get("board_config", {})
-            )
-            enhanced_context.setdefault(
-                "generation_metadata",
-                enhanced_context.get(
-                    "generation_metadata",
-                    {"generator_version": __version__, "timestamp": utc_timestamp()},
-                ),
-            )
-            enhanced_context.setdefault(
-                "device_type", enhanced_context.get("device_type", "GENERIC")
-            )
-            enhanced_context.setdefault(
-                "device_class", enhanced_context.get("device_class", "CONSUMER")
-            )
+            # Apply template compatibility defaults
+            self._apply_template_defaults(enhanced_context)
 
-            # Ensure templates that expect `config_space` have something usable.
-            if (
-                "config_space" not in enhanced_context
-                or enhanced_context.get("config_space") is None
-            ):
-                enhanced_context["config_space"] = (
-                    template_context.get(
-                        "config_space", template_context.get("config_space_data", {})
-                    )
-                    or {}
-                )
+            # Ensure config_space exists with sensible defaults
+            self._ensure_config_space(enhanced_context, template_context)
 
-            # Propagate raw template context and MSI-X data through to the renderer.
-            # SV module generator relies on context["msix_data"] (or
-            # context["template_context"]["msix_data"]) to build the
-            # msix_table_init.hex from real hardware bytes in production.
-            try:
-                if "template_context" not in enhanced_context:
-                    enhanced_context["template_context"] = template_context
-                # Only set msix_data when provided by upstream generation
-                if "msix_data" in template_context and template_context.get(
-                    "msix_data"
-                ):
-                    enhanced_context["msix_data"] = template_context["msix_data"]
-                    # Mirror into nested template_context for consumers
-                    # that probe there.
-                    if isinstance(enhanced_context.get("template_context"), dict):
-                        enhanced_context["template_context"]["msix_data"] = (
-                            template_context["msix_data"]
-                        )
-                    try:
-                        md = enhanced_context.get("msix_data") or {}
-                        tih = md.get("table_init_hex")
-                        te = md.get("table_entries") or []
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Pre-render MSI-X: init_hex_len={ihl}, entries={entries}",
-                                ihl=(len(tih) if isinstance(tih, str) else 0),
-                                entries=(
-                                    len(te) if isinstance(te, (list, tuple)) else 0
-                                ),
-                            ),
-                            prefix=self.prefix,
-                        )
-                    except Exception:
-                        pass
-                else:
-                    # If MSI-X appears supported but msix_data is absent, emit
-                    # a focused diagnostic
-                    try:
-                        msix_cfg = enhanced_context.get("msix_config") or {}
-                        supported = (
-                            bool(msix_cfg.get("is_supported"))
-                            or (msix_cfg.get("num_vectors", 0) or 0) > 0
-                        )
-                        if supported and not template_context.get("msix_data"):
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "MSI-X supported (vectors={vectors}) but "
-                                    "msix_data missing before render; "
-                                    "upstream_template_has_msix_data={upstream}",
-                                    vectors=msix_cfg.get("num_vectors", 0),
-                                    upstream=("msix_data" in template_context),
-                                ),
-                                prefix=self.prefix,
-                            )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            # Propagate MSI-X data to enhanced context
+            self._propagate_msix_data(enhanced_context, template_context)
 
-            # Ensure config_space has sensible defaults for commonly accessed fields
-            # but only when device_config is either absent or completely valid
-            cs = enhanced_context.get("config_space")
-            if isinstance(cs, dict):
-                # Set non-unique PCI register defaults (safe fallbacks)
-                cs.setdefault("status", SVConstants.DEFAULT_PCI_STATUS)
-                cs.setdefault("command", SVConstants.DEFAULT_PCI_COMMAND)
-                cs.setdefault("class_code", SVConstants.DEFAULT_CLASS_CODE_INT)
-                cs.setdefault("revision_id", SVConstants.DEFAULT_REVISION_ID_INT)
+            # Normalize device_config to dict format
+            self._normalize_device_config(enhanced_context)
 
-                device_cfg = enhanced_context.get("device_config")
-                if (
-                    isinstance(device_cfg, dict)
-                    and device_cfg.get("vendor_id")
-                    and device_cfg.get("device_id")
-                ):
-                    cs.setdefault("vendor_id", device_cfg["vendor_id"])
-                    cs.setdefault("device_id", device_cfg["device_id"])
-                elif device_cfg is None:
-                    # No device_config provided - downstream validation will catch this
-                    log_info_safe(
-                        self.logger,
-                        "No device_config provided; skipping config_space VID/DID defaults",
-                        prefix=self.prefix,
-                    )
-
-            enhanced_context.setdefault(
-                "pcileech_config",
-                enhanced_context.get("pcileech_config", PCILEECH_DEFAULT),
-            )
-
-            # Additional missing keys commonly referenced by templates
-            enhanced_context.setdefault("device_specific_config", {})
-
-            device_config = enhanced_context.get("device_config", {})
-            if isinstance(device_config, TemplateObject):
-                # Properly convert TemplateObject to dict (preserves fields like class_code)
-                try:
-                    device_config_dict = device_config.to_dict()
-                except Exception:
-                    device_config_dict = {}
-                # Ensure expected boolean flags exist without clobbering identifiers
-                device_config_dict.setdefault("enable_advanced_features", False)
-                device_config_dict.setdefault("enable_perf_counters", False)
-                enhanced_context["device_config"] = device_config_dict
-            elif isinstance(device_config, dict):
-                # Ensure expected boolean flags exist without altering identifiers
-                device_config.setdefault("enable_advanced_features", False)
-                device_config.setdefault("enable_perf_counters", False)
-            else:
-                # Fallback minimal structure; keep generation resilient
-                enhanced_context["device_config"] = {
-                    "enable_advanced_features": False,
-                    "enable_perf_counters": False,
-                }
-
-            # Create proper active_device_config instead of empty dict fallback
+            # Create proper active_device_config if missing
             if "active_device_config" not in enhanced_context:
                 enhanced_context["active_device_config"] = (
                     self._create_default_active_device_config(enhanced_context)
@@ -452,10 +583,14 @@ class SystemVerilogGenerator:
                 return self.module_generator.generate_pcileech_modules(
                     enhanced_context, behavior_profile
                 )
-            else:
-                return self.module_generator.generate_legacy_modules(
-                    enhanced_context, behavior_profile
-                )
+
+            # Fallback: return empty dict if no generator is configured
+            log_error_safe(
+                self.logger,
+                "No module generator configured (use_pcileech_primary=False)",
+                prefix=self.prefix,
+            )
+            return {}
 
         except Exception as e:
             error_msg = format_user_friendly_error(e, "SystemVerilog generation")
@@ -519,14 +654,30 @@ class SystemVerilogGenerator:
                 self.module_generator._ports_cache.clear()
             if hasattr(self.module_generator, "_module_cache"):
                 self.module_generator._module_cache.clear()
-        except Exception:
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Unexpected error during cache clearing: {error}",
+                    error=str(e),
+                ),
+                prefix=self.prefix,
+            )
             pass
 
         # Clear renderer cache if supported
         try:
             if hasattr(self.renderer, "clear_cache"):
                 self.renderer.clear_cache()
-        except Exception:
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Unexpected error during renderer cache clearing: {error}",
+                    error=str(e),
+                ),
+                prefix=self.prefix,
+            )
             pass
 
         log_info_safe(
@@ -758,9 +909,16 @@ class SystemVerilogGenerator:
                         ),
                         prefix=self.prefix,
                     )
-            except Exception:
-                # Swallow any unexpected errors from binding verification
-                pass
+            except Exception as e:
+                # Log unexpected errors from binding verification
+                log_error_safe(
+                    logger,
+                    safe_format(
+                        "Unexpected error during VFIO binding verification: {error}",
+                        error=str(e),
+                    ),
+                    prefix=self.prefix,
+                )
 
             try:
                 # Attempt to map MSI-X table region
@@ -848,20 +1006,7 @@ class SystemVerilogGenerator:
         # Additional environment-aware detection to reduce false negatives in
         # local builds where VFIO is active but flags weren't propagated.
         if not has_direct:
-            try:
-                import os
-
-                if os.path.exists("/dev/vfio/vfio"):
-                    has_direct = True
-                else:
-                    # Consider presence of any VFIO IOMMU group device as evidence
-                    if os.path.isdir("/dev/vfio"):
-                        for name in os.listdir("/dev/vfio"):
-                            if name.isdigit():
-                                has_direct = True
-                                break
-            except Exception:
-                pass
+            has_direct = self._detect_vfio_environment()
 
         try:
             import os as _os

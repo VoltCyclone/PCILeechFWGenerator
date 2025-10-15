@@ -183,7 +183,16 @@ def ensure_device_vfio_binding(bdf: str) -> str:
                     bdf=bdf,
                     prefix="VFIO",
                 )
-        except Exception:
+        except Exception as e:
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Failed to read current driver for {bdf}: {error}. Proceeding with warning.",
+                    bdf=bdf,
+                    error=e,
+                ),
+                prefix="VFIO",
+            )
             pass
 
     # Reuse existing checks - these raise OSError on failure.

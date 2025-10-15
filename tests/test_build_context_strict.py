@@ -62,6 +62,8 @@ def test_strict_mode_with_explicit_values():
         class_code=0x030000,
         subsys_vendor_id=0x1234,
         subsys_device_id=0x5678,
+        pcie_max_link_speed_code=2,  # Gen2 - 5.0 GT/s
+        pcie_max_link_width=4,  # x4 lanes
     )
     tc = ctx.to_template_context(strict=True)
     # Should work fine with all explicit values

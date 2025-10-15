@@ -1,4 +1,5 @@
 {#- PCILeech FIFO Module Template -#}
+{# validator: ignore-unsafe-default data_width #}
 {% from "_helpers.j2" import get_vendor_id, get_device_id %}
 {{ header | safe }}
 
@@ -8,6 +9,7 @@ module pcileech_fifo #(
     parameter DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
     parameter VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
     parameter FIFO_DEPTH = {{ fifo_depth | default(512) }},
+    // data_width: Use context-provided value or sensible module default (128-bit for Gen3+ performance)
     parameter DATA_WIDTH = {{ data_width | default(128) }}
 ) (
     input  wire         clk,

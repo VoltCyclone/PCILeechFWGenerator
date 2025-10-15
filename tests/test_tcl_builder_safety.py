@@ -35,9 +35,36 @@ class TestTCLBuilderSafety(unittest.TestCase):
             max_lanes=4,
             supports_msi=True,
             supports_msix=False,
+            # Required donor-derived device IDs
+            vendor_id=0x10EC,
+            device_id=0x8168,
+            revision_id=0x15,
+            class_code=0x020000,
         )
         self.assertIsNotNone(context)
         self.assertEqual(context.board_name, "test_board")
+
+    def test_build_context_requires_donor_ids(self):
+        """Test that BuildContext enforces donor-uniqueness by requiring device IDs."""
+        # Create context without device IDs
+        context = BuildContext(
+            board_name="test_board",
+            fpga_part="xc7a35tcsg324-2",
+            fpga_family="Artix-7",
+            pcie_ip_type="7x",
+            max_lanes=4,
+            supports_msi=True,
+            supports_msix=False,
+            # Intentionally omit vendor_id, device_id, etc.
+        )
+
+        # Should raise ValueError when trying to convert to template context
+        with self.assertRaises(ValueError) as cm:
+            context.to_template_context()
+
+        # Verify the error message mentions donor-unique firmware
+        self.assertIn("donor-unique", str(cm.exception).lower())
+        self.assertIn("vendor_id", str(cm.exception).lower())
 
     def test_pcileech_context_always_present(self):
         """Test that PCILeech context is always present in template context."""
@@ -49,6 +76,14 @@ class TestTCLBuilderSafety(unittest.TestCase):
             max_lanes=4,
             supports_msi=True,
             supports_msix=False,
+            # Required donor-derived device IDs
+            vendor_id=0x10EC,
+            device_id=0x8168,
+            revision_id=0x15,
+            class_code=0x020000,
+            # Required donor-derived PCIe capability fields
+            pcie_max_link_speed_code=2,  # Gen2 - 5.0 GT/s
+            pcie_max_link_width=4,  # x4 lanes
         )
 
         template_context = context.to_template_context()
@@ -72,6 +107,15 @@ class TestTCLBuilderSafety(unittest.TestCase):
             max_lanes=4,
             supports_msi=True,
             supports_msix=False,
+            # Required donor-derived device IDs
+            vendor_id=0x10EC,
+            device_id=0x8168,
+            revision_id=0x15,
+            class_code=0x020000,
+            # Required donor-derived PCIe capability fields
+            pcie_max_link_speed_code=2,  # Gen2 - 5.0 GT/s
+            pcie_max_link_width=4,  # x4 lanes
+            # Custom PCILeech values
             pcileech_src_dir="custom_src",
             pcileech_ip_dir="custom_ip",
             source_file_list=["file1.sv", "file2.sv"],
@@ -94,6 +138,11 @@ class TestTCLBuilderSafety(unittest.TestCase):
             max_lanes=4,
             supports_msi=True,
             supports_msix=False,
+            # Required donor-derived device IDs
+            vendor_id=0x10EC,
+            device_id=0x8168,
+            revision_id=0x15,
+            class_code=0x020000,
         )
 
         # These should not raise KeyError even if pcileech context is somehow missing

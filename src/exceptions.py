@@ -272,6 +272,36 @@ class VFIOGroupError(VFIOBindError):
     pass
 
 
+# Configuration Space Exceptions
+
+
+class ConfigSpaceError(PCILeechError):
+    """Base exception for PCI configuration space operations.
+
+    This exception and its subclasses are used for errors related to
+    reading/writing PCI configuration space, distinct from VFIO binding
+    operations (which use VFIOBindError).
+    """
+
+    pass
+
+
+class VFIOConfigSpaceError(ConfigSpaceError):
+    """Raised when VFIO-based config space access fails.
+
+    Note: This is distinct from VFIOBindError which handles driver binding.
+    This exception is for errors reading config space via VFIO after binding.
+    """
+
+    pass
+
+
+class SysfsConfigSpaceError(ConfigSpaceError):
+    """Raised when sysfs-based config space access fails."""
+
+    pass
+
+
 def is_platform_error(message: str) -> bool:
     """Return True if message indicates a known platform incompatibility.
 
@@ -314,5 +344,8 @@ __all__ = [
     "VFIODeviceNotFoundError",
     "VFIOPermissionError",
     "VFIOGroupError",
+    "ConfigSpaceError",
+    "VFIOConfigSpaceError",
+    "SysfsConfigSpaceError",
     "is_platform_error",
 ]

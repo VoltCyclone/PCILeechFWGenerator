@@ -171,23 +171,42 @@ def install_requirements(requirements_file):
         cmd = [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)]
 
         # Check if we're in a virtual environment
-        if hasattr(sys, "real_prefix") or (
+        in_venv = hasattr(sys, "real_prefix") or (
             hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
-        ):
+        )
+
+        if in_venv:
             print("🐍 Detected virtual environment")
         else:
             print(
                 "⚠️  Installing to system Python (consider using a virtual environment)"
             )
+            print(
+                "\nNote: On Python 3.12+/Debian 12+, you may see 'externally-managed-environment' errors."
+            )
+            print(
+                "Solution: Use a virtual environment or see docs/installation-python312.md"
+            )
+
             # Ask for confirmation for system-wide install
             if os.getenv("PCILEECH_AUTO_INSTALL") != "1":
-                confirm = input("Install to system Python? [y/N]: ").strip().lower()
+                confirm = (
+                    input("\nInstall to system Python anyway? [y/N]: ").strip().lower()
+                )
                 if confirm not in ("y", "yes"):
                     print(
-                        "Aborted. Please use a virtual environment or install manually."
+                        "\nAborted. Please use a virtual environment or install manually:"
+                    )
+                    print(f"  python3 -m venv ~/.pcileech-venv")
+                    print(f"  source ~/.pcileech-venv/bin/activate")
+                    print(f"  pip install -r {requirements_file}")
+                    print(
+                        f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
                     )
                     sys.exit(1)
-            cmd.append("--user")  # Install to user directory for safety
+
+            # Try --user flag, but catch externally-managed-environment errors
+            cmd.append("--user")
 
         # Run pip install
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -197,10 +216,36 @@ def install_requirements(requirements_file):
             return True
         else:
             print(f"❌ Failed to install requirements:")
-            print(f"   stdout: {result.stdout}")
-            print(f"   stderr: {result.stderr}")
-            print(f"\nTry installing manually:")
-            print(f"   pip install -r {requirements_file}")
+            if result.stderr:
+                print(f"   {result.stderr}")
+
+            # Check for externally-managed-environment error
+            if "externally-managed-environment" in result.stderr:
+                print(
+                    "\n⚠️  Python 3.12+ / Debian 12+ detected with PEP 668 protection."
+                )
+                print("\nSolution 1 (Recommended): Use a virtual environment")
+                print(f"  python3 -m venv ~/.pcileech-venv")
+                print(f"  source ~/.pcileech-venv/bin/activate")
+                print(f"  pip install -r {requirements_file}")
+                print(
+                    f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
+                )
+
+                print("\nSolution 2: Use pipx")
+                print(f"  pipx install pcileechfwgenerator[tui]")
+                print(f"  sudo $(which pcileech) tui")
+
+                print("\nSolution 3: Override (not recommended)")
+                print(f"  pip install --break-system-packages -r {requirements_file}")
+
+                print(
+                    "\nSee: site/docs/installation-python312.md for detailed instructions"
+                )
+            else:
+                print(f"\nTry installing manually:")
+                print(f"   pip install -r {requirements_file}")
+
             return False
 
     except FileNotFoundError:
@@ -271,6 +316,7 @@ try:
     from src.error_utils import format_concise_error, log_error_with_root_cause
     from src.log_config import get_logger, setup_logging
     from src.string_utils import (
+        log_debug_safe,
         log_error_safe,
         log_info_safe,
         log_warning_safe,
@@ -963,8 +1009,16 @@ def handle_version(args):
             safe_format("Package version: {version}", version=version),
             prefix="VERSION",
         )
-    except:
-        pass
+    except Exception as e:
+        # Package version not available (development install or pkg_resources missing)
+        log_debug_safe(
+            logger,
+            safe_format(
+                "Package version info unavailable: {error}",
+                prefix="VERSION",
+                error=str(e),
+            ),
+        )
 
     return 0
 

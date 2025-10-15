@@ -1,9 +1,17 @@
     {% set _local_max_lanes = _max_lanes if _max_lanes is defined else 1 %}
     {% set _local_lane_width = _lane_width if _lane_width is defined else (_local_max_lanes - 1) %}
     {% set _local_data_width = (data_width | default(64)) %}
-    {% set _root_dsn_hex = _dsn_hex if _dsn_hex is defined else (device_serial_number_hex | default("0x0000000000000000")) %}
+    {%- if _dsn_hex is defined %}
+        {% set _root_dsn_hex = _dsn_hex %}
+    {%- else %}
+        {% set _root_dsn_hex = device_serial_number_hex | default("0x0000000000000000") %}
+    {%- endif %}
     {% set _local_dsn_hex = _root_dsn_hex[2:] if _root_dsn_hex.startswith("0x") else _root_dsn_hex %}
-    {% set _local_dsn_valid = _dsn_valid if _dsn_valid is defined else (device_serial_number_valid | default(false)) %}
+    {%- if _dsn_valid is defined %}
+        {% set _local_dsn_valid = _dsn_valid %}
+    {%- else %}
+        {% set _local_dsn_valid = device_serial_number_valid | default(false) %}
+    {%- endif %}
 
     logic        clk;
     logic        reset;  // Active-high reset

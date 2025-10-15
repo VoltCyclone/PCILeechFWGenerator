@@ -100,7 +100,7 @@ def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
         return None
 
 
-@dataclass
+@dataclass(slots=True)
 class BuildConfiguration:
     """Configuration for the firmware build process."""
 
@@ -121,7 +121,7 @@ class BuildConfiguration:
     enable_error_injection: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class MSIXData:
     """Container for MSI-X capability data."""
 
@@ -131,7 +131,7 @@ class MSIXData:
     config_space_bytes: Optional[bytes] = None
 
 
-@dataclass
+@dataclass(slots=True)
 class DeviceConfiguration:
     """Device configuration extracted from the build process."""
 
@@ -1009,6 +1009,7 @@ class FirmwareBuilder:
             return self.file_manager.list_artifacts()
 
         except PlatformCompatibilityError:
+            # Reraise platform compatibility errors without modification
             raise
         except Exception as e:
             log_error_safe(
@@ -1016,11 +1017,9 @@ class FirmwareBuilder:
                 safe_format("Build failed: {err}", err=str(e)),
                 prefix="BUILD",
             )
-            if self.logger.isEnabledFor(logging.DEBUG):
-                log_debug_safe(
-                    self.logger, "Full traceback while building", prefix="BUILD"
-                )
-            raise
+            raise PCILeechBuildError(
+                safe_format("Build failed: {err}", err=str(e))
+            ) from e
 
     def run_vivado(self) -> None:
         """

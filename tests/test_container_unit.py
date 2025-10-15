@@ -7,10 +7,18 @@ from typing import Any, cast
 import pytest
 
 import src.cli.container as container
-from src.cli.container import (BuildConfig, EnvError, _build_podman_command,
-                               build_image, check_podman_available,
-                               image_exists, prompt_user_for_local_build,
-                               require_podman, run_build, run_local_build)
+from src.cli.container import (
+    BuildConfig,
+    _build_podman_command,
+    build_image,
+    check_podman_available,
+    image_exists,
+    prompt_user_for_local_build,
+    require_podman,
+    run_build,
+    run_local_build,
+)
+from src.exceptions import BuildError, ConfigurationError
 
 
 class DummyShell:
@@ -79,7 +87,7 @@ def test_check_podman_available_present_but_fails(monkeypatch):
 
 def test_require_podman_not_found(monkeypatch):
     monkeypatch.setattr(container.shutil, "which", lambda _: None)
-    with pytest.raises(EnvError):
+    with pytest.raises(ConfigurationError):
         require_podman()
 
 
@@ -113,10 +121,10 @@ def test_image_exists_other_error_bubbles(monkeypatch):
 
 def test_build_image_validation_and_success(monkeypatch):
     # Invalid name
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigurationError):
         build_image("UpperCase", "latest")
     # Invalid tag
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigurationError):
         build_image("valid-name", "bad tag")
     # Valid invocation should call subprocess.run
     called = {}
@@ -205,7 +213,7 @@ def test_run_local_build_failure(monkeypatch, tmp_path: Path):
 
     sys.modules["src.build"] = fake_build
     cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(BuildError):
         run_local_build(cfg)
 
 

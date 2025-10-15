@@ -1,7 +1,7 @@
 """Context builder for SystemVerilog generation."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from src.device_clone.identifier_normalizer import IdentifierNormalizer
 from src.device_clone.overlay_utils import compute_sparse_hash_table_size
@@ -330,7 +330,14 @@ class SVContextBuilder:
                     hi_int = self._safe_hex_to_int(hi)
                     lo_int = self._safe_hex_to_int(lo)
                     return (hi_int << 32) | (lo_int & 0xFFFFFFFF)
-                except Exception:
+                except Exception as e:
+                    log_error_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to parse DSN hi/lo parts: {error}", error=str(e)
+                        ),
+                        prefix=self.prefix,
+                    )
                     pass
 
             composite = source.get("device_serial_number")
@@ -343,7 +350,14 @@ class SVContextBuilder:
                         hi_int = self._safe_hex_to_int(hi_val)
                         lo_int = self._safe_hex_to_int(lo_val)
                         return (hi_int << 32) | (lo_int & 0xFFFFFFFF)
-                    except Exception:
+                    except Exception as e:
+                        log_error_safe(
+                            self.logger,
+                            safe_format(
+                                "Failed to parse DSN hi/lo parts: {error}", error=str(e)
+                            ),
+                            prefix=self.prefix,
+                        )
                         pass
                 if value is not None:
                     candidates.append(value)
@@ -697,7 +711,7 @@ class SVContextBuilder:
             overlay_map if isinstance(overlay_map, (dict, list, tuple)) else {},
         )
 
-        def _coerce_toggle(value: Any, default: int) -> int:
+        def _coerce_toggle(value: Union[str, int, bool, None], default: int) -> int:
             if value is None:
                 return default
             if isinstance(value, str):
