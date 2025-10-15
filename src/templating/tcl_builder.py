@@ -41,7 +41,7 @@ from src.string_utils import (
 
 
 def format_hex_id(
-    val: Union[int, str, None], width: int = 4, permissive: bool = True
+    val: Union[int, str, None], width: int = 4, permissive: bool = False
 ) -> str:
     """
     Format device ID values as hex strings with optional permissive defaults.
