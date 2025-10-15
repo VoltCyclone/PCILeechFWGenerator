@@ -519,6 +519,7 @@ class SVContextBuilder:
             (x.bit_length() - 1) if isinstance(x, int) and x > 0 else 0
         )
 
+    # no-dd-sa
     def _add_compatibility_fields(
         self, context: Dict[str, Any], template_context: Dict[str, Any]
     ) -> None:

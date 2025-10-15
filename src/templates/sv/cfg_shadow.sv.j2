@@ -94,19 +94,16 @@ module pcileech_tlps128_cfgspace_shadow #(
     // Sparse Mapping Architecture (Phase 1)
     // =====================================================================
     
-    // Hash table entry for sparse mapping
+        // Hash table entry for sparse mapping
     typedef struct packed {
         logic        valid;          // Entry is valid
         logic [9:0]  reg_num;        // Original register number
         logic [7:0]  overlay_index;  // Index into overlay RAM
     } hash_entry_t;
     
-    // Hash table for sparse mapping
-    generate
-        if (ENABLE_SPARSE_MAP) begin : gen_sparse_map
-            (* ram_style="distributed" *) hash_entry_t hash_table[0:HASH_TABLE_SIZE-1];
-        end
-    endgenerate
+    // Hash table for sparse mapping - declared unconditionally for tool compatibility
+    // When ENABLE_SPARSE_MAP=0, this array is synthesized away but remains accessible in functions
+    (* ram_style="distributed" *) hash_entry_t hash_table[0:HASH_TABLE_SIZE-1];
     
     // Hash function for sparse mapping
     function automatic logic [7:0] hash_reg_num(input logic [9:0] reg_num);
@@ -122,11 +119,11 @@ module pcileech_tlps128_cfgspace_shadow #(
             
             // Linear probe with wrap-around
             while (probe_count < HASH_TABLE_SIZE) begin
-                if (gen_sparse_map.hash_table[hash_idx].valid && 
-                    gen_sparse_map.hash_table[hash_idx].reg_num == reg_num) begin
-                    return gen_sparse_map.hash_table[hash_idx].overlay_index;
+                if (hash_table[hash_idx].valid && 
+                    hash_table[hash_idx].reg_num == reg_num) begin
+                    return hash_table[hash_idx].overlay_index;
                 end
-                if (!gen_sparse_map.hash_table[hash_idx].valid) begin
+                if (!hash_table[hash_idx].valid) begin
                     return 8'hFF; // Not found
                 end
                 hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
@@ -335,7 +332,7 @@ module pcileech_tlps128_cfgspace_shadow #(
             // Initialize hash table if sparse mapping enabled
             if (ENABLE_SPARSE_MAP) begin
                 for (int i = 0; i < HASH_TABLE_SIZE; i++) begin
-                    gen_sparse_map.hash_table[i].valid <= 1'b0;
+                    hash_table[i].valid <= 1'b0;
                 end
             end
         end else begin
@@ -659,7 +656,7 @@ module pcileech_tlps128_cfgspace_shadow #(
         // Initialize hash table for sparse mapping
         if (ENABLE_SPARSE_MAP) begin
             for (int i = 0; i < HASH_TABLE_SIZE; i++) begin
-                gen_sparse_map.hash_table[i] = '{valid: 1'b0, reg_num: 10'h0, overlay_index: 8'h0};
+                hash_table[i] = '{valid: 1'b0, reg_num: 10'h0, overlay_index: 8'h0};
             end
             
             // Populate hash table with configured overlays
@@ -671,12 +668,12 @@ module pcileech_tlps128_cfgspace_shadow #(
                 logic [7:0] hash_idx = hash_reg_num({{ reg }});
                 logic [7:0] probe_count = 0;
                 // Find empty slot using linear probing
-                while (gen_sparse_map.hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
+                while (hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
                     hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
                     probe_count++;
                 end
-                if (!gen_sparse_map.hash_table[hash_idx].valid) begin
-                    gen_sparse_map.hash_table[hash_idx] = '{
+                if (!hash_table[hash_idx].valid) begin
+                    hash_table[hash_idx] = '{
                         valid: 1'b1,
                         reg_num: {{ reg }},
                         overlay_index: {{ loop.index0 }}
@@ -693,12 +690,12 @@ module pcileech_tlps128_cfgspace_shadow #(
                 logic [7:0] hash_idx = hash_reg_num({{ reg }});
                 logic [7:0] probe_count = 0;
                 // Find empty slot using linear probing
-                while (gen_sparse_map.hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
+                while (hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
                     hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
                     probe_count++;
                 end
-                if (!gen_sparse_map.hash_table[hash_idx].valid) begin
-                    gen_sparse_map.hash_table[hash_idx] = '{
+                if (!hash_table[hash_idx].valid) begin
+                    hash_table[hash_idx] = '{
                         valid: 1'b1,
                         reg_num: {{ reg }},
                         overlay_index: {{ loop.index0 }}

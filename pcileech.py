@@ -214,6 +214,7 @@ def install_requirements(requirements_file):
         if result.returncode == 0:
             print("✅ Requirements installed successfully")
             return True
+        # no-dd-sa:python-best-practices/if-return-no-else
         else:
             print(f"❌ Failed to install requirements:")
             if result.stderr:
