@@ -308,6 +308,7 @@ module pcileech_tlps128_cfgspace_shadow #(
         logic [9:0]   effective_reg_num;
         logic [11:0]  byte_addr;
         logic [31:0]  ov_idx;
+        logic [31:0]  overlay_idx;
         logic [31:0]  ov_data;
     logic [31:0]  ov_mask;
     logic [31:0]  new_data;
@@ -385,7 +386,6 @@ module pcileech_tlps128_cfgspace_shadow #(
 
                             ov_idx = get_overlay_index(effective_reg_num);
                             if (has_valid_overlay(effective_reg_num)) begin
-                                int unsigned overlay_idx;
                                 overlay_idx = ov_idx;
 
                                 if (ENABLE_BIT_TYPES) begin
@@ -444,7 +444,6 @@ module pcileech_tlps128_cfgspace_shadow #(
                                 // Get overlay info
                                 ov_idx = get_overlay_index(effective_reg_num);
 
-                                int unsigned overlay_idx;
                                 overlay_idx = ov_idx;
 
                                 current_data_field = 32'h0;

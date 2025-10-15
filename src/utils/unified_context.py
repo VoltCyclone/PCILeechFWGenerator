@@ -769,7 +769,7 @@ class UnifiedContextBuilder:
     def create_power_management_config(self, **kwargs) -> TemplateObject:
         """Create power management configuration for templates."""
         from src.templating.sv_constants import SV_CONSTANTS
-        
+
         config = dict(self.config.power_defaults)
 
         config.update(
