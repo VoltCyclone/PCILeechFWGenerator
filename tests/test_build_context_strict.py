@@ -75,7 +75,11 @@ def test_strict_mode_with_explicit_values():
 
 
 def test_format_hex_id_defaults():
-    # Permissive returns default
-    assert format_hex_id(None, 4) == "10EC"
-    assert format_hex_id(None, 2) == "15"
-    assert format_hex_id(None, 6) == "020000"
+    # Permissive mode returns defaults
+    assert format_hex_id(None, 4, permissive=True) == "10EC"
+    assert format_hex_id(None, 2, permissive=True) == "15"
+    assert format_hex_id(None, 6, permissive=True) == "020000"
+
+    # Strict mode raises on None
+    with pytest.raises(ValueError, match=r"Cannot format None value"):
+        format_hex_id(None, 4, permissive=False)

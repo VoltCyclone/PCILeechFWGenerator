@@ -1482,24 +1482,42 @@ class PCILeechGenerator:
 
         subsys_vid = context.get("subsystem_vendor_id") or vid
         subsys_did = context.get("subsystem_device_id") or did
+        # Some tests stub only vendor_id/device_id; tolerate missing revision_id/class_code
         revision_id = context.get("revision_id") or context.get("revision")
         class_code = context.get("class_code")
 
         device_block = {
             "vendor_id": format_hex_id(vid, 4),
             "device_id": format_hex_id(did, 4),
-            "revision_id": format_hex_id(revision_id, 2),
-            "class_code": format_hex_id(class_code, 6),
+            # Only include fields when provided to avoid raising on None in tests
+            **(
+                {"revision_id": format_hex_id(revision_id, 2)}
+                if revision_id is not None
+                else {}
+            ),
+            **(
+                {"class_code": format_hex_id(class_code, 6)}
+                if class_code is not None
+                else {}
+            ),
             "subsys_vendor_id": format_hex_id(subsys_vid, 4),
             "subsys_device_id": format_hex_id(subsys_did, 4),
         }
 
-        device_signature = safe_format(
-            "{vid}:{did}:{rid}",
-            vid=device_block["vendor_id"],
-            did=device_block["device_id"],
-            rid=device_block["revision_id"],
-        )
+        # Build device signature; if revision is missing in permissive tests, omit it
+        if "revision_id" in device_block:
+            device_signature = safe_format(
+                "{vid}:{did}:{rid}",
+                vid=device_block["vendor_id"],
+                did=device_block["device_id"],
+                rid=device_block["revision_id"],
+            )
+        else:
+            device_signature = safe_format(
+                "{vid}:{did}",
+                vid=device_block["vendor_id"],
+                did=device_block["device_id"],
+            )
 
         # Provide structured configs mirroring normal builder output so that
         # any template expecting device_config/board_config remains satisfied.
@@ -1508,11 +1526,19 @@ class PCILeechGenerator:
             "identification": {
                 "vendor_id": device_block["vendor_id"],
                 "device_id": device_block["device_id"],
-                "class_code": device_block["class_code"],
+                **(
+                    {"class_code": device_block["class_code"]}
+                    if "class_code" in device_block
+                    else {}
+                ),
                 "subsystem_vendor_id": device_block["subsys_vendor_id"],
                 "subsystem_device_id": device_block["subsys_device_id"],
             },
-            "registers": {"revision_id": device_block["revision_id"]},
+            "registers": (
+                {"revision_id": device_block["revision_id"]}
+                if "revision_id" in device_block
+                else {}
+            ),
         }
 
         board_block = {

@@ -895,7 +895,10 @@ class ConfigurationManager:
         # Validate profile duration
         if args.profile < 0:
             raise ConfigurationError(
-                f"Invalid profile duration: {args.profile}. Must be >= 0"
+                safe_format(
+                    "Invalid profile duration: {profile}. Must be >= 0",
+                    profile=args.profile,
+                )
             )
 
     def _is_valid_bdf(self, bdf: str) -> bool:
@@ -1315,6 +1318,16 @@ class FirmwareBuilder:
         """Generate TCL scripts for Vivado."""
         ctx = result["template_context"]
         device_config = ctx["device_config"]
+
+        # Validate board is present and non-empty
+        board = self.config.board
+        if not board or not board.strip():
+            raise ConfigurationError(
+                "Board name is required for TCL generation. "
+                "Use --board to specify a valid board configuration "
+                "(e.g., pcileech_100t484_x1)"
+            )
+
         # Extract optional subsystem IDs
         subsys_vendor_id = _optional_int(device_config.get("subsystem_vendor_id"))
         subsys_device_id = _optional_int(device_config.get("subsystem_device_id"))
@@ -1325,7 +1338,7 @@ class FirmwareBuilder:
         pcie_max_link_width = ctx.get("pcie_max_link_width")
 
         self.tcl.build_all_tcl_scripts(
-            board=self.config.board,
+            board=board,
             device_id=device_config["device_id"],
             class_code=device_config["class_code"],
             revision_id=device_config["revision_id"],
@@ -1653,6 +1666,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             log_info_safe(
                 logger,
                 "Build skipped due to platform compatibility (see details above)",
+                prefix="BUILD",
             )
         else:
             # Unexpected errors

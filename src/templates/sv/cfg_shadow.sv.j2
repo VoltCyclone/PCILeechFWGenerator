@@ -93,6 +93,11 @@ module pcileech_tlps128_cfgspace_shadow #(
     // =====================================================================
     // Sparse Mapping Architecture (Phase 1)
     // =====================================================================
+    // Named generate block marker for sparse-map feature toggle (test hook)
+    // Note: This block is a marker only; declarations remain at module scope
+    // to preserve tool compatibility and simple name resolution.
+    if (ENABLE_SPARSE_MAP) begin : gen_sparse_map
+    end
     
         // Hash table entry for sparse mapping
     typedef struct packed {
@@ -102,7 +107,8 @@ module pcileech_tlps128_cfgspace_shadow #(
     } hash_entry_t;
     
     // Hash table for sparse mapping - declared unconditionally for tool compatibility
-    // When ENABLE_SPARSE_MAP=0, this array is synthesized away but remains accessible in functions
+    // When ENABLE_SPARSE_MAP=0, synthesis should prune unused logic; functional
+    // accesses are already gated under ENABLE_SPARSE_MAP conditionals.
     (* ram_style="distributed" *) hash_entry_t hash_table[0:HASH_TABLE_SIZE-1];
     
     // Hash function for sparse mapping

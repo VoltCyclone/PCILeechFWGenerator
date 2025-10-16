@@ -237,17 +237,19 @@ class BuildContext:
         else:
             context_metadata["explicit_values"]["class_code"] = class_code
 
-        # Subsystem IDs: require explicit values or fallback to main IDs
+        # Subsystem IDs: require explicit values or fallback to resolved main IDs
         subsys_vendor_id = getattr(self, "subsys_vendor_id", None)
         if subsys_vendor_id is None:
-            subsys_vendor_id = self.vendor_id
+            # Use resolved vendor_id (which has defaults applied if needed)
+            subsys_vendor_id = vendor_id
             context_metadata["defaults_used"]["subsys_vendor_id"] = "vendor_id"
         else:
             context_metadata["explicit_values"]["subsys_vendor_id"] = subsys_vendor_id
 
         subsys_device_id = getattr(self, "subsys_device_id", None)
         if subsys_device_id is None:
-            subsys_device_id = self.device_id
+            # Use resolved device_id (which has defaults applied if needed)
+            subsys_device_id = device_id
             context_metadata["defaults_used"]["subsys_device_id"] = "device_id"
         else:
             context_metadata["explicit_values"]["subsys_device_id"] = subsys_device_id
@@ -862,7 +864,20 @@ class TCLBuilder:
         return current
 
     def _select_board_interactively(self) -> str:
-        """Interactively select a board from available options."""
+        """Interactively select a board from available options.
+
+        Raises:
+            ValueError: If stdin is not a TTY or selection fails
+        """
+        # Check if stdin is a TTY (interactive terminal)
+        if not sys.stdin.isatty():
+            available_boards = list(self.BOARD_PARTS.keys())
+            raise ValueError(
+                "Board selection requires interactive terminal, but stdin is not a TTY. "
+                f"Please specify board explicitly using --board parameter. "
+                f"Available boards: {', '.join(available_boards)}"
+            )
+
         available_boards = list(self.BOARD_PARTS.keys())
         if not available_boards:
             raise ValueError("No board configurations available")
@@ -881,6 +896,12 @@ class TCLBuilder:
                 raise ValueError(f"Invalid selection: {selection}")
         except (ValueError, IndexError) as e:
             raise ValueError(f"Board selection failed: {e}") from e
+        except EOFError as e:
+            raise ValueError(
+                "Board selection failed: EOF while reading input. "
+                "This typically occurs in non-interactive environments (containers, CI/CD). "
+                f"Please specify board explicitly using --board parameter."
+            ) from e
 
     def create_build_context(
         self,
@@ -910,6 +931,10 @@ class TCLBuilder:
         Raises:
             ValueError: If required parameters are invalid
         """
+        # Normalize empty strings to None for consistent handling
+        board = board.strip() if board and isinstance(board, str) else board
+        board = None if board == "" else board
+
         # Determine board and FPGA part
         # Prefer non-interactive inference before prompting
         # 1) If board missing but fpga_part provided, reverse-map to a known board
@@ -1006,6 +1031,30 @@ class TCLBuilder:
             self.device_config, "identification.subsystem_device_id"
         )
 
+        # Resolve final device identification values
+        final_vendor_id = vendor_id or config_vendor_id
+        final_device_id = device_id or config_device_id
+        final_revision_id = revision_id or config_revision_id
+        final_class_code = kwargs.get("class_code") or config_class_code or 0x020000
+
+        # Validate critical device identification values are present
+        # These are required for donor-unique firmware generation
+        missing_ids = []
+        if final_vendor_id is None:
+            missing_ids.append("vendor_id")
+        if final_device_id is None:
+            missing_ids.append("device_id")
+        if final_revision_id is None:
+            missing_ids.append("revision_id")
+
+        if missing_ids:
+            raise ValueError(
+                f"Missing required device identification values: {', '.join(missing_ids)}. "
+                "Cannot generate donor-unique firmware without complete device configuration. "
+                "Ensure device profiling/detection completed successfully and "
+                "all required parameters are provided."
+            )
+
         return BuildContext(
             board_name=board,
             fpga_part=fpga_part,
@@ -1014,12 +1063,10 @@ class TCLBuilder:
             max_lanes=fpga_config.get("max_lanes", 1),
             supports_msi=fpga_config.get("supports_msi", False),
             supports_msix=fpga_config.get("supports_msix", False),
-            vendor_id=vendor_id or config_vendor_id,
-            device_id=device_id or config_device_id,
-            revision_id=revision_id or config_revision_id,
-            class_code=kwargs.get("class_code")
-            or config_class_code
-            or 0x020000,  # Default to Ethernet class
+            vendor_id=final_vendor_id,
+            device_id=final_device_id,
+            revision_id=final_revision_id,
+            class_code=final_class_code,
             subsys_vendor_id=subsys_vendor_id or config_subsys_vendor_id,
             subsys_device_id=subsys_device_id or config_subsys_device_id,
             # Donor-derived PCIe link fields (optional)

@@ -50,6 +50,7 @@ logger = get_logger(__name__)
 
 # Lightweight indirection so tests can monkeypatch container._get_iommu_group
 
+
 def _get_iommu_group(bdf: str) -> int:
     """Return IOMMU group id as int for the given BDF.
 
@@ -204,9 +205,13 @@ class BuildConfig:
                     bdf=self.bdf,
                 )
             )
-        # Basic board non-empty validation
-        if not self.board or not isinstance(self.board, str):
-            raise ConfigurationError("Board must be a non-empty string")
+        # Enhanced board validation - check for non-empty string with content
+        if not self.board or not isinstance(self.board, str) or not self.board.strip():
+            raise ConfigurationError(
+                "Board name is required and cannot be empty. "
+                "Use --board to specify a valid board configuration "
+                "(e.g., pcileech_100t484_x1)"
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
