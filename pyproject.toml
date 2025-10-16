@@ -50,10 +50,10 @@ testing = [
 ]
 
 [project.scripts]
-pcileech = "pcileech:main"
-pcileech-generate = "pcileech:main"
-pcileech-build = "pcileech:main"
-pcileech-tui = "pcileech:main"
+pcileech = "src.pcileech_main:main"
+pcileech-generate = "src.pcileech_main:main"
+pcileech-build = "src.pcileech_main:main"
+pcileech-tui = "src.pcileech_main:main"
 
 [tool.setuptools_scm]
 # For smarter version schemes and other configuration options,

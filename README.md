@@ -68,7 +68,7 @@ sudo modprobe vfio vfio-pci
 
 ### Optional Requirements
 
-- **Podman** (_not Docker_ - required for proper PCIe device mounting) You use podman or run the python locally. *You must use linux for either option
+- **Podman** (*not Docker* - required for proper PCIe device mounting) You use podman or run the python locally. *You must use linux for either option*
 - **DMA board** (pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1) You don't need to flash your firmware with this tooling but you can.
 - **Vivado Studio** (2022.2+ for synthesis and bitstream generation) You can use a locally generated Vivado project or insert the files into an existing one.
 
@@ -77,34 +77,31 @@ sudo modprobe vfio vfio-pci
 
 ```bash
 # Interactive TUI (recommended for first-time users)
-sudo python3 pcileech.py tui
+sudo pcileech tui
 
 # CLI interface for scripted builds
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board pcileech_35t325_x1
+sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1
 
 # CLI build with custom Vivado settings
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
+sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
     --vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8 --vivado-timeout 7200
 
 # Check VFIO configuration
-sudo python3 pcileech.py check --device 0000:03:00.0
+sudo pcileech check --device 0000:03:00.0
 
 # Flash firmware to device
-sudo python3 pcileech.py flash output/firmware.bin
+sudo pcileech flash output/firmware.bin
 
-# Check for updates
-./cli --check-version
-
-# Skip automatic version check
-./cli build --skip-version-check --bdf 0000:03:00.0 --board pcileech_35t325_x1
+# Show version information
+pcileech version
 ```
 
 ### Version Updates
 
-The tool automatically checks for newer versions when you run it. You can:
-- **Disable automatic checks**: Set `PCILEECH_DISABLE_UPDATE_CHECK=1` environment variable
-- **Force a version check**: Run `./cli --check-version`
-- **Skip check for one run**: Use `--skip-version-check` flag
+The tool automatically checks for newer versions during CLI builds. You can:
+
+- Disable automatic checks: set `PCILEECH_DISABLE_UPDATE_CHECK=1`
+- Show current version: `pcileech version`
 
 
 ### Development from Repository
@@ -113,7 +110,9 @@ The tool automatically checks for newer versions when you run it. You can:
 git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
+
+# From a dev checkout you can still run the root script
 sudo -E python3 pcileech.py tui
 ```
 
@@ -127,6 +126,7 @@ Having issues? Check our comprehensive **[Troubleshooting Guide](https://pcileec
 - **Device-Specific Issues** - Known problems with specific hardware
 
 Quick diagnostic command:
+
 ```bash
 # Check VFIO setup and device compatibility
 sudo python3 pcileech.py check --device 0000:03:00.0 --interactive
@@ -134,7 +134,7 @@ sudo python3 pcileech.py check --device 0000:03:00.0 --interactive
 
 ### Common Installation Issues
 
-**"externally-managed-environment" error on Python 3.12+/Debian 12+**
+#### "externally-managed-environment" error on Python 3.12+/Debian 12+
 
 See [Installation on Python 3.12+](site/docs/installation-python312.md) for detailed solutions. Quick fix:
 
@@ -146,7 +146,7 @@ pip install pcileechfwgenerator[tui]
 
 # Run with venv's Python directly
 sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
-``` 
+```
 
 ## Direct Documentation Links
 
