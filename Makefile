@@ -52,10 +52,10 @@ help:
 
 # Development targets
 install:
-	pip install -e .
+	python3 -m pip install -e .
 
 install-dev:
-	pip install -e ".[dev,test,tui]"
+	python3 -m pip install -e ".[dev,test,tui]"
 
 test:
 	pytest tests/ --cov=src --cov-report=term-missing
@@ -109,7 +109,7 @@ clean:
 
 # Building targets
 build:
-	python -m build
+	python3 -m build
 
 build-pypi:
 	@echo "Running full PyPI package generation..."

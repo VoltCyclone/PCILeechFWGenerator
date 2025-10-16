@@ -176,6 +176,9 @@ class TemplateContext(TypedDict, total=False):
     timing_config: Dict[str, Any]
     pcileech_config: Dict[str, Any]
     board_config: Dict[str, Any]
+    # Donor-derived PCIe link capabilities (codes)
+    pcie_max_link_speed: int
+    pcie_max_link_width: int
     EXT_CFG_CAP_PTR: int
     EXT_CFG_XP_CAP_PTR: int
     # Optional VFIO availability/verification flags for integration rendering
@@ -780,6 +783,154 @@ class PCILeechContextBuilder:
             "vendor_id": device_identifiers.vendor_id,
             "device_id": device_identifiers.device_id,
         }
+
+        # Attempt to extract PCIe max link speed/width from config space for donor-uniqueness.
+        # These are required by the TCL builder to derive target_link_speed/width enums.
+        try:
+            cfg_hex = config_space_data.get("config_space_hex")
+            if not cfg_hex and isinstance(context.get("config_space"), dict):
+                cfg_hex = context["config_space"].get("raw_data")
+
+            if cfg_hex:
+                try:
+                    # Prefer centralized capability processor to avoid duplicating parsing logic
+                    from src.pci_capability import (
+                        core as _pcicore,
+                        processor as _pciproc,
+                    )
+
+                    _cs = _pcicore.ConfigSpace(cfg_hex)
+                    _cp = _pciproc.CapabilityProcessor(_cs)
+                    # Use the processor's device context view to read derived fields
+                    dev_ctx = (
+                        _cp._get_device_context()
+                    )  # Internal, but stable within project
+                    max_speed = dev_ctx.get("pcie_max_link_speed")
+                    max_width = dev_ctx.get("pcie_max_link_width")
+
+                    if isinstance(max_speed, int) and max_speed > 0:
+                        context["pcie_max_link_speed"] = max_speed
+                    if isinstance(max_width, int) and max_width > 0:
+                        context["pcie_max_link_width"] = max_width
+                except Exception as e:
+                    # Non-fatal: log and continue; TCL builder will enforce strictness downstream
+                    log_debug_safe(
+                        self.logger,
+                        safe_format(
+                            "PCIe link capability extraction via processor failed: {rc}",
+                            rc=extract_root_cause(e),
+                        ),
+                        prefix="PCIL",
+                    )
+        except Exception as e:
+            # Defensive catch-all to avoid blocking context construction
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "PCIe link capability extraction skipped: {rc}",
+                    rc=extract_root_cause(e),
+                ),
+                prefix="PCIL",
+            )
+
+        # Fallback: if PCIe link speed/width still missing, try sysfs current_link_* files
+        try:
+            need_speed = "pcie_max_link_speed" not in context
+            need_width = "pcie_max_link_width" not in context
+            if need_speed or need_width:
+                bdf = self.device_bdf
+                base = f"/sys/bus/pci/devices/{bdf}"
+
+                def _read_sysfs(path: str) -> Optional[str]:
+                    try:
+                        with open(path, "r") as f:
+                            return f.read().strip()
+                    except Exception:
+                        return None
+
+                # Map speed string like "5 GT/s" or "5.0 GT/s" => code 2
+                def _map_speed_str_to_code(s: str) -> Optional[int]:
+                    try:
+                        # Extract the leading float number
+                        parts = s.replace("GT/s", "").replace("G T/s", "").split()
+                        if not parts:
+                            return None
+                        val = (
+                            parts[0]
+                            .replace("GT/s", "")
+                            .replace("G", "")
+                            .replace("T/s", "")
+                        )
+                        val = (
+                            val.replace("/s", "")
+                            .replace("T", "")
+                            .replace("(", "")
+                            .replace(")", "")
+                        )
+                        num = float(val)
+                        if 2.0 <= num < 3.0:
+                            return 1
+                        if 4.0 < num <= 6.0:
+                            return 2
+                        if 7.0 < num <= 9.0:
+                            return 3
+                        if 15.0 < num <= 17.0:
+                            return 4
+                        if 31.0 < num <= 33.0:
+                            return 5
+                        return None
+                    except Exception:
+                        return None
+
+                # Map width string like "x4" => 4
+                def _map_width_str_to_lanes(s: str) -> Optional[int]:
+                    try:
+                        s = s.lower().lstrip("x")
+                        lanes = int("".join(ch for ch in s if ch.isdigit()))
+                        return lanes if 1 <= lanes <= 16 else None
+                    except Exception:
+                        return None
+
+                if need_speed:
+                    spath = f"{base}/current_link_speed"
+                    sval = _read_sysfs(spath)
+                    code = _map_speed_str_to_code(sval) if sval else None
+                    if code:
+                        context["pcie_max_link_speed"] = code
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Using sysfs fallback for PCIe link speed: {val} -> code {code}",
+                                val=sval,
+                                code=code,
+                            ),
+                            prefix="PCIL",
+                        )
+
+                if need_width:
+                    wpath = f"{base}/current_link_width"
+                    wval = _read_sysfs(wpath)
+                    lanes = _map_width_str_to_lanes(wval) if wval else None
+                    if lanes:
+                        context["pcie_max_link_width"] = lanes
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Using sysfs fallback for PCIe link width: {val} -> lanes {lanes}",
+                                val=wval,
+                                lanes=lanes,
+                            ),
+                            prefix="PCIL",
+                        )
+        except Exception as e:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Sysfs fallback for PCIe link speed/width failed: {rc}",
+                    rc=extract_root_cause(e),
+                ),
+                prefix="PCIL",
+            )
 
         # Add overlay config
         overlay_config = self._build_overlay_config(config_space_data)
