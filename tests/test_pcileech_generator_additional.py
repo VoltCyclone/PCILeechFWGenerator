@@ -11,9 +11,11 @@ from typing import Any, Dict
 
 import pytest
 
-from src.device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                 PCILeechGenerationError,
-                                                 PCILeechGenerator)
+from src.device_clone.pcileech_generator import (
+    PCILeechGenerationConfig,
+    PCILeechGenerationError,
+    PCILeechGenerator,
+)
 
 
 # --- Stubs -----------------------------------------------------------------
@@ -114,3 +116,64 @@ def test_generate_writemask_coe_with_existing_cfgspace(generator: PCILeechGenera
         or "memory_initialization_vector" in content
         or content.strip() != ""
     )
+
+
+def test_generate_config_space_hex_class_code_from_config_space(
+    generator: PCILeechGenerator,
+):
+    # Minimal raw config space bytes (64 bytes of zero is fine)
+    raw = bytes([0] * 64)
+
+    # Provide vendor/device at top-level and class_code only under config_space
+    ctx = {
+        "vendor_id": 0x1234,
+        "device_id": 0x5678,
+        "config_space": {"class_code": 0x040300},
+        "config_space_data": {"raw_config_space": raw},
+        "board_name": "test_board",
+    }
+
+    hex_out = generator._generate_config_space_hex(ctx)
+
+    # Header should mention file name and class code without 0x prefix
+    assert "// config_space_init.hex" in hex_out
+    assert "Generated for device 1234:5678" in hex_out
+    assert "Class: 040300" in hex_out
+
+
+def test_generate_config_space_hex_class_code_from_device_config(
+    generator: PCILeechGenerator,
+):
+    raw = bytes([0] * 64)
+
+    # Provide vendor/device at top-level and class_code under device_config
+    ctx = {
+        "vendor_id": 0xABCD,
+        "device_id": 0xEF01,
+        "device_config": {"class_code": 0x020000},
+        "config_space_data": {"raw_config_space": raw},
+    }
+
+    hex_out = generator._generate_config_space_hex(ctx)
+
+    assert "// config_space_init.hex" in hex_out
+    assert "Generated for device ABCD:EF01" in hex_out
+    assert "Class: 020000" in hex_out
+
+
+def test_generate_config_space_hex_missing_class_code_raises(
+    generator: PCILeechGenerator,
+):
+    raw = bytes([0] * 64)
+
+    ctx = {
+        "vendor_id": 0x1111,
+        "device_id": 0x2222,
+        # No class_code at top-level, in config_space, or in device_config
+        "config_space_data": {"raw_config_space": raw},
+    }
+
+    with pytest.raises(
+        PCILeechGenerationError, match="Missing class_code in template context"
+    ):
+        generator._generate_config_space_hex(ctx)

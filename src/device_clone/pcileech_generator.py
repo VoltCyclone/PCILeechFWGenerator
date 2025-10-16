@@ -1815,7 +1815,34 @@ class PCILeechGenerator:
             # Try to extract optional metadata for header enrichment (safe/fallbacks)
             vid_hex = template_context.get("vendor_id")
             did_hex = template_context.get("device_id")
-            cls_hex = template_context.get("class_code")
+
+            # Resolve class_code from multiple known locations (no guessing)
+
+            def _get_nested(ctx: Dict[str, Any], path: list[str]) -> Any:
+                cur: Any = ctx
+                for key in path:
+                    if cur is None:
+                        return None
+                    # Support dict-like and TemplateObject with .get / attribute access
+                    if isinstance(cur, dict):
+                        cur = cur.get(key)
+                    else:
+                        # Try attribute, then mapping-style get
+                        cur = getattr(
+                            cur, key, getattr(cur, "get", lambda *_: None)(key)
+                        )
+                return cur
+
+            cls_hex = (
+                template_context.get("class_code")
+                or _get_nested(
+                    template_context, ["config_space", "class_code"]
+                )  # from context builder
+                or _get_nested(
+                    template_context, ["device_config", "class_code"]
+                )  # legacy path
+            )
+
             board_name = (
                 template_context.get("board_name")
                 or template_context.get("board")
@@ -1823,9 +1850,16 @@ class PCILeechGenerator:
             )
             # Normalize to string if ints
 
+            # vendor_id/device_id must be present at top-level per context contract
             vid_str = format_hex_id(vid_hex, 4)
             did_str = format_hex_id(did_hex, 4)
-            # class_code may be 2 or 3 bytes; keep as-is string
+
+            # class_code may reside under config_space/device_config; fail fast if unresolved
+            if cls_hex is None:
+                raise PCILeechGenerationError(
+                    "Missing class_code in template context; expected at one of: "
+                    "class_code, config_space.class_code, device_config.class_code"
+                )
             cls_str = format_hex_id(cls_hex, 6)
 
             # Generate hex content
