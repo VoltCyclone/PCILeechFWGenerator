@@ -42,12 +42,15 @@
     logic        cfg_mgmt_wr_en;
     logic        cfg_mgmt_rd_en;
     logic        cfg_mgmt_wr_readonly;
-    logic        cfg_mgmt_wr_rw1c_as_rw;
     logic [63:0] cfg_dsn;
     localparam logic [63:0] DEVICE_SERIAL_NUMBER = 64'h{{ _local_dsn_hex }};
 {%- if not _local_dsn_valid %}
     // NOTE: Donor did not report a DSN; cfg_dsn defaults to zero for compliance.
 {%- endif %}
+    
+    // Tie-off cfg_mgmt_wr_rw1c_as_rw immediately (must be driven before PCIe core instantiation)
+    wire cfg_mgmt_wr_rw1c_as_rw = 1'b1;
+    assign cfg_dsn = DEVICE_SERIAL_NUMBER;
     
     // Interrupt status (outputs) and INTx/MSI inputs (tied off if MSI-X only)
     logic        cfg_interrupt_msixenable;
