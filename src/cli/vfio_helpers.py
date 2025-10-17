@@ -9,13 +9,23 @@ import os
 
 from src.string_utils import safe_format
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe)
-from .vfio_constants import (VFIO_CHECK_EXTENSION, VFIO_GET_API_VERSION,
-                             VFIO_GROUP_FLAGS_VIABLE, VFIO_GROUP_GET_DEVICE_FD,
-                             VFIO_GROUP_GET_STATUS, VFIO_GROUP_SET_CONTAINER,
-                             VFIO_SET_IOMMU, VFIO_TYPE1_IOMMU,
-                             vfio_group_status)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+)
+from .vfio_constants import (
+    VFIO_CHECK_EXTENSION,
+    VFIO_GET_API_VERSION,
+    VFIO_GROUP_FLAGS_VIABLE,
+    VFIO_GROUP_GET_DEVICE_FD,
+    VFIO_GROUP_GET_STATUS,
+    VFIO_GROUP_SET_CONTAINER,
+    VFIO_SET_IOMMU,
+    VFIO_TYPE1_IOMMU,
+    vfio_group_status,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -173,7 +183,16 @@ def ensure_device_vfio_binding(bdf: str) -> str:
                     bdf=bdf,
                     prefix="VFIO",
                 )
-        except Exception:
+        except Exception as e:
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Failed to read current driver for {bdf}: {error}. Proceeding with warning.",
+                    bdf=bdf,
+                    error=e,
+                ),
+                prefix="VFIO",
+            )
             pass
 
     # Reuse existing checks - these raise OSError on failure.
@@ -183,7 +202,11 @@ def ensure_device_vfio_binding(bdf: str) -> str:
     if not os.path.exists(sysfs_path):
         log_warning_safe(
             logger,
-            f"[TODO HARDEN] Device {bdf} has no IOMMU group (path not found: {sysfs_path}). Proceeding with warning.",
+            safe_format(
+                "Device {bdf} has no IOMMU group (path not found: {sysfs_path}). Proceeding with warning.",
+                bdf=bdf,
+                sysfs_path=sysfs_path,
+            ),
             prefix="VFIO",
         )
         return "unknown"
@@ -193,7 +216,11 @@ def ensure_device_vfio_binding(bdf: str) -> str:
     except Exception as e:
         log_warning_safe(
             logger,
-            f"[TODO HARDEN] Failed to read IOMMU group for {bdf}: {e}. Proceeding with warning.",
+            safe_format(
+                "Failed to read IOMMU group for {bdf}: {error}. Proceeding with warning.",
+                bdf=bdf,
+                error=e,
+            ),
             prefix="VFIO",
         )
         return "unknown"
@@ -203,9 +230,11 @@ def ensure_device_vfio_binding(bdf: str) -> str:
 
     log_info_safe(
         logger,
-        "VFIO binding recheck passed for {bdf} (IOMMU group {group})",
-        bdf=bdf,
-        group=group,
+        safe_format(
+            "VFIO binding recheck passed for {bdf} (IOMMU group {group})",
+            bdf=bdf,
+            group=group,
+        ),
         prefix="VFIO",
     )
 
@@ -244,15 +273,21 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
     sysfs_path = f"/sys/bus/pci/devices/{bdf}/iommu_group"
     log_debug_safe(
         logger,
-        "Looking up IOMMU group via {sysfs_path}",
-        sysfs_path=sysfs_path,
+        safe_format(
+            "Looking up IOMMU group via {sysfs_path}",
+            sysfs_path=sysfs_path,
+        ),
         prefix="VFIO",
     )
 
     if not os.path.exists(sysfs_path):
         log_warning_safe(
             logger,
-            f"[TODO HARDEN] Device {bdf} has no IOMMU group (path not found: {sysfs_path}). Proceeding with warning.",
+            safe_format(
+                "Device {bdf} has no IOMMU group (path not found: {sysfs_path}). Proceeding with warning.",
+                bdf=bdf,
+                sysfs_path=sysfs_path,
+            ),
             prefix="VFIO",
         )
         return -1, -1
@@ -261,9 +296,11 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
         group = os.path.basename(os.readlink(sysfs_path))
         log_info_safe(
             logger,
-            "Device {bdf} is in IOMMU group {group}",
-            bdf=bdf,
-            group=group,
+            safe_format(
+                "Device {bdf} is in IOMMU group {group}",
+                bdf=bdf,
+                group=group,
+            ),
             prefix="VFIO",
         )
 
@@ -273,7 +310,11 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
     except OSError as e:
         log_warning_safe(
             logger,
-            f"[TODO HARDEN] Failed to read IOMMU group for {bdf}: {e}. Proceeding with warning.",
+            safe_format(
+                "Failed to read IOMMU group for {bdf}: {error}. Proceeding with warning.",
+                bdf=bdf,
+                error=e,
+            ),
             prefix="VFIO",
         )
         return -1, -1
@@ -281,13 +322,18 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
     # 2. Open group fd
     grp_path = f"/dev/vfio/{group}"
     log_debug_safe(
-        logger, "Opening VFIO group file: {grp_path}", grp_path=grp_path, prefix="VFIO"
+        logger,
+        safe_format("Opening VFIO group file: {grp_path}", grp_path=grp_path),
+        prefix="VFIO",
     )
 
     if not os.path.exists(grp_path):
         log_warning_safe(
             logger,
-            f"[TODO HARDEN] VFIO group file not found: {grp_path}. Proceeding with warning.",
+            safe_format(
+                "VFIO group file not found: {grp_path}. Proceeding with warning.",
+                grp_path=grp_path,
+            ),
             prefix="VFIO",
         )
         return -1, -1
@@ -295,12 +341,18 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
     try:
         grp_fd = os.open(grp_path, os.O_RDWR)
         log_debug_safe(
-            logger, "Opened group fd: {grp_fd}", grp_fd=grp_fd, prefix="VFIO"
+            logger,
+            safe_format("Opened group fd: {grp_fd}", grp_fd=grp_fd),
+            prefix="VFIO",
         )
     except OSError as e:
         log_warning_safe(
             logger,
-            f"[TODO HARDEN] Failed to open {grp_path}: {e}. Proceeding with warning.",
+            safe_format(
+                "Failed to open {grp_path}: {error}. Proceeding with warning.",
+                grp_path=grp_path,
+                error=e,
+            ),
             prefix="VFIO",
         )
         return -1, -1
@@ -311,7 +363,9 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
         try:
             cont_fd = os.open("/dev/vfio/vfio", os.O_RDWR)
             log_debug_safe(
-                logger, "Opened container fd: {cont_fd}", cont_fd=cont_fd, prefix="VFIO"
+                logger,
+                safe_format("Opened container fd: {cont_fd}", cont_fd=cont_fd),
+                prefix="VFIO",
             )
         except OSError as e:
             log_error_safe(logger, "Failed to open VFIO container: {e}", e=str(e))
@@ -398,7 +452,13 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                         "This usually indicates mismatched VFIO ioctl constants between userspace and kernel",
                         prefix="VFIO",
                     )
-                raise OSError(f"Failed to link group {group} to container: {e}")
+                raise OSError(
+                    safe_format(
+                        "Failed to link group {group} to container: {error}",
+                        group=group,
+                        error=e,
+                    )
+                )
 
             # Set the IOMMU type for the container
             try:

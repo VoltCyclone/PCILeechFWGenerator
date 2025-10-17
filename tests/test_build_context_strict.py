@@ -62,6 +62,8 @@ def test_strict_mode_with_explicit_values():
         class_code=0x030000,
         subsys_vendor_id=0x1234,
         subsys_device_id=0x5678,
+        pcie_max_link_speed_code=2,  # Gen2 - 5.0 GT/s
+        pcie_max_link_width=4,  # x4 lanes
     )
     tc = ctx.to_template_context(strict=True)
     # Should work fine with all explicit values
@@ -73,7 +75,11 @@ def test_strict_mode_with_explicit_values():
 
 
 def test_format_hex_id_defaults():
-    # Permissive returns default
-    assert format_hex_id(None, 4) == "10EC"
-    assert format_hex_id(None, 2) == "15"
-    assert format_hex_id(None, 6) == "020000"
+    # Permissive mode returns defaults
+    assert format_hex_id(None, 4, permissive=True) == "10EC"
+    assert format_hex_id(None, 2, permissive=True) == "15"
+    assert format_hex_id(None, 6, permissive=True) == "020000"
+
+    # Strict mode raises on None
+    with pytest.raises(ValueError, match=r"Cannot format None value"):
+        format_hex_id(None, 4, permissive=False)

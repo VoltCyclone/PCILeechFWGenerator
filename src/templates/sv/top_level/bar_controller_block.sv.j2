@@ -1,0 +1,137 @@
+    {% set _local_data_width = (data_width | default(64)) %}
+    {% set _local_expose_pm_sideband = expose_pm_sideband | default(power_management.has_interface_signals if power_management is defined else false) %}
+    {% set _local_enable_pme = enable_pme | default(false) %}
+    {% set _local_enable_wake_events = enable_wake_events | default(false) %}
+    {% set BAR_APERTURE_SIZE = BAR_APERTURE_SIZE | default(4096) %}
+
+    // BAR controller signals
+    logic [31:0] bar_addr;
+    logic [31:0] bar_wr_data;
+    logic        bar_wr_en;
+    logic        bar_rd_en;
+    logic [31:0] bar_rd_data;
+    logic        bar_controller_reset_n;
+    logic        cfg_ext_read_received;
+    logic        cfg_ext_write_received;
+    logic  [9:0] cfg_ext_register_number;
+    logic  [3:0] cfg_ext_function_number;
+    logic [31:0] cfg_ext_write_data;
+    logic  [3:0] cfg_ext_write_byte_enable;
+    logic [31:0] cfg_ext_read_data;
+    logic        cfg_ext_read_data_valid;
+    logic        msix_interrupt;
+    logic [10:0] msix_vector;
+    logic        msix_interrupt_ack;
+    logic        custom_win_sel;
+    logic [11:0] custom_win_addr;
+    logic [31:0] custom_win_wdata;
+    logic  [3:0] custom_win_be;
+    logic        custom_win_we;
+    logic        custom_win_re;
+    logic [31:0] custom_win_rdata;
+    
+    // Sideband signal decoding from m_axis_rx_tuser
+    logic [2:0]  bar_hit;        // Which BAR was hit
+    logic        bar_hit_valid;  // BAR hit is valid
+    logic        rx_err_fwd;     // Error forwarding flag
+    
+    // Byte enable signals
+    logic [3:0]  first_be;       // First byte enable
+    logic [3:0]  last_be;        // Last byte enable
+    logic [3:0]  current_be;     // Current byte enable for write
+
+    // Configuration management defaults (tie off for basic operation)
+    assign cfg_mgmt_di = 32'h0;
+    assign cfg_mgmt_byte_en = 4'h0;
+    assign cfg_mgmt_dwaddr = 10'h0;
+    assign cfg_mgmt_wr_en = 1'b0;
+    assign cfg_mgmt_rd_en = 1'b0;
+    assign cfg_mgmt_wr_readonly = 1'b0;
+    assign cfg_mgmt_wr_rw1c_as_rw = 1'b1;
+    assign cfg_dsn = DEVICE_SERIAL_NUMBER;
+
+    // AXI-Stream control signals - removed static tie-offs for proper handling
+    // s_axis_tx_tkeep and s_axis_tx_tlast are now driven by TLP completion logic
+    assign s_axis_tx_tuser = 4'h0;
+{%- if _local_data_width == 64 %}
+    assign m_axis_rx_tready = ~pending_wr_valid;
+{%- else %}
+    assign m_axis_rx_tready = 1'b1;
+{%- endif %}
+    assign rx_np_ok = 1'b1;
+    assign rx_np_req = 1'b1;
+    assign fc_sel = 3'b000;
+    assign tx_cfg_gnt = 1'b1;
+
+    // Interrupt tie-offs when using MSI-X only
+    assign cfg_interrupt = 1'b0;
+    assign cfg_interrupt_assert = 1'b0;
+    assign cfg_interrupt_di = 8'h00;
+    assign cfg_interrupt_stat = 1'b0;
+    assign cfg_pciecap_interrupt_msgnum = 5'h00;
+
+    // BAR controller interface tie-offs for 7-series core (no cfg_ext support)
+    assign bar_controller_reset_n = ~reset;
+    assign cfg_ext_read_received = 1'b0;
+    assign cfg_ext_write_received = 1'b0;
+    assign cfg_ext_register_number = 10'h000;
+    assign cfg_ext_function_number = 4'h0;
+    assign cfg_ext_write_data = 32'h0;
+    assign cfg_ext_write_byte_enable = 4'h0;
+    assign msix_interrupt_ack = 1'b0;
+    assign custom_win_rdata = 32'h0;
+
+
+{%- if _local_expose_pm_sideband %}
+    // Default safe values for optional PM sideband when not wired internally
+{%- if _local_enable_pme %}
+    // If no internal PM block drives To_Ack, hold low; allow external connection
+    assign pme_to_ack = 1'b0;
+    // If AUX not driven externally, expect board logic to tie appropriately
+    // (no internal assignment for inputs pme_turnoff/aux_pwr_present)
+{%- endif %}
+{%- if _local_enable_wake_events %}
+    // Deassert WAKE# by default (active-low)
+    assign wake_n = 1'b1;
+{%- endif %}
+{%- endif %}
+
+    // PCIe BAR controller integrates config shadow, MSI-X, and custom window plumbing
+    pcileech_tlps128_bar_controller #(
+        .BAR_APERTURE_SIZE({{ BAR_APERTURE_SIZE }}),
+        .NUM_MSIX({{ NUM_MSIX | default(0) }}),
+        .MSIX_TABLE_BIR({{ MSIX_TABLE_BIR | default(0) }}),
+        .MSIX_TABLE_OFFSET({{ MSIX_TABLE_OFFSET | default(0) }}),
+        .MSIX_PBA_BIR({{ MSIX_PBA_BIR | default(0) }}),
+        .MSIX_PBA_OFFSET({{ MSIX_PBA_OFFSET | default(0) }}),
+        .CONFIG_SHDW_HI({{ CONFIG_SHDW_HI | default(0) }}),
+        .CUSTOM_WIN_BASE({{ CUSTOM_WIN_BASE | default(0) }})
+    ) bar_controller_i (
+        .clk(clk),
+        .reset_n(bar_controller_reset_n),
+        .bar_index(3'd{{ MSIX_TABLE_BIR | default(0) }}),
+        .bar_addr(bar_addr),
+        .bar_wr_data(bar_wr_data),
+        .bar_wr_be(current_be),
+        .bar_wr_en(bar_wr_en),
+        .bar_rd_en(bar_rd_en),
+        .bar_rd_data(bar_rd_data),
+        .cfg_ext_read_received(cfg_ext_read_received),
+        .cfg_ext_write_received(cfg_ext_write_received),
+        .cfg_ext_register_number(cfg_ext_register_number),
+        .cfg_ext_function_number(cfg_ext_function_number),
+        .cfg_ext_write_data(cfg_ext_write_data),
+        .cfg_ext_write_byte_enable(cfg_ext_write_byte_enable),
+        .cfg_ext_read_data(cfg_ext_read_data),
+        .cfg_ext_read_data_valid(cfg_ext_read_data_valid),
+        .msix_interrupt(msix_interrupt),
+        .msix_vector(msix_vector),
+        .msix_interrupt_ack(msix_interrupt_ack),
+        .custom_win_sel(custom_win_sel),
+        .custom_win_addr(custom_win_addr),
+        .custom_win_wdata(custom_win_wdata),
+        .custom_win_be(custom_win_be),
+        .custom_win_we(custom_win_we),
+        .custom_win_re(custom_win_re),
+        .custom_win_rdata(custom_win_rdata)
+    );

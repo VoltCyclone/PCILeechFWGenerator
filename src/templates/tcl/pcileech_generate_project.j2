@@ -24,7 +24,7 @@ catch {close_project -quiet}
 # Create Vivado project
 create_project $project_name $project_dir -part $fpga_part -force
 
-# Set project properties
+# Set project properties (Vivado supports Verilog/VHDL at project level)
 set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 set_property default_lib xil_defaultlib [current_project]
@@ -76,11 +76,16 @@ if {[file exists $src_dir]} {
     }
 
     # Ensure all *.sv files are treated as SystemVerilog
-    set sv_in_proj [get_files *.sv]
+    set sv_in_proj [get_files -of_objects [get_filesets sources_1] *.sv]
     if {[llength $sv_in_proj] > 0} {
         puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"
         set_property file_type SystemVerilog $sv_in_proj
+        foreach sv_file $sv_in_proj {
+            puts "  -> File type now: [get_property file_type [get_files $sv_file]] ($sv_file)"
+        }
     }
+    # Refresh compile order after changing file types
+    update_compile_order -fileset sources_1
 }
 {% endif %}
 
@@ -156,8 +161,8 @@ create_ip -name pcie4_uscale_plus -vendor xilinx.com -library ip -module_name pc
 {%- error "Class Code must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
 {%- endif %}
 set_property -dict [list \
-    CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {{ target_link_speed | default('8.0_GT/s') }} \
-    CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {{ target_link_width_enum | default('X' ~ max_lanes ~ '') }} \
+    CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {{ target_link_speed }} \
+    CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {{ target_link_width_enum }} \
     CONFIG.AXISTEN_IF_EXT_512_RQ_STRADDLE {false} \
     CONFIG.PF0_DEVICE_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
     CONFIG.PF0_VENDOR_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
@@ -188,9 +193,14 @@ create_ip -name pcie_7x -vendor xilinx.com -library ip -module_name pcie_7x_brid
 {%- if not device.subsys_vendor_id %}
 {%- error "Subsystem Vendor ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
 {%- endif %}
+{# Compute a valid 7-series lane width enum: Artix-7(X1/X2/X4), Kintex-7(+X8) #}
+{% set _allow8 = (fpga_family == 'kintex7') %}
+{% set _valid = [1,2,4,8] if _allow8 else [1,2,4] %}
+{% set _lanes = max_lanes if max_lanes in _valid else (_valid|select('le', max_lanes)|list|max if (max_lanes is number) else 1) %}
+{% set _lane_enum = 'X' ~ _lanes %}
 set_property -dict [list \
-    CONFIG.Link_Speed {{ target_link_speed | default('2.5_GT/s') }} \
-    CONFIG.Maximum_Link_Width {{ target_link_width_enum | default('X1') }} \
+    CONFIG.Link_Speed {{ target_link_speed }} \
+    CONFIG.Maximum_Link_Width {{ target_link_width_enum }} \
     CONFIG.Device_ID {{ get_device_id(device_config, device, config_space, device_id_int) }} \
     CONFIG.Vendor_ID {{ get_vendor_id(device_config, device, config_space, vendor_id_int) }} \
     CONFIG.Revision_ID {{ device.revision_id }} \
@@ -289,7 +299,11 @@ puts "Project: $project_name"
 puts "Location: $project_dir"
 puts "FPGA Part: $fpga_part"
 puts "PCIe IP Type: {{ pcie_ip_type }}"
+{% if pcie_ip_type != 'pcie_ultrascale' %}
+puts "Max Lanes (effective 7x): {{ _lanes }}"
+{% else %}
 puts "Max Lanes: {{ max_lanes }}"
+{% endif %}
 {% if supports_msi %}
 puts "MSI Support: Enabled"
 {% endif %}

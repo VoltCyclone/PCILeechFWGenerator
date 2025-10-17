@@ -1,36 +1,52 @@
 {#- Option-ROM SPI Flash Interface Template -#}
 {{ header | safe }}
 
+`default_nettype none
+
+{# Jinja defaults to keep template renderable without full context #}
+{%- set USE_QSPI = USE_QSPI | default(false) -%}
+{%- set ENABLE_CACHE = ENABLE_CACHE | default(false) -%}
+{%- set ROM_SIZE = ROM_SIZE | default(4096) -%}
+{%- set FLASH_ADDR_OFFSET = FLASH_ADDR_OFFSET | default(0) -%}
+{%- set SPI_FAST_CMD = SPI_FAST_CMD | default('0B') -%}
+{%- if USE_QSPI -%}
+{%- set QSPI_ONLY_CMD = QSPI_ONLY_CMD | default('6B') -%}
+{%- endif -%}
+{%- set CACHE_SIZE = CACHE_SIZE | default(16) -%}
+{%- set RESET_CLEAR = RESET_CLEAR | default(true) -%}
+{%- set INIT_CACHE_VALID = INIT_CACHE_VALID | default(false) -%}
+{%- set SIGNATURE_CHECK = SIGNATURE_CHECK | default(false) -%}
+
 module option_rom_spi_flash #(
     parameter ROM_SIZE = {{ ROM_SIZE }},  // {{ ROM_SIZE }} bytes
     parameter FLASH_ADDR_OFFSET = {{ FLASH_ADDR_OFFSET }}  // Flash memory offset where ROM is stored
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // PCIe Expansion-ROM interface
-    input  logic        exp_rom_access,
-    input  logic [31:0] exp_rom_addr,
+    input  wire         exp_rom_access,
+    input  wire [31:0]  exp_rom_addr,
     output logic [31:0] exp_rom_data,
     output logic        exp_rom_data_valid,
     
     // Legacy ROM access interface (16-bit config cycles)
-    input  logic        legacy_rom_access,
-    input  logic [31:0] legacy_rom_addr,
+    input  wire         legacy_rom_access,
+    input  wire [31:0]  legacy_rom_addr,
     output logic [31:0] legacy_rom_data,
     
     // SPI Flash interface
     output logic        spi_cs_n,
     output logic        spi_clk,
     output logic        spi_mosi,
-    input  logic        spi_miso{% if USE_QSPI %},
+    input  wire         spi_miso{% if USE_QSPI %},
     
     // QSPI Flash interface
     output logic        qspi_cs_n,
     output logic        qspi_clk,
     output logic [3:0]  qspi_dq_o,
-    input  logic [3:0]  qspi_dq_i,
+    input  wire  [3:0]  qspi_dq_i,
     output logic [3:0]  qspi_dq_oe{% endif %}
 );
 
@@ -69,6 +85,8 @@ module option_rom_spi_flash #(
     logic        data_valid;
 {% if USE_QSPI %}
     logic        use_qspi;
+    // Tracks the nibble phase for QSPI transfers (1: upper nibble, 0: lower nibble)
+    logic        nibble_upper;
 {% endif %}
     
 {% if ENABLE_CACHE %}
@@ -80,7 +98,18 @@ module option_rom_spi_flash #(
     logic [3:0]  cache_index;
     logic        cache_hit;
     logic [3:0]  cache_lru_counter[0:CACHE_SIZE-1];
+    // LRU helper index (avoid declaring inside sequential logic)
+    // Note: we will call find_lru_entry() directly at use sites to avoid
+    // index timing issues with non-blocking assignments.
+    logic [3:0]  lru_index_next;
 {% endif %}
+    
+    // Latch the requesting address at transaction start to avoid mid-transaction
+    // address changes corrupting cache bookkeeping and flash accesses.
+    logic [31:0] latched_rom_addr;
+    
+    // Current requested address view for cache lookup (exp ROM has priority).
+    logic [31:0] requested_addr;
     
 {% if USE_QSPI %}
     // Determine if we should use QSPI or standard SPI
@@ -95,18 +124,28 @@ module option_rom_spi_flash #(
 {% endif %}
     
 {% if ENABLE_CACHE %}
-    // Check if requested address is in cache
+    // Effective requested address and cache hit detection
     always_comb begin
+        // Select address source: exp_rom_access has priority, then legacy.
+        // If neither active, default to the last latched request address.
+        requested_addr = exp_rom_access
+                          ? exp_rom_addr
+                          : (legacy_rom_access ? legacy_rom_addr : latched_rom_addr);
+
+        // Check if requested address is in cache (priority-encoder style, no break)
         cache_hit = 1'b0;
         cache_index = 4'h0;
-        
         for (int i = 0; i < CACHE_SIZE; i++) begin
-            if (cache_valid[i] && cache_addr[i] == {exp_rom_addr[31:2], 2'b00}) begin
+            if (!cache_hit && cache_valid[i] && cache_addr[i] == {requested_addr[31:2], 2'b00}) begin
                 cache_hit = 1'b1;
                 cache_index = i[3:0];
-                break;
             end
         end
+    end
+
+    // Combinational pick of LRU entry to insert on fill
+    always_comb begin
+        lru_index_next = find_lru_entry();
     end
     
     // Find least recently used cache entry
@@ -137,6 +176,7 @@ module option_rom_spi_flash #(
             qspi_clk <= 1'b0;
             qspi_dq_o <= 4'h0;
             qspi_dq_oe <= 4'h0;
+            nibble_upper <= 1'b1;
 {% endif %}
             bit_counter <= 4'h0;
             byte_counter <= 4'h0;
@@ -164,7 +204,7 @@ module option_rom_spi_flash #(
                 FLASH_IDLE: begin
                     data_valid <= 1'b0;
                     
-                    if (exp_rom_access) begin
+                    if (exp_rom_access || legacy_rom_access) begin
 {% if ENABLE_CACHE %}
                         if (cache_hit) begin
                             // Cache hit - return data immediately
@@ -184,7 +224,21 @@ module option_rom_spi_flash #(
                         end else begin
 {% endif %}
                             // {% if ENABLE_CACHE %}Cache miss - {% endif %}need to read from flash
-                            flash_addr <= {{ FLASH_ADDR_OFFSET }} + {exp_rom_addr[31:2], 2'b00};
+                            // Latch the address at the start of a transaction to ensure
+                            // stable addressing across the entire read sequence.
+                            if (exp_rom_access) begin
+                                latched_rom_addr <= exp_rom_addr;
+                            end else begin
+                                latched_rom_addr <= legacy_rom_addr;
+                            end
+
+                            // Use the currently requested address to avoid
+                            // reliance on same-cycle latched value.
+{% if ENABLE_CACHE %}
+                            flash_addr <= {{ FLASH_ADDR_OFFSET }} + {requested_addr[31:2], 2'b00};
+{% else %}
+                            flash_addr <= {{ FLASH_ADDR_OFFSET }} + {(exp_rom_access ? exp_rom_addr[31:2] : legacy_rom_addr[31:2]), 2'b00};
+{% endif %}
                             
 {% if USE_QSPI %}
                             if (use_qspi) begin
@@ -200,6 +254,9 @@ module option_rom_spi_flash #(
                             bit_counter <= 4'h7;  // 8 bits for command
                             shift_reg <= flash_cmd;
                             flash_state <= FLASH_CMD;
+{% if USE_QSPI %}
+                            nibble_upper <= 1'b1;
+{% endif %}
 {% if ENABLE_CACHE %}
                         end
 {% endif %}
@@ -212,14 +269,16 @@ module option_rom_spi_flash #(
                     if (use_qspi) begin
                         qspi_clk <= ~qspi_clk;
                         if (qspi_clk) begin
-                            if (bit_counter[0] == 1'b0) begin
-                                // Send upper nibble on even counts
+                            if (nibble_upper) begin
+                                // Send upper nibble first
                                 qspi_dq_o <= shift_reg[7:4];
+                                nibble_upper <= 1'b0;
                             end else begin
-                                // Send lower nibble on odd counts
+                                // Send lower nibble
                                 qspi_dq_o <= shift_reg[3:0];
+                                nibble_upper <= 1'b1;
                                 shift_reg <= 8'h00;  // Clear for next byte
-                                
+
                                 if (bit_counter == 4'h1) begin
                                     bit_counter <= 4'h7;  // 8 bits for address high byte
                                     shift_reg <= flash_addr[23:16];
@@ -255,12 +314,14 @@ module option_rom_spi_flash #(
                     if (use_qspi) begin
                         qspi_clk <= ~qspi_clk;
                         if (qspi_clk) begin
-                            if (bit_counter[0] == 1'b0) begin
+                            if (nibble_upper) begin
                                 qspi_dq_o <= shift_reg[7:4];
+                                nibble_upper <= 1'b0;
                             end else begin
                                 qspi_dq_o <= shift_reg[3:0];
+                                nibble_upper <= 1'b1;
                                 shift_reg <= 8'h00;
-                                
+
                                 if (bit_counter == 4'h1) begin
                                     bit_counter <= 4'h7;  // 8 bits for address middle byte
                                     shift_reg <= flash_addr[15:8];
@@ -296,12 +357,14 @@ module option_rom_spi_flash #(
                     if (use_qspi) begin
                         qspi_clk <= ~qspi_clk;
                         if (qspi_clk) begin
-                            if (bit_counter[0] == 1'b0) begin
+                            if (nibble_upper) begin
                                 qspi_dq_o <= shift_reg[7:4];
+                                nibble_upper <= 1'b0;
                             end else begin
                                 qspi_dq_o <= shift_reg[3:0];
+                                nibble_upper <= 1'b1;
                                 shift_reg <= 8'h00;
-                                
+
                                 if (bit_counter == 4'h1) begin
                                     bit_counter <= 4'h7;  // 8 bits for address low byte
                                     shift_reg <= flash_addr[7:0];
@@ -337,11 +400,13 @@ module option_rom_spi_flash #(
                     if (use_qspi) begin
                         qspi_clk <= ~qspi_clk;
                         if (qspi_clk) begin
-                            if (bit_counter[0] == 1'b0) begin
+                            if (nibble_upper) begin
                                 qspi_dq_o <= shift_reg[7:4];
+                                nibble_upper <= 1'b0;
                             end else begin
                                 qspi_dq_o <= shift_reg[3:0];
-                                
+                                nibble_upper <= 1'b1;
+
                                 if (bit_counter == 4'h1) begin
                                     bit_counter <= 4'h7;  // 8 dummy cycles for QSPI
                                     flash_state <= FLASH_DUMMY;
@@ -405,29 +470,27 @@ module option_rom_spi_flash #(
                     if (use_qspi) begin
                         qspi_clk <= ~qspi_clk;
                         if (!qspi_clk) begin  // Sample on falling edge
-                            if (bit_counter[0] == 1'b0) begin
-                                // Read upper nibble
-                                flash_data <= {flash_data[27:0], qspi_dq_i};
+                            // Shift in 4 bits at a time; upper nibble first
+                            flash_data <= {flash_data[27:0], qspi_dq_i};
+                            if (nibble_upper) begin
+                                nibble_upper <= 1'b0;
                             end else begin
-                                // Read lower nibble
-                                flash_data <= {flash_data[27:0], qspi_dq_i};
-                                
+                                nibble_upper <= 1'b1;
                                 if (bit_counter == 4'h1 && byte_counter == 4'h3) begin
                                     // Completed reading 32 bits
                                     flash_state <= FLASH_COMPLETE;
                                     qspi_cs_n <= 1'b1;  // Deselect flash
                                     data_valid <= 1'b1;
-                                    
+
 {% if ENABLE_CACHE %}
-                                    // Update cache with new data
-                                    logic [3:0] new_cache_index = find_lru_entry();
-                                    cache_valid[new_cache_index] <= 1'b1;
-                                    cache_addr[new_cache_index] <= {exp_rom_addr[31:2], 2'b00};
-                                    cache_data[new_cache_index] <= flash_data;
-                                    
+                                    // Update cache with new data using the latched address
+                                    cache_valid[lru_index_next] <= 1'b1;
+                                    cache_addr[lru_index_next] <= {latched_rom_addr[31:2], 2'b00};
+                                    cache_data[lru_index_next] <= flash_data;
+
                                     // Update LRU counters
                                     for (int i = 0; i < CACHE_SIZE; i++) begin
-                                        if (i[3:0] == new_cache_index) begin
+                                        if (i[3:0] == lru_index_next) begin
                                             cache_lru_counter[i] <= 4'hF;  // Most recently used
                                         end else if (cache_lru_counter[i] > 4'h0) begin
                                             cache_lru_counter[i] <= cache_lru_counter[i] - 1'b1;
@@ -455,15 +518,14 @@ module option_rom_spi_flash #(
                                 data_valid <= 1'b1;
                                 
 {% if ENABLE_CACHE %}
-                                // Update cache with new data
-                                logic [3:0] new_cache_index = find_lru_entry();
-                                cache_valid[new_cache_index] <= 1'b1;
-                                cache_addr[new_cache_index] <= {exp_rom_addr[31:2], 2'b00};
-                                cache_data[new_cache_index] <= flash_data;
+                                // Update cache with new data using the latched address
+                                cache_valid[lru_index_next] <= 1'b1;
+                                cache_addr[lru_index_next] <= {latched_rom_addr[31:2], 2'b00};
+                                cache_data[lru_index_next] <= flash_data;
                                 
                                 // Update LRU counters
                                 for (int i = 0; i < CACHE_SIZE; i++) begin
-                                    if (i[3:0] == new_cache_index) begin
+                                    if (i[3:0] == lru_index_next) begin
                                         cache_lru_counter[i] <= 4'hF;  // Most recently used
                                     end else if (cache_lru_counter[i] > 4'h0) begin
                                         cache_lru_counter[i] <= cache_lru_counter[i] - 1'b1;
@@ -513,3 +575,5 @@ module option_rom_spi_flash #(
 {% endif %}
 
 endmodule
+
+`default_nettype wire

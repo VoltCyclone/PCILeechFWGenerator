@@ -2,6 +2,8 @@
 {% from "_helpers.j2" import get_vendor_id, get_device_id %}
 {{ header | safe }}
 
+`default_nettype none
+
 {#- Handle device_type: can be string, dict, or object with .value -#}
 {%- if device_config.device_type is string -%}
     {%- set device_type = device_config.device_type -%}
@@ -39,54 +41,47 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     parameter COUNTER_WIDTH = {{ perf_counter_width }}
 ) (
     // Clock and reset
-    input  logic        clk,
-    input  logic        reset_n,
+    input  wire         clk,
+    input  wire         reset_n,
     
     // Memory clock domain
-    input  logic        mem_clk,
-    input  logic        mem_reset_n,
+    input  wire         mem_clk,
+    input  wire         mem_reset_n,
     
     // Auxiliary clock domain  
-    input  logic        aux_clk,
-    input  logic        aux_reset_n,
+    input  wire         aux_clk,
+    input  wire         aux_reset_n,
 
     // BAR interface
-    input  logic [31:0] bar_addr,
-    input  logic [31:0] bar_wr_data,
-    input  logic        bar_wr_en,
-    input  logic        bar_rd_en,
+    input  wire  [31:0] bar_addr,
+    input  wire  [31:0] bar_wr_data,
+    input  wire         bar_wr_en,
+    input  wire         bar_rd_en,
     output logic [31:0] bar_rd_data,
     output logic        bar_rd_valid,
 
     // Configuration space interface
-    input  logic        cfg_ext_read_received,
-    input  logic        cfg_ext_write_received,
-    input  logic [9:0]  cfg_ext_register_number,
-    input  logic [3:0]  cfg_ext_function_number,
-    input  logic [31:0] cfg_ext_write_data,
-    input  logic [3:0]  cfg_ext_write_byte_enable,
+    input  wire         cfg_ext_read_received,
+    input  wire         cfg_ext_write_received,
+    input  wire  [9:0]  cfg_ext_register_number,
+    input  wire  [3:0]  cfg_ext_function_number,
+    input  wire  [31:0] cfg_ext_write_data,
+    input  wire  [3:0]  cfg_ext_write_byte_enable,
     output logic [31:0] cfg_ext_read_data,
     output logic        cfg_ext_read_data_valid,
 
     // MSI-X interrupt interface
     output logic        msix_interrupt,
     output logic [10:0] msix_vector,
-    input  logic        msix_interrupt_ack,
+    input  wire         msix_interrupt_ack,
 
-{%- if device_type == 'audio' %}
-    // Audio-specific ports
-    output logic [23:0] audio_data_left,
-    output logic [23:0] audio_data_right,
-    output logic        audio_valid,
-    input  logic        audio_ready,
-    output logic        audio_clk,
-{%- elif device_type == 'network' %}
+{%- if device_type == 'network' %}
     // Network-specific ports
     output logic [63:0] tx_data,
     output logic        tx_valid,
-    input  logic        tx_ready,
-    input  logic [63:0] rx_data,
-    input  logic        rx_valid,
+    input  wire         tx_ready,
+    input  wire  [63:0] rx_data,
+    input  wire         rx_valid,
     output logic        rx_ready,
 {%- elif device_type == 'storage' %}
     // Storage-specific ports
@@ -94,8 +89,8 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     output logic [31:0] storage_wr_data,
     output logic        storage_wr_en,
     output logic        storage_rd_en,
-    input  logic [31:0] storage_rd_data,
-    input  logic        storage_ready,
+    input  wire  [31:0] storage_rd_data,
+    input  wire         storage_ready,
 {%- elif device_type == 'graphics' %}
     // Graphics-specific ports
     output logic [23:0] pixel_data,
@@ -106,9 +101,10 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
 {%- endif %}
 
     // Power management interface
-    input  logic        power_down_request,
-    input  logic        power_up_request,
-    output logic        power_ready,
+    // Module issues requests; external PM acknowledges readiness
+    output logic        power_down_request,
+    output logic        power_up_request,
+    input  wire         power_ready,
     output logic [1:0]  current_power_state,
 
     // Debug and status
@@ -116,19 +112,33 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     output logic        device_ready
 );
 
-{%- include 'sv/register_declarations.sv.j2' %}
+{%- include 'sv/components/register_declarations.sv.j2' %}
 
 {%- if power_management %}
 {%- include 'sv/power_management.sv.j2' %}
 {%- endif %}
 
 {%- if error_handling %}
-{%- include 'sv/error_handling.sv.j2' %}
+{%- include 'sv/error_handling/error_handling_complete.sv.j2' %}
+{%- else %}
+    // Safe fallbacks when error handling block not included
+    logic [31:0] error_status = 32'h0;
+    logic [1:0]  error_state = 2'b00;
+    logic        error_recovery_active = 1'b0;
 {%- endif %}
 
 {%- if performance_counters is defined and performance_counters %}
 {%- include 'sv/performance_counters.sv.j2' %}
+{%- else %}
+    // Safe fallbacks when performance counters not included
+    logic [31:0] perf_counter_data = 32'h0;
+    logic [3:0]  perf_counter_select = 4'h0;
+    logic        performance_overflow = 1'b0;
 {%- endif %}
+
+    // Interrupt control signals (locally owned by this module)
+    logic        interrupt_pending;
+    logic [3:0]  interrupt_priority;
 
     // Register access logic
     always_ff @(posedge clk or negedge reset_n) begin
@@ -137,6 +147,14 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
             bar_rd_valid <= 1'b0;
             cfg_ext_read_data <= 32'h0;
             cfg_ext_read_data_valid <= 1'b0;
+            // Power management defaults
+            power_down_request <= 1'b0;
+            power_up_request   <= 1'b0;
+            current_power_state <= 2'b00; // D0 by default
+            // Default perf selector
+            perf_counter_select <= 4'h0;
+            // Default interrupt priority
+            interrupt_priority <= 4'h0;
 {%- for reg in registers %}
             {{ reg.name }}_access_pending <= 1'b0;
             {{ reg.name }}_timing_counter <= 8'h0;
@@ -152,7 +170,10 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
                 case (bar_addr[15:2])  // Word-aligned access
 {%- for reg in registers %}
 {%- set reg_addr = (reg.offset | int(base=16)) // 4 %}
-                    14'h{{ "%04X" | format(reg_addr) }}: bar_rd_data <= {{ reg.name }}_reg;
+                    14'h{{ "%04X" | format(reg_addr) }}: begin
+                        bar_rd_data <= {{ reg.name }}_reg;
+                        {{ reg.name }}_access_pending <= 1'b1;
+                    end
 {%- endfor %}
 {%- if performance_counters is defined and performance_counters %}
                     14'h1000: bar_rd_data <= perf_counter_data;  // Performance counter data
@@ -168,7 +189,10 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
                 case (bar_addr[15:2])  // Word-aligned access
 {%- for reg in registers %}
 {%- set reg_addr = (reg.offset | int(base=16)) // 4 %}
-                    14'h{{ "%04X" | format(reg_addr) }}: {{ reg.name }}_reg <= bar_wr_data;
+                    14'h{{ "%04X" | format(reg_addr) }}: begin
+                        {{ reg.name }}_reg <= bar_wr_data;
+                        {{ reg.name }}_access_pending <= 1'b1;
+                    end
 {%- endfor %}
 {%- if performance_counters is defined and performance_counters %}
                     14'h1001: perf_counter_select <= bar_wr_data[3:0];  // Performance counter select
@@ -215,6 +239,17 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
                 endcase
             end
             
+            // Auto-clear power requests on acknowledge and update state
+            if (power_ready) begin
+                if (power_down_request) begin
+                    power_down_request <= 1'b0;
+                    current_power_state <= 2'b01; // D1/D3 simplified
+                end else if (power_up_request) begin
+                    power_up_request <= 1'b0;
+                    current_power_state <= 2'b00; // D0
+                end
+            end
+
             // Update timing counters for register access simulation
 {%- for reg in registers %}
             if ({{ reg.name }}_access_pending) begin
@@ -228,31 +263,11 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
         end
     end
 
-{%- if device_type == 'audio' %}
-    // Audio-specific logic
-    always_ff @(posedge clk or negedge reset_n) begin
-        if (!reset_n) begin
-            audio_data_left <= 24'h0;
-            audio_data_right <= 24'h0;
-            audio_valid <= 1'b0;
-        end else if (audio_enable && audio_ready) begin
-            // Generate simple test tone or pass through audio data
-            audio_data_left <= {volume_left, 8'h0};
-            audio_data_right <= {volume_right, 8'h0};
-            audio_valid <= 1'b1;
-        end else begin
-            audio_valid <= 1'b0;
-        end
-    end
-    
-    assign audio_clk = clk;  // Use system clock for audio (simplified)
-{%- endif %}
-
     // Device ready and debug status
     assign device_ready = power_ready && !error_recovery_active;
     assign debug_status = {
-        8'h{{ '%02x' % ((get_vendor_id(device_config, device, config_space, vendor_id_int) | safe_int(FALLBACK_VENDOR_ID)) // 256) }},  // Vendor ID high byte
-        8'h{{ '%02x' % ((get_device_id(device_config, device, config_space, device_id_int) | safe_int(FALLBACK_DEVICE_ID)) // 256) }},  // Device ID high byte
+        8'h{{ '%02x' % ((get_vendor_id(device_config, device, config_space, vendor_id_int) | safe_int(0) // 256)) }},  // Vendor ID high byte (0 if unknown)
+        8'h{{ '%02x' % ((get_device_id(device_config, device, config_space, device_id_int) | safe_int(0) // 256)) }},  // Device ID high byte (0 if unknown)
         4'h0,
         current_power_state,
         error_state[1:0],
@@ -285,3 +300,5 @@ module pcileech_advanced_{{ device_type }}_{{ device_class }} #(
     end
 
 endmodule
+
+`default_nettype wire

@@ -107,6 +107,7 @@ class PerformanceCounterGenerator:
         device_type: DeviceType = DeviceType.GENERIC,
         renderer=None,
         logger: Optional[logging.Logger] = None,
+        prefix: str = "PERF",
     ):
         """Initialize the performance counter generator."""
         self.config = config or PerformanceCounterConfig()
@@ -121,7 +122,7 @@ class PerformanceCounterGenerator:
             self.config.enable_latency_measurement = self.config.enable_latency_tracking
         self.device_type = device_type
         self.logger = logger or logging.getLogger(__name__)
-
+        self.prefix = prefix
         # Initialize template renderer
         if renderer is None:
             from .template_renderer import TemplateRenderer
@@ -132,8 +133,11 @@ class PerformanceCounterGenerator:
 
         log_info_safe(
             self.logger,
-            "Initialized PerformanceCounterGenerator for device type: {device_type}",
-            device_type=device_type.value,
+            safe_format(
+                "Initialized PerformanceCounterGenerator for device type: {device_type}",
+                device_type=device_type.value,
+            ),
+            prefix=prefix,
         )
 
     def generate_perf_declarations(self) -> str:
@@ -226,11 +230,13 @@ class PerformanceCounterGenerator:
 
         log_info_safe(
             self.logger,
-            "Built performance context with {count} parameters for device type {device_type}",
-            count=len(context),
-            device_type=context["device_type"],
+            safe_format(
+                "Built performance context with {count} parameters for device type {device_type}",
+                count=len(context),
+                device_type=context["device_type"],
+            ),
+            prefix=self.prefix,
         )
-
         return context
 
     def _get_device_specific_param(
@@ -248,45 +254,35 @@ class PerformanceCounterGenerator:
     ) -> str:
         """Generate transaction counting logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_bandwidth_monitoring(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate bandwidth monitoring logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_latency_measurement(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate latency measurement logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_error_rate_tracking(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate error rate tracking logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_device_specific_counters(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate device-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def _generate_network_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -294,9 +290,7 @@ class PerformanceCounterGenerator:
         """Generate network-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
         context["device_type"] = "network"
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def _generate_storage_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -304,9 +298,7 @@ class PerformanceCounterGenerator:
         """Generate storage-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
         context["device_type"] = "storage"
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def _generate_graphics_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -314,9 +306,7 @@ class PerformanceCounterGenerator:
         """Generate graphics-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
         context["device_type"] = "graphics"
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_performance_grading(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -324,9 +314,7 @@ class PerformanceCounterGenerator:
         """Generate overall performance grading logic."""
         context = self._build_context_from_template_context(template_context or {})
         context["enable_performance_grading"] = True
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_perf_outputs(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -334,9 +322,7 @@ class PerformanceCounterGenerator:
         """Generate performance counter output assignments."""
         context = self._build_context_from_template_context(template_context or {})
         context["enable_perf_outputs"] = True
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate_complete_performance_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -347,13 +333,14 @@ class PerformanceCounterGenerator:
 
         log_info_safe(
             self.logger,
-            "Generating complete performance counters for device type: {device_type}",
-            device_type=context["device_type"],
+            safe_format(
+                "Generating complete performance counters for device type: {device_type}",
+                device_type=context["device_type"],
+            ),
+            prefix=self.prefix,
         )
 
-        return self.renderer.render_template(
-            "systemverilog/advanced/performance_counters.sv.j2", context
-        )
+        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
 
     def generate(self, template_context: Optional[Dict[str, Any]] = None) -> str:
         """Alias for generate_complete_performance_counters."""

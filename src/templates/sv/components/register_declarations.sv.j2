@@ -85,13 +85,6 @@
     logic [31:0] pixel_clock = 32'h0;
     logic display_active = 1'b0;
     logic [1:0] resolution_mode = 2'b00;
-{%- elif device_type == 'audio' %}
-    // Audio controller specific signals
-    logic [31:0] sample_rate = 32'h0000AC44;  // 44.1 kHz
-    logic [15:0] volume_left = 16'h8000;
-    logic [15:0] volume_right = 16'h8000;
-    logic audio_enable = 1'b0;
-    logic [1:0] audio_format = 2'b00;
 {%- else %}
     // Generic device signals
     logic [31:0] device_status = 32'h00000001;

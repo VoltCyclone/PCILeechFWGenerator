@@ -89,7 +89,7 @@ class TestTemplateRendering:
     def test_device_specific_ports_with_string_values(self, renderer, base_context):
         """Test device_specific_ports template with string device_type."""
         result = renderer.render_template(
-            "sv/device_specific_ports.sv.j2", base_context
+            "sv/components/device_specific_ports.sv.j2", base_context
         )
 
         # Should render network-specific ports
@@ -220,7 +220,7 @@ class TestTemplateRendering:
     def test_register_declarations_with_string_values(self, renderer, base_context):
         """Test register_declarations template with string values."""
         result = renderer.render_template(
-            "sv/register_declarations.sv.j2", base_context
+            "sv/components/register_declarations.sv.j2", base_context
         )
 
         # Should render without errors
@@ -243,7 +243,9 @@ class TestTemplateRendering:
             "registers": [],
         }
 
-        result = renderer.render_template("sv/device_specific_ports.sv.j2", context)
+        result = renderer.render_template(
+            "sv/components/device_specific_ports.sv.j2", context
+        )
 
         # Should extract value from dictionary
         assert "Storage-specific ports" in result or "storage" in result.lower()
@@ -279,7 +281,9 @@ class TestTemplateRendering:
         )
 
         # Template should handle both string and dict formats
-        result = renderer.render_template("sv/error_recovery.sv.j2", context)
+        result = renderer.render_template(
+            "sv/error_handling/error_recovery.sv.j2", context
+        )
         assert "ERROR_TIMEOUT" in result
         assert "ERROR_CRC" in result
 
@@ -338,7 +342,7 @@ class TestTemplateRendering:
             }
         )
 
-        result = renderer.render_template("sv/register_logic.sv.j2", context)
+        result = renderer.render_template("sv/components/register_logic.sv.j2", context)
         # Should handle all value formats
         assert "control_reg" in result
         assert "status_reg" in result

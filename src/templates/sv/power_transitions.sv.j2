@@ -1,15 +1,17 @@
 {% from "_helpers.j2" import safe_attr %}
 {{ header | safe }}
 
+`default_nettype none
+
 module power_transitions #(
     parameter NUM_STATES = 8
 ) (
-    input  logic clk,
-    input  logic rst_n,
+    input  wire  clk,
+    input  wire  rst_n,
     
     // State inputs
-    input  logic [2:0] current_state,
-    input  logic [2:0] next_state,
+    input  wire  [2:0] current_state,
+    input  wire  [2:0] next_state,
     
     // Transition outputs
     output logic [15:0] transition_counter,
@@ -51,6 +53,8 @@ endfunction
 
 // Transition state machine
 always_ff @(posedge clk or negedge rst_n) begin
+    // Hoist declarations to the top of the block for tool compatibility
+    logic [15:0] required_delay;
     if (!rst_n) begin
         transition_counter <= 16'h0;
         transition_complete <= 1'b0;
@@ -66,7 +70,7 @@ always_ff @(posedge clk or negedge rst_n) begin
             transition_source_state <= current_state;
             transition_target_state <= next_state;
         end else if (transition_in_progress) begin
-            logic [15:0] required_delay = get_transition_delay(transition_source_state, transition_target_state);
+            required_delay = get_transition_delay(transition_source_state, transition_target_state);
             
             if (transition_counter < required_delay) begin
                 transition_counter <= transition_counter + 1'b1;
@@ -85,8 +89,10 @@ end
 // Transition progress indicator (for debugging/monitoring)
 logic [7:0] transition_progress_percent;
 always_comb begin
+    // Declare locals at top of block
+    logic [15:0] required_delay;
     if (transition_in_progress) begin
-        logic [15:0] required_delay = get_transition_delay(transition_source_state, transition_target_state);
+        required_delay = get_transition_delay(transition_source_state, transition_target_state);
         if (required_delay > 0) begin
             transition_progress_percent = (transition_counter * 8'd100) / required_delay;
         end else begin
@@ -171,3 +177,5 @@ always_comb begin
 end
 
 endmodule
+
+`default_nettype wire

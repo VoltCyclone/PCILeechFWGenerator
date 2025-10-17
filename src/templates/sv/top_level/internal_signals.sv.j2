@@ -1,0 +1,154 @@
+    {% set _local_max_lanes = _max_lanes if _max_lanes is defined else 1 %}
+    {% set _local_lane_width = _lane_width if _lane_width is defined else (_local_max_lanes - 1) %}
+    {% set _local_data_width = (data_width | default(64)) %}
+    {%- if _dsn_hex is defined %}
+        {% set _root_dsn_hex = _dsn_hex %}
+    {%- else %}
+        {% set _root_dsn_hex = device_serial_number_hex | default("0x0000000000000000") %}
+    {%- endif %}
+    {% set _local_dsn_hex = _root_dsn_hex[2:] if _root_dsn_hex.startswith("0x") else _root_dsn_hex %}
+    {%- if _dsn_valid is defined %}
+        {% set _local_dsn_valid = _dsn_valid %}
+    {%- else %}
+        {% set _local_dsn_valid = device_serial_number_valid | default(false) %}
+    {%- endif %}
+
+    logic        clk;
+    logic        reset;  // Active-high reset
+    logic        device_ready;
+    logic [{{ _local_data_width - 1 }}:0] pcie_rx_data;
+    logic        pcie_rx_valid;
+    logic [{{ _local_data_width - 1 }}:0] pcie_tx_data;
+    logic        pcie_tx_valid;
+    logic        pcie_tx_ready;
+
+    // Additional AXI-Stream sideband/control signals required by core
+    // 64-bit data path -> tkeep is 8 bits wide
+    logic  [7:0] s_axis_tx_tkeep;
+    logic        s_axis_tx_tlast;
+    logic  [3:0] s_axis_tx_tuser;
+    // 64-bit data path -> tkeep is 8 bits wide
+    logic  [7:0] m_axis_rx_tkeep;
+    logic        m_axis_rx_tlast;
+    logic [21:0] m_axis_rx_tuser;
+    logic        m_axis_rx_tready;
+    
+    // Configuration space management interface (7-series uses cfg_mgmt_*, not cfg_ext_*)
+    logic [31:0] cfg_mgmt_do;
+    logic        cfg_mgmt_rd_wr_done;
+    logic [31:0] cfg_mgmt_di;
+    logic  [3:0] cfg_mgmt_byte_en;
+    logic  [9:0] cfg_mgmt_dwaddr;
+    logic        cfg_mgmt_wr_en;
+    logic        cfg_mgmt_rd_en;
+    logic        cfg_mgmt_wr_readonly;
+    logic        cfg_mgmt_wr_rw1c_as_rw;
+    logic [63:0] cfg_dsn;
+    localparam logic [63:0] DEVICE_SERIAL_NUMBER = 64'h{{ _local_dsn_hex }};
+{%- if not _local_dsn_valid %}
+    // NOTE: Donor did not report a DSN; cfg_dsn defaults to zero for compliance.
+{%- endif %}
+    
+    // Interrupt status (outputs) and INTx/MSI inputs (tied off if MSI-X only)
+    logic        cfg_interrupt_msixenable;
+    logic        cfg_interrupt_msixfm;
+    logic        cfg_interrupt_rdy;
+    logic  [7:0] cfg_interrupt_do;
+    logic  [2:0] cfg_interrupt_mmenable;
+    logic        cfg_interrupt_msienable;
+
+    // Tie-off inputs for legacy/MSI interrupt path (INTx/MSI)
+    logic        cfg_interrupt;                 // tie low
+    logic        cfg_interrupt_assert;          // tie low
+    logic  [7:0] cfg_interrupt_di;             // tie 0
+    logic        cfg_interrupt_stat;            // tie low
+    logic  [4:0] cfg_pciecap_interrupt_msgnum;  // tie 0
+
+    // Flow control and throttling
+    logic  [2:0] fc_sel;                        // tie 0 when unused
+
+    // Non-posted request controls
+    logic        rx_np_ok;                      // tie 1 when always ok
+    logic        rx_np_req;                     // tie 1 when always request allowed
+
+    // TX config grant (some variants require a grant)
+    logic        tx_cfg_gnt;                    // tie 1 when no arbiter present
+    
+    // Debug status (internal)
+    logic [31:0] debug_status;
+
+    // ---------------------------------------------------------------------
+    // PIPE/CFG tie-offs for 7-series PCIe IP to avoid driverless nets
+    // These are inputs to the IP that must be driven; use safe defaults.
+    // ---------------------------------------------------------------------
+    // PIPE clocking inputs
+    logic                      pipe_pclk_in;
+    logic                      pipe_rxusrclk_in;
+    logic [{{ _local_lane_width }}:0] pipe_rxoutclk_in;
+    logic                      pipe_dclk_in;
+    logic                      pipe_userclk1_in;
+    logic                      pipe_userclk2_in;
+    logic                      pipe_oobclk_in;
+    logic                      pipe_mmcm_lock_in;
+
+    assign pipe_pclk_in       = 1'b0;
+    assign pipe_rxusrclk_in   = 1'b0;
+    assign pipe_rxoutclk_in   = {({{ _local_max_lanes }}){1'b0}};
+    assign pipe_dclk_in       = 1'b0;
+    assign pipe_userclk1_in   = 1'b0;
+    assign pipe_userclk2_in   = 1'b0;
+    assign pipe_oobclk_in     = 1'b0;
+    assign pipe_mmcm_lock_in  = 1'b1; // locked by default
+
+    // Configuration/error/control inputs
+    logic        cfg_err_ecrc;
+    logic        cfg_err_ur;
+    logic        cfg_err_cpl_timeout;
+    logic        cfg_err_cpl_unexpect;
+    logic        cfg_err_cpl_abort;
+    logic        cfg_err_posted;
+    logic        cfg_err_cor;
+    logic        cfg_err_atomic_egress_blocked;
+    logic        cfg_err_internal_cor;
+    logic        cfg_err_malformed;
+    logic        cfg_err_mc_blocked;
+    logic        cfg_err_poisoned;
+    logic        cfg_err_norecovery;
+    logic        cfg_err_locked;
+    logic        cfg_err_acs;
+    logic        cfg_err_internal_uncor;
+    logic [47:0] cfg_err_tlp_cpl_header;
+    logic        cfg_trn_pending;
+    logic        cfg_pm_halt_aspm_l0s;
+    logic        cfg_pm_halt_aspm_l1;
+    logic        cfg_pm_force_state_en;
+    logic  [1:0] cfg_pm_force_state;
+    logic        cfg_pm_wake;
+    logic        cfg_to_turnoff;
+    logic        cfg_turnoff_ok;
+
+    assign cfg_err_ecrc                   = 1'b0;
+    assign cfg_err_ur                     = 1'b0;
+    assign cfg_err_cpl_timeout            = 1'b0;
+    assign cfg_err_cpl_unexpect           = 1'b0;
+    assign cfg_err_cpl_abort              = 1'b0;
+    assign cfg_err_posted                 = 1'b0;
+    assign cfg_err_cor                    = 1'b0;
+    assign cfg_err_atomic_egress_blocked  = 1'b0;
+    assign cfg_err_internal_cor           = 1'b0;
+    assign cfg_err_malformed              = 1'b0;
+    assign cfg_err_mc_blocked             = 1'b0;
+    assign cfg_err_poisoned               = 1'b0;
+    assign cfg_err_norecovery             = 1'b0;
+    assign cfg_err_locked                 = 1'b0;
+    assign cfg_err_acs                    = 1'b0;
+    assign cfg_err_internal_uncor         = 1'b0;
+    assign cfg_err_tlp_cpl_header         = 48'h0;
+    assign cfg_trn_pending                = 1'b0;
+    assign cfg_pm_halt_aspm_l0s           = 1'b0;
+    assign cfg_pm_halt_aspm_l1            = 1'b0;
+    assign cfg_pm_force_state_en          = 1'b0;
+    assign cfg_pm_force_state             = 2'b00;
+    assign cfg_pm_wake                    = 1'b0;
+    assign cfg_to_turnoff                 = 1'b0;
+    assign cfg_turnoff_ok                 = 1'b0;

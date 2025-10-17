@@ -16,42 +16,61 @@ import os
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from pathlib import Path
-from typing import (TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict,
-                    Union, cast)
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict, Union, cast
 
-from src.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
-                                    VFIO_REGION_INFO_FLAG_MMAP,
-                                    VFIO_REGION_INFO_FLAG_READ,
-                                    VFIO_REGION_INFO_FLAG_WRITE,
-                                    VfioRegionInfo)
+from src.cli.vfio_constants import (
+    VFIO_DEVICE_GET_REGION_INFO,
+    VFIO_REGION_INFO_FLAG_MMAP,
+    VFIO_REGION_INFO_FLAG_READ,
+    VFIO_REGION_INFO_FLAG_WRITE,
+    VfioRegionInfo,
+)
 from src.device_clone.bar_content_generator import BarContentGenerator
 from src.device_clone.bar_size_converter import extract_bar_size
 from src.device_clone.behavior_profiler import BehaviorProfile
 from src.device_clone.board_config import get_pcileech_board_config
 from src.device_clone.config_space_manager import BarInfo, ConfigSpaceConstants
-from src.device_clone.constants import (BAR_SIZE_CONSTANTS,
-                                        BAR_TYPE_MEMORY_64BIT,
-                                        DEFAULT_CLASS_CODE,
-                                        DEFAULT_EXT_CFG_CAP_PTR,
-                                        DEFAULT_REVISION_ID,
-                                        DEVICE_ID_FALLBACK, MAX_32BIT_VALUE,
-                                        PCI_CLASS_AUDIO, PCI_CLASS_DISPLAY,
-                                        PCI_CLASS_NETWORK, PCI_CLASS_STORAGE,
-                                        POWER_STATE_D0)
+from src.device_clone.constants import (
+    BAR_SIZE_CONSTANTS,
+    BAR_TYPE_MEMORY_64BIT,
+    DEFAULT_CLASS_CODE,
+    DEFAULT_EXT_CFG_CAP_PTR,
+    DEFAULT_REVISION_ID,
+    DEVICE_ID_FALLBACK,
+    MAX_32BIT_VALUE,
+    PCI_CLASS_AUDIO,
+    PCI_CLASS_DISPLAY,
+    PCI_CLASS_NETWORK,
+    PCI_CLASS_STORAGE,
+    POWER_STATE_D0,
+)
 from src.device_clone.device_config import get_device_config
-from src.device_clone.fallback_manager import (FallbackManager,
-                                               get_global_fallback_manager)
+from src.device_clone.fallback_manager import (
+    FallbackManager,
+    get_global_fallback_manager,
+)
 from src.device_clone.identifier_normalizer import IdentifierNormalizer
 from src.device_clone.overlay_mapper import OverlayMapper
+from src.device_clone.overlay_utils import (
+    compute_sparse_hash_table_size,
+    normalize_overlay_entry_count,
+)
 from src.error_utils import extract_root_cause
 from src.exceptions import ContextError
 from src.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
-from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
-from ..utils.validation_constants import (CORE_DEVICE_ID_FIELDS,
-                                          CORE_DEVICE_IDS,
-                                          REQUIRED_CONTEXT_SECTIONS)
+from ..utils.validation_constants import (
+    CORE_DEVICE_ID_FIELDS,
+    CORE_DEVICE_IDS,
+    REQUIRED_CONTEXT_SECTIONS,
+)
 
 # NOTE: Don't import VFIO helper callables at module import time. Tests
 # commonly patch the functions on the `src.cli.vfio_helpers` module. To
@@ -71,8 +90,11 @@ def require(condition: bool, message: str, **context) -> None:
         raise SystemExit(2)
 
 
-from src.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
-                                       ensure_template_compatibility)
+from src.utils.unified_context import (
+    TemplateObject,
+    UnifiedContextBuilder,
+    ensure_template_compatibility,
+)
 from src.utils.validation_constants import SV_FILE_HEADER
 
 # ---------------------------------------------------------------------------
@@ -154,6 +176,9 @@ class TemplateContext(TypedDict, total=False):
     timing_config: Dict[str, Any]
     pcileech_config: Dict[str, Any]
     board_config: Dict[str, Any]
+    # Donor-derived PCIe link capabilities (codes)
+    pcie_max_link_speed: int
+    pcie_max_link_width: int
     EXT_CFG_CAP_PTR: int
     EXT_CFG_XP_CAP_PTR: int
     # Optional VFIO availability/verification flags for integration rendering
@@ -196,13 +221,23 @@ class DeviceIdentifiers:
 
     @property
     def device_signature(self) -> str:
-        return f"{self.vendor_id}:{self.device_id}"
+        return safe_format(
+            "{vendor}:{device}",
+            vendor=self.vendor_id,
+            device=self.device_id,
+        )
 
     @property
     def full_signature(self) -> str:
         subsys_vendor = self.subsystem_vendor_id or self.vendor_id
         subsys_device = self.subsystem_device_id or self.device_id
-        return f"{self.vendor_id}:{self.device_id}:{subsys_vendor}:{subsys_device}"
+        return safe_format(
+            "{vendor}:{device}:{subsys_vendor}:{subsys_device}",
+            vendor=self.vendor_id,
+            device=self.device_id,
+            subsys_vendor=subsys_vendor,
+            subsys_device=subsys_device,
+        )
 
     def get_device_class_type(self) -> str:
         class_map = {
@@ -239,7 +274,9 @@ class BarConfiguration:
     def __post_init__(self):
         """Validate BAR configuration."""
         if not 0 <= self.index < ConfigSpaceConstants.MAX_BARS:
-            raise ContextError(f"Invalid BAR index: {self.index}")
+            raise ContextError(
+                safe_format("Invalid BAR index: {index}", index=self.index)
+            )
         # BAR size must be a positive 32-bit unsigned value
         if self.size <= 0:
             raise ContextError(safe_format("Invalid BAR size: {size}", size=self.size))
@@ -294,12 +331,25 @@ class TimingParameters:
         for field_obj in fields(self):
             field_value = getattr(self, field_obj.name)
             if field_value is None:
-                raise ContextError(f"{field_obj.name} cannot be None")
+                raise ContextError(
+                    safe_format("{field} cannot be None", field=field_obj.name)
+                )
             if field_value <= 0:
-                raise ContextError(f"{field_obj.name} must be positive: {field_value}")
+                raise ContextError(
+                    safe_format(
+                        "{field} must be positive: {value}",
+                        field=field_obj.name,
+                        value=field_value,
+                    )
+                )
 
         if not 0 < self.timing_regularity <= 1.0:
-            raise ContextError(f"Invalid timing_regularity: {self.timing_regularity}")
+            raise ContextError(
+                safe_format(
+                    "Invalid timing_regularity: {timing_regularity}",
+                    timing_regularity=self.timing_regularity,
+                )
+            )
 
     @property
     def total_latency(self) -> int:
@@ -401,7 +451,12 @@ class VFIODeviceManager:
             if fd is not None:
                 try:
                     os.close(fd)
-                except OSError:
+                except OSError as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format("Failed to close VFIO FD: {error}", error=e),
+                        prefix="VFIO",
+                    )
                     pass
         self._device_fd = None
         self._container_fd = None
@@ -479,6 +534,7 @@ class VFIODeviceManager:
             Bytes read or None on error
         """
         import mmap
+
         import os
 
         if size <= 0:
@@ -491,7 +547,10 @@ class VFIODeviceManager:
             except Exception as e:
                 log_error_safe(
                     self.logger,
-                    f"VFIO device open failed: {e}",
+                    safe_format(
+                        "VFIO device open failed: {error}",
+                        error=e,
+                    ),
                     prefix="VFIO",
                 )
                 return None
@@ -569,7 +628,10 @@ class VFIODeviceManager:
         except OSError as e:
             log_error_safe(
                 self.logger,
-                f"VFIO read_region_slice failed: {e}",
+                safe_format(
+                    "VFIO read_region_slice failed: {error}",
+                    error=e,
+                ),
                 prefix="VFIO",
             )
             return None
@@ -621,14 +683,25 @@ class PCILeechContextBuilder:
         """Build comprehensive template context."""
         log_info_safe(
             self.logger,
-            f"Building context for {self.device_bdf} with {interrupt_strategy}",
+            safe_format(
+                "Building context for {device_bdf} with {strategy}",
+                device_bdf=self.device_bdf,
+                strategy=interrupt_strategy,
+            ),
         )
 
         def handle_error(msg, exc=None):
             root_cause = extract_root_cause(exc) if exc else None
+            error_message = (
+                safe_format(
+                    "{message}: {root_cause}", message=msg, root_cause=root_cause
+                )
+                if root_cause
+                else msg
+            )
             log_error_safe(
                 self.logger,
-                f"{msg}: {root_cause if root_cause else ''}",
+                error_message,
                 prefix="PCIL",
             )
             raise ContextError(msg, root_cause=root_cause)
@@ -711,6 +784,154 @@ class PCILeechContextBuilder:
             "device_id": device_identifiers.device_id,
         }
 
+        # Attempt to extract PCIe max link speed/width from config space for donor-uniqueness.
+        # These are required by the TCL builder to derive target_link_speed/width enums.
+        try:
+            cfg_hex = config_space_data.get("config_space_hex")
+            if not cfg_hex and isinstance(context.get("config_space"), dict):
+                cfg_hex = context["config_space"].get("raw_data")
+
+            if cfg_hex:
+                try:
+                    # Prefer centralized capability processor to avoid duplicating parsing logic
+                    from src.pci_capability import (
+                        core as _pcicore,
+                        processor as _pciproc,
+                    )
+
+                    _cs = _pcicore.ConfigSpace(cfg_hex)
+                    _cp = _pciproc.CapabilityProcessor(_cs)
+                    # Use the processor's device context view to read derived fields
+                    dev_ctx = (
+                        _cp._get_device_context()
+                    )  # Internal, but stable within project
+                    max_speed = dev_ctx.get("pcie_max_link_speed")
+                    max_width = dev_ctx.get("pcie_max_link_width")
+
+                    if isinstance(max_speed, int) and max_speed > 0:
+                        context["pcie_max_link_speed"] = max_speed
+                    if isinstance(max_width, int) and max_width > 0:
+                        context["pcie_max_link_width"] = max_width
+                except Exception as e:
+                    # Non-fatal: log and continue; TCL builder will enforce strictness downstream
+                    log_debug_safe(
+                        self.logger,
+                        safe_format(
+                            "PCIe link capability extraction via processor failed: {rc}",
+                            rc=extract_root_cause(e),
+                        ),
+                        prefix="PCIL",
+                    )
+        except Exception as e:
+            # Defensive catch-all to avoid blocking context construction
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "PCIe link capability extraction skipped: {rc}",
+                    rc=extract_root_cause(e),
+                ),
+                prefix="PCIL",
+            )
+
+        # Fallback: if PCIe link speed/width still missing, try sysfs current_link_* files
+        try:
+            need_speed = "pcie_max_link_speed" not in context
+            need_width = "pcie_max_link_width" not in context
+            if need_speed or need_width:
+                bdf = self.device_bdf
+                base = f"/sys/bus/pci/devices/{bdf}"
+
+                def _read_sysfs(path: str) -> Optional[str]:
+                    try:
+                        with open(path, "r") as f:
+                            return f.read().strip()
+                    except Exception:
+                        return None
+
+                # Map speed string like "5 GT/s" or "5.0 GT/s" => code 2
+                def _map_speed_str_to_code(s: str) -> Optional[int]:
+                    try:
+                        # Extract the leading float number
+                        parts = s.replace("GT/s", "").replace("G T/s", "").split()
+                        if not parts:
+                            return None
+                        val = (
+                            parts[0]
+                            .replace("GT/s", "")
+                            .replace("G", "")
+                            .replace("T/s", "")
+                        )
+                        val = (
+                            val.replace("/s", "")
+                            .replace("T", "")
+                            .replace("(", "")
+                            .replace(")", "")
+                        )
+                        num = float(val)
+                        if 2.0 <= num < 3.0:
+                            return 1
+                        if 4.0 < num <= 6.0:
+                            return 2
+                        if 7.0 < num <= 9.0:
+                            return 3
+                        if 15.0 < num <= 17.0:
+                            return 4
+                        if 31.0 < num <= 33.0:
+                            return 5
+                        return None
+                    except Exception:
+                        return None
+
+                # Map width string like "x4" => 4
+                def _map_width_str_to_lanes(s: str) -> Optional[int]:
+                    try:
+                        s = s.lower().lstrip("x")
+                        lanes = int("".join(ch for ch in s if ch.isdigit()))
+                        return lanes if 1 <= lanes <= 16 else None
+                    except Exception:
+                        return None
+
+                if need_speed:
+                    spath = f"{base}/current_link_speed"
+                    sval = _read_sysfs(spath)
+                    code = _map_speed_str_to_code(sval) if sval else None
+                    if code:
+                        context["pcie_max_link_speed"] = code
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Using sysfs fallback for PCIe link speed: {val} -> code {code}",
+                                val=sval,
+                                code=code,
+                            ),
+                            prefix="PCIL",
+                        )
+
+                if need_width:
+                    wpath = f"{base}/current_link_width"
+                    wval = _read_sysfs(wpath)
+                    lanes = _map_width_str_to_lanes(wval) if wval else None
+                    if lanes:
+                        context["pcie_max_link_width"] = lanes
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Using sysfs fallback for PCIe link width: {val} -> lanes {lanes}",
+                                val=wval,
+                                lanes=lanes,
+                            ),
+                            prefix="PCIL",
+                        )
+        except Exception as e:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Sysfs fallback for PCIe link speed/width failed: {rc}",
+                    rc=extract_root_cause(e),
+                ),
+                prefix="PCIL",
+            )
+
         # Add overlay config
         overlay_config = self._build_overlay_config(config_space_data)
         for key, value in overlay_config.items():
@@ -774,8 +995,7 @@ class PCILeechContextBuilder:
         # If the check raises, treat as not verified but leave vfio_device intact.
         try:
             # Late import to allow unit tests to patch helpers
-            from src.cli.vfio_helpers import \
-                ensure_device_vfio_binding as _ensure
+            from src.cli.vfio_helpers import ensure_device_vfio_binding as _ensure
 
             _ensure(self.device_bdf)
             context["vfio_binding_verified"] = True
@@ -821,7 +1041,12 @@ class PCILeechContextBuilder:
                 did_int = context.get("device_id_int", DEVICE_ID_FALLBACK)
                 context["device_config"]._data.setdefault("vendor_id_int", vid_int)
                 context["device_config"]._data.setdefault("device_id_int", did_int)
-            except Exception:
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format("Failed to set numeric ID aliases: {error}", error=e),
+                    prefix="PCILEECH",
+                )
                 pass
 
     def _finalize_context(self, context):
@@ -862,7 +1087,9 @@ class PCILeechContextBuilder:
             ValidationLevel.STRICT,
             ValidationLevel.MODERATE,
         ):
-            raise ContextError(f"Missing required data: {missing}")
+            raise ContextError(
+                safe_format("Missing required data: {missing}", missing=missing)
+            )
 
     def _check_config_space(self, config_space_data, missing):
         if not config_space_data:
@@ -881,7 +1108,7 @@ class PCILeechContextBuilder:
                 prefix="PCIL",
             )
             if self.validation_level == ValidationLevel.STRICT and size == 0:
-                missing.append(f"config_space_size ({size})")
+                missing.append(safe_format("config_space_size ({size})", size=size))
         # Ensure required identifier keys trigger missing when absent so callers
         # that expect strict validation receive missing entries.
         for key in CORE_DEVICE_ID_FIELDS:
@@ -893,7 +1120,7 @@ class PCILeechContextBuilder:
             cap_info = msix_data["capability_info"]
             for field in self.REQUIRED_MSIX_FIELDS:
                 if field not in cap_info:
-                    missing.append(f"msix.{field}")
+                    missing.append(safe_format("msix.{field}", field=field))
 
     def _check_behavior_profile(self, behavior_profile, missing):
         if behavior_profile:
@@ -917,12 +1144,16 @@ class PCILeechContextBuilder:
                     k for k in CORE_DEVICE_IDS if k not in config_space_data
                 ]
                 if essential_missing:
-                    raise ContextError(f"Missing required data: {essential_missing}")
+                    raise ContextError(
+                        safe_format(
+                            "Missing required data: {missing}",
+                            missing=essential_missing,
+                        )
+                    )
 
             # Try to use ConfigSpaceManager for missing fields
             try:
-                from src.device_clone.config_space_manager import \
-                    ConfigSpaceManager
+                from src.device_clone.config_space_manager import ConfigSpaceManager
 
                 manager = ConfigSpaceManager(self.device_bdf)
                 config_space = manager.read_vfio_config_space()
@@ -931,7 +1162,12 @@ class PCILeechContextBuilder:
                 config_space_data = {**extracted_data, **config_space_data}
             except Exception:
                 if self.validation_level == ValidationLevel.STRICT:
-                    raise ContextError(f"Missing required data: {missing_required}")
+                    raise ContextError(
+                        safe_format(
+                            "Missing required data: {missing}",
+                            missing=missing_required,
+                        )
+                    )
                 # In permissive mode, continue with what we have
 
         # Extract identifiers with basic validation
@@ -994,12 +1230,14 @@ class PCILeechContextBuilder:
 
         # Add hex representations
         if identifiers.subsystem_vendor_id:
-            device_config_dict["subsystem_vendor_id_hex"] = (
-                f"0x{int(identifiers.subsystem_vendor_id, 16):04X}"
+            device_config_dict["subsystem_vendor_id_hex"] = safe_format(
+                "0x{value:04X}",
+                value=int(identifiers.subsystem_vendor_id, 16),
             )
         if identifiers.subsystem_device_id:
-            device_config_dict["subsystem_device_id_hex"] = (
-                f"0x{int(identifiers.subsystem_device_id, 16):04X}"
+            device_config_dict["subsystem_device_id_hex"] = safe_format(
+                "0x{value:04X}",
+                value=int(identifiers.subsystem_device_id, 16),
             )
 
         # Add extended config pointers
@@ -1047,10 +1285,16 @@ class PCILeechContextBuilder:
             # Convert non-serializable objects
             for key, value in profile_dict.items():
                 if hasattr(value, "__dict__"):
-                    profile_dict[key] = f"{type(value).__name__}_{hash(str(value))}"
+                    profile_dict[key] = safe_format(
+                        "{type_name}_{value_hash}",
+                        type_name=type(value).__name__,
+                        value_hash=hash(str(value)),
+                    )
             return profile_dict
         except Exception as e:
-            raise ContextError(f"Failed to serialize profile: {e}")
+            raise ContextError(
+                safe_format("Failed to serialize profile: {error}", error=e)
+            )
 
     def _build_config_space_context(
         self, config_data: Dict[str, Any]
@@ -1060,8 +1304,7 @@ class PCILeechContextBuilder:
         if not all(
             k in config_data for k in ["config_space_hex", "config_space_size", "bars"]
         ):
-            from src.device_clone.config_space_manager import \
-                ConfigSpaceManager
+            from src.device_clone.config_space_manager import ConfigSpaceManager
 
             manager = ConfigSpaceManager(self.device_bdf)
             config_space = manager.read_vfio_config_space()
@@ -1113,8 +1356,9 @@ class PCILeechContextBuilder:
         # Check alignment
         alignment_warning = ""
         if table_offset % 8 != 0:
-            alignment_warning = (
-                f"MSI-X table offset 0x{table_offset:x} is not 8-byte aligned"
+            alignment_warning = safe_format(
+                "MSI-X table offset 0x{offset:x} is not 8-byte aligned",
+                offset=table_offset,
             )
 
         context = {
@@ -1133,9 +1377,15 @@ class PCILeechContextBuilder:
             "table_size_minus_one": table_size - 1,
             "NUM_MSIX": table_size,
             "MSIX_TABLE_BIR": cap["table_bir"],
-            "MSIX_TABLE_OFFSET": f"32'h{table_offset:08X}",
+            "MSIX_TABLE_OFFSET": safe_format(
+                "32'h{offset:08X}",
+                offset=table_offset,
+            ),
             "MSIX_PBA_BIR": cap.get("pba_bir", cap["table_bir"]),
-            "MSIX_PBA_OFFSET": f"32'h{pba_offset:08X}",
+            "MSIX_PBA_OFFSET": safe_format(
+                "32'h{offset:08X}",
+                offset=pba_offset,
+            ),
         }
         # Merge standardized runtime flags
         context.update(
@@ -1339,7 +1589,10 @@ class PCILeechContextBuilder:
     def _check_and_fix_power_state(self):
         """Check and fix device power state."""
         try:
-            power_state_path = f"/sys/bus/pci/devices/{self.device_bdf}/power_state"
+            power_state_path = safe_format(
+                "/sys/bus/pci/devices/{device_bdf}/power_state",
+                device_bdf=self.device_bdf,
+            )
             if Path(power_state_path).exists():
                 with open(power_state_path, "r") as f:
                     state = f.read().strip()
@@ -1350,7 +1603,10 @@ class PCILeechContextBuilder:
                             prefix="PWR",
                         )
                         # Wake device by accessing config space
-                        config_path = f"/sys/bus/pci/devices/{self.device_bdf}/config"
+                        config_path = safe_format(
+                            "/sys/bus/pci/devices/{device_bdf}/config",
+                            device_bdf=self.device_bdf,
+                        )
                         with open(config_path, "rb") as f:
                             f.read(4)  # Read vendor ID to wake device
         except Exception as e:
@@ -1425,10 +1681,22 @@ class PCILeechContextBuilder:
         device_config = None
         try:
             # Derive profile name from device identifiers for configuration lookup
-            profile_name = f"{identifiers.vendor_id}_{identifiers.device_id}"
+            profile_name = safe_format(
+                "{vendor_id}_{device_id}",
+                vendor_id=identifiers.vendor_id,
+                device_id=identifiers.device_id,
+            )
             device_config = get_device_config(profile_name)
-        except:
-            pass
+        except Exception as e:
+            # Device config not found or invalid - use defaults
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Device config lookup failed, using timing defaults: {error}",
+                    prefix="TIMING",
+                    error=str(e),
+                ),
+            )
 
         if device_config and hasattr(device_config, "capabilities"):
             # Use the device-specific timing configuration from capabilities
@@ -1606,7 +1874,12 @@ class PCILeechContextBuilder:
     ) -> str:
         """Generate canonical device signature as 'VID:DID:RID'."""
         rid = identifiers.revision_id or DEFAULT_REVISION_ID
-        return f"{identifiers.vendor_id}:{identifiers.device_id}:{rid}"
+        return safe_format(
+            "{vendor}:{device}:{revision}",
+            vendor=identifiers.vendor_id,
+            device=identifiers.device_id,
+            revision=rid,
+        )
 
     def _build_generation_metadata(self, identifiers: DeviceIdentifiers) -> Any:
         """Build generation metadata using centralized metadata builder."""
@@ -1615,7 +1888,12 @@ class PCILeechContextBuilder:
         # Use device_signature as 'vendor_id:device_id' for test contract
         return build_generation_metadata(
             device_bdf=self.device_bdf,
-            device_signature=f"{identifiers.vendor_id}:{identifiers.device_id}:{identifiers.revision_id}",
+            device_signature=safe_format(
+                "{vendor}:{device}:{revision}",
+                vendor=identifiers.vendor_id,
+                device=identifiers.device_id,
+                revision=identifiers.revision_id,
+            ),
             device_class=identifiers.get_device_class_type(),
             validation_level=self.validation_level.value,
             vendor_name=self._get_vendor_name(identifiers.vendor_id),
@@ -1634,7 +1912,12 @@ class PCILeechContextBuilder:
 
         try:
             result = subprocess.run(
-                ["lspci", "-mm", "-d", f"{vendor_id}:"],
+                [
+                    "lspci",
+                    "-mm",
+                    "-d",
+                    safe_format("{vendor_id}:", vendor_id=vendor_id),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=2,
@@ -1643,9 +1926,14 @@ class PCILeechContextBuilder:
                 parts = result.stdout.strip().split('"')
                 if len(parts) > 3:
                     return parts[3]
-        except Exception:
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format("Failed to get vendor name: {error}", error=e),
+                prefix="PCILEECH",
+            )
             pass
-        return f"Vendor {vendor_id}"
+        return safe_format("Vendor {vendor_id}", vendor_id=vendor_id)
 
     def _get_device_name(self, vendor_id: str, device_id: str) -> str:
         """Get device name from vendor/device IDs via lspci.
@@ -1657,7 +1945,16 @@ class PCILeechContextBuilder:
 
         try:
             result = subprocess.run(
-                ["lspci", "-mm", "-d", f"{vendor_id}:{device_id}"],
+                [
+                    "lspci",
+                    "-mm",
+                    "-d",
+                    safe_format(
+                        "{vendor_id}:{device_id}",
+                        vendor_id=vendor_id,
+                        device_id=device_id,
+                    ),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=2,
@@ -1666,9 +1963,14 @@ class PCILeechContextBuilder:
                 parts = result.stdout.strip().split('"')
                 if len(parts) > 5:
                     return parts[5]
-        except Exception:
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format("Failed to get device name: {error}", error=e),
+                prefix="PCILEECH",
+            )
             pass
-        return f"Device {device_id}"
+        return safe_format("Device {device_id}", device_id=device_id)
 
     def _build_overlay_config(
         self, config_space_data: Dict[str, Any]
@@ -1692,10 +1994,36 @@ class PCILeechContextBuilder:
                             dword_map[i // 8] = int(dword, 16)
 
             capabilities = config_space_data.get("capabilities", {})
-            overlay_map = mapper.generate_overlay_map(dword_map, capabilities)
+            overlay_result = mapper.generate_overlay_map(dword_map, capabilities)
+            overlay_map = overlay_result.get("OVERLAY_MAP", [])
+            raw_entry_count = overlay_result.get("OVERLAY_ENTRIES", overlay_map)
+            overlay_entries = normalize_overlay_entry_count(raw_entry_count)
+
+            def _coerce_toggle(value: Union[None, str, bool, int], default: int) -> int:
+                if value is None:
+                    return default
+                if isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if normalized in {"0", "false", "off", "no"}:
+                        return 0
+                    if normalized in {"1", "true", "on", "yes"}:
+                        return 1
+                return int(bool(value))
+
+            sparse_toggle = getattr(self.config, "enable_sparse_map", None)
+            enable_sparse_map = _coerce_toggle(sparse_toggle, int(overlay_entries > 0))
+
+            bit_type_toggle = getattr(self.config, "enable_bit_types", None)
+            enable_bit_types = _coerce_toggle(bit_type_toggle, 1)
+
+            hash_table_size = compute_sparse_hash_table_size(overlay_entries)
+
             return {
-                "OVERLAY_MAP": overlay_map.get("overlay_map", {}),
-                "OVERLAY_ENTRIES": overlay_map.get("overlay_entries", []),
+                "OVERLAY_MAP": overlay_map,
+                "OVERLAY_ENTRIES": overlay_entries,
+                "ENABLE_SPARSE_MAP": enable_sparse_map,
+                "HASH_TABLE_SIZE": hash_table_size,
+                "ENABLE_BIT_TYPES": enable_bit_types,
             }
         except Exception as e:
             log_warning_safe(
@@ -1704,8 +2032,11 @@ class PCILeechContextBuilder:
                 prefix="OVR",
             )
             return {
-                "OVERLAY_MAP": {},
-                "OVERLAY_ENTRIES": [],
+                "OVERLAY_MAP": [],
+                "OVERLAY_ENTRIES": 0,
+                "ENABLE_SPARSE_MAP": 0,
+                "HASH_TABLE_SIZE": compute_sparse_hash_table_size(0),
+                "ENABLE_BIT_TYPES": 1,
             }
 
     def _merge_donor_template(
@@ -1829,7 +2160,9 @@ class PCILeechContextBuilder:
         """Validate context has all required fields."""
         for section in REQUIRED_CONTEXT_SECTIONS:
             if section not in context:  # type: ignore
-                raise ContextError(f"Missing required section: {section}")
+                raise ContextError(
+                    safe_format("Missing required section: {section}", section=section)
+                )
 
         # Validate device signature (identifiers already validated in DeviceIdentifiers)
         if "device_signature" not in context or not context["device_signature"]:
@@ -1900,15 +2233,8 @@ class PCILeechContextBuilder:
     def _build_device_specific_signals(self, device_type: str) -> Dict[str, Any]:
 
         builder = UnifiedContextBuilder(self.logger)
-
-        # Use constants for default volume levels instead of hardcoded values
-        DEFAULT_VOLUME_LEVEL = 0x8000
-
         device_signals = builder.create_device_specific_signals(
             device_type=device_type,
-            audio_enable=getattr(self.config, "audio_enable", False),
-            volume_left=getattr(self.config, "volume_left", DEFAULT_VOLUME_LEVEL),
-            volume_right=getattr(self.config, "volume_right", DEFAULT_VOLUME_LEVEL),
         )
 
         return device_signals.to_dict()
@@ -1942,7 +2268,8 @@ class PCILeechContextBuilder:
         elif class_code.startswith("03"):
             return "graphics"
         elif class_code.startswith("04"):
-            return "audio"
+            # Previously mapped to 'audio'; we no longer generate audio-specific logic
+            return "generic"
         elif class_code.startswith("0c"):
             return "serial_bus"
         else:

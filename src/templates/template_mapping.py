@@ -22,35 +22,22 @@ TEMPLATE_PATH_MAPPING = {
     "systemverilog/pcileech_fifo.sv.j2": "sv/pcileech_fifo.sv.j2",
     "systemverilog/pcileech_tlps128_bar_controller.sv.j2": "sv/pcileech_tlps128_bar_controller.sv.j2",
     "systemverilog/top_level_wrapper.sv.j2": "sv/top_level_wrapper.sv.j2",
-    # Advanced SystemVerilog templates
+    # Advanced SystemVerilog templates (backward-compatibility only - internal code uses sv/ directly)
     "systemverilog/advanced/advanced_controller.sv.j2": "sv/advanced_controller.sv.j2",
-    "systemverilog/advanced/clock_crossing.sv.j2": "sv/clock_crossing.sv.j2",
-    "systemverilog/advanced/error_counters.sv.j2": "sv/error_counters.sv.j2",
-    "systemverilog/advanced/error_declarations.sv.j2": "sv/error_declarations.sv.j2",
-    "systemverilog/advanced/error_detection.sv.j2": "sv/error_detection.sv.j2",
     "systemverilog/advanced/error_handling_complete.sv.j2": "sv/error_handling_complete.sv.j2",
-    "systemverilog/advanced/error_handling.sv.j2": "sv/error_handling.sv.j2",
-    "systemverilog/advanced/error_logging.sv.j2": "sv/error_logging.sv.j2",
-    "systemverilog/advanced/error_outputs.sv.j2": "sv/error_outputs.sv.j2",
-    "systemverilog/advanced/error_state_machine.sv.j2": "sv/error_state_machine.sv.j2",
     "systemverilog/advanced/main_module.sv.j2": "sv/main_module.sv.j2",
     "systemverilog/advanced/performance_counters.sv.j2": "sv/performance_counters.sv.j2",
     "systemverilog/advanced/power_management.sv.j2": "sv/power_management.sv.j2",
-    # Missing advanced templates
-    "systemverilog/advanced/clock_gating.sv.j2": "sv/clock_gating.sv.j2",
-    "systemverilog/advanced/error_recovery.sv.j2": "sv/error_recovery.sv.j2",
-    "systemverilog/advanced/power_transitions.sv.j2": "sv/power_transitions.sv.j2",
-    "systemverilog/advanced/reporting_logic.sv.j2": "sv/reporting_logic.sv.j2",
-    "systemverilog/advanced/sampling_logic.sv.j2": "sv/sampling_logic.sv.j2",
     # Component templates
-    "systemverilog/components/clock_domain_logic.sv.j2": "sv/clock_domain_logic.sv.j2",
-    "systemverilog/components/device_specific_ports.sv.j2": "sv/device_specific_ports.sv.j2",
-    "systemverilog/components/interrupt_logic.sv.j2": "sv/interrupt_logic.sv.j2",
-    "systemverilog/components/power_declarations.sv.j2": "sv/power_declarations.sv.j2",
-    "systemverilog/components/power_integration.sv.j2": "sv/power_integration.sv.j2",
-    "systemverilog/components/read_logic.sv.j2": "sv/read_logic.sv.j2",
-    "systemverilog/components/register_declarations.sv.j2": "sv/register_declarations.sv.j2",
-    "systemverilog/components/register_logic.sv.j2": "sv/register_logic.sv.j2",
+    "systemverilog/components/clock_domain_logic.sv.j2": "sv/components/clock_domain_logic.sv.j2",
+    "systemverilog/components/device_specific_ports.sv.j2": "sv/components/device_specific_ports.sv.j2",
+    "systemverilog/components/interrupt_logic.sv.j2": "sv/components/interrupt_logic.sv.j2",
+    "systemverilog/components/power_declarations.sv.j2": "sv/components/power_declarations.sv.j2",
+    "systemverilog/components/power_integration.sv.j2": "sv/components/power_integration.sv.j2",
+    "systemverilog/components/power_monitoring.sv.j2": "sv/components/power_monitoring.sv.j2",
+    "systemverilog/components/read_logic.sv.j2": "sv/components/read_logic.sv.j2",
+    "systemverilog/components/register_declarations.sv.j2": "sv/components/register_declarations.sv.j2",
+    "systemverilog/components/register_logic.sv.j2": "sv/components/register_logic.sv.j2",
     # Module templates
     "systemverilog/modules/pmcsr_stub.sv.j2": "sv/pmcsr_stub.sv.j2",
     # TCL templates
@@ -118,4 +105,12 @@ def update_template_path(template_name: str) -> str:
         return template_name
 
     # Otherwise, map it
-    return get_new_template_path(template_name)
+    mapped = get_new_template_path(template_name)
+
+    # Convenience fallback: if caller provided a bare SystemVerilog template
+    # filename (e.g. "top_level_wrapper.sv.j2") without a directory prefix,
+    # assume it lives under the "sv/" folder.
+    if "/" not in mapped and mapped.endswith(".sv.j2"):
+        return f"sv/{mapped}"
+
+    return mapped

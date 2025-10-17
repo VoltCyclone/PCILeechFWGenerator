@@ -69,47 +69,47 @@ class ErrorHandlingGenerator:
         """Generate error handling signal declarations."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_declarations.sv.j2", context
+            "sv/error_handling/error_declarations.sv.j2", context
         )
 
     def generate_error_detection(self) -> str:
         """Generate error detection logic."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_detection.sv.j2", context
+            "sv/error_handling/error_detection.sv.j2", context
         )
 
     def generate_error_state_machine(self) -> str:
         """Generate error handling state machine."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_state_machine.sv.j2", context
+            "sv/error_handling/error_state_machine.sv.j2", context
         )
 
     def generate_error_logging(self) -> str:
         """Generate error logging logic."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_logging.sv.j2", context
+            "sv/error_handling/error_logging.sv.j2", context
         )
 
     def generate_error_counters(self) -> str:
         """Generate error counting logic."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_counters.sv.j2", context
+            "sv/error_handling/error_counters.sv.j2", context
         )
 
     def generate_error_outputs(self) -> str:
         """Generate error output assignments."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_outputs.sv.j2", context
+            "sv/error_handling/error_outputs.sv.j2", context
         )
 
     def generate_complete_error_handling(self) -> str:
         """Generate complete error handling logic."""
         context = {"config": self.config}
         return self.renderer.render_template(
-            "systemverilog/advanced/error_handling_complete.sv.j2", context
+            "sv/error_handling_complete.sv.j2", context
         )

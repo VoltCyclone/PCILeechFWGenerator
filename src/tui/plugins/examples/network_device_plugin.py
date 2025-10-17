@@ -7,8 +7,7 @@ Demonstrates plugin capabilities for network device analysis and optimization.
 import logging
 from typing import Any, Dict, List, Optional
 
-from ..plugin_base import (BuildHook, ConfigValidator, DeviceAnalyzer,
-                           PCILeechPlugin)
+from ..plugin_base import BuildHook, ConfigValidator, DeviceAnalyzer, PCILeechPlugin
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -28,8 +27,6 @@ class NetworkDeviceAnalyzer:
         Returns:
             Dictionary containing analysis results
         """
-        # In a real implementation, this would analyze the device's configuration space
-        # to determine network capabilities, optimal settings, etc.
         results = {
             "device_type": "network",
             "capabilities": {
@@ -72,9 +69,6 @@ class NetworkBuildHook:
         Returns:
             Modified build configuration
         """
-        # In a real implementation, this would adjust build parameters
-        # based on the specific requirements for network devices
-
         # Only modify if it's a network device
         if config.get("device_type") == "network":
             # Apply network-specific optimizations
@@ -96,8 +90,6 @@ class NetworkBuildHook:
         Returns:
             Modified build results
         """
-        # In a real implementation, this might add additional
-        # network-specific metadata to the build results
 
         if build_result.get("config", {}).get("device_type") == "network":
             build_result["notes"] = build_result.get("notes", []) + [

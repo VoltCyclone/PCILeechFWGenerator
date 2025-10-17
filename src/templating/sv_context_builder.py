@@ -1,15 +1,23 @@
 """Context builder for SystemVerilog generation."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
+from src.device_clone.identifier_normalizer import IdentifierNormalizer
+from src.device_clone.overlay_utils import compute_sparse_hash_table_size
 from src.string_utils import log_error_safe, log_warning_safe, safe_format
 from src.utils.validation_constants import SV_FILE_HEADER
 
-from ..utils.unified_context import (DEFAULT_TIMING_CONFIG, MSIX_DEFAULT,
-                                     PCILEECH_DEFAULT, TemplateObject,
-                                     normalize_config_to_dict)
+from ..utils.unified_context import (
+    DEFAULT_TIMING_CONFIG,
+    MSIX_DEFAULT,
+    PCILEECH_DEFAULT,
+    TemplateObject,
+    normalize_config_to_dict,
+)
+
 from .sv_constants import SV_CONSTANTS
+
 from .template_renderer import TemplateRenderError
 
 # Module-level defaults are sourced from SV_CONSTANTS to avoid drift
@@ -25,6 +33,7 @@ class SVContextBuilder:
         self.logger = logger
         self.constants = SV_CONSTANTS
         self._context_cache = {}
+        self.prefix = "TEMPLATING"
 
     def build_enhanced_context(
         self,
@@ -60,6 +69,9 @@ class SVContextBuilder:
 
         # Add device identification
         self._add_device_identification(enhanced_context, device_config_dict)
+
+        # Add donor-provided device serial number (used for cfg_dsn wiring)
+        self._add_device_serial_number(enhanced_context, template_context)
 
         # Add configuration objects
         self._add_configuration_objects(
@@ -181,7 +193,10 @@ class SVContextBuilder:
             return vars(device_config)
         else:
             raise TemplateRenderError(
-                f"Cannot normalize device_config of type {type(device_config).__name__}"
+                safe_format(
+                    "Cannot normalize device_config of type {type}",
+                    type=type(device_config).__name__,
+                )
             )
 
     def _add_device_identification(
@@ -201,7 +216,7 @@ class SVContextBuilder:
                     vid=vendor_id,
                     did=device_id,
                 ),
-                prefix="TEMPLATING",
+                prefix=self.prefix,
             )
             # Do not terminate the process here; raise a template error to be handled upstream
             raise TemplateRenderError(
@@ -225,6 +240,137 @@ class SVContextBuilder:
         # Also add to device_config for consistency
         device_config["vendor_id_int"] = context["vendor_id_int"]
         device_config["device_id_int"] = context["device_id_int"]
+
+    def _add_device_serial_number(
+        self, context: Dict[str, Any], template_context: Dict[str, Any]
+    ) -> None:
+        """Extract and normalize the donor device serial number (DSN)."""
+
+        serial_candidate = self._extract_device_serial_number(template_context)
+        serial_int = self._safe_hex_to_int(serial_candidate)
+
+        # Normalize to 64-bit range
+        serial_int &= 0xFFFFFFFFFFFFFFFF
+
+        if serial_int == 0:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Device serial number unavailable; cfg_dsn will default to 0"
+                ),
+                prefix=self.prefix,
+            )
+
+        context["device_serial_number_int"] = serial_int
+        context["device_serial_number_hex"] = safe_format(
+            "0x{value:016X}", value=serial_int
+        )
+        context["device_serial_number_valid"] = bool(serial_int)
+        context["device_serial_number_hi"] = (serial_int >> 32) & 0xFFFFFFFF
+        context["device_serial_number_lo"] = serial_int & 0xFFFFFFFF
+
+    def _extract_device_serial_number(self, template_context: Dict[str, Any]) -> Any:
+        """Gather DSN candidates from the template context."""
+
+        candidates = []
+
+        # Top-level fields
+        for key in (
+            "device_serial_number_int",
+            "device_serial_number",
+            "dsn",
+        ):
+            if key in template_context:
+                candidates.append(template_context.get(key))
+
+        # Generation metadata often carries donor-specific identifiers
+        metadata = template_context.get("generation_metadata") or {}
+        for key in (
+            "device_serial_number_int",
+            "device_serial_number",
+            "dsn",
+            "dsn_value",
+        ):
+            if key in metadata:
+                candidates.append(metadata.get(key))
+
+        # Config space (raw or processed) may expose DSN values
+        config_space = (
+            template_context.get("config_space")
+            or template_context.get("config_space_data")
+            or {}
+        )
+        for key in (
+            "device_serial_number",
+            "device_serial",
+            "dsn",
+            "dsn_value",
+        ):
+            if isinstance(config_space, dict) and key in config_space:
+                candidates.append(config_space.get(key))
+
+        # Extended capabilities frequently store DSN as hi/lo words
+        extended_caps = {}
+        if isinstance(config_space, dict):
+            extended_caps = config_space.get("extended_capabilities") or {}
+
+        for source in (
+            template_context,
+            metadata,
+            config_space if isinstance(config_space, dict) else {},
+            extended_caps if isinstance(extended_caps, dict) else {},
+        ):
+            if not isinstance(source, dict):
+                continue
+
+            hi = source.get("dsn_hi") or source.get("device_serial_hi")
+            lo = source.get("dsn_lo") or source.get("device_serial_lo")
+            if hi is not None and lo is not None:
+                try:
+                    hi_int = self._safe_hex_to_int(hi)
+                    lo_int = self._safe_hex_to_int(lo)
+                    return (hi_int << 32) | (lo_int & 0xFFFFFFFF)
+                except Exception as e:
+                    log_error_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to parse DSN hi/lo parts: {error}", error=str(e)
+                        ),
+                        prefix=self.prefix,
+                    )
+                    pass
+
+            composite = source.get("device_serial_number")
+            if isinstance(composite, dict):
+                hi_val = composite.get("hi") or composite.get("dsn_hi")
+                lo_val = composite.get("lo") or composite.get("dsn_lo")
+                value = composite.get("value")
+                if hi_val is not None and lo_val is not None:
+                    try:
+                        hi_int = self._safe_hex_to_int(hi_val)
+                        lo_int = self._safe_hex_to_int(lo_val)
+                        return (hi_int << 32) | (lo_int & 0xFFFFFFFF)
+                    except Exception as e:
+                        log_error_safe(
+                            self.logger,
+                            safe_format(
+                                "Failed to parse DSN hi/lo parts: {error}", error=str(e)
+                            ),
+                            prefix=self.prefix,
+                        )
+                        pass
+                if value is not None:
+                    candidates.append(value)
+
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                return self._safe_hex_to_int(candidate)
+            except Exception:
+                continue
+
+        return 0
 
     def _add_configuration_objects(
         self,
@@ -277,8 +423,8 @@ class SVContextBuilder:
         except Exception as e:
             log_warning_safe(
                 self.logger,
-                safe_format(f"Failed to build power context: {e}"),
-                prefix="TEMPLATING",
+                safe_format("Failed to build power context: {e}", e=str(e)),
+                prefix=self.prefix,
             )
             context["power_management"] = TemplateObject(
                 {"has_interface_signals": False}
@@ -296,7 +442,7 @@ class SVContextBuilder:
                 safe_format(
                     "Failed to build error handling context: {error}", error=str(e)
                 ),
-                prefix="TEMPLATING",
+                prefix=self.prefix,
             )
             context["error_handling"] = TemplateObject({"enable_error_logging": False})
             context["error_config"] = TemplateObject({"enable_error_detection": False})
@@ -312,7 +458,7 @@ class SVContextBuilder:
                 safe_format(
                     "Failed to build performance context: {error}", error=str(e)
                 ),
-                prefix="TEMPLATING",
+                prefix=self.prefix,
             )
             context["performance_counters"] = TemplateObject({})
             context["perf_config"] = TemplateObject({})
@@ -359,7 +505,6 @@ class SVContextBuilder:
                 "num_sources": int(
                     context.get("num_sources", SV_CONSTANTS.DEFAULT_NUM_SOURCES)
                 ),
-                # No fallback device ID - should use actual device_id from context
                 "FALLBACK_DEVICE_ID": device_config_dict["device_id"],
             }
         )
@@ -374,6 +519,7 @@ class SVContextBuilder:
             (x.bit_length() - 1) if isinstance(x, int) and x > 0 else 0
         )
 
+    # no-dd-sa
     def _add_compatibility_fields(
         self, context: Dict[str, Any], template_context: Dict[str, Any]
     ) -> None:
@@ -521,9 +667,7 @@ class SVContextBuilder:
         #   (defaults to 0x100 = 256) without fabricating donor-unique values
         # ------------------------------------------------------------------
 
-        # Many SV templates gate an extra RAM port with DUAL_PORT. Provide a
-        # conservative default of False unless explicitly requested by the
-        # caller. This avoids strict-undefined errors in cfg_shadow.sv.j2.
+        # avoids strict-undefined errors in cfg_shadow.sv.j2.
         context.setdefault("DUAL_PORT", SV_CONSTANTS.DEFAULT_DUAL_PORT)
 
         # Derive CONFIG_SPACE_SIZE from explicit config_space_data when provided,
@@ -568,6 +712,37 @@ class SVContextBuilder:
             overlay_map if isinstance(overlay_map, (dict, list, tuple)) else {},
         )
 
+        def _coerce_toggle(value: Union[str, int, bool, None], default: int) -> int:
+            if value is None:
+                return default
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"0", "false", "off", "no"}:
+                    return 0
+                if normalized in {"1", "true", "on", "yes"}:
+                    return 1
+            try:
+                return int(bool(value))
+            except Exception:
+                return default
+
+        sparse_toggle = template_context.get("ENABLE_SPARSE_MAP")
+        sparse_default = _coerce_toggle(
+            sparse_toggle, int(context.get("OVERLAY_ENTRIES", 0) > 0)
+        )
+        context.setdefault("ENABLE_SPARSE_MAP", sparse_default)
+
+        bit_toggle = template_context.get("ENABLE_BIT_TYPES")
+        bit_default = _coerce_toggle(bit_toggle, 1)
+        context.setdefault("ENABLE_BIT_TYPES", bit_default)
+
+        hash_size = template_context.get("HASH_TABLE_SIZE")
+        if not isinstance(hash_size, int) or hash_size <= 0:
+            hash_size = compute_sparse_hash_table_size(
+                int(context.get("OVERLAY_ENTRIES", 0))
+            )
+        context.setdefault("HASH_TABLE_SIZE", hash_size)
+
         # Uppercase aliases for extended capability pointers used by cfg_shadow
         try:
             dc = context.get("device_config", {})
@@ -588,6 +763,49 @@ class SVContextBuilder:
             # Defaults already cover typical cases; do not fail context build
             context.setdefault("EXT_CFG_CAP_PTR", EXT_CAP_PTR_DEFAULT)
             context.setdefault("EXT_CFG_XP_CAP_PTR", EXT_CAP_PTR_DEFAULT)
+
+        # Normalize out-of-range sentinel so templates can drive error markers dynamically
+        sentinel_candidates: List[Any] = []
+        sentinel_candidates.append(template_context.get("OUT_OF_RANGE_SENTINEL"))
+        sentinel_candidates.append(template_context.get("out_of_range_sentinel"))
+
+        cfg_shadow_ctx = template_context.get("cfg_shadow")
+        if isinstance(cfg_shadow_ctx, dict):
+            sentinel_candidates.append(cfg_shadow_ctx.get("OUT_OF_RANGE_SENTINEL"))
+            sentinel_candidates.append(cfg_shadow_ctx.get("out_of_range_sentinel"))
+
+        sentinel_value = next(
+            (value for value in sentinel_candidates if value not in (None, "")),
+            None,
+        )
+
+        fallback_sentinel = self.constants.DEFAULT_OUT_OF_RANGE_SENTINEL
+        if sentinel_value is None:
+            sentinel_value = fallback_sentinel
+
+        normalized_sentinel = IdentifierNormalizer.normalize_hex(sentinel_value, 8)
+
+        if normalized_sentinel == "00000000" and str(
+            sentinel_value
+        ).strip().lower() not in {
+            "0",
+            "0x0",
+            "00000000",
+        }:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Invalid OUT_OF_RANGE_SENTINEL override '{value}'; defaulting to {default}",
+                    value=sentinel_value,
+                    default=fallback_sentinel,
+                ),
+                prefix=self.prefix,
+            )
+            normalized_sentinel = IdentifierNormalizer.normalize_hex(
+                fallback_sentinel, 8
+            )
+
+        context.setdefault("OUT_OF_RANGE_SENTINEL", normalized_sentinel.upper())
 
     def _ensure_template_object(self, obj: Any) -> TemplateObject:
         """Convert any object to TemplateObject for consistent template access."""

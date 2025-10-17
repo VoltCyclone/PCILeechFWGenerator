@@ -10,6 +10,16 @@ Features:
 4. Flag potentially unsafe default filter usages.
 5. (Optional) Capture runtime context keys from safe builders.
 6. (Optional) Emit suggested fallback registration stubs (generate-fixes).
+7. Support inline ignore directives for suppressing warnings.
+
+Ignore Directives:
+    Templates can suppress unsafe-default warnings using inline comments:
+
+    {# validator: ignore-unsafe-default variable_name #}
+    {# validator: ignore-unsafe-default var1, var2, var3 #}
+
+    Use this for module parameters with sensible engineering defaults that
+    don't violate the donor-uniqueness principle (e.g., FIFO depth, data width).
 
 CLI Flags (superset of original):
     --format {text,json}        Output style (default: text)
@@ -86,6 +96,9 @@ EXCLUDED_VARS = {
     "generate_tcl_header_comment",
     "throw_error",
     "__version__",
+    # Internal template variables with proper defensive handling
+    "_dsn_hex",
+    "_dsn_valid",
 }
 
 
@@ -357,8 +370,12 @@ class TemplateVariableValidator:
             ):
                 local_names.add(m.group(1))
 
-            # For-loop targets: {% for a, b in ... %} or {% for item in ... %}
-            for m in re.finditer(r"{%\s*for\s+([^\s]+)\s+in\s+", template_source):
+            # For-loop targets: handle normal and trimmed tags
+            # Patterns cover:
+            #   {% for a, b in ... %}
+            #   {%- for item in ... %}
+            #   {% for (a, b) in ... %}
+            for m in re.finditer(r"{%-?\s*for\s+([^\s]+)\s+in\s+", template_source):
                 target = m.group(1)
                 # split on comma for multiple targets
                 for t in target.split(","):
@@ -385,10 +402,36 @@ class TemplateVariableValidator:
             logger.error(f"Error processing {rel_path}: {e}")
             return set()
 
+    def find_ignore_directives(self, template_source: str) -> Set[str]:
+        """
+        Find validator ignore directives in template comments.
+
+        Supports patterns like:
+        {# validator: ignore-unsafe-default variable_name #}
+        {# validator: ignore-unsafe-default variable_name, other_var #}
+        """
+        ignored_vars = set()
+        # Pattern: {# validator: ignore-unsafe-default var1, var2, ... #}
+        pattern = r"\{#\s*validator:\s*ignore-unsafe-default\s+([^#]+)\s*#\}"
+
+        for match in re.finditer(pattern, template_source):
+            var_list = match.group(1).strip()
+            # Split by comma and clean up whitespace
+            for var in var_list.split(","):
+                var = var.strip()
+                if var:
+                    ignored_vars.add(var)
+                    logger.debug(f"Found ignore directive for variable: {var}")
+
+        return ignored_vars
+
     def find_default_filters(self, template_path: str) -> Dict[str, List[str]]:
         """Find uses of the default filter in templates."""
         template_source = Path(template_path).read_text(encoding="utf-8")
         rel_path = Path(template_path).relative_to(TEMPLATES_DIR)
+
+        # Find ignore directives in this template
+        ignored_vars = self.find_ignore_directives(template_source)
 
         # Pattern: {{ variable|default(...) }} or {{ variable | default(...) }}
         pattern = r"{{\s*([a-zA-Z0-9_\.]+)\s*\|\s*default\(([^)]+)\)\s*}}"
@@ -409,8 +452,14 @@ class TemplateVariableValidator:
                 rel_path,
             )
 
-            # Check for potentially unsafe defaults
-            if default_value not in (
+            # Check for potentially unsafe defaults (unless explicitly ignored)
+            if var_name in ignored_vars:
+                logger.info(
+                    "Ignoring unsafe default check for %s in %s (validator ignore directive)",
+                    var_name,
+                    rel_path,
+                )
+            elif default_value not in (
                 "''",
                 '""',
                 "None",

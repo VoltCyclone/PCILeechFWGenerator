@@ -25,13 +25,31 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
-    BUFFER_SIZE, CONFIG_SPACE_PATH_TEMPLATE, DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DURATION, FILE_WRITE_TIMEOUT, MAX_PARALLEL_FILE_WRITES,
-    REQUIRED_MODULES, BuildConfiguration, ConfigurationError,
-    ConfigurationManager, DeviceConfiguration, FileOperationError,
-    FileOperationsManager, FirmwareBuilder, ModuleChecker, ModuleImportError,
-    MSIXData, MSIXManager, MSIXPreloadError, PCILeechBuildError,
-    VivadoIntegrationError, _display_summary, main, parse_args)
+    BUFFER_SIZE,
+    CONFIG_SPACE_PATH_TEMPLATE,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PROFILE_DURATION,
+    FILE_WRITE_TIMEOUT,
+    MAX_PARALLEL_FILE_WRITES,
+    REQUIRED_MODULES,
+    BuildConfiguration,
+    ConfigurationError,
+    ConfigurationManager,
+    DeviceConfiguration,
+    FileOperationError,
+    FileOperationsManager,
+    FirmwareBuilder,
+    ModuleChecker,
+    ModuleImportError,
+    MSIXData,
+    MSIXManager,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    VivadoIntegrationError,
+    _display_summary,
+    main,
+    parse_args,
+)
 from src.error_utils import build_issue_report
 
 # ============================================================================
@@ -1547,7 +1565,9 @@ def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
                 "vendor_id": "0x1234",
                 "subsystem_vendor_id": "0x1234",
                 "subsystem_device_id": "0x5678",
-            }
+            },
+            "pcie_max_link_speed": 2,  # Gen2 - 5.0 GT/s
+            "pcie_max_link_width": 4,  # x4 lanes
         }
     }
 
@@ -1563,6 +1583,8 @@ def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
         subsys_device_id=0x5678,  # Converted to int by _optional_int
         build_jobs=builder.config.vivado_jobs,
         build_timeout=builder.config.vivado_timeout,
+        pcie_max_link_speed_code=2,  # Extracted from template context
+        pcie_max_link_width=4,  # Extracted from template context
     )
 
 

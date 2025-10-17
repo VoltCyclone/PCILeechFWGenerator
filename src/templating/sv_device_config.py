@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.device_clone.device_config import DeviceClass, DeviceType
+from src.string_utils import safe_format
 
 
 @dataclass
@@ -41,18 +42,32 @@ class DeviceSpecificLogic:
     def validate(self) -> None:
         """Validate the configuration values."""
         if self.max_payload_size <= 0:
-            raise ValueError(f"Invalid max_payload_size: {self.max_payload_size}")
+            raise ValueError(
+                safe_format(
+                    "Invalid max_payload_size: {self.max_payload_size}", self=self
+                )
+            )
 
         if self.max_read_request_size <= 0:
             raise ValueError(
-                f"Invalid max_read_request_size: {self.max_read_request_size}"
+                safe_format(
+                    "Invalid max_read_request_size: {self.max_read_request_size}",
+                    self=self,
+                )
             )
 
         if self.tx_queue_depth <= 0:
-            raise ValueError(f"Invalid tx_queue_depth: {self.tx_queue_depth}")
-
+            raise ValueError(
+                safe_format("Invalid tx_queue_depth: {self.tx_queue_depth}", self=self)
+            )
         if self.rx_queue_depth <= 0:
-            raise ValueError(f"Invalid rx_queue_depth: {self.rx_queue_depth}")
+            raise ValueError(
+                safe_format("Invalid rx_queue_depth: {self.rx_queue_depth}", self=self)
+            )
 
         if self.base_frequency_mhz <= 0:
-            raise ValueError(f"Invalid base_frequency_mhz: {self.base_frequency_mhz}")
+            raise ValueError(
+                safe_format(
+                    "Invalid base_frequency_mhz: {self.base_frequency_mhz}", self=self
+                )
+            )

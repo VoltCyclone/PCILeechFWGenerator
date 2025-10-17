@@ -8,11 +8,11 @@
 #   chmod +x .git/hooks/pre-commit
 #
 
-echo "🔍 Validating SystemVerilog templates..."
+echo " Validating SystemVerilog templates..."
 
 # Check if we're in the right directory
 if [ ! -f "scripts/validate_systemverilog_templates.py" ]; then
-    echo "❌ SystemVerilog validation script not found. Are you in the project root?"
+    echo "SystemVerilog validation script not found. Are you in the project root?"
     exit 1
 fi
 
@@ -26,11 +26,11 @@ project_result=$?
 
 if [ $template_result -ne 0 ] || [ $project_result -ne 0 ]; then
     echo ""
-    echo "❌ SystemVerilog validation failed!"
+    echo " SystemVerilog validation failed!"
     echo "   Please fix the issues above before committing."
     echo "   This helps prevent synthesis errors in generated firmware."
     exit 1
 fi
 
-echo "✅ SystemVerilog validation passed!"
+echo " SystemVerilog validation passed!"
 echo ""

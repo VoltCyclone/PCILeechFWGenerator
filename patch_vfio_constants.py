@@ -27,9 +27,14 @@ sys.path.insert(0, str(project_root))
 
 from src.error_utils import log_error_with_root_cause
 from src.log_config import get_logger, setup_logging
+
 # Import required modules - use actual implementations
-from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from src.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def require(condition: bool, message: str, **context) -> None:
@@ -38,10 +43,12 @@ def require(condition: bool, message: str, **context) -> None:
     if not condition:
         log_error_safe(
             logger,
-            "Build aborted: {msg} | ctx={ctx}",
+            safe_format(
+                "Build aborted: {msg} | ctx={ctx}",
+                msg=message,
+                ctx=context,
+            ),
             prefix="PATCH",
-            msg=message,
-            ctx=context,
         )
         raise SystemExit(2)
 
@@ -104,10 +111,12 @@ def parse_constants(output):
         except ValueError as e:
             log_warning_safe(
                 logger,
-                "Skipping invalid line: {line} - {error}",
+                safe_format(
+                    "Skipping invalid line: {line} - {error}",
+                    line=line,
+                    error=str(e),
+                ),
                 prefix="PATCH",
-                line=line,
-                error=str(e),
             )
             continue
 

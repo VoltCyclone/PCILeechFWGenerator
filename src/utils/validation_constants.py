@@ -127,6 +127,12 @@ POWER_TRANSITION_CYCLES: Final[dict] = {
     "d3_to_d0": D3_TO_D0_CYCLES,
 }
 
+
+def get_power_transition_cycles() -> Dict[str, int]:
+    """Return a copy of the default power state transition cycles."""
+    return dict(POWER_TRANSITION_CYCLES)
+
+
 # Default values for common template variables
 # These provide safe fallbacks when templates reference non-existent attributes
 DEFAULT_COUNTER_WIDTH: Final[int] = 32

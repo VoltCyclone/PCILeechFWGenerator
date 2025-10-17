@@ -1,5 +1,9 @@
-{#- MSI-X Table and PBA Implementation Template -#}
+{#- MSI-X Table and PBA Implementation Template (Synthesizable) -#}
 {{ header | safe }}
+
+`default_nettype none
+
+{% set pba_size = ((msix_config.num_vectors | default(16) + 31) // 32) %}
 
 module msix_implementation #(
     parameter NUM_MSIX = {{ msix_config.num_vectors }},
@@ -7,203 +11,244 @@ module msix_implementation #(
     parameter MSIX_TABLE_OFFSET = 32'h{{ "%X" | format(msix_config.table_offset) }},
     parameter MSIX_PBA_BIR = {{ msix_config.pba_bir }},
     parameter MSIX_PBA_OFFSET = 32'h{{ "%X" | format(msix_config.pba_offset) }},
-    parameter MSIX_ENABLED = {{ '1\'b1' if msix_config.enabled | default(true) else '1\'b0' }},
-    parameter MSIX_FUNCTION_MASK = {{ '1\'b1' if msix_config.function_mask | default(false) else '1\'b0' }},
-    parameter PBA_SIZE = {{ ((msix_config.num_vectors | default(16) + 31) // 32) }}  // Number of 32-bit words needed for PBA
+    parameter PBA_SIZE = {{ pba_size }}  // Number of 32-bit words needed for PBA
 )(
-    input wire clk,
-    input wire rst_n,
-    
-    // MSI-X control registers - dynamically connected to configuration space
-    // These signals are properly driven by the actual MSI-X capability registers
-    input wire msix_enabled,        // Connected to MSI-X Message Control Enable bit (bit 15)
-    input wire msix_function_mask,  // Connected to MSI-X Message Control Function Mask bit (bit 14)
-    input wire [10:0] msix_table_size, // Connected to MSI-X Message Control Table Size field (bits 10:0)
+    input  wire        clk,
+    input  wire        rst_n,
 
-    // MSI-X capability register interface for dynamic control
-    input wire        msix_cap_wr,     // Write strobe for MSI-X capability registers
-    input wire [31:0] msix_cap_addr,   // Address within MSI-X capability space
-    input wire [31:0] msix_cap_wdata,  // Write data for MSI-X capability registers
-    input wire [3:0]  msix_cap_be,     // Byte enables for MSI-X capability writes
-    output reg [31:0] msix_cap_rdata,  // Read data from MSI-X capability registers
+    // MSI-X control registers - dynamically connected to configuration space
+    input  wire        msix_enabled,        // Connected to MSI-X Message Control Enable bit (bit 15)
+    input  wire        msix_function_mask,  // Connected to MSI-X Message Control Function Mask bit (bit 14)
+    input  wire [10:0] msix_table_size,     // Connected to MSI-X Message Control Table Size field (bits 10:0)
+
+    // MSI-X capability register interface for dynamic control (placeholder wiring)
+    input  wire        msix_cap_wr,
+    input  wire [31:0] msix_cap_addr,
+    input  wire [31:0] msix_cap_wdata,
+    input  wire [3:0]  msix_cap_be,
+    output logic [31:0] msix_cap_rdata,
 
     // MSI-X interrupt generation interface
-    output bit        msix_interrupt,  // MSI-X interrupt request
-    output bit [10:0] msix_vector,     // MSI-X vector number
-    output bit [63:0] msix_msg_addr,   // MSI-X message address
-    output bit [31:0] msix_msg_data,   // MSI-X message data
-    
+    output logic        msix_interrupt,  // MSI-X interrupt request
+    output logic [10:0] msix_vector,     // MSI-X vector number
+    output logic [63:0] msix_msg_addr,   // MSI-X message address (from table when delivered)
+    output logic [31:0] msix_msg_data,   // MSI-X message data (from table when delivered)
+
+    // External interrupt trigger and ack
+    input  wire         trigger_valid,
+    input  wire [10:0]  trigger_vector,
+    input  wire         msix_interrupt_ack,
+
     // BAR access interface
-    input wire [31:0] bar_addr,        // BAR address for MSI-X table/PBA access
-    input wire [2:0]  bar_index,       // BAR index
-    input wire        bar_wr,          // BAR write enable
-    input wire        bar_rd,          // BAR read enable
-    input wire [31:0] bar_wdata,       // BAR write data
-    input wire [3:0]  bar_be,          // BAR byte enables
-    output bit [31:0] bar_rdata,       // BAR read data
-    output bit        bar_ack          // BAR access acknowledge
+    input  wire [31:0]  bar_addr,
+    input  wire [2:0]   bar_index,
+    input  wire         bar_wr,
+    input  wire         bar_rd,
+    input  wire [31:0]  bar_wdata,
+    input  wire [3:0]   bar_be,
+    output logic [31:0] bar_rdata,
+    output logic        bar_ack
 );
 
-// Check alignment requirements for MSI-X table and PBA
-// Table must be naturally aligned on a 16-byte boundary
-// PBA must be naturally aligned on a 8-byte boundary
+    // Safe log2 width to avoid zero-width vectors when NUM_MSIX == 1
+    localparam int NUM_MSIX_LG2 = (NUM_MSIX <= 1) ? 1 : $clog2(NUM_MSIX);
 
-// MSI-X Table storage
-(* ram_style="block" *) reg [31:0] msix_table[0:NUM_MSIX*4-1];  // 4 DWORDs per entry
+    // MSI-X Table storage (staging and active for atomic commits)
+    (* ram_style="block" *) logic [31:0] msix_table_staging[0:NUM_MSIX*4-1];
+    (* ram_style="block" *) logic [31:0] msix_table_active[0:NUM_MSIX*4-1];
+    logic [3:0] msix_stage_valid[0:NUM_MSIX-1];
 
-// MSI-X PBA storage
-reg [31:0] msix_pba[0:{{ ((msix_config.num_vectors | default(16) + 31) // 32) - 1 }}];
+    // MSI-X PBA storage
+    logic [31:0] msix_pba[0:PBA_SIZE-1];
 
-// MSI-X Table access logic
-function is_msix_table_access(input [31:0] addr, input [2:0] bar_index);
-    begin
-        is_msix_table_access = (bar_index == MSIX_TABLE_BIR) &&
-               (addr >= MSIX_TABLE_OFFSET) &&
-               (addr < (MSIX_TABLE_OFFSET + NUM_MSIX * 16));
-    end
-endfunction
+    // Address decode
+    wire is_table_access = (bar_index == MSIX_TABLE_BIR) &&
+                           (bar_addr >= MSIX_TABLE_OFFSET) &&
+                           (bar_addr < (MSIX_TABLE_OFFSET + NUM_MSIX * 16));
 
-// MSI-X PBA access logic
-function is_msix_pba_access(input [31:0] addr, input [2:0] bar_index);
-    begin
-        is_msix_pba_access = (bar_index == MSIX_PBA_BIR) &&
-               (addr >= MSIX_PBA_OFFSET) &&
-               (addr < (MSIX_PBA_OFFSET + {{ ((msix_config.num_vectors | default(16) + 31) // 32) }} * 4));
-    end
-endfunction
+    wire is_pba_access = (bar_index == MSIX_PBA_BIR) &&
+                         (bar_addr >= MSIX_PBA_OFFSET) &&
+                         (bar_addr < (MSIX_PBA_OFFSET + PBA_SIZE * 4));
 
-// MSI-X Table read logic
-function [31:0] msix_table_read(input [31:0] addr);
-    reg [31:0] table_addr;
-    begin
-        table_addr = (addr - MSIX_TABLE_OFFSET) >> 2;  // Convert to DWORD index
-        msix_table_read = msix_table[table_addr];
-    end
-endfunction
+    // Calculated addresses (DWORD addressing)
+    wire [31:0] table_addr = (bar_addr - MSIX_TABLE_OFFSET) >> 2;
+    wire [31:0] pba_addr   = (bar_addr - MSIX_PBA_OFFSET) >> 2;
+    // Select the entry index as table_addr >> 2 (4 DWORDs per entry)
+    wire [NUM_MSIX_LG2-1:0] entry_index = table_addr >> 2;
+    wire [1:0]                  dword_index = table_addr[1:0];
 
-// MSI-X Table write logic with byte enables
-task msix_table_write(input [31:0] addr, input [31:0] data, input [3:0] byte_enable);
-    reg [31:0] table_addr;
-    reg [31:0] current_value;
-    begin
-        table_addr = (addr - MSIX_TABLE_OFFSET) >> 2;  // Convert to DWORD index
-        current_value = msix_table[table_addr];
+    // BAR read data register and ack
+    logic [31:0] bar_rdata_reg;
+    logic        bar_ack_reg;
 
-        // Apply byte enables
-        if (byte_enable[0]) current_value[7:0] = data[7:0];
-        if (byte_enable[1]) current_value[15:8] = data[15:8];
-        if (byte_enable[2]) current_value[23:16] = data[23:16];
-        if (byte_enable[3]) current_value[31:24] = data[31:24];
+    // Pending/interrupt control
+    logic interrupt_pending;
+    logic [10:0] current_vector;
 
-        msix_table[table_addr] = current_value;
-    end
-endtask
+    // Priority encoder for pending vectors
+    logic [NUM_MSIX_LG2-1:0] next_pending_idx;
+    logic                        pending_found;
 
-// MSI-X PBA read logic
-function [31:0] msix_pba_read(input [31:0] addr);
-    reg [31:0] pba_addr;
-    begin
-        pba_addr = (addr - MSIX_PBA_OFFSET) >> 2;  // Convert to DWORD index
-        msix_pba_read = msix_pba[pba_addr];
-    end
-endfunction
+    // Combinational view of pending vector table control DWORD and data
+    logic [31:0] pending_ctrl_dword;
+    logic [31:0] pending_msg_addr_lo;
+    logic [31:0] pending_msg_addr_hi;
+    logic [31:0] pending_msg_data;
+    logic        pending_vector_masked;
 
-// MSI-X PBA write logic (typically read-only, but implemented for completeness)
-task msix_pba_write(input [31:0] addr, input [31:0] data, input [3:0] byte_enable);
-    reg [31:0] pba_addr;
-    reg [31:0] current_value;
-    begin
-        pba_addr = (addr - MSIX_PBA_OFFSET) >> 2;  // Convert to DWORD index
-        current_value = msix_pba[pba_addr];
-
-        // Apply byte enables
-        if (byte_enable[0]) current_value[7:0] = data[7:0];
-        if (byte_enable[1]) current_value[15:8] = data[15:8];
-        if (byte_enable[2]) current_value[23:16] = data[23:16];
-        if (byte_enable[3]) current_value[31:24] = data[31:24];
-
-        msix_pba[pba_addr] = current_value;
-    end
-endtask
-
-// Legacy MSI-X interrupt delivery logic (deprecated - use msix_deliver_interrupt_validated)
-task msix_deliver_interrupt(input [10:0] vector);
-    begin
-        // Redirect to validated version for backward compatibility
-        msix_deliver_interrupt_validated(vector);
-    end
-endtask
-
-// MSI-X interrupt validation and delivery
-task msix_deliver_interrupt_validated(input [10:0] vector);
-    reg [31:0] table_base_addr;
-    reg [31:0] msg_addr_lo, msg_addr_hi, msg_data, vector_control;
-    begin
-        if (msix_enabled && !msix_function_mask && vector < NUM_MSIX) begin
-            // Calculate table entry address (16 bytes per entry)
-            table_base_addr = vector * 4;  // 4 DWORDs per entry
-            
-            // Read message address and data from table
-            msg_addr_lo = msix_table[table_base_addr];
-            msg_addr_hi = msix_table[table_base_addr + 1];
-            msg_data = msix_table[table_base_addr + 2];
-            vector_control = msix_table[table_base_addr + 3];
-            
-            // Check if vector is not masked (bit 0 of vector control)
-            if (!(vector_control[0])) begin
-                // Generate interrupt
-                msix_interrupt = 1'b1;
-                msix_vector = vector;
-                msix_msg_addr = {msg_addr_hi, msg_addr_lo};
-                msix_msg_data = msg_data;
+    // BAR read muxing (synchronous read)
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            bar_rdata_reg <= 32'h0;
+            bar_ack_reg   <= 1'b0;
+        end else begin
+            bar_ack_reg <= 1'b0;
+            if (bar_rd) begin
+                if (is_table_access) begin
+                    bar_rdata_reg <= msix_table_staging[table_addr];
+                    bar_ack_reg   <= 1'b1;
+                end else if (is_pba_access) begin
+                    bar_rdata_reg <= msix_pba[pba_addr];
+                    bar_ack_reg   <= 1'b1;
+                end
+            end else if (bar_wr) begin
+                if (is_table_access) begin
+                    // Byte-enable writes to staging table
+                    if (bar_be[0]) msix_table_staging[table_addr][7:0]   <= bar_wdata[7:0];
+                    if (bar_be[1]) msix_table_staging[table_addr][15:8]  <= bar_wdata[15:8];
+                    if (bar_be[2]) msix_table_staging[table_addr][23:16] <= bar_wdata[23:16];
+                    if (bar_be[3]) msix_table_staging[table_addr][31:24] <= bar_wdata[31:24];
+                    // Mark dword staged
+                    msix_stage_valid[entry_index][dword_index] <= 1'b1;
+                    // Commit atomically when all 4 staged
+                    if (&msix_stage_valid[entry_index]) begin
+                        for (int k = 0; k < 4; k++) begin
+                            msix_table_active[(entry_index << 2) + k] <=
+                                msix_table_staging[(entry_index << 2) + k];
+                        end
+                        msix_stage_valid[entry_index] <= 4'b0000;
+                    end
+                    bar_ack_reg <= 1'b1;
+                end else if (is_pba_access) begin
+                    // PBA is read-only in typical MSI-X usage; ignore writes
+                    bar_ack_reg <= 1'b1;
+                end
             end
         end
     end
-endtask
 
-// BAR access logic for MSI-X table and PBA
-always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-        bar_rdata <= 32'h0;
-        bar_ack <= 1'b0;
-        msix_interrupt <= 1'b0;
-        msix_vector <= 11'h0;
-        msix_msg_addr <= 64'h0;
-        msix_msg_data <= 32'h0;
-        
-        // Initialize MSI-X table
-        for (integer i = 0; i < NUM_MSIX * 4; i = i + 1) begin
-            msix_table[i] <= 32'h0;
-        end
-        
-        // Initialize MSI-X PBA
-        for (integer i = 0; i <= {{ ((msix_config.num_vectors | default(16) + 31) // 32) - 1 }}; i = i + 1) begin
-            msix_pba[i] <= 32'h0;
-        end
-    end else begin
-        // Clear interrupt pulse
-        msix_interrupt <= 1'b0;
-        bar_ack <= 1'b0;
-        
-        // Handle BAR access
-        if (bar_rd || bar_wr) begin
-            if (is_msix_table_access(bar_addr, bar_index)) begin
-                if (bar_rd) begin
-                    bar_rdata <= msix_table_read(bar_addr);
-                end else if (bar_wr) begin
-                    msix_table_write(bar_addr, bar_wdata, bar_be);
-                end
-                bar_ack <= 1'b1;
-            end else if (is_msix_pba_access(bar_addr, bar_index)) begin
-                if (bar_rd) begin
-                    bar_rdata <= msix_pba_read(bar_addr);
-                end else if (bar_wr) begin
-                    msix_pba_write(bar_addr, bar_wdata, bar_be);
-                end
-                bar_ack <= 1'b1;
+    assign bar_rdata = bar_rdata_reg;
+    assign bar_ack   = bar_ack_reg;
+
+    // External trigger: set PBA bit; Ack: clear PBA bit
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (int i = 0; i < PBA_SIZE; i++) begin
+                msix_pba[i] <= 32'h0;
+            end
+        end else begin
+            if (trigger_valid && (trigger_vector < NUM_MSIX)) begin
+                msix_pba[trigger_vector >> 5] <=
+                    msix_pba[trigger_vector >> 5] | (32'h1 << trigger_vector[4:0]);
+            end
+            if (msix_interrupt_ack && interrupt_pending) begin
+                msix_pba[current_vector >> 5] <=
+                    msix_pba[current_vector >> 5] & ~(32'h1 << current_vector[4:0]);
             end
         end
     end
-end
+
+    // Priority encoder for first pending vector
+    always_comb begin
+        pending_found = 1'b0;
+        next_pending_idx = '0;
+        for (int i = 0; i < NUM_MSIX; i++) begin
+            if (!pending_found && (msix_pba[i >> 5] & (32'h1 << i[4:0]))) begin
+                pending_found = 1'b1;
+                next_pending_idx = i[NUM_MSIX_LG2-1:0];
+            end
+        end
+    end
+
+    // Combinational fetch of message fields for the pending vector
+    assign pending_msg_addr_lo  = msix_table_active[{next_pending_idx, 2'b00}];
+    assign pending_msg_addr_hi  = msix_table_active[{next_pending_idx, 2'b01}];
+    assign pending_msg_data     = msix_table_active[{next_pending_idx, 2'b10}];
+    assign pending_ctrl_dword   = msix_table_active[{next_pending_idx, 2'b11}];
+    assign pending_vector_masked = pending_ctrl_dword[0];
+
+    // Interrupt state machine
+    typedef enum logic [1:0] { IDLE, PENDING, WAITING_ACK } intr_state_t;
+    intr_state_t intr_state;
+    logic [10:0] pending_vector;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            intr_state       <= IDLE;
+            msix_interrupt   <= 1'b0;
+            msix_vector      <= 11'h0;
+            msix_msg_addr    <= 64'h0;
+            msix_msg_data    <= 32'h0;
+            pending_vector   <= 11'h0;
+            current_vector   <= 11'h0;
+            interrupt_pending <= 1'b0;
+            // Clear tables and stage marks
+            for (int i = 0; i < NUM_MSIX * 4; i++) begin
+                msix_table_staging[i] <= 32'h0;
+                msix_table_active[i]  <= 32'h0;
+            end
+            for (int v = 0; v < NUM_MSIX; v++) begin
+                msix_stage_valid[v] <= 4'b0000;
+            end
+            // Capability readback default
+            msix_cap_rdata <= 32'h0;
+        end else begin
+            msix_interrupt <= 1'b0; // pulse-style interrupt
+
+            // Simple placeholder for capability readback (not implemented)
+            if (msix_cap_wr) begin
+                // No-op; integrate with real cap space externally
+                msix_cap_rdata <= 32'h0;
+            end
+
+            case (intr_state)
+                IDLE: begin
+                    interrupt_pending <= 1'b0;
+                    if (pending_found) begin
+                        // Zero-extend next_pending_idx to 11 bits
+{% raw %}                        pending_vector <= {{(11-NUM_MSIX_LG2){1'b0}}, next_pending_idx};{% endraw %}
+                        intr_state <= PENDING;
+                    end
+                end
+
+                PENDING: begin
+                    if (msix_enabled && !msix_function_mask && !pending_vector_masked) begin
+                        // Deliver this vector
+                        msix_vector    <= pending_vector;
+                        current_vector <= pending_vector;
+                        msix_msg_addr  <= {pending_msg_addr_hi, pending_msg_addr_lo};
+                        msix_msg_data  <= pending_msg_data;
+                        msix_interrupt <= 1'b1;
+                        interrupt_pending <= 1'b1;
+                        intr_state <= WAITING_ACK;
+                    end else begin
+                        // Masked or disabled; remain pending and look again
+                        intr_state <= IDLE;
+                    end
+                end
+
+                WAITING_ACK: begin
+                    if (msix_interrupt_ack) begin
+                        msix_interrupt <= 1'b0;
+                        intr_state <= IDLE;
+                    end
+                end
+
+                default: intr_state <= IDLE;
+            endcase
+        end
+    end
 
 endmodule
+
+`default_nettype wire

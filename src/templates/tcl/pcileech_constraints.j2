@@ -222,14 +222,6 @@ return
 {% else %}
 set_max_delay -from [get_pins -hierarchical *network*/reg*/C] -to [get_pins -hierarchical *network*/reg*/D] {{ device.network_max_delay }}
 {% endif %}
-{% elif device.class_code == "0x040300" %}
-# Audio controller specific constraints
-{% if not device.audio_max_delay %}
-puts "ERROR: Missing required parameter: device.audio_max_delay for audio controller"
-return
-{% else %}
-set_max_delay -from [get_pins -hierarchical *audio*/reg*/C] -to [get_pins -hierarchical *audio*/reg*/D] {{ device.audio_max_delay }}
-{% endif %}
 {% elif device.class_code == "0x0c0330" %}
 # USB controller specific constraints
 {% if not device.usb_max_delay %}

@@ -105,10 +105,11 @@ def check_system_requirements():
                         if version_result.returncode == 0:
                             version = version_result.stdout.strip().split("\n")[0]
                             print(f"    Version: {version}")
-                    except:
-                        pass
-        except Exception:
-            print(f"  {tool}: ? Unable to check")
+                    except Exception as e:
+                        # Version check failed - tool may not support --version
+                        print(f"    (version check failed: {e})")
+        except Exception as e:
+            print(f"  {tool}: ? Unable to check ({e})")
 
     print()
     return is_linux, len(kernel_sources) > 0
@@ -119,8 +120,7 @@ def validate_build_configuration():
     print("=== Build Configuration Validation ===")
 
     try:
-        from build import (ALLOW_MOCK_DATA, PRODUCTION_MODE,
-                           validate_production_mode)
+        from build import ALLOW_MOCK_DATA, PRODUCTION_MODE, validate_production_mode
 
         print(f"Loaded Configuration:")
         print(f"  PRODUCTION_MODE: {PRODUCTION_MODE}")

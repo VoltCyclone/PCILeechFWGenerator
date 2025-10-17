@@ -171,23 +171,42 @@ def install_requirements(requirements_file):
         cmd = [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)]
 
         # Check if we're in a virtual environment
-        if hasattr(sys, "real_prefix") or (
+        in_venv = hasattr(sys, "real_prefix") or (
             hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
-        ):
+        )
+
+        if in_venv:
             print("🐍 Detected virtual environment")
         else:
             print(
                 "⚠️  Installing to system Python (consider using a virtual environment)"
             )
+            print(
+                "\nNote: On Python 3.12+/Debian 12+, you may see 'externally-managed-environment' errors."
+            )
+            print(
+                "Solution: Use a virtual environment or see docs/installation-python312.md"
+            )
+
             # Ask for confirmation for system-wide install
             if os.getenv("PCILEECH_AUTO_INSTALL") != "1":
-                confirm = input("Install to system Python? [y/N]: ").strip().lower()
+                confirm = (
+                    input("\nInstall to system Python anyway? [y/N]: ").strip().lower()
+                )
                 if confirm not in ("y", "yes"):
                     print(
-                        "Aborted. Please use a virtual environment or install manually."
+                        "\nAborted. Please use a virtual environment or install manually:"
+                    )
+                    print(f"  python3 -m venv ~/.pcileech-venv")
+                    print(f"  source ~/.pcileech-venv/bin/activate")
+                    print(f"  pip install -r {requirements_file}")
+                    print(
+                        f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
                     )
                     sys.exit(1)
-            cmd.append("--user")  # Install to user directory for safety
+
+            # Try --user flag, but catch externally-managed-environment errors
+            cmd.append("--user")
 
         # Run pip install
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -195,12 +214,39 @@ def install_requirements(requirements_file):
         if result.returncode == 0:
             print("✅ Requirements installed successfully")
             return True
+        # no-dd-sa:python-best-practices/if-return-no-else
         else:
             print(f"❌ Failed to install requirements:")
-            print(f"   stdout: {result.stdout}")
-            print(f"   stderr: {result.stderr}")
-            print(f"\nTry installing manually:")
-            print(f"   pip install -r {requirements_file}")
+            if result.stderr:
+                print(f"   {result.stderr}")
+
+            # Check for externally-managed-environment error
+            if "externally-managed-environment" in result.stderr:
+                print(
+                    "\n⚠️  Python 3.12+ / Debian 12+ detected with PEP 668 protection."
+                )
+                print("\nSolution 1 (Recommended): Use a virtual environment")
+                print(f"  python3 -m venv ~/.pcileech-venv")
+                print(f"  source ~/.pcileech-venv/bin/activate")
+                print(f"  pip install -r {requirements_file}")
+                print(
+                    f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
+                )
+
+                print("\nSolution 2: Use pipx")
+                print(f"  pipx install pcileechfwgenerator[tui]")
+                print(f"  sudo $(which pcileech) tui")
+
+                print("\nSolution 3: Override (not recommended)")
+                print(f"  pip install --break-system-packages -r {requirements_file}")
+
+                print(
+                    "\nSee: site/docs/installation-python312.md for detailed instructions"
+                )
+            else:
+                print(f"\nTry installing manually:")
+                print(f"   pip install -r {requirements_file}")
+
             return False
 
     except FileNotFoundError:
@@ -270,8 +316,13 @@ if __name__ == "__main__":
 try:
     from src.error_utils import format_concise_error, log_error_with_root_cause
     from src.log_config import get_logger, setup_logging
-    from src.string_utils import (log_error_safe, log_info_safe,
-                                  log_warning_safe, safe_format)
+    from src.string_utils import (
+        log_debug_safe,
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
     from src.utils.validation_constants import KNOWN_DEVICE_TYPES
 except ImportError as e:
     print(f"❌ Failed to import PCILeech modules: {e}")
@@ -674,7 +725,9 @@ def handle_build(args):
 
     except ImportError as e:
         log_error_safe(
-            logger, "Failed to import CLI module: {error}", prefix="BUILD", error=str(e)
+            logger,
+            safe_format("Failed to import CLI module: {error}", error=str(e)),
+            prefix="BUILD",
         )
         log_error_safe(
             logger, "Make sure all dependencies are installed", prefix="BUILD"
@@ -754,14 +807,18 @@ def handle_flash(args):
         if not firmware_path.exists():
             log_error_safe(
                 logger,
-                "Firmware file not found: {path}",
+                safe_format(
+                    "Firmware file not found: {path}",
+                    path=firmware_path,
+                ),
                 prefix="FLASH",
-                path=firmware_path,
             )
             return 1
 
         log_info_safe(
-            logger, "Flashing firmware: {path}", prefix="FLASH", path=firmware_path
+            logger,
+            safe_format("Flashing firmware: {path}", path=firmware_path),
+            prefix="FLASH",
         )
 
         # Try to use the flash utility
@@ -776,14 +833,18 @@ def handle_flash(args):
             )
             if result.returncode != 0:
                 log_error_safe(
-                    logger, "Flash failed: {error}", prefix="FLASH", error=result.stderr
+                    logger,
+                    safe_format("Flash failed: {error}", error=result.stderr),
+                    prefix="FLASH",
                 )
                 return 1
             log_info_safe(
                 logger,
-                "Successfully flashed {path}",
+                safe_format(
+                    "Successfully flashed {path}",
+                    path=firmware_path,
+                ),
                 prefix="FLASH",
-                path=firmware_path,
             )
 
         return 0
@@ -802,14 +863,20 @@ def handle_check(args):
         # Import the VFIO diagnostics functionality
         from pathlib import Path
 
-        from src.cli.vfio_diagnostics import (Diagnostics, Status,
-                                              remediation_script, render)
+        from src.cli.vfio_diagnostics import (
+            Diagnostics,
+            Status,
+            remediation_script,
+            render,
+        )
 
         log_info_safe(
             logger,
-            "Running VFIO diagnostics{device}",
+            safe_format(
+                "Running VFIO diagnostics{device}",
+                device=f" for device {args.device}" if args.device else "",
+            ),
             prefix="CHECK",
-            device=f" for device {args.device}" if args.device else "",
         )
 
         # Create diagnostics instance and run checks
@@ -824,7 +891,7 @@ def handle_check(args):
             if report.overall == Status.OK:
                 log_info_safe(
                     logger,
-                    "✅ System already VFIO-ready - nothing to do",
+                    "System already VFIO-ready - nothing to do",
                     prefix="CHECK",
                 )
                 return 0
@@ -837,9 +904,8 @@ def handle_check(args):
 
             log_info_safe(
                 logger,
-                "📝 Remediation script written to {path}",
+                safe_format("Remediation script written to {path}", path=temp),
                 prefix="CHECK",
-                path=temp,
             )
 
             if args.interactive:
@@ -867,7 +933,9 @@ def handle_check(args):
                 return 0 if new_report.can_proceed else 1
             except subprocess.CalledProcessError as e:
                 log_error_safe(
-                    logger, "Script failed: {error}", prefix="CHECK", error=str(e)
+                    logger,
+                    safe_format("Script failed: {error}", error=str(e)),
+                    prefix="CHECK",
                 )
                 return 1
 
@@ -875,13 +943,15 @@ def handle_check(args):
         return 0 if report.can_proceed else 1
 
     except ImportError as e:
-        log_error_safe(logger, "❌ VFIO diagnostics module not found.", prefix="CHECK")
+        log_error_safe(logger, "VFIO diagnostics module not found.", prefix="CHECK")
         log_error_safe(
             logger,
             "Please ensure you're running this from the PCILeech project directory.",
             prefix="CHECK",
         )
-        log_error_safe(logger, "Details: {error}", prefix="CHECK", error=str(e))
+        log_error_safe(
+            logger, safe_format("Details: {error}", error=str(e)), prefix="CHECK"
+        )
         return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
@@ -908,9 +978,21 @@ def handle_version(args):
         build_date = version_info.get("build_date", "unknown")
         commit_hash = version_info.get("commit_hash", "unknown")
 
-        log_info_safe(logger, f"{title} v{version}", prefix="VERSION")
-        log_info_safe(logger, f"Build date: {build_date}", prefix="VERSION")
-        log_info_safe(logger, f"Commit hash: {commit_hash}", prefix="VERSION")
+        log_info_safe(
+            logger,
+            safe_format("{title} v{version}", title=title, version=version),
+            prefix="VERSION",
+        )
+        log_info_safe(
+            logger,
+            safe_format("Build date: {build_date}", build_date=build_date),
+            prefix="VERSION",
+        )
+        log_info_safe(
+            logger,
+            safe_format("Commit hash: {commit_hash}", commit_hash=commit_hash),
+            prefix="VERSION",
+        )
 
     except ImportError:
         log_info_safe(logger, get_version(), prefix="VERSION")
@@ -924,10 +1006,20 @@ def handle_version(args):
 
         version = pkg_resources.get_distribution("pcileechfwgenerator").version
         log_info_safe(
-            logger, "Package version: {version}", prefix="VERSION", version=version
+            logger,
+            safe_format("Package version: {version}", version=version),
+            prefix="VERSION",
         )
-    except:
-        pass
+    except Exception as e:
+        # Package version not available (development install or pkg_resources missing)
+        log_debug_safe(
+            logger,
+            safe_format(
+                "Package version info unavailable: {error}",
+                prefix="VERSION",
+                error=str(e),
+            ),
+        )
 
     return 0
 
@@ -936,8 +1028,7 @@ def handle_donor_template(args):
     """Handle donor template generation."""
     logger = get_logger(__name__)
     try:
-        from src.device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from src.device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # If validate flag is set, validate the file instead
         if args.validate:
@@ -947,21 +1038,26 @@ def handle_donor_template(args):
                 if is_valid:
                     log_info_safe(
                         logger,
-                        "✓ Template file '{file}' is valid",
+                        safe_format(
+                            "Template file '{file}' is valid", file=args.validate
+                        ),
                         prefix="DONOR",
-                        file=args.validate,
                     )
                     return 0
                 else:
                     log_error_safe(
                         logger,
-                        "✗ Template file '{file}' has errors:",
+                        safe_format(
+                            "✗ Template file '{file}' has errors:", file=args.validate
+                        ),
                         prefix="DONOR",
                         file=args.validate,
                     )
                     for error in errors:
                         log_error_safe(
-                            logger, "  - {error}", prefix="DONOR", error=error
+                            logger,
+                            safe_format("  - {error}", error=error),
+                            prefix="DONOR",
                         )
                     return 1
             except Exception as e:
@@ -977,9 +1073,10 @@ def handle_donor_template(args):
         if args.bdf:
             log_info_safe(
                 logger,
-                "Generating template with device info from {bdf}...",
+                safe_format(
+                    "Generating template with device info from {bdf}...", bdf=args.bdf
+                ),
                 prefix="DONOR",
-                bdf=args.bdf,
             )
             try:
                 template = generator.generate_template_from_device(args.bdf)
@@ -987,9 +1084,10 @@ def handle_donor_template(args):
                 if template["device_info"]["identification"]["vendor_id"] is None:
                     log_error_safe(
                         logger,
-                        "Failed to read device information from {bdf}",
+                        safe_format(
+                            "Failed to read device information from {bdf}", bdf=args.bdf
+                        ),
                         prefix="DONOR",
-                        bdf=args.bdf,
                     )
                     log_error_safe(logger, "Possible causes:", prefix="DONOR")
                     log_error_safe(logger, "  - Device does not exist", prefix="DONOR")

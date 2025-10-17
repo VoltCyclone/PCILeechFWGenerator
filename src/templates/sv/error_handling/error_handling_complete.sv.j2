@@ -1,0 +1,13 @@
+{#- Complete Error Handling Logic Template -#}
+{% from "_helpers.j2" import safe_attr %}
+{%- include 'sv/error_handling/error_declarations.sv.j2' %}
+
+{%- include 'sv/error_handling/error_detection.sv.j2' %}
+
+{%- include 'sv/error_handling/error_state_machine.sv.j2' %}
+
+{%- include 'sv/error_handling/error_logging.sv.j2' %}
+
+{%- include 'sv/error_handling/error_counters.sv.j2' %}
+
+{%- include 'sv/error_handling/error_outputs.sv.j2' %}

@@ -22,20 +22,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
-from src.templating.template_context_validator import \
-    clear_global_template_cache
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.templating.template_context_validator import clear_global_template_cache
 from src.utils.log_phases import PhaseLogger
 
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
+
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-from .exceptions import (ConfigurationError, FileOperationError,
-                         ModuleImportError, MSIXPreloadError,
-                         PCILeechBuildError, PlatformCompatibilityError,
-                         VivadoIntegrationError)
+from .exceptions import (
+    ConfigurationError,
+    FileOperationError,
+    ModuleImportError,
+    MSIXPreloadError,
+    PCILeechBuildError,
+    PlatformCompatibilityError,
+    VivadoIntegrationError,
+)
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -90,7 +100,7 @@ def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
         return None
 
 
-@dataclass
+@dataclass(slots=True)
 class BuildConfiguration:
     """Configuration for the firmware build process."""
 
@@ -111,7 +121,7 @@ class BuildConfiguration:
     enable_error_injection: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class MSIXData:
     """Container for MSI-X capability data."""
 
@@ -121,7 +131,7 @@ class MSIXData:
     config_space_bytes: Optional[bytes] = None
 
 
-@dataclass
+@dataclass(slots=True)
 class DeviceConfiguration:
     """Device configuration extracted from the build process."""
 
@@ -302,7 +312,7 @@ class MSIXManager:
             Returns empty MSIXData on any failure (non-critical operation)
         """
         try:
-            log_info_safe(self.logger, "➤ Preloading MSI-X data before VFIO binding")
+            log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
 
             # 1) Prefer host-provided JSON (mounted into container) if available
             #    This preserves MSI-X context when container lacks sysfs/VFIO access.
@@ -321,9 +331,11 @@ class MSIXManager:
                     if msix_info and isinstance(msix_info, dict):
                         log_info_safe(
                             self.logger,
-                            "  • Loaded MSI-X from {path} ({vectors} vectors)",
-                            path=msix_json_path,
-                            vectors=msix_info.get("table_size", 0),
+                            safe_format(
+                                "Loaded MSI-X from {path} ({vectors} vectors)",
+                                path=msix_json_path,
+                                vectors=msix_info.get("table_size", 0),
+                            ),
                             prefix="MSIX",
                         )
                         return MSIXData(
@@ -338,8 +350,10 @@ class MSIXManager:
                 # Non-fatal; fall back to sysfs path
                 log_debug_safe(
                     self.logger,
-                    "MSI-X JSON ingestion skipped: {err}",
-                    err=str(e),
+                    safe_format(
+                        "MSI-X JSON ingestion skipped: {err}",
+                        err=str(e),
+                    ),
                     prefix="MSIX",
                 )
 
@@ -359,8 +373,10 @@ class MSIXManager:
             if msix_info["table_size"] > 0:
                 log_info_safe(
                     self.logger,
-                    "  • Found MSI-X capability: {vectors} vectors",
-                    vectors=msix_info["table_size"],
+                    safe_format(
+                        "Found MSI-X capability: {vectors} vectors",
+                        vectors=msix_info["table_size"],
+                    ),
                     prefix="MSIX",
                 )
                 return MSIXData(
@@ -372,9 +388,7 @@ class MSIXManager:
             else:
                 # No MSI-X capability found -> treat as not preloaded so callers
                 # don't assume hardware MSI-X values are available.
-                log_info_safe(
-                    self.logger, "  • No MSI-X capability found", prefix="MSIX"
-                )
+                log_info_safe(self.logger, "No MSI-X capability found", prefix="MSIX")
                 return MSIXData(preloaded=False, msix_info=None)
 
         except Exception as e:
@@ -881,7 +895,10 @@ class ConfigurationManager:
         # Validate profile duration
         if args.profile < 0:
             raise ConfigurationError(
-                f"Invalid profile duration: {args.profile}. Must be >= 0"
+                safe_format(
+                    "Invalid profile duration: {profile}. Must be >= 0",
+                    profile=args.profile,
+                )
             )
 
     def _is_valid_bdf(self, bdf: str) -> bool:
@@ -995,12 +1012,17 @@ class FirmwareBuilder:
             return self.file_manager.list_artifacts()
 
         except PlatformCompatibilityError:
+            # Reraise platform compatibility errors without modification
             raise
         except Exception as e:
-            log_error_safe(self.logger, "Build failed: {err}", err=str(e))
-            if self.logger.isEnabledFor(logging.DEBUG):
-                log_debug_safe(self.logger, "Full traceback while building")
-            raise
+            log_error_safe(
+                self.logger,
+                safe_format("Build failed: {err}", err=str(e)),
+                prefix="BUILD",
+            )
+            raise PCILeechBuildError(
+                safe_format("Build failed: {err}", err=str(e))
+            ) from e
 
     def run_vivado(self) -> None:
         """
@@ -1020,8 +1042,10 @@ class FirmwareBuilder:
             vivado_path = self.config.vivado_path
             log_info_safe(
                 self.logger,
-                "Using user-specified Vivado path: {path}",
-                path=vivado_path,
+                safe_format(
+                    "Using user-specified Vivado path: {path}", path=vivado_path
+                ),
+                prefix="VIVADO",
             )
         else:
             # Auto-detect Vivado installation
@@ -1064,8 +1088,10 @@ class FirmwareBuilder:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
         from .device_clone.board_config import get_pcileech_board_config
-        from .device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                      PCILeechGenerator)
+        from .device_clone.pcileech_generator import (
+            PCILeechGenerationConfig,
+            PCILeechGenerator,
+        )
         from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
@@ -1091,19 +1117,23 @@ class FirmwareBuilder:
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
         if self.config.donor_template:
-            from .device_clone.donor_info_template import \
-                DonorInfoTemplateGenerator
+            from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
             log_info_safe(
                 self.logger,
-                "Loading donor template from: {path}",
-                path=self.config.donor_template,
+                safe_format(
+                    "Loading donor template from: {path}",
+                    path=self.config.donor_template,
+                ),
+                prefix="BUILD",
             )
             try:
                 template = DonorInfoTemplateGenerator.load_template(
                     self.config.donor_template
                 )
-                log_info_safe(self.logger, "Donor template loaded successfully")
+                log_info_safe(
+                    self.logger, "Donor template loaded successfully", prefix="BUILD"
+                )
                 return template
             except Exception as e:
                 log_error_safe(
@@ -1288,12 +1318,27 @@ class FirmwareBuilder:
         """Generate TCL scripts for Vivado."""
         ctx = result["template_context"]
         device_config = ctx["device_config"]
+
+        # Validate board is present and non-empty
+        board = self.config.board
+        if not board or not board.strip():
+            raise ConfigurationError(
+                "Board name is required for TCL generation. "
+                "Use --board to specify a valid board configuration "
+                "(e.g., pcileech_100t484_x1)"
+            )
+
         # Extract optional subsystem IDs
         subsys_vendor_id = _optional_int(device_config.get("subsystem_vendor_id"))
         subsys_device_id = _optional_int(device_config.get("subsystem_device_id"))
 
+        # Extract PCIe link speed and width from template context
+        # These are critical for donor-unique firmware generation
+        pcie_max_link_speed = ctx.get("pcie_max_link_speed")
+        pcie_max_link_width = ctx.get("pcie_max_link_width")
+
         self.tcl.build_all_tcl_scripts(
-            board=self.config.board,
+            board=board,
             device_id=device_config["device_id"],
             class_code=device_config["class_code"],
             revision_id=device_config["revision_id"],
@@ -1302,6 +1347,8 @@ class FirmwareBuilder:
             subsys_device_id=subsys_device_id,
             build_jobs=self.config.vivado_jobs,
             build_timeout=self.config.vivado_timeout,
+            pcie_max_link_speed_code=pcie_max_link_speed,
+            pcie_max_link_width=pcie_max_link_width,
         )
 
         log_info_safe(
@@ -1330,8 +1377,7 @@ class FirmwareBuilder:
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
-        from .device_clone.donor_info_template import \
-            DonorInfoTemplateGenerator
+        from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # Get device info from the result
         device_info = result.get("config_space_data", {}).get("device_info", {})
@@ -1620,6 +1666,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             log_info_safe(
                 logger,
                 "Build skipped due to platform compatibility (see details above)",
+                prefix="BUILD",
             )
         else:
             # Unexpected errors
@@ -1707,9 +1754,11 @@ def _maybe_emit_issue_report(
         repro_cmd = _build_reproduction_command(args)
 
     try:
-        from src.error_utils import (build_issue_report,
-                                     format_issue_report_human_hint,
-                                     write_issue_report)
+        from src.error_utils import (
+            build_issue_report,
+            format_issue_report_human_hint,
+            write_issue_report,
+        )
 
         report = None
         if want_file or want_stdout:

@@ -84,6 +84,7 @@
 memory_initialization_radix=16;
 memory_initialization_vector=
 
+{{ validate_bar_configs() }}
 ; =====================================================================
 ; Standard PCI Configuration Header (0x00-0x3F)
 ; =====================================================================
@@ -231,11 +232,27 @@ FFFFFFFF,
 {{ msix_cap_header }},
 
 ; Table Offset/BIR: Offset={{ "%08X" % (msix_table_offset | safe_int(0)) }}, BIR={{ msix_table_bir }}
-{% set table_offset_bir = (msix_table_offset | safe_int(0)) + (msix_table_bir | safe_int(0)) %}
+{# Encode as [31:3]=offset, [2:0]=BIR; require 8-byte alignment #}
+{% if (msix_table_offset | safe_int(0)) % 8 != 0 %}
+; Error: MSI-X table offset must be 8-byte aligned
+{%- error "MSI-X table offset must be 8-byte aligned" %}
+{% endif %}
+{# Encode as (offset - offset%8) + (bir%8) #}
+{% set _tbl_off = (msix_table_offset | safe_int(0)) %}
+{% set _tbl_bir = (msix_table_bir | safe_int(0)) %}
+{% set table_offset_bir = (_tbl_off - (_tbl_off % 8)) + (_tbl_bir % 8) %}
 {{ "%08X" % table_offset_bir }},
 
 ; PBA Offset/BIR: Offset={{ "%08X" % (msix_pba_offset | safe_int(0)) }}, BIR={{ msix_pba_bir }}
-{% set pba_offset_bir = (msix_pba_offset | safe_int(0)) + (msix_pba_bir | safe_int(0)) %}
+{# Encode as [31:3]=offset, [2:0]=BIR; require 8-byte alignment #}
+{% if (msix_pba_offset | safe_int(0)) % 8 != 0 %}
+; Error: MSI-X PBA offset must be 8-byte aligned
+{%- error "MSI-X PBA offset must be 8-byte aligned" %}
+{% endif %}
+{# Encode as (offset - offset%8) + (bir%8) #}
+{% set _pba_off = (msix_pba_offset | safe_int(0)) %}
+{% set _pba_bir = (msix_pba_bir | safe_int(0)) %}
+{% set pba_offset_bir = (_pba_off - (_pba_off % 8)) + (_pba_bir % 8) %}
 {{ "%08X" % pba_offset_bir }},
 {% else %}
 ; No MSI-X capability

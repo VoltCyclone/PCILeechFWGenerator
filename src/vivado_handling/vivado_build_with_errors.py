@@ -11,11 +11,13 @@ import logging
 import sys
 from pathlib import Path
 
-from ..string_utils import log_error_safe, log_info_safe
+from ..string_utils import log_error_safe, log_info_safe, safe_format
 
 try:
-    from .vivado_error_reporter import (VivadoErrorReporter,
-                                        run_vivado_with_error_reporting)
+    from .vivado_error_reporter import (
+        VivadoErrorReporter,
+        run_vivado_with_error_reporting,
+    )
     from .vivado_utils import find_vivado_installation
 except ImportError as e:
     print(f"Error importing modules: {e}")
@@ -72,12 +74,18 @@ def main():
     if args.analyze_log:
         # Analyze existing log file
         log_info_safe(
-            logger, "Analyzing log file: {logfile}", logfile=str(args.analyze_log)
+            logger,
+            "Analyzing log file: {logfile}",
+            logfile=str(args.analyze_log),
+            prefix="ANALYZE",
         )
 
         if not args.analyze_log.exists():
             log_error_safe(
-                logger, "Log file not found: {logfile}", logfile=str(args.analyze_log)
+                logger,
+                "Log file not found: {logfile}",
+                logfile=str(args.analyze_log),
+                prefix="ANALYZE",
             )
             return 1
 
@@ -109,25 +117,38 @@ def main():
 
         log_info_safe(
             logger,
-            "Running Vivado build: {tcl_script}",
-            tcl_script=str(args.tcl_script),
+            safe_format(
+                "Running Vivado build: {tcl_script}",
+                tcl_script=str(args.tcl_script),
+            ),
+            prefix="BUILD",
         )
         log_info_safe(
-            logger, "Output directory: {output_dir}", output_dir=str(args.output_dir)
+            logger,
+            safe_format(
+                "Output directory: {output_dir}", output_dir=str(args.output_dir)
+            ),
+            prefix="BUILD",
         )
 
         # Check Vivado installation
         if not args.vivado_exe:
             vivado_info = find_vivado_installation()
             if not vivado_info:
-                log_error_safe(logger, "Vivado installation not found")
+                log_error_safe(logger, "Vivado installation not found", prefix="BUILD")
                 log_error_safe(
-                    logger, "Please ensure Vivado is in PATH or use --vivado-exe"
+                    logger,
+                    "Please ensure Vivado is in PATH or use --vivado-exe",
+                    prefix="BUILD",
                 )
                 return 1
             args.vivado_exe = vivado_info["executable"]
             log_info_safe(
-                logger, "Found Vivado: {vivado_exe}", vivado_exe=str(args.vivado_exe)
+                logger,
+                safe_format(
+                    "Found Vivado: {vivado_exe}", vivado_exe=str(args.vivado_exe)
+                ),
+                prefix="BUILD",
             )
 
         # Run build with error reporting
@@ -138,14 +159,21 @@ def main():
 
             log_info_safe(
                 logger,
-                "Build completed with return code: {return_code}",
-                return_code=return_code,
+                safe_format(
+                    "Build completed with return code: {return_code}",
+                    return_code=return_code,
+                ),
+                prefix="BUILD",
             )
 
             return return_code
 
         except Exception as e:
-            log_error_safe(logger, "Build failed with exception: {error}", error=e)
+            log_error_safe(
+                logger,
+                safe_format("Build failed with exception: {error}", error=e),
+                prefix="BUILD",
+            )
             return 1
 
 

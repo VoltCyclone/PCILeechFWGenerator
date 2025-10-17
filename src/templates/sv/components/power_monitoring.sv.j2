@@ -1,0 +1,17 @@
+{{ header | safe }}
+
+    // ── Power State Monitoring ──────────────────────────────────────────
+    assign current_power_state = pmcsr_rdata[{{ pmcsr_bits.power_state_msb }}:{{ pmcsr_bits.power_state_lsb }}];
+    assign power_management_enabled = 1'b1;
+{%- if enable_pme %}
+    assign pme_enable = pmcsr_rdata[{{ pmcsr_bits.pme_enable_bit }}];
+    assign pme_status = pmcsr_rdata[{{ pmcsr_bits.pme_status_bit }}];
+{%- endif %}
+
+    // ── Power Management Status Outputs ─────────────────────────────────
+    // These can be used by other modules to check power state
+    assign power_state_d0 = (current_power_state == 2'b00);
+    assign power_state_d3 = (current_power_state == 2'b11);
+{%- if enable_pme %}
+    assign power_event_pending = pme_status;
+{%- endif %}

@@ -15,14 +15,29 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Callable, Dict, Final, List, Optional, Protocol, Set,
-                    Tuple, TypeVar, Union)
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Final,
+    List,
+    Optional,
+    Protocol,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
-from ..utils.validation_constants import (DEVICE_IDENTIFICATION_FIELDS,
-                                          SENSITIVE_TOKENS)
+from ..utils.validation_constants import DEVICE_IDENTIFICATION_FIELDS, SENSITIVE_TOKENS
 
 # Type variable for return type of handler functions
 T = TypeVar("T")
@@ -134,6 +149,14 @@ class FallbackManager:
         "to_state_value": 0,
         "error_name": "",
         "error_value": 0,
+        # Template include list for SystemVerilog header template
+        "header_includes": [],
+        # Architecture/feature toggles for SV templates (non-device-unique)
+        "ENABLE_BIT_TYPES": 1,
+        "ENABLE_SPARSE_MAP": 1,
+        "HASH_TABLE_SIZE": 256,
+        # Power management CFG glue emission toggle
+        "pmcsr_cfg_glue": False,
     }
 
     # Regex patterns for template variable detection
@@ -568,8 +591,7 @@ class FallbackManager:
         # consumers still receive TemplateObjects rather than plain dicts.
         if original_was_template_object:
             try:
-                from src.utils.unified_context import \
-                    ensure_template_compatibility
+                from src.utils.unified_context import ensure_template_compatibility
 
                 return ensure_template_compatibility(context)
             except Exception:

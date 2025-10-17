@@ -2,15 +2,17 @@
 // Handles recovery from detected errors based on configuration
 {{ header | safe }}
 
+`default_nettype none
+
 module error_recovery #(
-    parameter MAX_RETRY_COUNT = {{ config.max_retry_count | default(3) }}
+    parameter MAX_RETRY_COUNT = {{ error_config.max_retry_count | default(3) }}
 ) (
-    input  logic clk,
-    input  logic rst_n,
+    input  wire  clk,
+    input  wire  rst_n,
     
     // Error inputs
-    input  logic error_detected,
-    input  logic [7:0] error_type,
+    input  wire  error_detected,
+    input  wire  [7:0] error_type,
     
     // Recovery outputs
     output logic recovery_active,
@@ -124,7 +126,7 @@ always_comb begin
         
         RECOVERY_RETRY: begin
             recovery_active = 1'b1;
-            if (retry_count >= 8'd{{ config.max_retry_count | default(3) }}) begin
+            if (retry_count >= 8'd{{ error_config.max_retry_count | default(3) }}) begin
                 next_recovery_state = RECOVERY_FAILED;
             end else if (recovery_timer >= 32'd1000) begin
                 // Retry attempt complete, check if error persists
@@ -190,3 +192,5 @@ assign {{ error_name }}_threshold_exceeded = ({{ error_name }}_count >= 16'd{{ t
 {% endfor %}
 
 endmodule
+
+`default_nettype wire

@@ -10,20 +10,31 @@ import importlib
 import logging
 import os
 import subprocess
-from dataclasses import dataclass
-from enum import IntEnum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
 
-from src.device_clone.device_config import (DeviceConfiguration,
-                                            get_device_config)
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe)
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from src.exceptions import (
+    ConfigSpaceError,
+    VFIOConfigSpaceError,
+    SysfsConfigSpaceError,
+)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    format_size_short,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # Constants for better maintainability
+
+
 class ConfigSpaceConstants:
     """PCI Configuration Space constants."""
 
@@ -79,13 +90,24 @@ class ConfigSpaceConstants:
     # Default values
     DEFAULT_REVISION_ID = 0x01
     DEFAULT_MSIX_TABLE_SIZE = 31  # 32 entries (0-based)
+    DEFAULT_MSIX_TABLE_ENTRIES = DEFAULT_MSIX_TABLE_SIZE + 1  # total entries = 32
 
+    # Hexdump parsing/command
+    HEXDUMP_BYTES_PER_LINE = 16
+    HEXDUMP_CMD = "hexdump"
+    HEXDUMP_FORMAT_FLAG = "-C"
+    SUDO_CMD = "sudo"
 
-class BarType(IntEnum):
-    """BAR type enumeration."""
+    # MSI/MSI-X defaults
+    MSIX_TABLE_DEFAULT_OFFSET = 0x00001000
+    MSIX_PBA_DEFAULT_OFFSET = 0x00002000
+    MSIX_TABLE_ENTRY_SIZE = 16
+    MSI_CAP_DISABLED_LOW = 0x00
+    MSI_CAP_DISABLED_HIGH = 0x00
 
-    MEMORY = 0
-    IO = 1
+    # PCIe capability defaults
+    PCIE_CAP_VERSION = 0x02
+    PCIE_PORT_TYPE_ENDPOINT = 0x00
 
 
 @dataclass
@@ -156,22 +178,11 @@ class BarInfo:
             return str(self)
 
 
-class ConfigSpaceError(Exception):
-    """Base exception for configuration space operations."""
-
-    pass
-
-
-class VFIOError(ConfigSpaceError):
-    """VFIO-specific errors."""
-
-    pass
-
-
-class SysfsError(ConfigSpaceError):
-    """Sysfs-specific errors."""
-
-    pass
+# ConfigSpaceError, VFIOConfigSpaceError, and SysfsConfigSpaceError
+# are now imported from src.exceptions for consistency across the codebase.
+# Legacy aliases maintained for backward compatibility:
+VFIOError = VFIOConfigSpaceError
+SysfsError = SysfsConfigSpaceError
 
 
 class ConfigSpaceManager:
@@ -361,8 +372,10 @@ class ConfigSpaceManager:
         except Exception as diag_error:
             log_warning_safe(
                 logger,
-                "Could not run VFIO diagnostics: {error}",
-                error=diag_error,
+                safe_format(
+                    "Could not run VFIO diagnostics: {error}",
+                    error=diag_error,
+                ),
                 prefix="VFIO",
             )
 
@@ -370,18 +383,27 @@ class ConfigSpaceManager:
         """Read configuration space from sysfs with improved error handling."""
         log_info_safe(
             logger,
-            "Attempting to read config space from {config_path}",
-            config_path=self._config_path,
+            safe_format(
+                "Attempting to read config space from {config_path}",
+                config_path=self._config_path,
+            ),
             prefix="CNFG",
         )
 
         if not os.path.exists(self._config_path):
-            raise SysfsError(f"Config space file not found: {self._config_path}")
+            raise SysfsError(
+                safe_format(
+                    "Config space file not found: {config_path}",
+                    config_path=self._config_path,
+                )
+            )
 
         log_info_safe(
             logger,
-            "Config space file exists: {config_path}",
-            config_path=self._config_path,
+            safe_format(
+                "Config space file exists: {config_path}",
+                config_path=self._config_path,
+            ),
             prefix="CNFG",
         )
 
@@ -400,8 +422,10 @@ class ConfigSpaceManager:
         with open(self._config_path, "rb") as f:
             log_info_safe(
                 logger,
-                "Reading up to {size} bytes for extended config space",
-                size=ConfigSpaceConstants.EXTENDED_CONFIG_SIZE,
+                safe_format(
+                    "Reading up to {size} bytes for extended config space",
+                    size=ConfigSpaceConstants.EXTENDED_CONFIG_SIZE,
+                ),
                 prefix="CNFG",
             )
 
@@ -409,8 +433,10 @@ class ConfigSpaceManager:
 
             log_info_safe(
                 logger,
-                "Successfully read {bytes_read} bytes from sysfs",
-                bytes_read=len(data),
+                safe_format(
+                    "Successfully read {bytes_read} bytes from sysfs",
+                    bytes_read=len(data),
+                ),
                 prefix="CNFG",
             )
 
@@ -423,7 +449,12 @@ class ConfigSpaceManager:
         )
 
         result = subprocess.run(
-            ["sudo", "hexdump", "-C", self._config_path],
+            [
+                ConfigSpaceConstants.SUDO_CMD,
+                ConfigSpaceConstants.HEXDUMP_CMD,
+                ConfigSpaceConstants.HEXDUMP_FORMAT_FLAG,
+                str(self._config_path),
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -432,8 +463,10 @@ class ConfigSpaceManager:
         hex_data = result.stdout
         log_info_safe(
             logger,
-            "Hexdump output length: {length} characters",
-            length=len(hex_data),
+            safe_format(
+                "Hexdump output length: {length} characters",
+                length=len(hex_data),
+            ),
             prefix="CNFG",
         )
 
@@ -444,9 +477,11 @@ class ConfigSpaceManager:
         if len(data) < ConfigSpaceConstants.STANDARD_CONFIG_SIZE:
             log_warning_safe(
                 logger,
-                "Only read {bytes_read} bytes from config space, minimum required is {min_size}",
-                bytes_read=len(data),
-                min_size=ConfigSpaceConstants.STANDARD_CONFIG_SIZE,
+                safe_format(
+                    "Only read {bytes_read} bytes from config space, minimum required is {min_size}",
+                    bytes_read=len(data),
+                    min_size=ConfigSpaceConstants.STANDARD_CONFIG_SIZE,
+                ),
                 prefix="CNFG",
             )
 
@@ -465,8 +500,10 @@ class ConfigSpaceManager:
             )
             log_warning_safe(
                 logger,
-                "Padding config space with {padding_bytes} zero bytes",
-                padding_bytes=padding_bytes,
+                safe_format(
+                    "Padding config space with {padding_bytes} zero bytes",
+                    padding_bytes=padding_bytes,
+                ),
                 prefix="CNFG",
             )
             extended_data.extend(bytes(padding_bytes))
@@ -478,8 +515,10 @@ class ConfigSpaceManager:
         ):
             log_warning_safe(
                 logger,
-                "Revision ID is missing or zero, setting default value 0x{default:02x}",
-                default=ConfigSpaceConstants.DEFAULT_REVISION_ID,
+                safe_format(
+                    "Revision ID is missing or zero, setting default value 0x{default:02x}",
+                    default=ConfigSpaceConstants.DEFAULT_REVISION_ID,
+                ),
                 prefix="CNFG",
             )
             extended_data[ConfigSpaceConstants.REVISION_ID_OFFSET] = (
@@ -488,8 +527,10 @@ class ConfigSpaceManager:
 
         log_info_safe(
             logger,
-            "Extended config space to {length} bytes",
-            length=len(extended_data),
+            safe_format(
+                "Extended config space to {length} bytes",
+                length=len(extended_data),
+            ),
             prefix="CNFG",
         )
 
@@ -503,20 +544,26 @@ class ConfigSpaceManager:
 
             log_info_safe(
                 logger,
-                "Read config space for device {vendor_id:04x}:{device_id:04x}",
-                vendor_id=vendor_id,
-                device_id=device_id,
+                safe_format(
+                    "Read config space for device {vendor_id:04x}:{device_id:04x}",
+                    vendor_id=vendor_id,
+                    device_id=device_id,
+                ),
                 prefix="CNFG",
             )
             log_debug_safe(
                 logger,
-                "Header bytes 0-15: {header_bytes}",
-                header_bytes=data[:16].hex(),
+                safe_format(
+                    "Header bytes 0-15: {header_bytes}",
+                    header_bytes=data[:16].hex(),
+                ),
                 prefix="CNFG",
             )
 
     def _parse_hexdump_output(self, hex_data: str) -> bytes:
         """Parse hexdump output to reconstruct binary data."""
+        # Tests and typical sysfs hexdump cover the standard 256-byte config space
+        # Allocate only STANDARD_CONFIG_SIZE here; extended space may be handled elsewhere
         data = bytearray(ConfigSpaceConstants.STANDARD_CONFIG_SIZE)
         bytes_parsed = 0
 
@@ -531,7 +578,8 @@ class ConfigSpaceManager:
             try:
                 # Try to parse the first part as a hex offset
                 offset = int(parts[0], 16)
-                hex_values = parts[1:17]  # Up to 16 hex values per line
+                # Up to HEXDUMP_BYTES_PER_LINE hex values per line
+                hex_values = parts[1 : 1 + ConfigSpaceConstants.HEXDUMP_BYTES_PER_LINE]
 
                 for i, hex_val in enumerate(hex_values):
                     if offset + i < len(data):
@@ -541,17 +589,21 @@ class ConfigSpaceManager:
             except (ValueError, IndexError) as e:
                 log_warning_safe(
                     logger,
-                    "Error parsing hexdump line {line_num}: {error}",
-                    line_num=line_num,
-                    error=e,
+                    safe_format(
+                        "Error parsing hexdump line {line_num}: {error}",
+                        line_num=line_num,
+                        error=e,
+                    ),
                     prefix="CNFG",
                 )
                 continue
 
         log_info_safe(
             logger,
-            "Parsed {bytes_parsed} bytes from hexdump output",
-            bytes_parsed=bytes_parsed,
+            safe_format(
+                "Parsed {bytes_parsed} bytes from hexdump output",
+                bytes_parsed=bytes_parsed,
+            ),
             prefix="CNFG",
         )
 
@@ -559,8 +611,10 @@ class ConfigSpaceManager:
         if data[ConfigSpaceConstants.REVISION_ID_OFFSET] == 0:
             log_warning_safe(
                 logger,
-                "Setting default revision ID 0x{default:02x}",
-                default=ConfigSpaceConstants.DEFAULT_REVISION_ID,
+                safe_format(
+                    "Setting default revision ID 0x{default:02x}",
+                    default=ConfigSpaceConstants.DEFAULT_REVISION_ID,
+                ),
                 prefix="CNFG",
             )
             data[ConfigSpaceConstants.REVISION_ID_OFFSET] = (
@@ -589,8 +643,11 @@ class ConfigSpaceManager:
 
         except (AttributeError, TypeError) as e:
             raise ConfigSpaceError(
-                f"Device configuration is incomplete or invalid: {e}. "
-                "Cannot generate synthetic configuration space without complete device data."
+                safe_format(
+                    "Device configuration is incomplete or invalid: {error}. "
+                    "Cannot generate synthetic configuration space without complete device data.",
+                    error=e,
+                )
             ) from e
 
         # Safe access to device config attributes
@@ -603,9 +660,11 @@ class ConfigSpaceManager:
 
         log_info_safe(
             logger,
-            "Generated synthetic configuration space: vendor=0x{vendor:04x} device=0x{device:04x}",
-            vendor=vendor_id,
-            device=device_id,
+            safe_format(
+                "Generated synthetic configuration space: vendor=0x{vendor:04x} device=0x{device:04x}",
+                vendor=vendor_id,
+                device=device_id,
+            ),
             prefix="CNFG",
         )
 
@@ -665,8 +724,14 @@ class ConfigSpaceManager:
             subsys_vendor_id = getattr(identification, "subsystem_vendor_id", 0)
             subsys_device_id = getattr(identification, "subsystem_device_id", 0)
 
-            config_space[44:46] = subsys_vendor_id.to_bytes(2, "little")
-            config_space[46:48] = subsys_device_id.to_bytes(2, "little")
+            config_space[
+                ConfigSpaceConstants.SUBSYS_VENDOR_ID_OFFSET : ConfigSpaceConstants.SUBSYS_VENDOR_ID_OFFSET
+                + 2
+            ] = subsys_vendor_id.to_bytes(2, "little")
+            config_space[
+                ConfigSpaceConstants.SUBSYS_DEVICE_ID_OFFSET : ConfigSpaceConstants.SUBSYS_DEVICE_ID_OFFSET
+                + 2
+            ] = subsys_device_id.to_bytes(2, "little")
 
         # Set capabilities pointer
         config_space[ConfigSpaceConstants.CAPABILITIES_POINTER_OFFSET] = (
@@ -694,12 +759,12 @@ class ConfigSpaceManager:
             2, "little"
         )
 
-        # Table Offset/BIR: BAR 0, offset 0x1000
-        table_offset_bir = 0x00001000 | 0x0
+        # Table Offset/BIR: BAR 0, default offset
+        table_offset_bir = ConfigSpaceConstants.MSIX_TABLE_DEFAULT_OFFSET | 0x0
         config_space[offset + 4 : offset + 8] = table_offset_bir.to_bytes(4, "little")
 
-        # PBA Offset/BIR: BAR 0, offset 0x2000
-        pba_offset_bir = 0x00002000 | 0x0
+        # PBA Offset/BIR: BAR 0, default offset
+        pba_offset_bir = ConfigSpaceConstants.MSIX_PBA_DEFAULT_OFFSET | 0x0
         config_space[offset + 8 : offset + 12] = pba_offset_bir.to_bytes(4, "little")
 
     def _add_msi_capability(self, config_space: bytearray) -> None:
@@ -710,8 +775,9 @@ class ConfigSpaceManager:
         config_space[offset + 1] = (
             ConfigSpaceConstants.PCIE_CAP_OFFSET
         )  # Next capability pointer
-        config_space[offset + 2] = 0x00  # MSI control register (disabled)
-        config_space[offset + 3] = 0x00
+        # MSI control register (disabled)
+        config_space[offset + 2] = ConfigSpaceConstants.MSI_CAP_DISABLED_LOW
+        config_space[offset + 3] = ConfigSpaceConstants.MSI_CAP_DISABLED_HIGH
 
     def _add_pcie_capability(self, config_space: bytearray) -> None:
         """Add PCIe capability structure."""
@@ -719,13 +785,19 @@ class ConfigSpaceManager:
 
         config_space[offset] = ConfigSpaceConstants.PCIE_CAPABILITY_ID
         config_space[offset + 1] = 0x00  # No next capability
-        config_space[offset + 2] = 0x02  # PCIe capability version 2
-        config_space[offset + 3] = 0x00  # Device/port type (endpoint)
+        config_space[offset + 2] = (
+            ConfigSpaceConstants.PCIE_CAP_VERSION
+        )  # PCIe capability version
+        config_space[offset + 3] = (
+            ConfigSpaceConstants.PCIE_PORT_TYPE_ENDPOINT
+        )  # Device/port type (endpoint)
 
     def _populate_msix_table(self, config_space: bytearray) -> None:
         """Add MSI-X table structure in extended config space."""
-        for i in range(32):  # 32 MSI-X table entries
-            entry_offset = ConfigSpaceConstants.MSIX_TABLE_OFFSET + (i * 16)
+        for i in range(ConfigSpaceConstants.DEFAULT_MSIX_TABLE_ENTRIES):
+            entry_offset = ConfigSpaceConstants.MSIX_TABLE_OFFSET + (
+                i * ConfigSpaceConstants.MSIX_TABLE_ENTRY_SIZE
+            )
 
             # Message Address (lower and upper 32 bits)
             config_space[entry_offset : entry_offset + 4] = (0).to_bytes(4, "little")
@@ -761,8 +833,11 @@ class ConfigSpaceManager:
         """Validate configuration space has minimum required size."""
         if len(config_space) < ConfigSpaceConstants.MINIMUM_HEADER_SIZE:
             raise ValueError(
-                f"Configuration space too short - need at least {ConfigSpaceConstants.MINIMUM_HEADER_SIZE} "
-                f"bytes for basic header, got {len(config_space)}"
+                safe_format(
+                    "Configuration space too short - need at least {min_size} bytes for basic header, got {actual_size}",
+                    min_size=ConfigSpaceConstants.MINIMUM_HEADER_SIZE,
+                    actual_size=len(config_space),
+                )
             )
 
     def _extract_basic_device_info(self, config_space: bytes) -> Dict[str, Any]:
@@ -777,7 +852,11 @@ class ConfigSpaceManager:
         for offset, field_name in required_offsets:
             if len(config_space) <= offset:
                 raise ValueError(
-                    f"Configuration space too short - missing {field_name} at offset {offset}"
+                    safe_format(
+                        "Configuration space too short - missing {field_name} at offset {offset}",
+                        field_name=field_name,
+                        offset=offset,
+                    )
                 )
 
         return {
@@ -805,9 +884,11 @@ class ConfigSpaceManager:
 
             log_info_safe(
                 logger,
-                "Subsystem ID extraction - Vendor: 0x{subsys_vendor:04x}, Device: 0x{subsys_device:04x}",
-                subsys_vendor=subsys_vendor_id,
-                subsys_device=subsys_device_id,
+                safe_format(
+                    "Subsystem ID extraction - Vendor: 0x{subsys_vendor:04x}, Device: 0x{subsys_device:04x}",
+                    subsys_vendor=subsys_vendor_id,
+                    subsys_device=subsys_device_id,
+                ),
                 prefix="SUBS",
             )
 
@@ -815,9 +896,11 @@ class ConfigSpaceManager:
             if subsys_vendor_id == 0x0000 or subsys_vendor_id == 0xFFFF:
                 log_warning_safe(
                     logger,
-                    "Invalid subsystem vendor ID 0x{subsys_vendor:04x}, using main vendor ID 0x{vendor:04x}",
-                    subsys_vendor=subsys_vendor_id,
-                    vendor=vendor_id,
+                    safe_format(
+                        "Invalid subsystem vendor ID 0x{subsys_vendor:04x}, using main vendor ID 0x{vendor:04x}",
+                        subsys_vendor=subsys_vendor_id,
+                        vendor=vendor_id,
+                    ),
                     prefix="SUBS",
                 )
                 subsys_vendor_id = vendor_id
@@ -825,9 +908,11 @@ class ConfigSpaceManager:
             if subsys_device_id == 0x0000 or subsys_device_id == 0xFFFF:
                 log_warning_safe(
                     logger,
-                    "Invalid subsystem device ID 0x{subsys_device:04x}, using main device ID 0x{device:04x}",
-                    subsys_device=subsys_device_id,
-                    device=device_id,
+                    safe_format(
+                        "Invalid subsystem device ID 0x{subsys_device:04x}, using main device ID 0x{device:04x}",
+                        subsys_device=subsys_device_id,
+                        device=device_id,
+                    ),
                     prefix="SUBS",
                 )
                 subsys_device_id = device_id
@@ -836,19 +921,23 @@ class ConfigSpaceManager:
             if subsys_vendor_id == vendor_id and subsys_device_id == device_id:
                 log_info_safe(
                     logger,
-                    "Subsystem IDs match main IDs (0x{vendor:04x}:0x{device:04x}) - this may be normal for this device type",
-                    vendor=vendor_id,
-                    device=device_id,
+                    safe_format(
+                        "Subsystem IDs match main IDs (0x{vendor:04x}:0x{device:04x}) - this may be normal for this device type",
+                        vendor=vendor_id,
+                        device=device_id,
+                    ),
                     prefix="SUBS",
                 )
             else:
                 log_info_safe(
                     logger,
-                    "Subsystem IDs differ from main IDs - Main: 0x{vendor:04x}:0x{device:04x}, Subsystem: 0x{subsys_vendor:04x}:0x{subsys_device:04x}",
-                    vendor=vendor_id,
-                    device=device_id,
-                    subsys_vendor=subsys_vendor_id,
-                    subsys_device=subsys_device_id,
+                    safe_format(
+                        "Subsystem IDs differ from main IDs - Main: 0x{vendor:04x}:0x{device:04x}, Subsystem: 0x{subsys_vendor:04x}:0x{subsys_device:04x}",
+                        vendor=vendor_id,
+                        device=device_id,
+                        subsys_vendor=subsys_vendor_id,
+                        subsys_device=subsys_device_id,
+                    ),
                     prefix="SUBS",
                 )
 
@@ -856,8 +945,10 @@ class ConfigSpaceManager:
 
         log_warning_safe(
             logger,
-            "Config space too short ({length} bytes) for subsystem ID extraction, returning 0",
-            length=len(config_space),
+            safe_format(
+                "Config space too short ({length} bytes) for subsystem ID extraction, returning 0",
+                length=len(config_space),
+            ),
             prefix="SUBS",
         )
         return 0, 0
@@ -868,17 +959,21 @@ class ConfigSpaceManager:
 
         log_info_safe(
             logger,
-            "Starting BAR extraction from config space ({length} bytes)",
-            length=len(config_space),
+            safe_format(
+                "Starting BAR extraction from config space ({length} bytes)",
+                length=len(config_space),
+            ),
             prefix="CNFG",
         )
 
         if len(config_space) < ConfigSpaceConstants.MINIMUM_BAR_SIZE:
             log_warning_safe(
                 logger,
-                "Config space too short ({length} bytes) for BAR extraction - need at least {min_size} bytes",
-                length=len(config_space),
-                min_size=ConfigSpaceConstants.MINIMUM_BAR_SIZE,
+                safe_format(
+                    "Config space too short ({length} bytes) for BAR extraction - need at least {min_size} bytes",
+                    length=len(config_space),
+                    min_size=ConfigSpaceConstants.MINIMUM_BAR_SIZE,
+                ),
                 prefix="BARX",
             )
             return bars
@@ -891,9 +986,11 @@ class ConfigSpaceManager:
                     bars.append(bar_info)
                     log_info_safe(
                         logger,
-                        "Added BAR {index}: {info}",
-                        index=i,
-                        info=str(bar_info),
+                        safe_format(
+                            "Added BAR {index}: {info}",
+                            index=i,
+                            info=str(bar_info),
+                        ),
                         prefix="BARS",
                     )
 
@@ -922,8 +1019,10 @@ class ConfigSpaceManager:
 
         log_info_safe(
             logger,
-            "Completed BAR extraction: found {count} active BARs",
-            count=len(bars),
+            safe_format(
+                "Completed BAR extraction: found {count} active BARs",
+                count=len(bars),
+            ),
             prefix="BARX",
         )
 
@@ -939,45 +1038,58 @@ class ConfigSpaceManager:
 
         log_debug_safe(
             logger,
-            "Processing BAR {index} at offset 0x{offset:02x}",
-            index=bar_index,
-            offset=bar_offset,
+            safe_format(
+                "Processing BAR {index} at offset 0x{offset:02x}",
+                index=bar_index,
+                offset=bar_offset,
+            ),
             prefix="BARX",
         )
 
         if bar_offset + ConfigSpaceConstants.BAR_SIZE > len(config_space):
             log_warning_safe(
                 logger,
-                "Cannot read BAR {bar_index} - insufficient config space length",
-                bar_index=bar_index,
+                safe_format(
+                    "Cannot read BAR {bar_index} - insufficient config space length",
+                    bar_index=bar_index,
+                ),
                 prefix="BARX",
             )
             return None
 
-        bar_value = int.from_bytes(config_space[bar_offset : bar_offset + 4], "little")
+        bar_value = int.from_bytes(
+            config_space[bar_offset : bar_offset + ConfigSpaceConstants.BAR_SIZE],
+            "little",
+        )
 
         log_debug_safe(
             logger,
-            "BAR {index} raw value: 0x{value:08x}",
-            index=bar_index,
-            value=bar_value,
+            safe_format(
+                "BAR {index} raw value: 0x{value:08x}",
+                index=bar_index,
+                value=bar_value,
+            ),
             prefix="BARX",
         )
 
         if bar_value == 0:
             log_debug_safe(
                 logger,
-                "BAR {index} is empty (zero value), skipping",
-                index=bar_index,
+                safe_format(
+                    "BAR {index} is empty (zero value), skipping",
+                    index=bar_index,
+                ),
                 prefix="BARX",
             )
             return None
 
         log_info_safe(
             logger,
-            "BAR {index} is active (non-zero): 0x{value:08x}",
-            index=bar_index,
-            value=bar_value,
+            safe_format(
+                "BAR {index} is active (non-zero): 0x{value:08x}",
+                index=bar_index,
+                value=bar_value,
+            ),
             prefix="BARX",
         )
 
@@ -1001,11 +1113,13 @@ class ConfigSpaceManager:
 
         log_info_safe(
             logger,
-            "BAR {index} properties: type={type}, prefetchable={prefetchable}, is_64bit={is_64bit}",
-            index=bar_index,
-            type=bar_type,
-            prefetchable=bar_prefetchable,
-            is_64bit=bar_64bit,
+            safe_format(
+                "BAR {index} properties: type={type}, prefetchable={prefetchable}, is_64bit={is_64bit}",
+                index=bar_index,
+                type=bar_type,
+                prefetchable=bar_prefetchable,
+                is_64bit=bar_64bit,
+            ),
             prefix="BARX",
         )
 
@@ -1017,9 +1131,11 @@ class ConfigSpaceManager:
 
         log_debug_safe(
             logger,
-            "BAR {index} base address (lower 32-bit): 0x{address:08x}",
-            index=bar_index,
-            address=bar_addr,
+            safe_format(
+                "BAR {index} base address (lower 32-bit): 0x{address:08x}",
+                index=bar_index,
+                address=bar_addr,
+            ),
             prefix="BARX",
         )
 
@@ -1028,9 +1144,11 @@ class ConfigSpaceManager:
             next_bar_offset = bar_offset + ConfigSpaceConstants.BAR_SIZE
             log_debug_safe(
                 logger,
-                "Reading upper 32-bit for 64-bit BAR {index} at offset 0x{offset:02x}",
-                index=bar_index,
-                offset=next_bar_offset,
+                safe_format(
+                    "Reading upper 32-bit for 64-bit BAR {index} at offset 0x{offset:02x}",
+                    index=bar_index,
+                    offset=next_bar_offset,
+                ),
                 prefix="BARX",
             )
 
@@ -1044,24 +1162,30 @@ class ConfigSpaceManager:
                 )
                 log_debug_safe(
                     logger,
-                    "BAR {index} upper 32-bit value: 0x{next_bar_value:08x}",
-                    index=bar_index,
-                    next_bar_value=next_bar_value,
+                    safe_format(
+                        "BAR {index} upper 32-bit value: 0x{next_bar_value:08x}",
+                        index=bar_index,
+                        next_bar_value=next_bar_value,
+                    ),
                     prefix="BARX",
                 )
                 bar_addr |= next_bar_value << 32
                 log_info_safe(
                     logger,
-                    "BAR {index} full 64-bit address: 0x{address:016x}",
-                    index=bar_index,
-                    address=bar_addr,
+                    safe_format(
+                        "BAR {index} full 64-bit address: 0x{address:016x}",
+                        index=bar_index,
+                        address=bar_addr,
+                    ),
                     prefix="BARX",
                 )
             else:
                 log_warning_safe(
                     logger,
-                    "Cannot read upper 32-bit for BAR {bar_index} - insufficient config space",
-                    bar_index=bar_index,
+                    safe_format(
+                        "Cannot read upper 32-bit for BAR {bar_index} - insufficient config space",
+                        bar_index=bar_index,
+                    ),
                     prefix="BARX",
                 )
 
@@ -1090,8 +1214,7 @@ class ConfigSpaceManager:
                 )
                 bar_info.size = size_found
                 # Generate proper encoding for the size
-                from src.device_clone.bar_size_converter import \
-                    BarSizeConverter
+                from src.device_clone.bar_size_converter import BarSizeConverter
 
                 try:
                     bar_info.size_encoding = BarSizeConverter.size_to_encoding(
@@ -1100,16 +1223,20 @@ class ConfigSpaceManager:
                 except Exception as e:
                     log_warning_safe(
                         logger,
-                        "Could not generate BAR {index} size encoding: {error}",
-                        index=bar_index,
-                        error=str(e),
+                        safe_format(
+                            "Could not generate BAR {index} size encoding: {error}",
+                            index=bar_index,
+                            error=str(e),
+                        ),
                         prefix="BARX",
                     )
             else:
                 log_warning_safe(
                     logger,
-                    "Could not determine BAR {index} size from sysfs, leaving at 0",
-                    index=bar_index,
+                    safe_format(
+                        "Could not determine BAR {index} size from sysfs, leaving at 0",
+                        index=bar_index,
+                    ),
                     prefix="BARX",
                 )
 
@@ -1136,63 +1263,88 @@ class ConfigSpaceManager:
             logger, "Successfully extracted device information:", prefix="INFO"
         )
         log_info_safe(
-            logger, "  Vendor ID: 0x{vendor_id:04x}", vendor_id=vendor_id, prefix="INFO"
-        )
-        log_info_safe(
-            logger, "  Device ID: 0x{device_id:04x}", device_id=device_id, prefix="INFO"
-        )
-        log_info_safe(
             logger,
-            "  Class Code: 0x{class_code:06x}",
-            class_code=class_code,
+            safe_format("  Vendor ID: 0x{vendor_id:04x}", vendor_id=vendor_id),
             prefix="INFO",
         )
         log_info_safe(
             logger,
-            "  Revision ID: 0x{revision_id:02x}",
-            revision_id=revision_id,
-            prefix="INFO",
-        )
-        log_info_safe(
-            logger, "  Command: 0x{command:04x}", command=command, prefix="INFO"
-        )
-        log_info_safe(logger, "  Status: 0x{status:04x}", status=status, prefix="INFO")
-        log_info_safe(
-            logger,
-            "  Header Type: 0x{header_type:02x}",
-            header_type=header_type,
+            safe_format("  Device ID: 0x{device_id:04x}", device_id=device_id),
             prefix="INFO",
         )
         log_info_safe(
             logger,
-            "  Subsystem Vendor: 0x{subsys_vendor_id:04x}",
-            subsys_vendor_id=subsys_vendor_id,
+            safe_format("  Class Code: 0x{class_code:06x}", class_code=class_code),
             prefix="INFO",
         )
         log_info_safe(
             logger,
-            "  Subsystem Device: 0x{subsys_device_id:04x}",
-            subsys_device_id=subsys_device_id,
+            safe_format("  Revision ID: 0x{revision_id:02x}", revision_id=revision_id),
             prefix="INFO",
         )
         log_info_safe(
             logger,
-            "  Cache Line Size: {cache_line_size}",
-            cache_line_size=cache_line_size,
+            safe_format("  Command: 0x{command:04x}", command=command),
+            prefix="INFO",
         )
         log_info_safe(
-            logger, "  Latency Timer: {latency_timer}", latency_timer=latency_timer
+            logger,
+            safe_format("  Status: 0x{status:04x}", status=status),
+            prefix="INFO",
         )
-        log_info_safe(logger, "  BIST: 0x{bist:02x}", bist=bist)
-        log_info_safe(logger, "  Total BARs found: {count}", count=len(bars))
+        log_info_safe(
+            logger,
+            safe_format("  Header Type: 0x{header_type:02x}", header_type=header_type),
+            prefix="INFO",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Subsystem Vendor: 0x{subsys_vendor_id:04x}",
+                subsys_vendor_id=subsys_vendor_id,
+            ),
+            prefix="INFO",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Subsystem Device: 0x{subsys_device_id:04x}",
+                subsys_device_id=subsys_device_id,
+            ),
+            prefix="INFO",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Cache Line Size: {cache_line_size}", cache_line_size=cache_line_size
+            ),
+            prefix="INFO",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "  Latency Timer: {latency_timer}", latency_timer=latency_timer
+            ),
+            prefix="INFO",
+        )
+        log_info_safe(
+            logger, safe_format("  BIST: 0x{bist:02x}", bist=bist), prefix="INFO"
+        )
+        log_info_safe(
+            logger,
+            safe_format("  Total BARs found: {count}", count=len(bars)),
+            prefix="INFO",
+        )
 
         # Log detailed BAR summary
         if bars:
             log_info_safe(
-                logger, "Active BARs found: {count}", count=len(bars), prefix="BARS"
+                logger,
+                safe_format("Active BARs found: {count}", count=len(bars)),
+                prefix="BARS",
             )
             for bar in bars:
-                log_info_safe(logger, str(bar), prefix="BARS")
+                log_info_safe(logger, safe_format(str(bar)), prefix="BARS")
         else:
             log_info_safe(
                 logger,
@@ -1202,10 +1354,12 @@ class ConfigSpaceManager:
 
         log_info_safe(
             logger,
-            "Extracted device info: vendor={vendor:04x} device={device:04x} class={class_code:06x}",
-            vendor=vendor_id,
-            device=device_id,
-            class_code=class_code,
+            safe_format(
+                "Extracted device info: vendor={vendor:04x} device={device:04x} class={class_code:06x}",
+                vendor=vendor_id,
+                device=device_id,
+                class_code=class_code,
+            ),
             prefix="DEVI",
         )
 
@@ -1216,8 +1370,10 @@ class ConfigSpaceManager:
             if not os.path.exists(resource_path):
                 log_debug_safe(
                     logger,
-                    "Sysfs resource file not found: {path}",
-                    path=resource_path,
+                    safe_format(
+                        "Sysfs resource file not found: {path}",
+                        path=resource_path,
+                    ),
                     prefix="BARX",
                 )
                 return 0
@@ -1228,8 +1384,10 @@ class ConfigSpaceManager:
             if bar_index >= len(lines):
                 log_debug_safe(
                     logger,
-                    "BAR index {index} out of range in resource file",
-                    index=bar_index,
+                    safe_format(
+                        "BAR index {index} out of range in resource file",
+                        index=bar_index,
+                    ),
                     prefix="BARX",
                 )
                 return 0
@@ -1241,8 +1399,10 @@ class ConfigSpaceManager:
             ):
                 log_debug_safe(
                     logger,
-                    "BAR {index} is empty in resource file",
-                    index=bar_index,
+                    safe_format(
+                        "BAR {index} is empty in resource file",
+                        index=bar_index,
+                    ),
                     prefix="BARX",
                 )
                 return 0
@@ -1251,9 +1411,11 @@ class ConfigSpaceManager:
             if len(parts) < 3:
                 log_debug_safe(
                     logger,
-                    "Invalid resource line format for BAR {index}: {line}",
-                    index=bar_index,
-                    line=line,
+                    safe_format(
+                        "Invalid resource line format for BAR {index}: {line}",
+                        index=bar_index,
+                        line=line,
+                    ),
                     prefix="BARX",
                 )
                 return 0
@@ -1268,11 +1430,13 @@ class ConfigSpaceManager:
             size = end - start + 1 if end > start else 0
             log_debug_safe(
                 logger,
-                "BAR {index} sysfs resource: start=0x{start:x}, end=0x{end:x}, size={size}",
-                index=bar_index,
-                start=start,
-                end=end,
-                size=size,
+                safe_format(
+                    "BAR {index} sysfs resource: start=0x{start:x}, end=0x{end:x}, size={size}",
+                    index=bar_index,
+                    start=start,
+                    end=end,
+                    size=size,
+                ),
                 prefix="BARX",
             )
             return size
@@ -1280,20 +1444,19 @@ class ConfigSpaceManager:
         except Exception as e:
             log_debug_safe(
                 logger,
-                "Failed to read BAR {index} size from sysfs: {error}",
-                index=bar_index,
-                error=str(e),
+                safe_format(
+                    "Failed to read BAR {index} size from sysfs: {error}",
+                    index=bar_index,
+                    error=str(e),
+                ),
                 prefix="BARX",
             )
             return 0
 
     def _format_size(self, size: int) -> str:
-        """Format size in human-readable format."""
-        if size >= 1024 * 1024 * 1024:
-            return f"{size / (1024 * 1024 * 1024):.1f}GB"
-        elif size >= 1024 * 1024:
-            return f"{size / (1024 * 1024):.1f}MB"
-        elif size >= 1024:
-            return f"{size / 1024:.1f}KB"
-        else:
-            return f"{size}B"
+        """Format size in human-readable format.
+
+        Note: kept as a thin wrapper for backward-compatible tests; delegates
+        to src.string_utils.format_size_short to avoid duplication.
+        """
+        return format_size_short(size)

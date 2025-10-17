@@ -1,16 +1,25 @@
 """Module generator for SystemVerilog code generation."""
 
 import logging
+
 from functools import lru_cache
+
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.string_utils import (generate_sv_header_comment, log_debug_safe,
-                              log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
-from src.utils.attribute_access import (get_attr_or_raise, has_attr,
-                                        safe_get_attr)
+from src.exceptions import PCILeechGenerationError
+
+from src.string_utils import (
+    generate_sv_header_comment,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.utils.attribute_access import get_attr_or_raise, has_attr, safe_get_attr
 
 from .sv_constants import SV_CONSTANTS, SV_TEMPLATES, SV_VALIDATION
+
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
 
@@ -84,11 +93,15 @@ class SVModuleGenerator:
         except Exception as e:
             log_error_safe(
                 self.logger,
-                "PCILeech module generation failed: {error}",
+                safe_format(
+                    "PCILeech module generation failed: {error}",
+                    error=str(e),
+                ),
                 prefix=self.prefix,
-                error=str(e),
             )
-            raise
+            raise PCILeechGenerationError(
+                f"PCILeech module generation failed: {str(e)}"
+            ) from e
 
     def generate_legacy_modules(
         self, context: Dict[str, Any], behavior_profile: Optional[Any] = None
@@ -122,10 +135,12 @@ class SVModuleGenerator:
             except Exception as e:
                 log_error_safe(
                     self.logger,
-                    "Failed to generate module {module}: {error}",
+                    safe_format(
+                        "Failed to generate module {module}: {error}",
+                        module=module_template,
+                        error=str(e),
+                    ),
                     prefix=self.prefix,
-                    module=module_template,
-                    error=str(e),
                 )
                 failed_modules.append(module_template)
 
@@ -251,20 +266,18 @@ class SVModuleGenerator:
         did = device_obj.get("device_id") or device_cfg.get("device_id")
 
         if not vid or not did:
+            error_msg = safe_format(
+                "Missing required device identifiers: vendor_id={vid}, device_id={did}",
+                vid=str(vid),
+                did=str(did),
+            )
             # Fail fast with actionable logs; these values must be present.
             log_error_safe(
                 self.logger,
-                safe_format(
-                    "Missing required device identifiers: vendor_id={vid}, device_id={did}",
-                    vid=str(vid),
-                    did=str(did),
-                ),
+                error_msg,
                 prefix=self.prefix,
             )
-            raise TemplateRenderError(
-                self.messages.get("missing_device_config")
-                or "Missing device configuration"
-            )
+            raise TemplateRenderError(error_msg)
 
         # Normalize `device` in context without mutating original input.
         if (
@@ -276,28 +289,52 @@ class SVModuleGenerator:
             context = dict(context)  # Make a shallow copy before modification
             context["device"] = {"vendor_id": vid, "device_id": did}
 
-        # TLP BAR controller (select enhanced variant only when explicitly requested)
+        # TLP BAR controller (controller_variant governs behavior)
         bar_config = safe_get_attr(context, "bar_config", {}) or {}
-        use_enhanced_bar = bool(
-            safe_get_attr(bar_config, "use_enhanced_controller", False)
+
+        if isinstance(bar_config, dict):
+            normalized_bar_config = dict(bar_config)
+        else:
+            log_warning_safe(
+                self.logger,
+                "bar_config is not a mapping; coercing to empty dict",
+                prefix=self.prefix,
+            )
+            normalized_bar_config = {}
+
+        requested_variant = safe_get_attr(normalized_bar_config, "controller_variant")
+        if requested_variant:
+            requested_variant = str(requested_variant).strip().lower()
+
+        use_enhanced_flag = bool(
+            safe_get_attr(normalized_bar_config, "use_enhanced_controller", False)
         )
 
-        bar_template = (
-            self.templates.ENHANCED_PCILEECH_TLPS_BAR_CONTROLLER
-            if use_enhanced_bar
-            else self.templates.PCILEECH_TLPS_BAR_CONTROLLER
-        )
+        valid_variants = {"legacy", "enhanced", "basic"}
+        if use_enhanced_flag:
+            controller_variant = "enhanced"
+        elif requested_variant in valid_variants:
+            controller_variant = requested_variant
+        else:
+            controller_variant = "legacy"
+
+        normalized_bar_config["controller_variant"] = controller_variant
+
+        if context.get("bar_config") is not normalized_bar_config:
+            context = dict(context)
+            context["bar_config"] = normalized_bar_config
 
         log_debug_safe(
             self.logger,
             safe_format(
                 "Rendering core template: TLPS128 BAR controller (variant={variant})",
-                variant="enhanced" if use_enhanced_bar else "legacy",
+                variant=controller_variant,
             ),
             prefix=self.prefix,
         )
         modules["pcileech_tlps128_bar_controller"] = self.renderer.render_template(
-            bar_template, context
+            self.templates.PCILEECH_TLPS_BAR_CONTROLLER,
+            context,
         )
 
         # Check for error markers
@@ -305,7 +342,17 @@ class SVModuleGenerator:
             "ERROR_MISSING_DEVICE_SIGNATURE"
             in modules["pcileech_tlps128_bar_controller"]
         ):
-            raise TemplateRenderError(self.messages["missing_device_signature"])
+            error_msg = safe_format(
+                self.messages["missing_device_signature"],
+                vid=str(vid),
+                did=str(did),
+            )
+            log_error_safe(
+                self.logger,
+                error_msg,
+                prefix=self.prefix,
+            )
+            raise TemplateRenderError(error_msg)
 
         # FIFO controller
         log_debug_safe(
@@ -359,11 +406,15 @@ class SVModuleGenerator:
                 "systemverilog/cfg_shadow.sv.j2", context
             )
         except Exception as e:
-            # Surface a clear error since the BAR controller instantiates this
-            # module; without it synthesis will fail with 'module not found'.
-            raise TemplateRenderError(
-                safe_format("Failed to render cfg_shadow.sv: {error}", error=str(e))
-            ) from e
+            error_msg = safe_format(
+                self.messages["failed_to_render_cfg_shadow"], error=str(e)
+            )
+            log_error_safe(
+                self.logger,
+                error_msg,
+                prefix=self.prefix,
+            )
+            raise TemplateRenderError(error_msg)
 
     def _generate_msix_modules_if_needed(
         self, context: Dict[str, Any], modules: Dict[str, str]
@@ -474,14 +525,16 @@ class SVModuleGenerator:
                 )
                 return f"{main_module}\n\n// CLOCK CROSSING MODULE\n{clock_module}"
             except Exception as e:
-                log_warning_safe(
+                error_msg = safe_format(
+                    self.messages["failed_to_render_clock_crossing"],
+                    error=str(e),
+                )
+                log_error_safe(
                     self.logger,
-                    safe_format(
-                        "Failed to render clock crossing: {error}",
-                        error=str(e),
-                    ),
+                    error_msg,
                     prefix=self.prefix,
                 )
+                raise TemplateRenderError(error_msg)
 
         return main_module
 
@@ -645,6 +698,72 @@ class SVModuleGenerator:
         hex_lines = ["00000000" for _ in range(pba_size)]
         return "\n".join(hex_lines) + "\n"
 
+    def _extract_msix_entry_bytes(self, entries: List[Any], index: int) -> bytes:
+        """Extract bytes from MSI-X table entry at given index.
+
+        Args:
+            entries: List of MSI-X table entries
+            index: Entry index to extract
+
+        Returns:
+            Entry bytes, or empty bytes if not available
+        """
+        if index >= len(entries):
+            return b""
+
+        ent = entries[index]
+        data_hex = None
+
+        if isinstance(ent, dict):
+            data_hex = ent.get("data")
+        elif isinstance(ent, (bytes, bytearray)):
+            data_hex = bytes(ent).hex()
+        elif isinstance(ent, str):
+            data_hex = ent
+
+        if not data_hex:
+            return b""
+
+        try:
+            return bytes.fromhex(data_hex)
+        except Exception:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X entry {index} has invalid hex data; padding to 16 bytes",
+                    index=index,
+                ),
+                prefix=self.prefix,
+            )
+            return b""
+
+    def _pad_msix_entry(self, data_bytes: bytes, index: int) -> bytes:
+        """Pad MSI-X entry to 16 bytes if needed.
+
+        Args:
+            data_bytes: Entry bytes to pad
+            index: Entry index for logging
+
+        Returns:
+            Padded bytes (always 16 bytes)
+        """
+        original_size = len(data_bytes)
+        if original_size >= 16:
+            return data_bytes
+
+        if original_size > 0:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X entry {index} is {size} bytes; padding to 16",
+                    index=index,
+                    size=original_size,
+                ),
+                prefix=self.prefix,
+            )
+
+        return data_bytes.ljust(16, b"\x00")
+
     def _generate_msix_table_init(
         self, num_vectors: int, context: Dict[str, Any]
     ) -> str:
@@ -688,49 +807,8 @@ class SVModuleGenerator:
                 # shorter than 16 bytes, pad with zeros and log a warning.
                 table_lines = []
                 for i in range(num_vectors):
-                    if i < len(entries):
-                        ent = entries[i]
-                        data_hex = None
-                        if isinstance(ent, dict):
-                            data_hex = ent.get("data")
-                        elif isinstance(ent, (bytes, bytearray)):
-                            data_hex = bytes(ent).hex()
-                        elif isinstance(ent, str):
-                            data_hex = ent
-
-                        if data_hex:
-                            try:
-                                data_bytes = bytes.fromhex(data_hex)
-                            except Exception:
-                                # If parsing fails, treat as missing
-                                log_warning_safe(
-                                    self.logger,
-                                    safe_format(
-                                        "MSI-X entry {index} has invalid hex data; padding to 16 bytes",
-                                        index=i,
-                                    ),
-                                    prefix=self.prefix,
-                                )
-                                data_bytes = b""
-                        else:
-                            data_bytes = b""
-
-                    else:
-                        data_bytes = b""
-
-                    # Ensure 16 bytes per entry
-                    if len(data_bytes) < 16:
-                        if len(data_bytes) != 0:
-                            log_warning_safe(
-                                self.logger,
-                                safe_format(
-                                    "MSI-X entry {index} is {size} bytes; padding to 16",
-                                    index=i,
-                                    size=len(data_bytes),
-                                ),
-                                prefix=self.prefix,
-                            )
-                        data_bytes = data_bytes.ljust(16, b"\x00")
+                    data_bytes = self._extract_msix_entry_bytes(entries, i)
+                    data_bytes = self._pad_msix_entry(data_bytes, i)
 
                     # Split into four 32-bit little-endian words
                     for w in range(4):

@@ -2,16 +2,18 @@
 {% from "_helpers.j2" import safe_attr, get_vendor_id, get_device_id, get_subsystem_vendor_id, get_subsystem_device_id %}
 {{ header | safe }}
 
+`default_nettype none
+
 module device_config #(
     {# Use centralized helper macros for consistent ID handling #}
-    parameter VENDOR_ID = {{ get_vendor_id(device_config, device, config_space, vendor_id_int) | sv_hex(16) }},
-    parameter DEVICE_ID = {{ get_device_id(device_config, device, config_space, device_id_int) | sv_hex(16) }},
-    parameter CLASS_CODE = {{ device_config.class_code | sv_hex(24) }},
-    parameter SUBSYSTEM_VENDOR_ID = {{ get_subsystem_vendor_id(device_config, device, vendor_id_int) | sv_hex(16) }},
-    parameter SUBSYSTEM_DEVICE_ID = {{ get_subsystem_device_id(device_config, device, device_id_int) | sv_hex(16) }},
+    parameter [15:0] VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
+    parameter [15:0] DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
+    parameter [23:0] CLASS_CODE = 24'h{{ "%06X"|format((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0)) }},
+    parameter [15:0] SUBSYSTEM_VENDOR_ID = 16'h{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }},
+    parameter [15:0] SUBSYSTEM_DEVICE_ID = 16'h{{ get_subsystem_device_id(device_config, device, device_id_int) }},
 {%- for i in range(6) %}
     {# guard bars indexing and coerce numeric default for apertures #}
-    parameter BAR{{ i }}_APERTURE = {{ (safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0) | sv_hex(32) }}{{ "," if not loop.last else "" }}
+    parameter [31:0] BAR{{ i }}_APERTURE = 32'h{{ "%08X"|format((safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0)|safe_int(0)) }}{{ "," if not loop.last else "" }}
 {%- endfor %}
 ) (
     // Configuration space interface
@@ -32,3 +34,5 @@ module device_config #(
 {%- endfor %}
 
 endmodule
+
+`default_nettype wire

@@ -21,6 +21,7 @@ import re
 import shlex
 import statistics
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -28,13 +29,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.device_clone.manufacturing_variance import (
-    DeviceClass, ManufacturingVarianceSimulator)
+    DeviceClass,
+    ManufacturingVarianceSimulator,
+)
 from src.error_utils import extract_root_cause
 from src.exceptions import PlatformCompatibilityError
 from src.log_config import get_logger
 from src.scripts.kernel_utils import setup_debugfs
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 def is_linux() -> bool:
@@ -54,7 +62,7 @@ def check_linux_requirement(operation: str) -> None:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class RegisterAccess:
     """Represents a single register access event."""
 
@@ -66,7 +74,7 @@ class RegisterAccess:
     duration_us: Optional[float] = None
 
 
-@dataclass
+@dataclass(slots=True)
 class TimingPattern:
     """Represents a timing pattern in register accesses."""
 
@@ -78,7 +86,7 @@ class TimingPattern:
     confidence: float
 
 
-@dataclass
+@dataclass(slots=True)
 class BehaviorProfile:
     """Complete behavioral profile of a device."""
 
@@ -378,8 +386,7 @@ class BehaviorProfiler:
             if Path(trace_path).exists():
                 # Non-blocking read of trace events
                 result = subprocess.run(
-                    f"timeout 0.001 cat {trace_path}",
-                    shell=True,
+                    ["timeout", "0.001", "cat", trace_path],
                     capture_output=True,
                     text=True,
                 )
@@ -1497,36 +1504,32 @@ class BehaviorProfiler:
             if "cmd" in access.register.lower() or "ctrl" in access.register.lower()
         ]
 
-        if command_registers:
-            # Calculate command processing characteristics
-            if len(command_registers) > 1:
-                intervals = []
-                for i in range(1, len(command_registers)):
-                    interval = (
-                        command_registers[i].timestamp
-                        - command_registers[i - 1].timestamp
-                    ) * 1000000
-                    intervals.append(interval)
+        if not command_registers or len(command_registers) <= 1:
+            return command_patterns
 
-                if intervals:
-                    command_patterns["avg_command_latency_us"] = sum(intervals) / len(
-                        intervals
-                    )
-                    command_patterns["command_frequency_hz"] = (
-                        1000000 / command_patterns["avg_command_latency_us"]
-                    )
+        # Calculate command processing characteristics
+        intervals = []
+        for i in range(1, len(command_registers)):
+            interval = (
+                command_registers[i].timestamp - command_registers[i - 1].timestamp
+            ) * 1000000
+            intervals.append(interval)
 
-                    # Calculate regularity
-                    if len(intervals) > 1:
-                        import statistics
+        if not intervals:
+            return command_patterns
 
-                        std_dev = statistics.stdev(intervals)
-                        avg_interval = command_patterns["avg_command_latency_us"]
-                        command_patterns["command_regularity"] = (
-                            max(0, 1 - (std_dev / avg_interval))
-                            if avg_interval > 0
-                            else 0
-                        )
+        command_patterns["avg_command_latency_us"] = sum(intervals) / len(intervals)
+        command_patterns["command_frequency_hz"] = (
+            1000000 / command_patterns["avg_command_latency_us"]
+        )
+
+        # Calculate regularity
+        if len(intervals) > 1:
+            std_dev = statistics.stdev(intervals)
+            avg_interval = command_patterns["avg_command_latency_us"]
+            command_patterns["command_regularity"] = (
+                max(0, 1 - (std_dev / avg_interval)) if avg_interval > 0 else 0
+            )
 
         return command_patterns
 
@@ -1815,4 +1818,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

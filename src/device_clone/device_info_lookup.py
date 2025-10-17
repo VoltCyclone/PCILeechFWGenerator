@@ -14,12 +14,17 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.device_clone.device_config import DeviceIdentification
+
 # Import DeviceConfiguration first to avoid cyclic import
 from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
-from src.utils.validation_constants import (CORE_DEVICE_ID_FIELDS,
-                                            CORE_DEVICE_IDS)
+from src.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.utils.validation_constants import CORE_DEVICE_ID_FIELDS, CORE_DEVICE_IDS
 
 # Import config_space_manager dynamically when needed to avoid circular dependencies
 logger = logging.getLogger(__name__)
@@ -39,23 +44,10 @@ class DeviceInfoLookup:
         self.sysfs_path = Path(f"/sys/bus/pci/devices/{bdf}")
         self._cached_info: Optional[Dict[str, Any]] = None
 
-    def get_complete_device_info(
-        self,
-        partial_info: Optional[Dict[str, Any]] = None,
-        from_config_manager: bool = False,
+    def _extract_device_info_if_needed(
+        self, device_info: Dict[str, Any], from_config_manager: bool
     ) -> Dict[str, Any]:
-        """
-        Get complete device information using ConfigSpaceManager and FallbackManager.
-        Args:
-            partial_info: Partial device information to complete
-            from_config_manager: Indicating if this call is from ConfigSpaceManager
-
-        Returns:
-            Complete device information dictionary
-        """
-        # Start with provided partial info or empty dict
-        device_info = partial_info.copy() if partial_info else {}
-
+        """Extract device info from config space if needed."""
         missing_critical_fields = not all(
             key in device_info and device_info[key] is not None
             for key in critical_field_keys
@@ -74,56 +66,61 @@ class DeviceInfoLookup:
             not from_config_manager or missing_critical_fields or invalid_fields
         )
 
-        if needs_extraction:
-            log_debug_safe(
+        if not needs_extraction:
+            return device_info
+
+        log_debug_safe(
+            logger,
+            safe_format(
+                "Extracting device info from config space "
+                "(from_manager={from_mgr}, missing={missing}, invalid={invalid})",
+                from_mgr=from_config_manager,
+                missing=missing_critical_fields,
+                invalid=invalid_fields,
+            ),
+            prefix="LOOKUP",
+        )
+
+        # Dynamically import ConfigSpaceManager to avoid circular dependency
+        from src.device_clone.config_space_manager import ConfigSpaceManager
+
+        manager = ConfigSpaceManager(self.bdf)
+        try:
+            config_space = manager.read_vfio_config_space()
+            # Use internal methods to avoid recursion
+            extracted_info = manager._extract_basic_device_info(config_space)
+            subsystem_vendor, subsystem_device = manager._extract_subsystem_info(
+                config_space
+            )
+            extracted_info["subsystem_vendor_id"] = subsystem_vendor
+            extracted_info["subsystem_device_id"] = subsystem_device
+            extracted_info["bars"] = manager._extract_bar_info(config_space)
+
+            # Merge extracted info with existing info, prioritizing valid values
+            device_info.update(
+                {
+                    k: v
+                    for k, v in extracted_info.items()
+                    if k not in device_info
+                    or device_info[k] is None
+                    or (k in CORE_DEVICE_IDS and device_info[k] in [0, 0xFFFF])
+                }
+            )
+        except Exception as e:
+            log_warning_safe(
                 logger,
                 safe_format(
-                    "Extracting device info from config space "
-                    "(from_manager={from_mgr}, missing={missing}, invalid={invalid})",
-                    from_mgr=from_config_manager,
-                    missing=missing_critical_fields,
-                    invalid=invalid_fields,
+                    "Failed to extract device info for {bdf}: {error}",
+                    bdf=self.bdf,
+                    error=str(e),
                 ),
                 prefix="LOOKUP",
             )
 
-            # Dynamically import ConfigSpaceManager to avoid circular dependency
-            from src.device_clone.config_space_manager import \
-                ConfigSpaceManager
+        return device_info
 
-            manager = ConfigSpaceManager(self.bdf)
-            try:
-                config_space = manager.read_vfio_config_space()
-                # Use internal methods to avoid recursion
-                extracted_info = manager._extract_basic_device_info(config_space)
-                subsystem_vendor, subsystem_device = manager._extract_subsystem_info(
-                    config_space
-                )
-                extracted_info["subsystem_vendor_id"] = subsystem_vendor
-                extracted_info["subsystem_device_id"] = subsystem_device
-                extracted_info["bars"] = manager._extract_bar_info(config_space)
-
-                # Merge extracted info with existing info, prioritizing valid values
-                device_info.update(
-                    {
-                        k: v
-                        for k, v in extracted_info.items()
-                        if k not in device_info
-                        or device_info[k] is None
-                        or (k in CORE_DEVICE_IDS and device_info[k] in [0, 0xFFFF])
-                    }
-                )
-            except Exception as e:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Failed to extract device info for {bdf}: {error}",
-                        bdf=self.bdf,
-                        error=str(e),
-                    ),
-                    prefix="LOOKUP",
-                )
-
+    def _log_pre_fallback_diagnostics(self, device_info: Dict[str, Any]) -> None:
+        """Log diagnostic information before applying fallbacks."""
         try:
 
             def _is_sensitive(var_name: str) -> bool:
@@ -189,11 +186,8 @@ class DeviceInfoLookup:
                 prefix="LOOKUP",
             )
 
-        # Apply fallbacks for missing fields using the shared/global FallbackManager
-        fallback_mgr = get_global_fallback_manager()
-        device_info = fallback_mgr.apply_fallbacks(device_info)
-
-        # Optionally validate using DeviceIdentification
+    def _validate_device_identification(self, device_info: Dict[str, Any]) -> None:
+        """Validate device identification using DeviceIdentification."""
         try:
             # Convert values to integers in case they're strings
 
@@ -238,6 +232,38 @@ class DeviceInfoLookup:
                 ),
                 prefix="VALIDATE",
             )
+
+    def get_complete_device_info(
+        self,
+        partial_info: Optional[Dict[str, Any]] = None,
+        from_config_manager: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Get complete device information using ConfigSpaceManager and FallbackManager.
+        Args:
+            partial_info: Partial device information to complete
+            from_config_manager: Indicating if this call is from ConfigSpaceManager
+
+        Returns:
+            Complete device information dictionary
+        """
+        # Start with provided partial info or empty dict
+        device_info = partial_info.copy() if partial_info else {}
+
+        # Extract device info from config space if needed
+        device_info = self._extract_device_info_if_needed(
+            device_info, from_config_manager
+        )
+
+        # Log pre-fallback diagnostics
+        self._log_pre_fallback_diagnostics(device_info)
+
+        # Apply fallbacks for missing fields using the shared/global FallbackManager
+        fallback_mgr = get_global_fallback_manager()
+        device_info = fallback_mgr.apply_fallbacks(device_info)
+
+        # Validate device identification
+        self._validate_device_identification(device_info)
 
         self._cached_info = device_info
         return device_info

@@ -8,13 +8,21 @@ import hashlib
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
-from src.utils.context_error_messages import (OPTION_ROM_MISSING_SIZE,
-                                              ROM_SIZE_MISMATCH,
-                                              VPD_REQUIRED_MISSING)
-from src.utils.validation_constants import (DEVICE_ID_FIELD_WIDTHS,
-                                            DEVICE_IDENTIFICATION_FIELDS)
+from src.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from src.utils.context_error_messages import (
+    OPTION_ROM_MISSING_SIZE,
+    ROM_SIZE_MISMATCH,
+    VPD_REQUIRED_MISSING,
+)
+from src.utils.validation_constants import (
+    DEVICE_ID_FIELD_WIDTHS,
+    DEVICE_IDENTIFICATION_FIELDS,
+)
 
 from .sv_constants import SV_CONSTANTS, SV_VALIDATION
 from .template_renderer import TemplateRenderError
@@ -120,7 +128,12 @@ class SVValidator:
                 if expected_width is not None:
                     if not isinstance(value, str) or len(value) != expected_width:
                         invalid_fields.append(
-                            f"{field}='{value}' (must be {expected_width}-character hex string)"
+                            safe_format(
+                                "{field}='{value}' (must be {expected_width}-character hex string)",
+                                field=field,
+                                value=value,
+                                expected_width=expected_width,
+                            )
                         )
 
         if missing_fields or invalid_fields:
@@ -131,10 +144,9 @@ class SVValidator:
                 error_details.append(f"Invalid fields: {', '.join(invalid_fields)}")
 
             details = "; ".join(error_details)
-            error_msg = (
-                "Critical device identification validation failed: "
-                f"{details}. Cannot generate safe firmware without proper "
-                "device identification."
+            error_msg = safe_format(
+                "Critical device identification validation failed: {details}. Cannot generate safe firmware without proper device identification.",
+                details=details,
             )
             log_error_safe(self.logger, error_msg, prefix="VALID")
             raise TemplateRenderError(error_msg)
@@ -210,36 +222,50 @@ class SVValidator:
 
                 # Compute checksum if not present and attach for downstream consumers
                 rom_checksum = _get("rom_checksum", None)
-                if rom_checksum is None:
-                    try:
-                        if isinstance(rom_data, (bytes, bytearray)):
-                            digest = hashlib.sha256(rom_data).hexdigest()
-                        elif isinstance(rom_data, str):
-                            # If provided as hex string
-                            digest = hashlib.sha256(bytes.fromhex(rom_data)).hexdigest()
-                        else:
-                            digest = None
-                        if digest:
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "Computed ROM checksum: {csum}",
-                                    csum=digest[:16],
-                                ),
-                                prefix="VALID",
-                            )
-                    except Exception:
-                        log_error_safe(
+                if rom_checksum is not None:
+                    return
+
+                try:
+                    digest = self._compute_rom_digest(rom_data)
+                    if digest:
+                        log_info_safe(
                             self.logger,
-                            "Failed to compute ROM checksum",
+                            safe_format(
+                                "Computed ROM checksum: {csum}",
+                                csum=digest[:16],
+                            ),
                             prefix="VALID",
                         )
-                        pass
+                except Exception:
+                    log_error_safe(
+                        self.logger,
+                        "Failed to compute ROM checksum",
+                        prefix="VALID",
+                    )
+
+    def _compute_rom_digest(
+        self, rom_data: Union[bytes, bytearray, str, Any]
+    ) -> Optional[str]:
+        """
+        Compute SHA256 digest of ROM data.
+
+        Args:
+            rom_data: ROM data as bytes, bytearray, or hex string
+
+        Returns:
+            SHA256 hex digest or None if type unsupported
+        """
+        if isinstance(rom_data, (bytes, bytearray)):
+            return hashlib.sha256(rom_data).hexdigest()
+        if isinstance(rom_data, str):
+            # If provided as hex string
+            return hashlib.sha256(bytes.fromhex(rom_data)).hexdigest()
+        return None
 
     def validate_numeric_range(
         self,
         param_name: str,
-        value: Any,
+        value: Union[int, float],
         min_value: Union[int, float],
         max_value: Union[int, float],
     ) -> Optional[str]:
@@ -377,12 +403,16 @@ class SVValidator:
 
             for attr in required_attrs:
                 if not hasattr(device_config, attr):
-                    errors.append(f"device_config.{attr} is missing")
+                    errors.append(
+                        safe_format("device_config.{attr} is missing", attr=attr)
+                    )
 
         # Log warnings
         for warning in warnings:
             log_warning_safe(
-                self.logger, f"Template validation warning: {warning}", prefix="VALID"
+                self.logger,
+                safe_format("Template validation warning: {warning}", warning=warning),
+                prefix="VALID",
             )
 
         # Raise error if any critical issues found

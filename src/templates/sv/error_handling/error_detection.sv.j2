@@ -2,7 +2,7 @@
     // Error Detection Logic
 {% from "_helpers.j2" import safe_attr %}
 
-{%- if safe_attr(config, 'enable_timeout_detection', false) %}
+{%- if safe_attr(error_config, 'enable_timeout_detection', false) %}
     // Timeout detection
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -13,12 +13,12 @@
             timeout_error <= 1'b0;
         end else begin
             timeout_counter <= timeout_counter + 1;
-            timeout_error <= (timeout_counter > {{ config.timeout_cycles | sv_hex(32) }});
+            timeout_error <= (timeout_counter > {{ error_config.timeout_cycles | default(1000000) | sv_hex(32) }});
         end
     end
 {%- endif %}
 
-{%- if safe_attr(config, 'enable_parity_check', false) %}
+{%- if safe_attr(error_config, 'enable_parity_check', false) %}
     // Parity error detection
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -31,7 +31,7 @@
     end
 {%- endif %}
 
-{%- if safe_attr(config, 'enable_crc_check', false) %}
+{%- if safe_attr(error_config, 'enable_crc_check', false) %}
     // CRC error detection
     always_ff @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -47,7 +47,7 @@
     end
 {%- endif %}
 
-{%- if safe_attr(config, 'enable_ecc', false) %}
+{%- if safe_attr(error_config, 'enable_ecc', false) %}
     // ECC error detection (simplified)
     logic [6:0] ecc_syndrome;
     always_ff @(posedge clk or negedge reset_n) begin

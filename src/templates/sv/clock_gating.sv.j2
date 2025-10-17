@@ -2,17 +2,19 @@
 {#- Generates clock gating logic for power management -#}
 {{ header | safe }}
 
+`default_nettype none
+
 module clock_gating #(
     parameter IDLE_THRESHOLD = {{ config.idle_threshold | default(1000) }}
 ) (
-    input  logic clk,
-    input  logic rst_n,
+    input  wire  clk,
+    input  wire  rst_n,
     
     // Control inputs
-    input  logic [2:0] current_state,
-    input  logic transaction_valid,
-    input  logic power_up_req,
-    input  logic power_save_mode,
+    input  wire  [2:0] current_state,
+    input  wire  transaction_valid,
+    input  wire  power_up_req,
+    input  wire  power_save_mode,
     
     // Clock output
     output logic gated_clk
@@ -90,3 +92,5 @@ assign gated_clk = clk;
 {% endif %}
 
 endmodule
+
+`default_nettype wire

@@ -1,0 +1,558 @@
+    {% from "_helpers.j2" import safe_int, get_vendor_id, get_device_id %}
+    {% set _local_data_width = (data_width | default(64)) %}
+
+    // Transaction tracking structure and FIFO
+    typedef struct packed {
+        logic [15:0] requester_id;
+        logic [7:0]  tag;
+        logic [6:0]  lower_addr;
+        logic [9:0]  length;
+    } transaction_info_t;
+
+    // Transaction tracking FIFO
+    transaction_info_t transaction_fifo [0:31];
+    logic [4:0] transaction_wr_ptr;
+    logic [4:0] transaction_rd_ptr;
+    logic [5:0] transaction_count;
+    logic       transaction_fifo_full;
+    logic       transaction_fifo_empty;
+
+    assign transaction_fifo_full = (transaction_count == 6'd32);
+    assign transaction_fifo_empty = (transaction_count == 6'd0);
+
+    // TLP Completion Header Generation Function
+    function logic [95:0] generate_cpld_header;
+        input logic [15:0] requester_id;
+        input logic [7:0]  tag;
+        input logic [6:0]  lower_addr;
+        input logic [9:0]  length;
+        input logic [15:0] completer_id;
+        input logic [2:0]  status;
+        input logic [11:0] byte_count;
+        logic [95:0] header;
+        begin
+            // DW0: Format, Type, and other fields
+            header[31:29] = 3'b010;           // Format: 3DW with data
+            header[28:24] = 5'b01010;         // Type: Completion with Data
+            header[23]    = 1'b0;             // Reserved
+            header[22:20] = 3'b000;           // TC (Traffic Class)
+            header[19:16] = 4'b0000;          // Reserved
+            header[15]    = 1'b0;             // TD (TLP Digest)
+            header[14]    = 1'b0;             // EP (Poisoned)
+            header[13:12] = 2'b00;            // Attr
+            header[11:10] = 2'b00;            // AT
+            header[9:0]   = length;           // Length in DW
+            
+            // DW1: Completer ID and status
+            header[63:48] = completer_id;     // Completer ID
+            header[47:45] = status;           // Completion Status
+            header[44]    = 1'b0;             // BCM
+            header[43:32] = byte_count;       // Byte Count
+            
+            // DW2: Requester ID, Tag, and Lower Address
+            header[95:80] = requester_id;     // Requester ID
+            header[79:72] = tag;              // Tag
+            header[71]    = 1'b0;             // Reserved
+            header[70:64] = lower_addr;       // Lower Address[6:0]
+            
+            generate_cpld_header = header;
+        end
+    endfunction
+
+
+    // Basic PCIe TLP processing for protocol compliance
+    typedef enum logic [3:0] {
+        TLP_IDLE,
+        TLP_HEADER,
+        TLP_DATA,
+        TLP_PROCESSING,
+        TLP_COMPLETION,
+        TLP_BAR_WAIT,
+        TLP_WRITE_DATA
+    } tlp_state_t;
+
+    tlp_state_t tlp_state;
+    logic [31:0] tlp_header [0:3];
+    logic [7:0]  tlp_header_count;
+    logic [10:0] tlp_length;
+    logic [6:0]  tlp_type;
+    logic [31:0] tlp_address;
+    logic        tlp_fmt_4dw;  // Format bit indicating 4-DW header
+    logic [10:0] tlp_data_count;
+    logic [31:0] tlp_write_data;
+    logic        tlp_write_data_valid;
+    logic        pending_wr_valid;
+    logic [31:0] pending_wr_data;
+    logic  [3:0] pending_wr_be;
+    
+    // Multi-DWORD payload tracking
+    logic [10:0] tlp_expected_beats;  // Expected number of data beats
+    logic [10:0] tlp_current_beat;    // Current data beat counter
+    
+    // BAR access pipeline
+    logic        bar_rd_valid;
+    logic [31:0] bar_rd_data_captured;
+    
+    // Current transaction info
+    transaction_info_t current_transaction;
+    logic              store_transaction;
+    logic              retrieve_transaction;
+    
+    // TLP Type constants for common operations
+    localparam TLP_MEM_RD_32  = 7'b0000000;  // Memory Read 32-bit
+    localparam TLP_MEM_RD_64  = 7'b0100000;  // Memory Read 64-bit
+    localparam TLP_MEM_WR_32  = 7'b1000000;  // Memory Write 32-bit
+    localparam TLP_MEM_WR_64  = 7'b1100000;  // Memory Write 64-bit
+    localparam TLP_CFG_RD_0   = 7'b0000100;  // Config Read Type 0
+    localparam TLP_CFG_WR_0   = 7'b1000100;  // Config Write Type 0
+
+    // Transaction FIFO management
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            transaction_wr_ptr <= 5'h0;
+            transaction_rd_ptr <= 5'h0;
+            transaction_count <= 6'h0;
+        end else begin
+            if (store_transaction && !transaction_fifo_full) begin
+                transaction_fifo[transaction_wr_ptr] <= current_transaction;
+                transaction_wr_ptr <= transaction_wr_ptr + 1;
+                transaction_count <= transaction_count + 1;
+            end
+            if (retrieve_transaction && !transaction_fifo_empty) begin
+                transaction_rd_ptr <= transaction_rd_ptr + 1;
+                transaction_count <= transaction_count - 1;
+            end
+        end
+    end
+    
+    // BAR read data capture pipeline
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            bar_rd_valid <= 1'b0;
+            bar_rd_data_captured <= 32'h0;
+        end else begin
+            bar_rd_valid <= bar_rd_en;
+            if (bar_rd_en) begin
+                bar_rd_data_captured <= bar_rd_data;
+            end
+        end
+    end
+
+    // Simplified PCIe TLP processing with fixes
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            pcie_tx_data <= '0;
+            pcie_tx_valid <= 1'b0;
+            debug_status <= 32'h0;
+            tlp_state <= TLP_IDLE;
+            tlp_header_count <= 8'h0;
+            bar_addr <= 32'h0;
+            bar_wr_data <= 32'h0;
+            bar_wr_en <= 1'b0;
+            bar_rd_en <= 1'b0;
+            store_transaction <= 1'b0;
+            retrieve_transaction <= 1'b0;
+            tlp_fmt_4dw <= 1'b0;
+            tlp_data_count <= 11'h0;
+            tlp_write_data_valid <= 1'b0;
+            s_axis_tx_tkeep <= {({{ _local_data_width }} / 8){1'b1}};
+            s_axis_tx_tlast <= 1'b1;
+            bar_hit <= 3'b000;
+            bar_hit_valid <= 1'b0;
+            rx_err_fwd <= 1'b0;
+            first_be <= 4'b0000;
+            last_be <= 4'b0000;
+            current_be <= 4'b1111;
+            tlp_expected_beats <= 11'h0;
+            tlp_current_beat <= 11'h0;
+            pending_wr_valid <= 1'b0;
+            pending_wr_data <= 32'h0;
+            pending_wr_be <= 4'h0;
+        end else begin
+            // Default assignments
+            pcie_tx_valid <= 1'b0;
+            store_transaction <= 1'b0;
+            retrieve_transaction <= 1'b0;
+            bar_wr_en <= 1'b0;
+
+            case (tlp_state)
+                TLP_IDLE: begin
+                    if (pcie_rx_valid) begin
+                        // Decode sideband signals from m_axis_rx_tuser
+                        bar_hit <= m_axis_rx_tuser[2:0];           // Which BAR was hit
+                        bar_hit_valid <= |m_axis_rx_tuser[6:3];    // BAR hit vector
+                        rx_err_fwd <= m_axis_rx_tuser[21];         // Error forwarding
+                        
+                        {%- if _local_data_width == 64 %}
+                        // Fixed data slicing for 64-bit interface
+                        tlp_header[0] <= pcie_rx_data[31:0];   // DW0
+                        tlp_header[1] <= pcie_rx_data[63:32];  // DW1
+                        tlp_header_count <= 8'h2;
+                        
+                        // Extract byte enables from DW1 (second header DW)
+                        first_be <= pcie_rx_data[35:32];  // DW1[3:0]
+                        last_be <= pcie_rx_data[39:36];   // DW1[7:4]
+                        {%- else %}
+                        tlp_header[0] <= pcie_rx_data;
+                        tlp_header_count <= 8'h1;
+                        {%- endif %}
+                        tlp_state <= TLP_HEADER;
+
+                        // Extract TLP type, format and length from DW0
+                        {%- if _local_data_width == 64 %}
+                        tlp_type <= pcie_rx_data[30:24];    // Full 7-bit type from DW0
+                        tlp_fmt_4dw <= pcie_rx_data[29];    // Format bit (1 = 4DW header)
+                        tlp_length <= pcie_rx_data[9:0];    // From DW0
+                        
+                        // Calculate expected number of data beats (for 64-bit interface)
+                        tlp_expected_beats <= (pcie_rx_data[9:0] + 1) >> 1; // DWORDs to 64-bit beats
+                        {%- else %}
+                        tlp_type <= pcie_rx_data[30:24];
+                        tlp_fmt_4dw <= pcie_rx_data[29];
+                        tlp_length <= pcie_rx_data[9:0];
+                        
+                        // For 32-bit interface, beats = DWORDs
+                        tlp_expected_beats <= pcie_rx_data[9:0];
+                        {%- endif %}
+                    end
+                end
+
+                TLP_HEADER: begin
+                    // Declare local variables at the beginning of the block to satisfy tool constraints
+                    logic header_complete;
+                    if (pcie_rx_valid) begin
+                        {%- if _local_data_width == 64 %}
+                        // Continue reading header DWs
+                        if (tlp_header_count < 4) begin
+                            tlp_header[tlp_header_count] <= pcie_rx_data[31:0];
+                            tlp_header[tlp_header_count + 1] <= pcie_rx_data[63:32];
+                            tlp_header_count <= tlp_header_count + 2;
+                        end
+                        
+                        // Extract byte enables if we're reading DW1 (for 32-bit interface)
+                        if (tlp_header_count == 8'h2 && !first_be) begin
+                            first_be <= pcie_rx_data[3:0];   // DW1[3:0]
+                            last_be <= pcie_rx_data[7:4];    // DW1[7:4]
+                        end
+                        {%- else %}
+                        tlp_header[tlp_header_count] <= pcie_rx_data;
+                        tlp_header_count <= tlp_header_count + 1;
+                        
+                        // Extract byte enables from DW1
+                        if (tlp_header_count == 8'h1) begin
+                            first_be <= pcie_rx_data[3:0];   // DW1[3:0]
+                            last_be <= pcie_rx_data[7:4];    // DW1[7:4]
+                        end
+                        {%- endif %}
+
+                        // Check if we have enough header DWs based on format
+                        header_complete = tlp_fmt_4dw ? (tlp_header_count >= 8'h4) : (tlp_header_count >= 8'h3);
+                        
+                        if (header_complete) begin
+                            // Extract info based on full TLP type (all 7 bits)
+                            case (tlp_type)
+                                TLP_MEM_RD_32, TLP_MEM_RD_64: begin
+                                    // Memory Read Request
+                                    
+                                    // Validate BAR hit before processing
+                                    if (!bar_hit_valid || rx_err_fwd) begin
+                                        // Invalid BAR access or error - skip processing
+                                        tlp_state <= TLP_IDLE;
+                                    end else begin
+                                        // Extract address from appropriate header location
+                                        if (tlp_fmt_4dw) begin
+                                            // 64-bit addressing: address is in DW2 and DW3
+                                            tlp_address <= tlp_header[3];  // Lower 32 bits
+                                            bar_addr <= tlp_header[3];
+                                        end else begin
+                                            // 32-bit addressing: address is in DW2
+                                            tlp_address <= tlp_header[2];
+                                            bar_addr <= tlp_header[2];
+                                        end
+                                        
+                                        // Store transaction info for completion
+                                        current_transaction.requester_id <= tlp_header[1][31:16];  // From DW1
+                                        current_transaction.tag <= tlp_header[1][15:8];            // From DW1
+                                        current_transaction.lower_addr <= tlp_address[6:0];
+                                        current_transaction.length <= tlp_header[0][9:0];          // From DW0
+                                        store_transaction <= 1'b1;
+                                        
+                                        bar_rd_en <= 1'b1;
+                                        tlp_state <= TLP_BAR_WAIT;
+                                        tlp_current_beat <= 11'h0;
+                                    end
+                                end
+                                
+                                TLP_MEM_WR_32, TLP_MEM_WR_64: begin
+                                    // Memory Write Request
+                                    
+                                    // Validate BAR hit before processing
+                                    if (!bar_hit_valid || rx_err_fwd) begin
+                                        // Invalid BAR access or error - skip processing
+                                        tlp_state <= TLP_IDLE;
+                                    end else begin
+                                        // Extract address
+                                        if (tlp_fmt_4dw) begin
+                                            tlp_address <= tlp_header[3];  // Lower 32 bits for 64-bit addressing
+                                            bar_addr <= tlp_header[3];
+                                        end else begin
+                                            tlp_address <= tlp_header[2];  // 32-bit addressing
+                                            bar_addr <= tlp_header[2];
+                                        end
+                                        
+                                        tlp_data_count <= 11'h0;
+                                        tlp_current_beat <= 11'h0;
+                                        
+                                        // Set initial byte enable based on length
+                                        if (tlp_length == 10'd1) begin
+                                            // Single DWORD - use first_be only
+                                            current_be <= first_be;
+                                        end else begin
+                                            // Multi-DWORD - use first_be for first DWORD
+                                            current_be <= first_be;
+                                        end
+                                        
+                                        tlp_state <= TLP_WRITE_DATA;
+                                    end
+                                end
+                                
+                                default: begin
+                                    // Other TLP types not implemented yet
+                                    tlp_state <= TLP_IDLE;
+                                end
+                            endcase
+                        end
+                    end
+                end
+
+                TLP_BAR_WAIT: begin
+                    // Wait for BAR read data to be valid
+                    bar_rd_en <= 1'b0;
+                    
+                    if (bar_rd_valid) begin
+                        // BAR read data is now captured
+                        tlp_state <= TLP_PROCESSING;
+                    end
+                end
+                
+                TLP_WRITE_DATA: begin
+                    // Capture write data that follows the header
+{%- if _local_data_width == 64 %}
+                    if (pending_wr_valid) begin
+                        // Drain buffered DWORD before accepting a new beat
+                        bar_wr_data <= pending_wr_data;
+                        bar_wr_en <= 1'b1;
+                        current_be <= pending_wr_be;
+                        tlp_write_data <= pending_wr_data;
+                        tlp_data_count <= tlp_data_count + 1;
+                        pending_wr_valid <= 1'b0;
+
+                        if (tlp_data_count + 1 >= tlp_length) begin
+                            tlp_state <= TLP_IDLE;
+                        end
+                    end else if (pcie_rx_valid) begin
+                        logic [31:0] second_dw;
+                        logic [10:0] next_count;
+
+                        second_dw = pcie_rx_data[63:32];
+                        next_count = tlp_data_count + 1;
+
+                        if (tlp_data_count < tlp_length) begin
+                            bar_wr_data <= pcie_rx_data[31:0];
+                            bar_wr_en <= 1'b1;
+                            tlp_write_data <= pcie_rx_data[31:0];
+
+                            if (tlp_data_count == 11'h0) begin
+                                // First DWORD - already set
+                            end else if (tlp_data_count == tlp_length - 1) begin
+                                // Last DWORD - use last_be
+                                current_be <= last_be;
+                            end else begin
+                                // Middle DWORDs - all bytes enabled
+                                current_be <= 4'b1111;
+                            end
+
+                            tlp_data_count <= next_count;
+
+                            if ((next_count < tlp_length) && (m_axis_rx_tkeep[7:4] != 4'h0)) begin
+                                pending_wr_data <= second_dw;
+                                pending_wr_be <= (next_count == tlp_length - 1) ? last_be : 4'b1111;
+                                pending_wr_valid <= 1'b1;
+                            end else begin
+                                pending_wr_valid <= 1'b0;
+
+                                if (next_count >= tlp_length) begin
+                                    tlp_state <= TLP_IDLE;
+                                end
+                            end
+                        end
+
+                        tlp_current_beat <= tlp_current_beat + 1;
+
+                        if (tlp_current_beat > tlp_expected_beats) begin
+                            debug_status[31] <= 1'b1;  // Set error flag
+                            pending_wr_valid <= 1'b0;
+                            tlp_state <= TLP_IDLE;
+                        end
+                    end
+{%- else %}
+                    if (pcie_rx_valid) begin
+                        // For 32-bit interface, one DW per beat
+                        tlp_write_data <= pcie_rx_data;
+                        bar_wr_data <= pcie_rx_data;
+                        bar_wr_en <= 1'b1;
+                        
+                        // Update byte enable for subsequent DWORDs
+                        if (tlp_data_count == 11'h0) begin
+                            // First DWORD - already set
+                        end else if (tlp_data_count == tlp_length - 1) begin
+                            // Last DWORD - use last_be
+                            current_be <= last_be;
+                        end else begin
+                            // Middle DWORDs - all bytes enabled
+                            current_be <= 4'b1111;
+                        end
+                        
+                        tlp_data_count <= tlp_data_count + 1;
+                        
+                        tlp_current_beat <= tlp_current_beat + 1;
+                        
+                        // Check if we've received all expected data
+                        if (tlp_data_count >= tlp_length - 1) begin
+                            tlp_state <= TLP_IDLE;
+                        end
+                        
+                        // Validate against expected beats
+                        if (tlp_current_beat > tlp_expected_beats) begin
+                            // Too many beats - error condition
+                            debug_status[31] <= 1'b1;  // Set error flag
+                            tlp_state <= TLP_IDLE;
+                        end
+                    end else begin
+                        bar_wr_en <= 1'b0;
+                    end
+{%- endif %}
+                end
+
+                TLP_PROCESSING: begin
+                    // Process based on TLP type
+                    case (tlp_type)
+                        TLP_MEM_RD_32, TLP_MEM_RD_64: begin
+                            // Send completion for memory read
+                            if (!transaction_fifo_empty) begin
+                                retrieve_transaction <= 1'b1;
+                                tlp_state <= TLP_COMPLETION;
+                            end else begin
+                                tlp_state <= TLP_IDLE;
+                            end
+                        end
+                        
+                        default: begin
+                            tlp_state <= TLP_IDLE;
+                        end
+                    endcase
+                end
+
+                TLP_COMPLETION: begin
+                    // Generate proper completion TLP
+                    logic [95:0] cpld_header;
+                    transaction_info_t trans_info;
+                    logic [9:0] completion_length;
+                    logic [11:0] byte_count;
+                    
+                    trans_info = transaction_fifo[transaction_rd_ptr];
+                    
+                    // Calculate completion length and byte count based on request
+                    // For simplicity, we complete the full requested length
+                    completion_length = trans_info.length;
+                    byte_count = {2'b00, trans_info.length} << 2;  // Convert DWORDs to bytes
+                    
+                    {# Be resilient to missing active_device_config in minimal contexts #}
+                    {% set _devcfg = active_device_config if active_device_config is defined else (device_config if device_config is defined else none) %}
+                    {% set _vendor_str = get_vendor_id(_devcfg, device, config_space, vendor_id_int | default(none)) %}
+                    {% set _device_str = get_device_id(_devcfg, device, config_space, device_id_int | default(none)) %}
+                    
+                    cpld_header = generate_cpld_header(
+                        trans_info.requester_id,
+                        trans_info.tag,
+                        trans_info.lower_addr,
+                        completion_length,
+                        16'h{{ _vendor_str }},  // Completer ID (using vendor ID as example)
+                        3'b000,  // Successful completion
+                        byte_count
+                    );
+                    
+                    {%- if _local_data_width == 64 %}
+                    // For 64-bit interface - send 3DW header + 1DW data in 2 cycles
+                    if (tlp_current_beat == 11'h0) begin
+                        // First beat: DW0 and DW1
+                        pcie_tx_data <= {cpld_header[63:32], cpld_header[31:0]};
+                        pcie_tx_valid <= 1'b1;
+                        s_axis_tx_tkeep <= 8'b1111_1111;  // All 8 bytes valid
+                        s_axis_tx_tlast <= (completion_length == 10'd0);  // Last if no data
+                        tlp_current_beat <= tlp_current_beat + 1;
+                    end else if (tlp_current_beat == 11'h1) begin
+                        // Second beat: DW2 + first data DWORD
+                        pcie_tx_data <= {bar_rd_data_captured, cpld_header[95:64]};
+                        pcie_tx_valid <= 1'b1;
+                        
+                        // Set tkeep based on how many bytes are valid
+                        if (completion_length == 10'd1) begin
+                            s_axis_tx_tkeep <= 8'b1111_1111;  // Full 8 bytes
+                            s_axis_tx_tlast <= 1'b1;  // This is the last beat
+                            tlp_state <= TLP_IDLE;
+                        end else begin
+                            s_axis_tx_tkeep <= 8'b1111_1111;
+                            s_axis_tx_tlast <= 1'b0;  // More data to follow
+                            tlp_current_beat <= tlp_current_beat + 1;
+                            // Continue with more data in subsequent cycles
+                        end
+                    end else begin
+                        // Additional data beats for multi-DWORD completions
+                        // This is simplified - full implementation would read from BAR memory
+                        pcie_tx_valid <= 1'b0;
+                        tlp_state <= TLP_IDLE;
+                    end
+                    {%- else %}
+                    // For 32-bit interface - send header DWs then data sequentially
+                    if (tlp_current_beat < 3) begin
+                        // Send header DWs
+                        case (tlp_current_beat)
+                            11'h0: pcie_tx_data <= cpld_header[31:0];
+                            11'h1: pcie_tx_data <= cpld_header[63:32];
+                            11'h2: pcie_tx_data <= cpld_header[95:64];
+                            default: pcie_tx_data <= 32'h0000_0000;
+                        endcase
+                        pcie_tx_valid <= 1'b1;
+                        s_axis_tx_tkeep <= 4'b1111;  // All 4 bytes valid
+                        s_axis_tx_tlast <= 1'b0;  // Not last
+                        tlp_current_beat <= tlp_current_beat + 1;
+                    end else if (tlp_current_beat == 11'h3) begin
+                        // Send first data DWORD
+                        pcie_tx_data <= bar_rd_data_captured;
+                        pcie_tx_valid <= 1'b1;
+                        s_axis_tx_tkeep <= 4'b1111;
+                        s_axis_tx_tlast <= (completion_length == 10'd1);
+                        
+                        if (completion_length == 10'd1) begin
+                            tlp_state <= TLP_IDLE;
+                        end else begin
+                            tlp_current_beat <= tlp_current_beat + 1;
+                        end
+                    end else begin
+                        // Additional data for multi-DWORD completions
+                        pcie_tx_valid <= 1'b0;
+                        tlp_state <= TLP_IDLE;
+                    end
+                    {%- endif %}
+                end
+
+                default: begin
+                    tlp_state <= TLP_IDLE;
+                end
+            endcase
+
+            // Update debug status with device ID and current state
+            debug_status <= {16'h{{ _vendor_str }}, 8'h{{ _device_str[:2] if _device_str|length >= 2 else (_device_str + '0') }}, 5'h0, tlp_state};
+        end
+    end

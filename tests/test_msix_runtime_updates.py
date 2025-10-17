@@ -6,12 +6,28 @@ SystemVerilog generation includes the capability register module wiring (by
 string inspection of rendered template output). Keeps tests lightweight and
 independent of hardware access.
 """
+import importlib.util
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
 from src.device_clone.pcileech_context import PCILeechContextBuilder
+from src.templating.systemverilog_generator import AdvancedSVGenerator
+from src.templating.advanced_sv_power import PowerManagementConfig
+from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+
+_TEMPLATE_HELPERS_PATH = (
+    Path(__file__).parent / "test_systemverilog_template_integration.py"
+)
+_template_helpers_spec = importlib.util.spec_from_file_location(
+    "test_systemverilog_template_integration", _TEMPLATE_HELPERS_PATH
+)
+if _template_helpers_spec is None or _template_helpers_spec.loader is None:
+    raise ImportError("Unable to load TemplateContextBuilder helper module")
+_template_helpers_module = importlib.util.module_from_spec(_template_helpers_spec)
+_template_helpers_spec.loader.exec_module(_template_helpers_module)
+TemplateContextBuilder = _template_helpers_module.TemplateContextBuilder
 
 
 @pytest.fixture
@@ -99,3 +115,30 @@ def test_bar_controller_template_contains_msix_capability_registers():
         "msix_cap_be",
     ]:
         assert sig in content, f"Missing signal {sig} in bar_controller template"
+
+
+def test_msix_capability_render_preserves_signal_wiring():
+    """Render bar controller to ensure MSI-X capability wiring remains intact."""
+    generator = AdvancedSVGenerator(
+        power_config=PowerManagementConfig(),
+        error_config=ErrorHandlingConfig(),
+        perf_config=PerformanceConfig(),
+    )
+    context = TemplateContextBuilder.create_minimal_context()
+
+    result = generator.generate_pcileech_modules(context)
+    bar_controller = result.get("pcileech_tlps128_bar_controller", "")
+
+    assert bar_controller, "Failed to render pcileech_tlps128_bar_controller module"
+
+    expected_wiring = [
+        ".msix_cap_wr       (msix_cap_wr)",
+        ".msix_cap_addr     (msix_cap_addr)",
+        ".msix_cap_wdata    (msix_cap_wdata)",
+        ".msix_cap_be       (msix_cap_be)",
+    ]
+
+    for snippet in expected_wiring:
+        assert (
+            snippet in bar_controller
+        ), f"Missing MSI-X wiring snippet: {snippet.strip()}"

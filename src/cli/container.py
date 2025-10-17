@@ -14,43 +14,43 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from ..device_clone.constants import \
-    PRODUCTION_DEFAULTS  # Central production feature toggles
-from ..exceptions import is_platform_error
+from ..device_clone.constants import (
+    PRODUCTION_DEFAULTS,
+)  # Central production feature toggles
+from ..exceptions import (
+    BuildError,
+    ConfigurationError,
+    PCILeechBuildError,
+    VFIOBindError,
+    is_platform_error,
+)
 from ..log_config import get_logger
 from ..shell import Shell
+
 # Import safe logging functions
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
-from .build_constants import (DEFAULT_ACTIVE_INTERRUPT_MODE,
-                              DEFAULT_ACTIVE_INTERRUPT_VECTOR,
-                              DEFAULT_ACTIVE_PRIORITY,
-                              DEFAULT_ACTIVE_TIMER_PERIOD,
-                              DEFAULT_BEHAVIOR_PROFILE_DURATION)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from .build_constants import (
+    DEFAULT_ACTIVE_INTERRUPT_MODE,
+    DEFAULT_ACTIVE_INTERRUPT_VECTOR,
+    DEFAULT_ACTIVE_PRIORITY,
+    DEFAULT_ACTIVE_TIMER_PERIOD,
+    DEFAULT_BEHAVIOR_PROFILE_DURATION,
+)
 from .vfio import VFIOBinder  # auto‑fix & diagnostics baked in
 from .vfio import get_current_driver, restore_driver
 
 logger = get_logger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Exceptions
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class ContainerError(RuntimeError):
-    pass
-
-
-class VFIOError(RuntimeError):
-    pass
-
-
-class EnvError(RuntimeError):
-    pass
-
-
 # Lightweight indirection so tests can monkeypatch container._get_iommu_group
+
+
 def _get_iommu_group(bdf: str) -> int:
     """Return IOMMU group id as int for the given BDF.
 
@@ -199,15 +199,19 @@ class BuildConfig:
             r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"
         )
         if not bdf_pattern.match(self.bdf):
-            raise ValueError(
+            raise ConfigurationError(
                 safe_format(
                     "Invalid BDF format: {bdf}. Expected format: DDDD:BB:DD.F",
                     bdf=self.bdf,
                 )
             )
-        # Basic board non-empty validation
-        if not self.board or not isinstance(self.board, str):
-            raise ValueError("Board must be a non-empty string")
+        # Enhanced board validation - check for non-empty string with content
+        if not self.board or not isinstance(self.board, str) or not self.board.strip():
+            raise ConfigurationError(
+                "Board name is required and cannot be empty. "
+                "Use --board to specify a valid board configuration "
+                "(e.g., pcileech_100t484_x1)"
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -231,7 +235,7 @@ def check_podman_available() -> bool:
 
 def require_podman() -> None:
     if shutil.which("podman") is None:
-        raise EnvError("Podman not found - install it or adjust PATH")
+        raise ConfigurationError("Podman not found - install it or adjust PATH")
 
 
 def image_exists(name: str) -> bool:
@@ -257,9 +261,9 @@ def build_image(name: str, tag: str) -> None:
     # Repository/name (enforce lowercase per OCI/Docker convention)
     name_pattern = r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
     if not re.fullmatch(name_pattern, name):
-        raise ValueError(f"Invalid container image name: {name}")
+        raise ConfigurationError(f"Invalid container image name: {name}")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", tag):
-        raise ValueError(f"Invalid container tag: {tag}")
+        raise ConfigurationError(f"Invalid container tag: {tag}")
 
     log_info_safe(
         logger,
@@ -356,7 +360,7 @@ def prompt_user_for_local_build() -> bool:
         return False
 
     print("\n" + "=" * 60)
-    print("⚠️  Podman is not available or cannot connect.")
+    print("Podman is not available or cannot connect.")
     print("=" * 60)
     print("\nThe build normally runs in a container for consistency.")
     print("However, you can run the build locally on your system.")
@@ -432,7 +436,7 @@ def run_local_build(cfg: BuildConfig) -> None:
     try:
         result = build_main(build_args)
         if result != 0:
-            raise RuntimeError(
+            raise BuildError(
                 safe_format("Local build failed with exit code {result}", result=result)
             )
 
@@ -455,6 +459,9 @@ def run_local_build(cfg: BuildConfig) -> None:
                 ),
                 prefix="LOCAL",
             )
+            raise BuildError(
+                f"Local build not supported on this platform: {error_str}"
+            ) from e
         else:
             log_error_safe(
                 logger,
@@ -465,7 +472,7 @@ def run_local_build(cfg: BuildConfig) -> None:
                 ),
                 prefix="LOCAL",
             )
-        raise
+            raise BuildError(f"Local build failed: {error_str}") from e
 
 
 def run_build(cfg: BuildConfig) -> None:
@@ -508,7 +515,7 @@ def run_build(cfg: BuildConfig) -> None:
         require_podman()
         if not image_exists(f"{resolved_image}:{resolved_tag}"):
             build_image(resolved_image, resolved_tag)
-    except (EnvError, RuntimeError) as e:
+    except (ConfigurationError, RuntimeError) as e:
         if "Cannot connect to Podman" in str(e) or "connection refused" in str(e):
             log_warning_safe(
                 logger,
@@ -619,7 +626,7 @@ def run_build(cfg: BuildConfig) -> None:
         try:
             subprocess.run(podman_cmd_vec, check=True)
         except subprocess.CalledProcessError as e:
-            raise ContainerError(f"Build failed (exit {e.returncode})") from e
+            raise BuildError(f"Build failed (exit {e.returncode})") from e
         except KeyboardInterrupt:
             log_warning_safe(
                 logger,
@@ -707,37 +714,39 @@ def run_build(cfg: BuildConfig) -> None:
             ),
             prefix="CONT",
         )
-    except RuntimeError as e:
-        if "VFIO" in str(e):
-            # VFIO binding failed, diagnostics have already been run
+    except VFIOBindError as e:
+        # VFIO binding failed, diagnostics have already been run
+        log_error_safe(
+            logger,
+            safe_format(
+                "Build aborted due to VFIO issues: {error}",
+                error=str(e),
+            ),
+            prefix="VFIO",
+        )
+        from .vfio_diagnostics import Diagnostics, render
+
+        # Run diagnostics one more time to ensure user sees the report
+        diag = Diagnostics(cfg.bdf)
+        report = diag.run()
+        if not report.can_proceed:
             log_error_safe(
                 logger,
-                safe_format(
-                    "Build aborted due to VFIO issues: {error}",
-                    error=str(e),
+                (
+                    "VFIO diagnostics indicate system is not ready for VFIO "
+                    "operations"
                 ),
                 prefix="VFIO",
             )
-            from .vfio_diagnostics import Diagnostics, render
-
-            # Run diagnostics one more time to ensure user sees the report
-            diag = Diagnostics(cfg.bdf)
-            report = diag.run()
-            if not report.can_proceed:
-                log_error_safe(
-                    logger,
-                    (
-                        "VFIO diagnostics indicate system is not ready for VFIO "
-                        "operations"
-                    ),
-                    prefix="VFIO",
-                )
-                log_error_safe(
-                    logger,
-                    "Please fix the issues reported above and try again",
-                    prefix="VFIO",
-                )
-            sys.exit(1)
-        else:
-            # Re-raise other runtime errors
-            raise
+            log_error_safe(
+                logger,
+                "Please fix the issues reported above and try again",
+                prefix="VFIO",
+            )
+        sys.exit(1)
+    except (BuildError, PCILeechBuildError):
+        # Re-raise known build errors as-is
+        raise
+    except Exception as e:
+        # Wrap unexpected errors
+        raise BuildError(f"Unexpected build failure: {str(e)}") from e

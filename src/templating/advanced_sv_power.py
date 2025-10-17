@@ -11,7 +11,7 @@ Simplified Power Management feature for the PCILeechFWGenerator project.
 
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from ..string_utils import generate_sv_header_comment
 from .advanced_sv_features import PowerState, TransitionCycles
@@ -67,28 +67,54 @@ class PowerManagementGenerator:
                 "d0_to_d3": self.config.transition_cycles.d0_to_d3,
                 "d3_to_d0": self.config.transition_cycles.d3_to_d0,
             },
+            "pmcsr_bits": {
+                "power_state_msb": SV_CONSTANTS.PMCSR_POWER_STATE_MSB,
+                "power_state_lsb": SV_CONSTANTS.PMCSR_POWER_STATE_LSB,
+                "pme_enable_bit": SV_CONSTANTS.PMCSR_PME_ENABLE_BIT,
+                "pme_status_bit": SV_CONSTANTS.PMCSR_PME_STATUS_BIT,
+            },
         }
+
+    def _render_template(
+        self,
+        template_name: str,
+        *,
+        header: Optional[str] = None,
+        overrides: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Render a template with shared context and optional overrides."""
+
+        context = self._get_template_context()
+        if overrides:
+            context.update(overrides)
+        if header is not None:
+            context["header"] = header
+        return self.renderer.render_template(template_name, context)
 
     def generate_pmcsr_stub_module(self) -> str:
         """Generate the complete pmcsr_stub module based on the provided design."""
-        context = self._get_template_context()
-        return self.renderer.render_template(
-            "systemverilog/modules/pmcsr_stub.sv.j2", context
+        header = generate_sv_header_comment(
+            "PMCSR Stub Module",
+            description=(
+                "Simplified representation of the PCIe power management CSR logic"
+            ),
         )
+        return self._render_template("sv/pmcsr_stub.sv.j2", header=header)
 
     def generate_power_management_integration(self) -> str:
         """Generate integration code for the power management module."""
-        context = self._get_template_context()
-        return self.renderer.render_template(
-            "systemverilog/components/power_integration.sv.j2", context
-        )
+        return self._render_template("sv/components/power_integration.sv.j2", header="")
 
     def generate_power_declarations(self) -> str:
         """Generate minimal power management signal declarations."""
-        context = self._get_template_context()
-        return self.renderer.render_template(
-            "systemverilog/components/power_declarations.sv.j2", context
+        return self._render_template(
+            "sv/components/power_declarations.sv.j2", header=""
         )
+
+    def generate_power_monitoring(self) -> str:
+        """Generate monitoring and status assignments for power management."""
+
+        return self._render_template("sv/components/power_monitoring.sv.j2", header="")
 
     def generate_complete_power_management(self) -> str:
         """Generate complete simplified power management logic."""
@@ -101,32 +127,7 @@ class PowerManagementGenerator:
         # Generate the individual components using templates
         declarations = self.generate_power_declarations()
         integration = self.generate_power_management_integration()
-
-        # Build monitoring and status outputs based on configuration
-        monitoring_lines = [
-            "    // ── Power State Monitoring ──────────────────────────────────────────",
-            f"    assign current_power_state = pmcsr_rdata[{SV_CONSTANTS.PMCSR_POWER_STATE_MSB}:{SV_CONSTANTS.PMCSR_POWER_STATE_LSB}];",
-            "    assign power_management_enabled = 1'b1;",
-        ]
-
-        if self.config.enable_pme:
-            monitoring_lines.extend(
-                [
-                    f"    assign pme_enable = pmcsr_rdata[{SV_CONSTANTS.PMCSR_PME_ENABLE_BIT}];",
-                    f"    assign pme_status = pmcsr_rdata[{SV_CONSTANTS.PMCSR_PME_STATUS_BIT}];",
-                ]
-            )
-
-        status_lines = [
-            "",
-            "    // ── Power Management Status Outputs ─────────────────────────────────",
-            "    // These can be used by other modules to check power state",
-            "    assign power_state_d0 = (current_power_state == 2'b00);",
-            "    assign power_state_d3 = (current_power_state == 2'b11);",
-        ]
-
-        if self.config.enable_pme:
-            status_lines.append("    assign power_event_pending = pme_status;")
+        monitoring = self.generate_power_monitoring()
 
         components = (
             [
@@ -137,8 +138,7 @@ class PowerManagementGenerator:
                 integration,
                 "",
             ]
-            + monitoring_lines
-            + status_lines
+            + [monitoring]
             + [""]
         )
 

@@ -15,8 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..file_management.board_discovery import BoardDiscovery, get_board_config
 from ..file_management.repo_manager import RepoManager
 from ..file_management.template_discovery import TemplateDiscovery
-from ..string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                            safe_format)
+from ..string_utils import log_error_safe, log_info_safe, log_warning_safe, safe_format
 from ..templating.tcl_builder import BuildContext, TCLBuilder
 
 logger = logging.getLogger(__name__)
@@ -43,6 +42,7 @@ class PCILeechBuildIntegration:
 
         # Cache discovered boards
         self._boards_cache = None
+        self.prefix = "BUILD"
 
     def get_available_boards(self) -> Dict[str, Dict]:
         """
@@ -72,7 +72,11 @@ class PCILeechBuildIntegration:
         boards = self.get_available_boards()
         if board_name not in boards:
             raise ValueError(
-                f"Board '{board_name}' not found. Available: {', '.join(boards.keys())}"
+                safe_format(
+                    "Board '{board_name}' not found. Available: {available_boards}",
+                    board_name=board_name,
+                    available_boards=", ".join(boards.keys()),
+                )
             )
 
         board_config = boards[board_name]
@@ -80,7 +84,7 @@ class PCILeechBuildIntegration:
             logger,
             "Preparing build environment for {board_name}",
             board_name=board_name,
-            prefix="BUILD",
+            prefix=self.prefix,
         )
 
         # Create board-specific output directory
@@ -129,13 +133,13 @@ class PCILeechBuildIntegration:
                     safe_format(
                         "Copied XDC file: {xdc_file_name}", xdc_file_name=xdc_file.name
                     ),
-                    prefix="BUILD",
+                    prefix=self.prefix,
                 )
         except Exception as e:
             log_warning_safe(
                 logger,
                 safe_format("Failed to copy XDC files: {error}", error=e),
-                prefix="BUILD",
+                prefix=self.prefix,
             )
 
         return copied_files
@@ -169,7 +173,7 @@ class PCILeechBuildIntegration:
                         src_file=str(src_file),
                         error=e,
                     ),
-                    prefix="BUILD",
+                    prefix=self.prefix,
                 )
 
         # Also copy core PCILeech files
@@ -182,7 +186,7 @@ class PCILeechBuildIntegration:
                 log_info_safe(
                     logger,
                     safe_format("Copied core file: {filename}", filename=filename),
-                    prefix="BUILD",
+                    prefix=self.prefix,
                 )
             except Exception as e:
                 log_warning_safe(
@@ -192,7 +196,7 @@ class PCILeechBuildIntegration:
                         filename=filename,
                         error=e,
                     ),
-                    prefix="BUILD",
+                    prefix=self.prefix,
                 )
 
         return copied_files
@@ -230,12 +234,12 @@ class PCILeechBuildIntegration:
                     "Using existing build script: {script_name}",
                     script_name=existing_script.name,
                 ),
-                prefix="BUILD",
+                prefix=self.prefix,
             )
         else:
             # Generate build scripts using TCLBuilder
             log_info_safe(
-                logger, "Generating build scripts using TCLBuilder", prefix="BUILD"
+                logger, "Generating build scripts using TCLBuilder", prefix=self.prefix
             )
             build_scripts.update(
                 self._generate_build_scripts(board_config, scripts_dir)
@@ -288,7 +292,7 @@ class PCILeechBuildIntegration:
                     "Failed to generate build scripts: {error}",
                     error=e,
                 ),
-                prefix="BUILD",
+                prefix=self.prefix,
             )
             return {}
 
@@ -360,12 +364,18 @@ puts "Adding source files..."
 
         # Ensure all .sv files are treated as SystemVerilog
         script_content += (
-            "set sv_in_proj [get_files *.sv]\n"
+            "set sv_in_proj [get_files -of_objects [get_filesets sources_1] *.sv]\n"
             "if {[llength $sv_in_proj] > 0} {\n"
             '    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"\n'
             "    set_property file_type SystemVerilog $sv_in_proj\n"
+            "    foreach sv_file $sv_in_proj {\n"
+            '        puts "  -> File type now: [get_property file_type [get_files $sv_file]] ($sv_file)"\n'
+            "    }\n"
             "}\n"
         )
+
+        # Refresh compile order after file-type changes
+        script_content += "update_compile_order -fileset sources_1\n"
 
         # Add constraints
         script_content += "\n# Add constraint files\n"
@@ -423,14 +433,6 @@ puts "Bitstream location: $OUTPUT_DIR/$BITSTREAM_NAME"
         )
 
         script_path.write_text(script_content)
-        log_info_safe(
-            logger,
-            safe_format(
-                "Created unified build script: {script_path}",
-                script_path=str(script_path),
-            ),
-            prefix="BUILD",
-        )
 
         return script_path
 
@@ -490,6 +492,7 @@ def integrate_pcileech_build(
     output_dir: Path,
     device_config: Optional[Dict] = None,
     repo_root: Optional[Path] = None,
+    prefix: str = "BUILD",
 ) -> Path:
     """
     Convenience function to integrate PCILeech build for a specific board.
@@ -512,7 +515,7 @@ def integrate_pcileech_build(
         )
         if warnings:
             for warning in warnings:
-                log_warning_safe(logger, safe_format(warning), prefix="BUILD")
+                log_warning_safe(logger, safe_format(warning), prefix=prefix)
         if not is_compatible:
             log_error_safe(
                 logger,
@@ -520,7 +523,7 @@ def integrate_pcileech_build(
                     "Board {board_name} is not compatible with device configuration",
                     board_name=board_name,
                 ),
-                prefix="BUILD",
+                prefix=prefix,
             )
 
     return integration.create_unified_build_script(board_name, device_config)
