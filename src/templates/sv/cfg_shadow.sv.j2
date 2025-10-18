@@ -99,17 +99,11 @@ module pcileech_tlps128_cfgspace_shadow #(
     if (ENABLE_SPARSE_MAP) begin : gen_sparse_map
     end
     
-        // Hash table entry for sparse mapping
-    typedef struct packed {
-        logic        valid;          // Entry is valid
-        logic [9:0]  reg_num;        // Original register number
-        logic [7:0]  overlay_index;  // Index into overlay RAM
-    } hash_entry_t;
-    
-    // Hash table for sparse mapping - declared unconditionally for tool compatibility
-    // When ENABLE_SPARSE_MAP=0, synthesis should prune unused logic; functional
-    // accesses are already gated under ENABLE_SPARSE_MAP conditionals.
-    (* ram_style="distributed" *) hash_entry_t hash_table[0:HASH_TABLE_SIZE-1];
+    // Hash table entry for sparse mapping - using separate arrays for synthesis compatibility
+    // SystemVerilog unpacked arrays of structs cannot have ram_style attributes applied directly
+    (* ram_style="distributed" *) logic        hash_table_valid[0:HASH_TABLE_SIZE-1];
+    (* ram_style="distributed" *) logic [9:0]  hash_table_reg_num[0:HASH_TABLE_SIZE-1];
+    (* ram_style="distributed" *) logic [7:0]  hash_table_overlay_index[0:HASH_TABLE_SIZE-1];
     
     // Hash function for sparse mapping
     function automatic logic [7:0] hash_reg_num(input logic [9:0] reg_num);
@@ -125,11 +119,11 @@ module pcileech_tlps128_cfgspace_shadow #(
             
             // Linear probe with wrap-around
             while (probe_count < HASH_TABLE_SIZE) begin
-                if (hash_table[hash_idx].valid && 
-                    hash_table[hash_idx].reg_num == reg_num) begin
-                    return hash_table[hash_idx].overlay_index;
+                if (hash_table_valid[hash_idx] && 
+                    hash_table_reg_num[hash_idx] == reg_num) begin
+                    return hash_table_overlay_index[hash_idx];
                 end
-                if (!hash_table[hash_idx].valid) begin
+                if (!hash_table_valid[hash_idx]) begin
                     return 8'hFF; // Not found
                 end
                 hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
@@ -338,7 +332,7 @@ module pcileech_tlps128_cfgspace_shadow #(
             // Initialize hash table if sparse mapping enabled
             if (ENABLE_SPARSE_MAP) begin
                 for (int i = 0; i < HASH_TABLE_SIZE; i++) begin
-                    hash_table[i].valid <= 1'b0;
+                    hash_table_valid[i] <= 1'b0;
                 end
             end
         end else begin
@@ -662,7 +656,9 @@ module pcileech_tlps128_cfgspace_shadow #(
         // Initialize hash table for sparse mapping
         if (ENABLE_SPARSE_MAP) begin
             for (int i = 0; i < HASH_TABLE_SIZE; i++) begin
-                hash_table[i] = '{valid: 1'b0, reg_num: 10'h0, overlay_index: 8'h0};
+                hash_table_valid[i] = 1'b0;
+                hash_table_reg_num[i] = 10'h0;
+                hash_table_overlay_index[i] = 8'h0;
             end
             
             // Populate hash table with configured overlays
@@ -674,16 +670,14 @@ module pcileech_tlps128_cfgspace_shadow #(
                 logic [7:0] hash_idx = hash_reg_num({{ reg }});
                 logic [7:0] probe_count = 0;
                 // Find empty slot using linear probing
-                while (hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
+                while (hash_table_valid[hash_idx] && probe_count < HASH_TABLE_SIZE) begin
                     hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
                     probe_count++;
                 end
-                if (!hash_table[hash_idx].valid) begin
-                    hash_table[hash_idx] = '{
-                        valid: 1'b1,
-                        reg_num: {{ reg }},
-                        overlay_index: {{ loop.index0 }}
-                    };
+                if (!hash_table_valid[hash_idx]) begin
+                    hash_table_valid[hash_idx] = 1'b1;
+                    hash_table_reg_num[hash_idx] = {{ reg }};
+                    hash_table_overlay_index[hash_idx] = {{ loop.index0 }};
                 end
             end
                     {%- endfor -%}
@@ -696,16 +690,14 @@ module pcileech_tlps128_cfgspace_shadow #(
                 logic [7:0] hash_idx = hash_reg_num({{ reg }});
                 logic [7:0] probe_count = 0;
                 // Find empty slot using linear probing
-                while (hash_table[hash_idx].valid && probe_count < HASH_TABLE_SIZE) begin
+                while (hash_table_valid[hash_idx] && probe_count < HASH_TABLE_SIZE) begin
                     hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
                     probe_count++;
                 end
-                if (!hash_table[hash_idx].valid) begin
-                    hash_table[hash_idx] = '{
-                        valid: 1'b1,
-                        reg_num: {{ reg }},
-                        overlay_index: {{ loop.index0 }}
-                    };
+                if (!hash_table_valid[hash_idx]) begin
+                    hash_table_valid[hash_idx] = 1'b1;
+                    hash_table_reg_num[hash_idx] = {{ reg }};
+                    hash_table_overlay_index[hash_idx] = {{ loop.index0 }};
                 end
             end
                         {%- endif -%}
