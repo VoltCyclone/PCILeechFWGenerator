@@ -4,7 +4,7 @@
 import logging
 from typing import Dict, Any, Optional
 
-from string_utils import log_info_safe, log_warning_safe, log_debug_safe, safe_format
+from src.string_utils import log_info_safe, log_warning_safe, log_debug_safe, safe_format
 from src.behavioral.analyzer import BehavioralAnalyzerFactory
 from src.behavioral.base import require
 
