@@ -241,6 +241,27 @@ class SVContextBuilder:
         device_config["vendor_id_int"] = context["vendor_id_int"]
         device_config["device_id_int"] = context["device_id_int"]
 
+        # Extract IEEE OUI from vendor ID
+        self._add_vendor_oui(context, context["vendor_id_int"])
+
+    def _add_vendor_oui(self, context: Dict[str, Any], vendor_id_int: int) -> None:
+        """
+        Extract IEEE OUI (Organizationally Unique Identifier) from vendor ID.
+        
+        The OUI is typically the lower 24 bits of the vendor ID.
+        This is used in DSN construction per PCIe specification.
+        
+        Args:
+            context: Context dictionary to update
+            vendor_id_int: Vendor ID as integer
+        """
+        # OUI is 24-bit identifier from vendor ID
+        oui = vendor_id_int & 0xFFFFFF
+        
+        context["vendor_oui"] = oui
+        context["vendor_oui_hex"] = safe_format("0x{value:06X}", value=oui)
+        context["pci_exp_ep_oui"] = oui  # Match reference implementation naming
+
     def _add_device_serial_number(
         self, context: Dict[str, Any], template_context: Dict[str, Any]
     ) -> None:
@@ -268,6 +289,52 @@ class SVContextBuilder:
         context["device_serial_number_valid"] = bool(serial_int)
         context["device_serial_number_hi"] = (serial_int >> 32) & 0xFFFFFFFF
         context["device_serial_number_lo"] = serial_int & 0xFFFFFFFF
+
+        # Semantic decomposition of DSN into OUI + serial components
+        # Per PCIe spec: DSN lower 32 bits often contain OUI in bits [23:0]
+        self._add_dsn_semantic_fields(context, serial_int)
+
+    def _add_dsn_semantic_fields(
+        self, context: Dict[str, Any], dsn_value: int
+    ) -> None:
+        """
+        Decompose DSN into semantic components for SystemVerilog defines.
+        
+        Per PCIe specification, DSN is typically composed as:
+        - Upper 32 bits: Device-specific serial number
+        - Lower 32 bits: Often contains OUI in bits [23:0] + additional data
+        
+        This matches the reference implementation pattern:
+            `define PCI_EXP_EP_DSN_2 32'h00000001
+            `define PCI_EXP_EP_DSN_1 {{ 8'h1 }, `PCI_EXP_EP_OUI }
+        
+        Args:
+            context: Context dictionary to update
+            dsn_value: 64-bit DSN value
+        """
+        # Extract semantic components
+        dsn_upper = (dsn_value >> 32) & 0xFFFFFFFF  # Upper 32 bits
+        dsn_lower = dsn_value & 0xFFFFFFFF           # Lower 32 bits
+        
+        # Extract OUI from lower 32 bits (typically bits [23:0])
+        dsn_oui = dsn_lower & 0xFFFFFF
+        
+        # Extract extension field from lower 32 bits (typically bits [31:24])
+        dsn_ext = (dsn_lower >> 24) & 0xFF
+        
+        # Add fields for SystemVerilog template use
+        context["dsn_upper_32"] = dsn_upper
+        context["dsn_lower_32"] = dsn_lower
+        context["dsn_oui"] = dsn_oui
+        context["dsn_oui_hex"] = safe_format("0x{value:06X}", value=dsn_oui)
+        context["dsn_extension"] = dsn_ext
+        context["dsn_extension_hex"] = safe_format("0x{value:02X}", value=dsn_ext)
+        
+        # Add PCI Express endpoint define names (match reference implementation)
+        context["pci_exp_ep_dsn_2"] = dsn_upper
+        context["pci_exp_ep_dsn_1"] = dsn_lower
+        context["pci_exp_ep_dsn_2_hex"] = safe_format("32'h{value:08X}", value=dsn_upper)
+        context["pci_exp_ep_dsn_1_hex"] = safe_format("32'h{value:08X}", value=dsn_lower)
 
     def _extract_device_serial_number(self, template_context: Dict[str, Any]) -> Any:
         """Gather DSN candidates from the template context."""

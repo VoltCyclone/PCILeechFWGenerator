@@ -112,6 +112,12 @@ class FallbackManager:
         "board.fpga_family": "7series",
         "board.pcie_ip_type": "pcie7x",
         "sys_clk_freq_mhz": 100,
+        # PCIe clock parameters for Xilinx 7-series
+        "pcie_refclk_freq": 0,      # 0=100MHz, 1=125MHz, 2=250MHz
+        "pcie_userclk1_freq": 2,    # 1=31.25MHz, 2=62.5MHz, 3=125MHz, 4=250MHz, 5=500MHz
+        "pcie_userclk2_freq": 2,    # Same encoding as userclk1
+        "pcie_link_speed": 2,       # 1=Gen1, 2=Gen2, 3=Gen3
+        "pcie_oobclk_mode": 1,      # OOB clock mode
         "generated_xdc_path": "",
         "board_xdc_content": "",
         "max_lanes": 1,

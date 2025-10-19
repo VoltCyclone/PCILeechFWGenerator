@@ -421,6 +421,18 @@ class BuildContext:
         # Validate derived enums against the IP type; fail fast on mismatch
         _validate_enums(self.pcie_ip_type, derived_speed, derived_width)
 
+        # Map board name to official Xilinx board part ID (if available)
+        # This enables board-specific optimizations and constraints
+        board_part_id_map = {
+            # Note: Most PCILeech boards don't have official Xilinx board parts
+            # They use raw FPGA parts instead. Add mappings here if using
+            # official dev boards (AC701, KC705, ZC706, etc.)
+            # "ac701": "xilinx.com:ac701:part0:1.4",
+            # "kc705": "xilinx.com:kc705:part0:1.6",
+            # "zc706": "xilinx.com:zc706:part0:1.4",
+        }
+        board_part_id = board_part_id_map.get(self.board_name.lower())
+
         return {
             # REQUIRED VARIABLES - These are critical for template validation
             "device_signature": device_signature,
@@ -511,6 +523,8 @@ class BuildContext:
             "pcileech_ip_dir": self.pcileech_ip_dir,
             "batch_mode": self.batch_mode,
             "constraint_files": [],  # Add empty constraint files list
+            # Board part ID for Xilinx board-specific optimizations (optional)
+            "board_part_id": board_part_id,
             # Link configuration propagated to templates
             "target_link_speed": derived_speed,
             "target_link_width_enum": derived_width,

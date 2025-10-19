@@ -76,7 +76,7 @@ module pcileech_tlps128_cfgspace_shadow #(
 
     // Main configuration space BRAM ({{ CONFIG_SPACE_SIZE }} bytes = {{ CONFIG_SPACE_SIZE // 4 }} dwords)
     (* ram_style="block" *)
-    (* ram_init_file = CFG_INIT_HEX *)           // BRAM initialization attribute (tool-resolved string constant)
+    // BRAM initialization via $readmemh in initial block (string parameters not supported in attributes)
     logic [31:0] config_space_ram[0:{{ (CONFIG_SPACE_SIZE // 4) - 1 }}];
     
     // Enhanced overlay RAM with bit type support ({{ OVERLAY_ENTRIES }} entries)

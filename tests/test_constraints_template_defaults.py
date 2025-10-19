@@ -26,6 +26,10 @@ class TestConstraintsTemplateDefaults:
             ),
             # Header is required by TCL templates
             "header": generate_tcl_header_comment("TCL Constraints"),
+            # PCIe clock parameters (added for 7-series support)
+            "pcie_refclk_freq": 0,  # 0=100MHz
+            "pcie_userclk1_freq": 2,  # 2=62.5MHz
+            "pcie_userclk2_freq": 2,  # 2=62.5MHz
             # Intentionally omit 'constraint_files' to verify default injection
             # Other optional keys like sys_clk_freq_mhz have in-template defaults
         }
