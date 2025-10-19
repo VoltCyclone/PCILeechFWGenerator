@@ -1,0 +1,47 @@
+{% from "_helpers.j2" import safe_attr %}
+{# PCIe Endpoint Device-Specific Defines
+   
+   This template generates device-specific defines for PCIe endpoint configuration,
+   particularly for Device Serial Number (DSN) and OUI (Organizationally Unique Identifier).
+   
+   The DSN is a 64-bit value composed of two 32-bit parts:
+   - Upper 32 bits (DSN_2): Device-specific serial number
+   - Lower 32 bits (DSN_1): Typically contains OUI in bits [23:0]
+   
+   Reference: PCIe Base Specification, Device Serial Number Extended Capability
+#}
+
+//
+// IEEE Organizationally Unique Identifier (OUI)
+// Extracted from vendor ID: {{ vendor_id | default('0x0000') }}
+//
+{%- set _oui = vendor_oui | default(0) %}
+`define PCI_EXP_EP_OUI 24'h{{ "%06X" | format(_oui) }}
+
+//
+// Device Serial Number (DSN) constants
+// DSN: {{ device_serial_number_hex | default('0x0000000000000000') }}
+//
+{%- set _dsn_upper = pci_exp_ep_dsn_2 | default(dsn_upper_32) | default(device_serial_number_hi) | default(0) %}
+{%- set _dsn_lower = pci_exp_ep_dsn_1 | default(dsn_lower_32) | default(device_serial_number_lo) | default(0) %}
+`define PCI_EXP_EP_DSN_2 32'h{{ "%08X" | format(_dsn_upper) }}
+{%- if device_serial_number_valid | default(false) %}
+`define PCI_EXP_EP_DSN_1 32'h{{ "%08X" | format(_dsn_lower) }}
+{%- else %}
+// NOTE: Donor did not provide DSN; constructing from OUI
+`define PCI_EXP_EP_DSN_1 {{ "{" }} 8'h01, `PCI_EXP_EP_OUI {{ "}" }}
+{%- endif %}
+
+//
+// Semantic DSN components for advanced use cases
+//
+{%- set _dsn_oui = dsn_oui | default(0) %}
+{%- set _dsn_ext = dsn_extension | default(1) %}
+`define PCI_EXP_EP_DSN_OUI 24'h{{ "%06X" | format(_dsn_oui) }}
+`define PCI_EXP_EP_DSN_EXT 8'h{{ "%02X" | format(_dsn_ext) }}
+
+//
+// Complete DSN assignment macro
+// Usage: assign cfg_dsn = `PCI_EXP_EP_DSN_FULL;
+//
+`define PCI_EXP_EP_DSN_FULL {{ "{" }} `PCI_EXP_EP_DSN_2, `PCI_EXP_EP_DSN_1 {{ "}" }}

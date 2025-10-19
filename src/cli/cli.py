@@ -280,11 +280,13 @@ def main(argv: Optional[List[str]] = None):
             if update_available:
                 prompt_for_update(latest_version)
             else:
+                from ..__version__ import __version__
+                
                 log_info_safe(
                     logger,
                     safe_format(
-                        "✓ You are running the latest version ({latest_version})",
-                        latest_version=latest_version,
+                        "✓ You are running the latest version ({current_version})",
+                        current_version=__version__,
                     ),
                     prefix="VERS",
                 )

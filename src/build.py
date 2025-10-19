@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from src.string_utils import (
     log_debug_safe,
@@ -30,7 +30,6 @@ from src.string_utils import (
     safe_format,
 )
 from src.templating.template_context_validator import clear_global_template_cache
-from src.utils.log_phases import PhaseLogger
 
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
@@ -70,13 +69,8 @@ SPECIAL_FILE_EXTENSIONS = {".coe", ".hex"}
 SYSTEMVERILOG_EXTENSION = ".sv"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Type Definitions and Protocols
+# Type Definitions
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-# Local lightweight helpers to deduplicate recurring hex/int normalization
-# patterns within this module only (not part of public API surface).
-
 
 def _as_int(value: Union[int, str], field: str) -> int:
     """Normalize numeric identifier that may be int or hex string."""
@@ -141,14 +135,6 @@ class DeviceConfiguration:
     class_code: int
     requires_msix: bool
     pcie_lanes: int
-
-
-class FileWriter(Protocol):
-    """Protocol for file writing implementations."""
-
-    def write_file(self, path: Path, content: str) -> None:
-        """Write content to a file."""
-        ...
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -938,7 +924,6 @@ class FirmwareBuilder:
         # Core configuration & logger
         self.config = config
         self.logger = logger or get_logger(self.__class__.__name__)
-        self._phases = PhaseLogger(self.logger)
 
         # Initialize managers (dependency injection with defaults)
         self.msix_manager = msix_manager or MSIXManager(config.bdf, self.logger)
@@ -957,8 +942,12 @@ class FirmwareBuilder:
         self._device_config: Optional[DeviceConfiguration] = None
 
     def _phase(self, message: str) -> None:
-        """Backward-compatible shim for previous phase logging."""
-        self._phases.begin(message)
+        """Log a build phase message with standardized formatting."""
+        log_info_safe(
+            self.logger,
+            safe_format("➤ {msg}", msg=message),
+            prefix="BUILD",
+        )
 
     def build(self) -> List[str]:
         """

@@ -195,7 +195,9 @@ class TestTopLevelWrapperTemplate:
             "localparam logic [63:0] DEVICE_SERIAL_NUMBER = 64'hAABBCCDDEEFF0011;"
             in result
         )
-        assert "assign cfg_mgmt_wr_rw1c_as_rw = 1'b1;" in result
+        # cfg_mgmt_wr_rw1c_as_rw can be tied off with wire declaration or assign
+        assert ("wire cfg_mgmt_wr_rw1c_as_rw = 1'b1;" in result or 
+                "assign cfg_mgmt_wr_rw1c_as_rw = 1'b1;" in result)
         assert "assign cfg_dsn = DEVICE_SERIAL_NUMBER;" in result
         assert ".cfg_mgmt_wr_rw1c_as_rw(cfg_mgmt_wr_rw1c_as_rw)" in result
         assert ".cfg_dsn(cfg_dsn)" in result

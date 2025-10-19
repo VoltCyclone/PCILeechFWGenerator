@@ -1,0 +1,123 @@
+{#- Behavioral Device Simulation Module Template -#}
+{{ header | safe }}
+
+`default_nettype none
+
+module pcileech_bar_impl_{{ behavioral_spec.device_category }}_behavioral #(
+    parameter BAR_INDEX = {{ bar_index | default(0) }}
+) (
+    input  wire         rst,
+    input  wire         clk,
+    
+    // BAR write interface
+    input  wire [31:0]  wr_addr,
+    input  wire [3:0]   wr_be,
+    input  wire [31:0]  wr_data,
+    input  wire         wr_valid,
+    
+    // BAR read interface
+    input  wire [87:0]  rd_req_ctx,
+    input  wire [31:0]  rd_req_addr,
+    input  wire         rd_req_valid,
+    output reg  [87:0]  rd_rsp_ctx,
+    output reg  [31:0]  rd_rsp_data,
+    output reg          rd_rsp_valid
+);
+
+    // =========================================================================
+    // Register Address Definitions
+    // =========================================================================
+{% for reg_name, reg_def in behavioral_spec.registers.items() %}
+    localparam REG_{{ reg_name | upper }} = 32'h{{ "%04X" | format(reg_def.offset) }};
+{% endfor %}
+
+    // =========================================================================
+    // Register and Counter Declarations
+    // =========================================================================
+{% for reg_name, reg_def in behavioral_spec.registers.items() %}
+    reg [31:0] {{ reg_name }}_reg;
+{% endfor %}
+
+{% for counter_name, counter_def in behavioral_spec.counters.items() %}
+    reg [{{ counter_def.width - 1 }}:0] {{ counter_name }};
+{% endfor %}
+
+    // =========================================================================
+    // Behavioral Simulation Logic
+    // =========================================================================
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            // Reset all registers to default values
+{% for reg_name, reg_def in behavioral_spec.registers.items() %}
+    {% if reg_def.behavior == "constant" %}
+            {{ reg_name }}_reg <= 32'h{{ "%08X" | format(reg_def.default) }};
+    {% elif reg_def.behavior == "auto_increment" %}
+            {{ reg_name }}_reg <= 32'h{{ "%08X" | format(reg_def.default) }};
+    {% elif reg_def.behavior == "write_capture" %}
+            {{ reg_name }}_reg <= 32'h{{ "%08X" | format(reg_def.default) }};
+    {% else %}
+            {{ reg_name }}_reg <= 32'h{{ "%08X" | format(reg_def.default) }};
+    {% endif %}
+{% endfor %}
+
+            // Reset all counters
+{% for counter_name, counter_def in behavioral_spec.counters.items() %}
+            {{ counter_name }} <= {{ counter_def.width }}'h{{ "%X" | format(counter_def.reset_value) }};
+{% endfor %}
+        end else begin
+            // Update counters
+{% for counter_name, counter_def in behavioral_spec.counters.items() %}
+            {{ counter_name }} <= {{ counter_name }} + {{ counter_def.increment_rate }};
+{% endfor %}
+
+            // Update auto-increment registers
+{% for reg_name, reg_def in behavioral_spec.registers.items() %}
+    {% if reg_def.behavior == "auto_increment" %}
+            {{ reg_name }}_reg <= {{ reg_def.pattern }};
+    {% endif %}
+{% endfor %}
+
+            // Handle write captures
+            if (wr_valid) begin
+                case (wr_addr)
+{% for reg_name, reg_def in behavioral_spec.registers.items() %}
+    {% if reg_def.behavior == "write_capture" and not reg_def.read_only %}
+                    REG_{{ reg_name | upper }}: begin
+                        {{ reg_name }}_reg <= wr_data;
+                    end
+    {% endif %}
+{% endfor %}
+                    default: begin
+                        // Ignore writes to undefined registers
+                    end
+                endcase
+            end
+        end
+    end
+
+    // =========================================================================
+    // Read Response Logic
+    // =========================================================================
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            rd_rsp_ctx   <= 88'h0;
+            rd_rsp_data  <= 32'h0;
+            rd_rsp_valid <= 1'b0;
+        end else if (rd_req_valid) begin
+            rd_rsp_ctx   <= rd_req_ctx;
+            rd_rsp_valid <= 1'b1;
+            
+            case (rd_req_addr)
+{% for reg_name, reg_def in behavioral_spec.registers.items() %}
+                REG_{{ reg_name | upper }}: rd_rsp_data <= {{ reg_name }}_reg;
+{% endfor %}
+                default: rd_rsp_data <= 32'hDEADBEEF;  // Undefined register
+            endcase
+        end else begin
+            rd_rsp_valid <= 1'b0;
+        end
+    end
+
+endmodule
+
+`default_nettype wire

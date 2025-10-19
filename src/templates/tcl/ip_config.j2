@@ -109,6 +109,12 @@ safe_set $ip CONFIG.Legacy_Interrupt {NONE}
 # MSI/MSIX configuration: disable MSI, enable MSIX
 safe_set $ip CONFIG.MSI_Enabled {false}
 safe_set $ip CONFIG.MSIX_Enabled {true}
+# PCIe clock configuration for 7-series
+# PCIE_REFCLK_FREQ: 0=100MHz, 1=125MHz, 2=250MHz
+safe_set $ip CONFIG.PCIE_EXT_CLK_FREQ {{ pcie_refclk_freq }}
+# PCIE_USERCLK1_FREQ and PCIE_USERCLK2_FREQ: 1=31.25MHz, 2=62.5MHz, 3=125MHz, 4=250MHz, 5=500MHz
+safe_set $ip CONFIG.User_Clk_Freq {{ pcie_userclk1_freq }}
+safe_set $ip CONFIG.User_Clk2_Freq {{ pcie_userclk2_freq }}
 
 # Generate IP targets for complete synthesis flow
 generate_target {instantiation_template synthesis implementation} $ip

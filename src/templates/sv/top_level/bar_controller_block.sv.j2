@@ -47,8 +47,7 @@
     assign cfg_mgmt_wr_en = 1'b0;
     assign cfg_mgmt_rd_en = 1'b0;
     assign cfg_mgmt_wr_readonly = 1'b0;
-    assign cfg_mgmt_wr_rw1c_as_rw = 1'b1;
-    assign cfg_dsn = DEVICE_SERIAL_NUMBER;
+    // cfg_mgmt_wr_rw1c_as_rw and cfg_dsn are tied off in internal_signals.sv.j2
 
     // AXI-Stream control signals - removed static tie-offs for proper handling
     // s_axis_tx_tkeep and s_axis_tx_tlast are now driven by TLP completion logic

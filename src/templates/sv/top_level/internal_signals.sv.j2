@@ -42,12 +42,42 @@
     logic        cfg_mgmt_wr_en;
     logic        cfg_mgmt_rd_en;
     logic        cfg_mgmt_wr_readonly;
-    logic        cfg_mgmt_wr_rw1c_as_rw;
+
+    // Config space access handshaking (for systems with cfg read/write)
+    // These signals facilitate config space read operations from external logic
+    logic        m_axis_cfg_tx_tready;
+    logic [31:0] m_axis_cfg_tx_tdata;
+    logic        s_axis_cfg_rx_tlast;
+    logic  [3:0] s_axis_cfg_rx_tkeep;
+    
+    // Default handshaking values (ready to accept config transactions)
+    assign m_axis_cfg_tx_tready = 1'b1;
+    assign s_axis_cfg_rx_tlast  = 1'b1;
+    assign s_axis_cfg_rx_tkeep  = 4'b1111;
+    
+    // Extract DWORD address from config transaction data when available
+    // This allows external logic to parse config space access addresses
+    assign cfg_mgmt_dwaddr = cfg_mgmt_rd_en ? m_axis_cfg_tx_tdata[9:0] : 10'h0;
+    
     logic [63:0] cfg_dsn;
     localparam logic [63:0] DEVICE_SERIAL_NUMBER = 64'h{{ _local_dsn_hex }};
 {%- if not _local_dsn_valid %}
     // NOTE: Donor did not report a DSN; cfg_dsn defaults to zero for compliance.
 {%- endif %}
+    
+    // Tie-off cfg_mgmt_wr_rw1c_as_rw immediately (must be driven before PCIe core instantiation)
+    wire cfg_mgmt_wr_rw1c_as_rw = 1'b1;
+    assign cfg_dsn = DEVICE_SERIAL_NUMBER;
+
+    // Bus/Device/Function tracking (outputs from PCIe core)
+    logic  [7:0] cfg_bus_number;
+    logic  [4:0] cfg_device_number;
+    logic  [2:0] cfg_function_number;
+    
+    // Completer ID (BDF) - 16-bit identifier composed of Bus/Device/Function
+    // Format: { bus[7:0], device[4:0], function[2:0] }
+    wire [15:0] completer_id;
+    assign completer_id = {cfg_bus_number, cfg_device_number, cfg_function_number};
     
     // Interrupt status (outputs) and INTx/MSI inputs (tied off if MSI-X only)
     logic        cfg_interrupt_msixenable;

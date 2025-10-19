@@ -69,6 +69,15 @@ DEFAULT_TIMING_CONFIG = {
     "enable_clock_gating": False,
 }
 
+# PCIe clock configuration for Xilinx 7-series cores
+DEFAULT_PCIE_CLOCK_CONFIG = {
+    "pcie_refclk_freq": 0,      # 0=100MHz, 1=125MHz, 2=250MHz
+    "pcie_userclk1_freq": 2,    # 1=31.25MHz, 2=62.5MHz, 3=125MHz, 4=250MHz, 5=500MHz
+    "pcie_userclk2_freq": 2,    # Same encoding as userclk1
+    "pcie_link_speed": 2,       # 1=Gen1, 2=Gen2, 3=Gen3
+    "pcie_oobclk_mode": 1,      # OOB clock mode
+}
+
 # Defaults for PCILeech-specific runtime configuration used by templates
 PCILEECH_DEFAULT = {
     "buffer_size": 4096,
@@ -698,6 +707,12 @@ class UnifiedContextBuilder:
         **kwargs,
     ) -> TemplateObject:
         """Create board configuration for templates."""
+        # Extract PCIe clock config from kwargs or use defaults
+        pcie_clock_config = dict(DEFAULT_PCIE_CLOCK_CONFIG)
+        for key in DEFAULT_PCIE_CLOCK_CONFIG.keys():
+            if key in kwargs:
+                pcie_clock_config[key] = kwargs[key]
+        
         config = {
             "name": board_name,
             "fpga_part": fpga_part,
@@ -712,6 +727,8 @@ class UnifiedContextBuilder:
             ),
             "features": kwargs.get("features", {}),
         }
+        # Add PCIe clock configuration
+        config.update(pcie_clock_config)
         config.update(kwargs)
 
         return TemplateObject(config)
@@ -1157,6 +1174,21 @@ class UnifiedContextBuilder:
         )
         context["timing_config"] = TemplateObject(timing_config)
 
+        # PCIe clock configuration for Xilinx 7-series
+        pcie_clock_config = dict(DEFAULT_PCIE_CLOCK_CONFIG)
+        pcie_clock_config.update(
+            {
+                "pcie_refclk_freq": kwargs.get("pcie_refclk_freq", 0),  # 0=100MHz
+                "pcie_userclk1_freq": kwargs.get("pcie_userclk1_freq", 2),  # 2=62.5MHz
+                "pcie_userclk2_freq": kwargs.get("pcie_userclk2_freq", 2),  # 2=62.5MHz
+                "pcie_link_speed": kwargs.get("pcie_link_speed", 2),  # 2=Gen2
+                "pcie_oobclk_mode": kwargs.get("pcie_oobclk_mode", 1),
+            }
+        )
+        context["pcie_clock_config"] = TemplateObject(pcie_clock_config)
+        # Also add individual keys to root context for template access
+        context.update(pcie_clock_config)
+
         # PCILeech configuration
         # Check for explicit scatter_gather setting, with fallback to DMA operations
         scatter_gather_enabled = kwargs.get(
@@ -1212,6 +1244,11 @@ class UnifiedContextBuilder:
         context["target_link_width_enum"] = kwargs.get(
             "target_link_width_enum", "X4"
         )  # x4 lanes default
+
+        # Board part ID for Xilinx dev boards (None for custom PCILeech boards)
+        # This enables board-specific optimizations when using official Xilinx boards
+        # Most PCILeech boards use raw FPGA parts, so None is the typical value
+        context["board_part_id"] = kwargs.get("board_part_id", None)
 
     def _add_compatibility_aliases(self, context: Dict[str, Any], **kwargs) -> None:
         """Add compatibility aliases for legacy templates."""
@@ -1468,6 +1505,44 @@ class UnifiedContextBuilder:
         )
         context.setdefault("is_64bit", kwargs.get("is_64bit", False))
 
+    def _add_behavioral_context(self, context: Dict[str, Any], **kwargs) -> None:
+        """Add behavioral simulation context if enabled."""
+        try:
+            from src.utils.behavioral_context import build_behavioral_context
+            
+            # Create mock device config from context
+            class DeviceConfig:
+                def __init__(self, ctx, kw):
+                    self.enable_behavioral_simulation = kw.get(
+                        "enable_behavioral_simulation", False
+                    )
+                    self.class_code = int(kw.get("class_code", "000000"), 16)
+                    self.device_id = kw.get("device_id", "0000")
+                    self.behavioral_bar_index = kw.get("behavioral_bar_index", 0)
+                    
+            device_config = DeviceConfig(context, kwargs)
+            behavioral_ctx = build_behavioral_context(device_config)
+            
+            if behavioral_ctx:
+                context.update(behavioral_ctx)
+                log_info_safe(
+                    self.logger,
+                    "Behavioral simulation context integrated",
+                    prefix="BUILD"
+                )
+        except ImportError as e:
+            log_debug_safe(
+                self.logger,
+                safe_format("Behavioral module not available: {e}", e=e),
+                prefix="BUILD"
+            )
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format("Failed to add behavioral context: {e}", e=e),
+                prefix="BUILD"
+            )
+
     def create_complete_template_context(
         self,
         vendor_id: Optional[str] = None,
@@ -1532,6 +1607,9 @@ class UnifiedContextBuilder:
 
         # Add standard configurations
         self._add_standard_configs(context, **kwargs)
+
+        # Add behavioral simulation context if enabled
+        self._add_behavioral_context(context, **kwargs)
 
         # Apply any additional kwargs
         context.update(kwargs)

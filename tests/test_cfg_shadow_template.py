@@ -512,7 +512,16 @@ class TestCfgShadowTemplate:
 
         # Check for synthesis attributes
         assert '(* ram_style="block" *)' in result
-        assert "(* ram_init_file = CFG_INIT_HEX *)" in result
+        
+        # CRITICAL REGRESSION TEST: ram_init_file attribute must NOT be present
+        # String parameters cannot be used in synthesis attributes in Vivado
+        # This would cause: ERROR: [Synth 8-281] expression must be of a packed type
+        assert "(* ram_init_file = CFG_INIT_HEX *)" not in result, \
+            "ram_init_file attribute with string parameter detected - this causes Vivado synthesis error"
+        
+        # Instead, initialization should be done via $readmemh in initial block
+        assert "$readmemh(CFG_INIT_HEX, config_space_ram)" in result, \
+            "BRAM initialization should use $readmemh in initial block, not synthesis attribute"
 
         # Check for synthesis pragmas
         assert "// synthesis translate_off" in result
@@ -560,6 +569,130 @@ class TestCfgShadowTemplate:
         assert "cfg_a7[1] ? cfg_a7[0] : reg_num[7]" in result
 
         self.validate_systemverilog_syntax(result)
+    
+    # ==========================================================================
+    # Vivado Synthesis Compatibility Tests (Regression Prevention)
+    # ==========================================================================
+    
+    def test_vivado_synthesis_attribute_compatibility(self, template_content, minimal_context):
+        """Test that generated SystemVerilog is compatible with Vivado synthesis requirements.
+        
+        This test prevents regressions of known Vivado synthesis errors:
+        - ERROR: [Synth 8-281] expression must be of a packed type
+        - Invalid ram_style attribute values  
+        - String parameters in synthesis attributes
+        """
+        result = self.render_template(template_content, minimal_context)
+        
+        # TEST 1: No string parameters in synthesis attributes
+        # String parameters like CFG_INIT_HEX cannot be used in (* attribute = value *) syntax
+        # They must use procedural blocks like $readmemh instead
+        attribute_pattern = r'\(\*\s*\w+\s*=\s*[A-Z_]+\s*\*\)'
+        matches = re.findall(attribute_pattern, result)
+        for match in matches:
+            # Extract the value part
+            value_match = re.search(r'=\s*([A-Z_]+)', match)
+            if value_match:
+                attr_value = value_match.group(1)
+                # Check if it looks like a string parameter (all caps, underscores)
+                if attr_value.isupper() and '_' in attr_value:
+                    # Make sure it's not a valid packed constant
+                    assert attr_value not in ['CFG_INIT_HEX'], \
+                        f"String parameter {attr_value} found in synthesis attribute: {match}"
+        
+        # TEST 2: ram_style attributes must use valid string literals
+        ram_style_pattern = r'\(\*\s*ram_style\s*=\s*"([^"]+)"\s*\*\)'
+        ram_styles = re.findall(ram_style_pattern, result)
+        valid_ram_styles = ['block', 'distributed', 'registers', 'ultra', 'auto']
+        for ram_style in ram_styles:
+            assert ram_style in valid_ram_styles, \
+                f"Invalid ram_style value: {ram_style}. Must be one of: {valid_ram_styles}"
+        
+        # TEST 3: ram_style applied to unpacked arrays must be single logic type
+        # Pattern: (* ram_style="..." *) logic [...] array_name[...];
+        ram_style_unpacked = re.findall(
+            r'\(\*\s*ram_style\s*=\s*"[^"]+"\s*\*\)\s*logic\s+(?:\[[^\]]+\])?\s*(\w+)\[[^\]]+\]',
+            result
+        )
+        # All these should be simple unpacked arrays, not structs
+        for array_name in ram_style_unpacked:
+            # Make sure we don't have struct types (would cause "expression must be packed" error)
+            assert not re.search(
+                rf'typedef\s+struct.*{array_name}',
+                result
+            ), f"ram_style attribute on struct array {array_name} not allowed"
+        
+        # TEST 4: Verify $readmemh is used for BRAM initialization instead of attributes
+        if 'CFG_INIT_HEX' in result:
+            assert '$readmemh(CFG_INIT_HEX, config_space_ram)' in result, \
+                "BRAM initialization must use $readmemh, not synthesis attributes"
+        
+        # TEST 5: No ram_style with invalid bit-width values
+        # Pattern that would cause issues: (* ram_style="88'b000..." *)
+        invalid_ram_style_pattern = r'\(\*\s*ram_style\s*=\s*"\d+\'[bo][01]+"\s*\*\)'
+        invalid_matches = re.findall(invalid_ram_style_pattern, result)
+        assert len(invalid_matches) == 0, \
+            f"Found invalid ram_style with bit literal: {invalid_matches}"
+        
+        self.validate_systemverilog_syntax(result)
+    
+    def test_no_unpacked_type_in_attributes(self, template_content, minimal_context):
+        """Ensure synthesis attributes are never applied to unpacked types or structs.
+        
+        Vivado requires attributes on arrays to be applied to packed types only.
+        This test catches: ERROR: [Synth 8-281] expression must be of a packed type
+        """
+        result = self.render_template(template_content, minimal_context)
+        
+        # Find all synthesis attributes
+        attr_pattern = r'\(\*[^)]+\*\)\s*(?:logic|reg|wire)?\s*(?:\[[^\]]+\])?\s*(\w+)'
+        
+        # Check hash table declarations specifically (they were problematic)
+        hash_table_attrs = re.findall(
+            r'\(\*\s*ram_style\s*=\s*"([^"]+)"\s*\*\)\s*logic\s+(?:\[[^\]]+\])?\s*(hash_table_\w+)\[',
+            result
+        )
+        
+        for ram_style, var_name in hash_table_attrs:
+            # Verify the ram_style is a valid string literal, not a bit pattern
+            assert ram_style in ['block', 'distributed', 'registers', 'ultra', 'auto'], \
+                f"Invalid ram_style '{ram_style}' on {var_name}"
+            
+            # Make sure it's not malformed like "88'b000..."
+            assert not re.match(r'\d+\'[bo]', ram_style), \
+                f"Malformed ram_style on {var_name}: {ram_style}"
+    
+    def test_bram_initialization_via_readmemh(self, template_content, minimal_context):
+        """Verify BRAM initialization uses $readmemh instead of synthesis attributes.
+        
+        String parameters cannot be used in synthesis attributes, so initialization
+        must be done via procedural code in an initial block.
+        """
+        result = self.render_template(template_content, minimal_context)
+        
+        # Check that config_space_ram is declared without ram_init_file attribute
+        config_ram_decl = re.search(
+            r'logic\s+\[31:0\]\s+config_space_ram\[0:[^\]]+\];',
+            result
+        )
+        assert config_ram_decl, "config_space_ram declaration not found"
+        
+        # Get the lines around the declaration
+        decl_pos = config_ram_decl.start()
+        context_start = max(0, decl_pos - 200)
+        context_end = min(len(result), decl_pos + 200)
+        context = result[context_start:context_end]
+        
+        # Ensure NO ram_init_file attribute near the declaration
+        assert 'ram_init_file' not in context, \
+            "ram_init_file attribute should not be used with string parameters"
+        
+        # Verify $readmemh is used in initial block instead
+        assert re.search(
+            r'if\s*\(\s*CFG_INIT_HEX\s*!=\s*""\s*\)\s*begin\s+\$readmemh\(\s*CFG_INIT_HEX\s*,\s*config_space_ram\s*\)',
+            result,
+            re.MULTILINE
+        ), "BRAM initialization must use $readmemh in initial block"
 
 
 if __name__ == "__main__":

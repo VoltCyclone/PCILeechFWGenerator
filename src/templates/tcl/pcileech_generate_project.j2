@@ -1,6 +1,16 @@
 {% from "_helpers.j2" import get_vendor_id, get_device_id, get_subsystem_vendor_id, get_subsystem_device_id %}
 {{ header_comment }}
+
+# Set the reference directory for source file relative paths
+set origin_dir "."
+
+# Use origin directory path location variable, if specified in the tcl shell
+if { [info exists ::origin_dir_loc] } {
+  set origin_dir $::origin_dir_loc
+}
+
 puts "Generating project"
+puts "Origin directory: $origin_dir"
 set_msg_config -id {Common 17-55} -suppress
 set_msg_config -id {Vivado 12-1387} -suppress
 # End of error handling configuration
@@ -24,14 +34,32 @@ catch {close_project -quiet}
 # Create Vivado project
 create_project $project_name $project_dir -part $fpga_part -force
 
-# Set project properties (Vivado supports Verilog/VHDL at project level)
-set_property target_language Verilog [current_project]
-set_property simulator_language Mixed [current_project]
-set_property default_lib xil_defaultlib [current_project]
+# Set project properties - comprehensive configuration for robust builds
+set obj [current_project]
 
-{% if fpga_family == "ultrascale" or fpga_family == "ultrascale_plus" %}
-# UltraScale/UltraScale+ specific settings
-set_property XPM_LIBRARIES {XPM_CDC XPM_MEMORY XPM_FIFO} [current_project]
+# Core language and library settings
+set_property -name "target_language" -value "Verilog" -objects $obj
+set_property -name "simulator_language" -value "Mixed" -objects $obj
+set_property -name "default_lib" -value "xil_defaultlib" -objects $obj
+
+# XPM Libraries - CRITICAL: Required for all FPGA families (FIFO, CDC, Memory primitives)
+set_property -name "xpm_libraries" -value "XPM_CDC XPM_FIFO XPM_MEMORY" -objects $obj
+
+# IP cache and output management - prevents cache corruption and build errors
+set_property -name "ip_cache_permissions" -value "read write" -objects $obj
+set_property -name "ip_output_repo" -value "$project_dir/${project_name}.cache/ip" -objects $obj
+
+# Simulation configuration - enables proper simulation file management
+set_property -name "sim.central_dir" -value "$project_dir/${project_name}.ip_user_files" -objects $obj
+set_property -name "sim.ip.auto_export_scripts" -value "1" -objects $obj
+
+# Memory map generation - useful for debugging and verification
+set_property -name "mem.enable_memory_map_generation" -value "1" -objects $obj
+
+{% if board_part_id %}
+# Board-specific configuration (if board part specified)
+set_property -name "board_part" -value "{{ board_part_id }}" -objects $obj
+set_property -name "platform.board_id" -value "{{ board_name }}" -objects $obj
 {% endif %}
 
 # Create source directory structure
@@ -41,6 +69,22 @@ file mkdir [file join $project_dir $ip_dir]
 puts "Created PCILeech directory structure:"
 puts "  Source directory: $src_dir"
 puts "  IP directory: $ip_dir"
+
+# Create filesets with existence checks (prevents conflicts)
+if {[string equal [get_filesets -quiet sources_1] ""]} {
+    create_fileset -srcset sources_1
+    puts "Created sources_1 fileset"
+}
+
+if {[string equal [get_filesets -quiet constrs_1] ""]} {
+    create_fileset -constrset constrs_1
+    puts "Created constrs_1 fileset"
+}
+
+if {[string equal [get_filesets -quiet sim_1] ""]} {
+    create_fileset -simset sim_1
+    puts "Created sim_1 fileset"
+}
 
 # Add SystemVerilog source files
 {% if pcileech.source_files %}
@@ -289,6 +333,27 @@ update_compile_order -fileset sources_1
 puts "Generating IP cores..."
 generate_target all [get_files *.xci]
 catch {config_ip_cache -export [get_ips -all]}
+
+# Configure IP file properties for proper synthesis and checkpoint management
+puts "Configuring IP file properties..."
+set ip_files [get_files -filter {FILE_TYPE == "IP"}]
+if {[llength $ip_files] > 0} {
+    foreach ip_file $ip_files {
+        # Prevent reference file generation (keeps project cleaner)
+        set_property -name "generate_files_for_reference" -value "0" -objects $ip_file
+        
+        # Register with IP catalog manager for proper tracking
+        set_property -name "registered_with_manager" -value "1" -objects $ip_file
+        
+        # Set synthesis checkpoint mode (only if IP is not locked)
+        if { ![get_property "is_locked" $ip_file] } {
+            set_property -name "synth_checkpoint_mode" -value "Singular" -objects $ip_file
+        }
+    }
+    puts "  Configured [llength $ip_files] IP file(s)"
+} else {
+    puts "  No IP files found to configure"
+}
 
 # Skip validation (validate_design is not available in all Vivado versions)
 puts "Skipping design validation..."
