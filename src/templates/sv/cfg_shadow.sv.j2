@@ -113,23 +113,27 @@ module pcileech_tlps128_cfgspace_shadow #(
     
     // Linear probing collision resolution
     function automatic logic [7:0] find_hash_entry(input logic [9:0] reg_num);
+        logic [7:0] hash_idx;
+        logic [7:0] result;
+        
         if (ENABLE_SPARSE_MAP) begin
-            logic [7:0] hash_idx = hash_reg_num(reg_num);
-            logic [7:0] probe_count = 0;
+            hash_idx = hash_reg_num(reg_num);
+            result = 8'hFF; // Default: not found
             
-            // Linear probe with wrap-around
-            while (probe_count < HASH_TABLE_SIZE) begin
+            // Linear probe with wrap-around - using for loop for synthesis convergence
+            for (int probe_count = 0; probe_count < HASH_TABLE_SIZE; probe_count++) begin
                 if (hash_table_valid[hash_idx] && 
                     hash_table_reg_num[hash_idx] == reg_num) begin
-                    return hash_table_overlay_index[hash_idx];
+                    result = hash_table_overlay_index[hash_idx];
+                    break; // Found match, exit early
                 end
                 if (!hash_table_valid[hash_idx]) begin
-                    return 8'hFF; // Not found
+                    result = 8'hFF; // Not found
+                    break; // Empty slot, exit early
                 end
                 hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
-                probe_count++;
             end
-            return 8'hFF; // Table full or not found
+            return result;
         end else begin
             return 8'hFF; // Sparse mapping disabled
         end
@@ -668,16 +672,15 @@ module pcileech_tlps128_cfgspace_shadow #(
             // Add register 0x{{ "%03X"|format(reg) }} to hash table
             begin
                 logic [7:0] hash_idx = hash_reg_num({{ reg }});
-                logic [7:0] probe_count = 0;
-                // Find empty slot using linear probing
-                while (hash_table_valid[hash_idx] && probe_count < HASH_TABLE_SIZE) begin
+                // Find empty slot using linear probing with bounded iteration
+                for (int probe_count = 0; probe_count < HASH_TABLE_SIZE; probe_count++) begin
+                    if (!hash_table_valid[hash_idx]) begin
+                        hash_table_valid[hash_idx] = 1'b1;
+                        hash_table_reg_num[hash_idx] = {{ reg }};
+                        hash_table_overlay_index[hash_idx] = {{ loop.index0 }};
+                        break;
+                    end
                     hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
-                    probe_count++;
-                end
-                if (!hash_table_valid[hash_idx]) begin
-                    hash_table_valid[hash_idx] = 1'b1;
-                    hash_table_reg_num[hash_idx] = {{ reg }};
-                    hash_table_overlay_index[hash_idx] = {{ loop.index0 }};
                 end
             end
                     {%- endfor -%}
@@ -688,16 +691,15 @@ module pcileech_tlps128_cfgspace_shadow #(
             // Add register 0x{{ "%03X"|format(reg) }} to hash table
             begin
                 logic [7:0] hash_idx = hash_reg_num({{ reg }});
-                logic [7:0] probe_count = 0;
-                // Find empty slot using linear probing
-                while (hash_table_valid[hash_idx] && probe_count < HASH_TABLE_SIZE) begin
+                // Find empty slot using linear probing with bounded iteration
+                for (int probe_count = 0; probe_count < HASH_TABLE_SIZE; probe_count++) begin
+                    if (!hash_table_valid[hash_idx]) begin
+                        hash_table_valid[hash_idx] = 1'b1;
+                        hash_table_reg_num[hash_idx] = {{ reg }};
+                        hash_table_overlay_index[hash_idx] = {{ loop.index0 }};
+                        break;
+                    end
                     hash_idx = (hash_idx + 1) & (HASH_TABLE_SIZE-1);
-                    probe_count++;
-                end
-                if (!hash_table_valid[hash_idx]) begin
-                    hash_table_valid[hash_idx] = 1'b1;
-                    hash_table_reg_num[hash_idx] = {{ reg }};
-                    hash_table_overlay_index[hash_idx] = {{ loop.index0 }};
                 end
             end
                         {%- endif -%}
