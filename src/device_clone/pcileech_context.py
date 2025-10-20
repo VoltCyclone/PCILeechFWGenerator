@@ -784,6 +784,30 @@ class PCILeechContextBuilder:
             "device_id": device_identifiers.device_id,
         }
 
+        # Expose critical board attributes at the top level to keep downstream
+        # generators firmly non-interactive and ensure constraint builders can
+        # resolve donor-specific XDC files.
+        board_config = context["board_config"]
+
+        def _board_attr(attr: str, default: Any = None) -> Any:
+            """Safely extract attributes from the board configuration."""
+            try:
+                value = getattr(board_config, attr)
+            except AttributeError:
+                value = board_config.get(attr) if isinstance(board_config, dict) else None
+
+            return default if value is None else value
+
+        context["board_name"] = _board_attr("name", "")
+        context["fpga_part"] = _board_attr("fpga_part")
+        context["fpga_family"] = _board_attr("fpga_family")
+        context["pcie_ip_type"] = _board_attr("pcie_ip_type")
+        context["max_lanes"] = _board_attr("max_lanes", 1)
+        context["supports_msi"] = _board_attr("supports_msi", False)
+        context["supports_msix"] = _board_attr("supports_msix", False)
+        context["board_constraints"] = _board_attr("constraints", TemplateObject({}))
+        context.setdefault("sys_clk_freq_mhz", _board_attr("sys_clk_freq_mhz"))
+
         # Attempt to extract PCIe max link speed/width from config space for donor-uniqueness.
         # These are required by the TCL builder to derive target_link_speed/width enums.
         try:

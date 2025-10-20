@@ -9,8 +9,13 @@ cause syntax errors when split across lines.
 
 import logging
 import os
+import re
+
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from functools import lru_cache
+
+from typing import Any, ClassVar, Dict, Iterable, List, Optional, Tuple
 
 # Define the project name constant locally to avoid circular imports
 VIVADO_PROJECT_NAME = "pcileech_firmware"
@@ -28,6 +33,116 @@ def get_project_name() -> str:
 # Note: dynamic borders are constructed in helpers to satisfy line-length rules.
 SV_HEADER_BAR = "//=="
 TCL_HEADER_BAR = "#=="
+
+
+@dataclass
+class FormatConfig:
+    """Runtime configuration controlling formatting behavior."""
+
+    timestamp_format: str = "%H:%M:%S"
+    use_unicode_tables: bool = True
+    max_table_width: int = 120
+    log_padding_width: int = 7
+    default_encoding: str = "utf-8"
+
+    _instance: ClassVar[Optional["FormatConfig"]] = None
+    @classmethod
+    def get_instance(cls) -> "FormatConfig":
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+
+class TableFormatter:
+    """Format tabular data with configurable border styles."""
+
+    UNICODE_STYLE = {
+        "top_left": "┌",
+        "top_right": "┐",
+        "top_join": "┬",
+        "mid_left": "├",
+        "mid_right": "┤",
+        "mid_join": "┼",
+        "bot_left": "└",
+        "bot_right": "┘",
+        "bot_join": "┴",
+        "horizontal": "─",
+        "vertical": "│",
+    }
+
+    ASCII_STYLE = {
+        "top_left": "+",
+        "top_right": "+",
+        "top_join": "+",
+        "mid_left": "+",
+        "mid_right": "+",
+        "mid_join": "+",
+        "bot_left": "+",
+        "bot_right": "+",
+        "bot_join": "+",
+        "horizontal": "-",
+        "vertical": "|",
+    }
+
+    def __init__(self, style: str = "unicode") -> None:
+        style_lower = style.lower()
+        if style_lower not in {"unicode", "ascii"}:
+            raise ValueError(f"Unsupported table style: {style}")
+        self.style = self.UNICODE_STYLE if style_lower == "unicode" else self.ASCII_STYLE
+
+    def _border(self, left: str, join: str, right: str, widths: Iterable[int]) -> str:
+        segments = [self.style["horizontal"] * (width + 2) for width in widths]
+        return self.style[left] + self.style[join].join(segments) + self.style[right]
+
+    def format_table(self, headers: List[str], rows: List[List[str]]) -> str:
+        if not headers:
+            return ""
+
+        col_widths = [len(str(header)) for header in headers]
+        for row in rows:
+            for idx, cell in enumerate(row):
+                col_widths[idx] = max(col_widths[idx], len(str(cell)))
+
+        top = self._border("top_left", "top_join", "top_right", col_widths)
+        header_line = self.style["vertical"] + self.style["vertical"].join(
+            f" {str(headers[i]):<{col_widths[i]}} " for i in range(len(headers))
+        ) + self.style["vertical"]
+        mid = self._border("mid_left", "mid_join", "mid_right", col_widths)
+        data_lines = [
+            self.style["vertical"]
+            + self.style["vertical"].join(
+                f" {str(row[i]):<{col_widths[i]}} " for i in range(len(headers))
+            )
+            + self.style["vertical"]
+            for row in rows
+        ]
+        bottom = self._border("bot_left", "bot_join", "bot_right", col_widths)
+
+        return "\n".join([top, header_line, mid, *data_lines, bottom])
+
+
+def _build_cache_key(template: str, kwargs: Dict[str, Any]) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    """Return a hashable cache key for kwargs when possible."""
+
+    frozen_items: List[Tuple[str, Any]] = []
+    for key, value in kwargs.items():
+        try:
+            hash(value)
+        except TypeError:
+            return None
+        frozen_items.append((key, value))
+
+    frozen_items.sort(key=lambda item: item[0])
+    return tuple(frozen_items)
+
+
+@lru_cache(maxsize=128)
+
+
+def _cached_format(template: str, frozen_items: Tuple[Tuple[str, Any], ...]) -> str:
+    """Cache formatted strings for repeated template/kwargs pairs."""
+
+    return template.format(**dict(frozen_items))
 
 
 def safe_format(template: str, prefix: Optional[str] = None, **kwargs: Any) -> str:
@@ -60,29 +175,35 @@ def safe_format(template: str, prefix: Optional[str] = None, **kwargs: Any) -> s
         '[VFIO] Processing device 0000:01:00.0'
     """
     try:
-        formatted_message = template.format(**kwargs)
+        cache_key = _build_cache_key(template, kwargs)
+        if cache_key is not None:
+            formatted_message = _cached_format(template, cache_key)
+        else:
+            formatted_message = template.format(**kwargs)
         if prefix:
             return f"[{prefix}] {formatted_message}"
         return formatted_message
     except KeyError as e:
         # Handle missing keys gracefully
         missing_key = str(e).strip("'\"")
-        logging.warning(f"Missing key '{missing_key}' in string template")
-        formatted_message = template.replace(
-            f"{{{missing_key}}}", f"<MISSING:{missing_key}>"
-        )
+        logger = logging.getLogger(__name__)
+        logger.warning("Missing key '%s' in string template", missing_key)
+        pattern = re.compile(rf"\{{{re.escape(missing_key)}(:[^}}]+)?\}}")
+        formatted_message = pattern.sub(f"<MISSING:{missing_key}>", template)
         if prefix:
             return f"[{prefix}] {formatted_message}"
         return formatted_message
     except ValueError as e:
         # Handle format specification errors
-        logging.error(f"Format error in string template: {e}")
+        logger = logging.getLogger(__name__)
+        logger.error("Format error in string template: %s", e)
         if prefix:
             return f"[{prefix}] {template}"
         return template
     except Exception as e:
         # Handle any other unexpected errors
-        logging.error(f"Unexpected error in safe_format: {e}")
+        logger = logging.getLogger(__name__)
+        logger.error("Unexpected error in safe_format: %s", e)
         if prefix:
             return f"[{prefix}] {template}"
         return template
@@ -333,7 +454,8 @@ def get_short_timestamp() -> str:
         >>> get_short_timestamp()
         '14:23:45'
     """
-    return datetime.now().strftime("%H:%M:%S")
+    fmt = FormatConfig.get_instance().timestamp_format
+    return datetime.now().strftime(fmt)
 
 
 def utc_timestamp(
@@ -391,17 +513,23 @@ def format_padded_message(message: str, log_level: str) -> str:
         ' WARNING│ Memory issue'
     """
     timestamp = get_short_timestamp()
+    config = FormatConfig.get_instance()
 
-    if log_level == "INFO":
-        return f"  {timestamp} │  INFO  │ {message}"
-    elif log_level == "WARNING":
-        return f"  {timestamp} │ WARNING│ {message}"
-    elif log_level == "DEBUG":
-        return f"  {timestamp} │ DEBUG  │ {message}"
-    elif log_level == "ERROR":
-        return f"  {timestamp} │ ERROR  │ {message}"
+    level_defaults = {
+        "INFO": " INFO  ",
+        "WARNING": "WARNING",
+        "DEBUG": " DEBUG ",
+        "ERROR": "ERROR  ",
+        "CRITICAL": "CRITCL",
+    }
+
+    level_segment = level_defaults.get(log_level, log_level)
+    if len(level_segment) < config.log_padding_width:
+        level_segment = level_segment.ljust(config.log_padding_width)
     else:
-        return f"  {timestamp} │ {log_level:>7}│ {message}"
+        level_segment = level_segment[: config.log_padding_width]
+
+    return f"  {timestamp} │ {level_segment}│ {message}"
 
 
 # Convenience functions for common logging patterns
@@ -677,7 +805,6 @@ def format_bar_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
     if not bar_configs:
         return "No BAR configurations found"
 
-    # Table headers
     headers = [
         "BAR",
         "Address",
@@ -690,11 +817,7 @@ def format_bar_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
         "Primary",
     ]
 
-    # Calculate column widths
-    col_widths = [len(h) for h in headers]
-
-    # Prepare data rows
-    rows = []
+    rows: List[List[str]] = []
     for bar_info in bar_configs:
         is_candidate = (
             getattr(bar_info, "is_memory", False) and getattr(bar_info, "size", 0) > 0
@@ -703,62 +826,27 @@ def format_bar_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
             primary_bar, "index", None
         )
 
-        size_mb = (
-            getattr(bar_info, "size", 0) / (1024 * 1024)
-            if getattr(bar_info, "size", 0) > 0
-            else 0
+        size_bytes = getattr(bar_info, "size", 0)
+        size_mb = (size_bytes / (1024 * 1024)) if size_bytes > 0 else 0
+
+        rows.append(
+            [
+                str(getattr(bar_info, "index", "unknown")),
+                f"0x{getattr(bar_info, 'base_address', 0):08X}",
+                f"{size_bytes:,}",
+                f"{size_mb:.2f}" if size_mb > 0 else "0.00",
+                "memory" if getattr(bar_info, "is_memory", False) else "io",
+                "yes" if getattr(bar_info, "prefetchable", False) else "no",
+                "yes" if getattr(bar_info, "is_memory", False) else "no",
+                "yes" if is_candidate else "no",
+                "★" if is_primary else "",
+            ]
         )
 
-        row = [
-            str(getattr(bar_info, "index", "unknown")),
-            f"0x{getattr(bar_info, 'base_address', 0):08X}",
-            f"{getattr(bar_info, 'size', 0):,}",
-            f"{size_mb:.2f}" if size_mb > 0 else "0.00",
-            "memory" if getattr(bar_info, "is_memory", False) else "io",
-            "yes" if getattr(bar_info, "prefetchable", False) else "no",
-            "yes" if getattr(bar_info, "is_memory", False) else "no",
-            "yes" if is_candidate else "no",
-            "★" if is_primary else "",
-        ]
-        rows.append(row)
-
-        # Update column widths
-        for i, cell in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(cell))
-
-    # Build the table
-    lines = []
-
-    # Top border
-    border = "┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐"
-    lines.append(border)
-
-    # Header row
-    header_row = (
-        "│"
-        + "│".join(f" {headers[i]:<{col_widths[i]}} " for i in range(len(headers)))
-        + "│"
+    formatter = TableFormatter(
+        "unicode" if FormatConfig.get_instance().use_unicode_tables else "ascii"
     )
-    lines.append(header_row)
-
-    # Header separator
-    separator = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
-    lines.append(separator)
-
-    # Data rows
-    for row in rows:
-        data_row = (
-            "│"
-            + "│".join(f" {row[i]:<{col_widths[i]}} " for i in range(len(row)))
-            + "│"
-        )
-        lines.append(data_row)
-
-    # Bottom border
-    bottom_border = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
-    lines.append(bottom_border)
-
-    return "\n".join(lines)
+    return formatter.format_table(headers, rows)
 
 
 def format_bar_summary_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
@@ -775,14 +863,9 @@ def format_bar_summary_table(bar_configs: List[Any], primary_bar: Any = None) ->
     if not bar_configs:
         return "No BAR configurations found"
 
-    # Table headers for summary
     headers = ["BAR", "Address", "Size (MB)", "Type", "Status"]
+    rows: List[List[str]] = []
 
-    # Calculate column widths
-    col_widths = [len(h) for h in headers]
-
-    # Prepare data rows
-    rows = []
     for bar_info in bar_configs:
         is_candidate = (
             getattr(bar_info, "is_memory", False) and getattr(bar_info, "size", 0) > 0
@@ -791,70 +874,34 @@ def format_bar_summary_table(bar_configs: List[Any], primary_bar: Any = None) ->
             primary_bar, "index", None
         )
 
-        size_mb = (
-            getattr(bar_info, "size", 0) / (1024 * 1024)
-            if getattr(bar_info, "size", 0) > 0
-            else 0
-        )
+        size_bytes = getattr(bar_info, "size", 0)
+        size_mb = (size_bytes / (1024 * 1024)) if size_bytes > 0 else 0
 
-        # Determine status
         if is_primary:
             status = "PRIMARY ★"
         elif is_candidate:
             status = "candidate"
-        elif getattr(bar_info, "size", 0) == 0:
+        elif size_bytes == 0:
             status = "empty"
         elif not getattr(bar_info, "is_memory", False):
             status = "I/O port"
         else:
             status = "skipped"
 
-        row = [
-            str(getattr(bar_info, "index", "unknown")),
-            f"0x{getattr(bar_info, 'base_address', 0):08X}",
-            f"{size_mb:.2f}" if size_mb > 0 else "0.00",
-            "memory" if getattr(bar_info, "is_memory", False) else "io",
-            status,
-        ]
-        rows.append(row)
-
-        # Update column widths
-        for i, cell in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(cell))
-
-    # Build the table
-    lines = []
-
-    # Top border
-    border = "┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐"
-    lines.append(border)
-
-    # Header row
-    header_row = (
-        "│"
-        + "│".join(f" {headers[i]:<{col_widths[i]}} " for i in range(len(headers)))
-        + "│"
-    )
-    lines.append(header_row)
-
-    # Header separator
-    separator = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
-    lines.append(separator)
-
-    # Data rows
-    for row in rows:
-        data_row = (
-            "│"
-            + "│".join(f" {row[i]:<{col_widths[i]}} " for i in range(len(row)))
-            + "│"
+        rows.append(
+            [
+                str(getattr(bar_info, "index", "unknown")),
+                f"0x{getattr(bar_info, 'base_address', 0):08X}",
+                f"{size_mb:.2f}" if size_mb > 0 else "0.00",
+                "memory" if getattr(bar_info, "is_memory", False) else "io",
+                status,
+            ]
         )
-        lines.append(data_row)
 
-    # Bottom border
-    bottom_border = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
-    lines.append(bottom_border)
-
-    return "\n".join(lines)
+    formatter = TableFormatter(
+        "unicode" if FormatConfig.get_instance().use_unicode_tables else "ascii"
+    )
+    return formatter.format_table(headers, rows)
 
 
 def format_raw_bar_table(bars: List[Any], device_bdf: str) -> str:
@@ -871,74 +918,37 @@ def format_raw_bar_table(bars: List[Any], device_bdf: str) -> str:
     if not bars:
         return "No BAR data found"
 
-    # Table headers
     headers = ["BAR", "Type", "Address", "Size", "Prefetchable", "64-bit"]
+    rows: List[List[str]] = []
 
-    # Calculate column widths
-    col_widths = [len(h) for h in headers]
-
-    # Prepare data rows
-    rows = []
-    for i, bar_data in enumerate(bars[:6]):  # Only show first 6 BARs
+    for i, bar_data in enumerate(bars[:6]):
         if isinstance(bar_data, dict):
-            row = [
-                str(i),
-                bar_data.get("type", "unknown"),
-                f"0x{bar_data.get('address', 0):08X}",
-                str(bar_data.get("size", 0)),
-                "Yes" if bar_data.get("prefetchable", False) else "No",
-                "Yes" if bar_data.get("is_64bit", False) else "No",
-            ]
+            rows.append(
+                [
+                    str(i),
+                    bar_data.get("type", "unknown"),
+                    f"0x{bar_data.get('address', 0):08X}",
+                    str(bar_data.get("size", 0)),
+                    "Yes" if bar_data.get("prefetchable", False) else "No",
+                    "Yes" if bar_data.get("is_64bit", False) else "No",
+                ]
+            )
         else:
-            # Simple address value
-            row = [
-                str(i),
-                "unknown",
-                f"0x{bar_data:08X}",
-                "unknown",
-                "unknown",
-                "unknown",
-            ]
+            rows.append(
+                [
+                    str(i),
+                    "unknown",
+                    f"0x{bar_data:08X}",
+                    "unknown",
+                    "unknown",
+                    "unknown",
+                ]
+            )
 
-        rows.append(row)
-
-        # Update column widths
-        for j, cell in enumerate(row):
-            col_widths[j] = max(col_widths[j], len(cell))
-
-    # Build the table
-    lines = []
-
-    # Top border
-    top_border = "┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐"
-    lines.append(top_border)
-
-    # Header row
-    header_row = (
-        "│"
-        + "│".join(f" {headers[i]:<{col_widths[i]}} " for i in range(len(headers)))
-        + "│"
+    formatter = TableFormatter(
+        "unicode" if FormatConfig.get_instance().use_unicode_tables else "ascii"
     )
-    lines.append(header_row)
-
-    # Header separator
-    header_sep = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
-    lines.append(header_sep)
-
-    # Data rows
-    for row in rows:
-        data_row = (
-            "│"
-            + "│".join(f" {row[i]:<{col_widths[i]}} " for i in range(len(row)))
-            + "│"
-        )
-        lines.append(data_row)
-
-    # Bottom border
-    bottom_border = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
-    lines.append(bottom_border)
-
-    return "\n".join(lines)
+    return formatter.format_table(headers, rows)
 
 
 def format_kv_table(rows: List[Tuple[str, str]], title: str) -> str:
@@ -961,27 +971,60 @@ def format_kv_table(rows: List[Tuple[str, str]], title: str) -> str:
         col_widths[0] = max(col_widths[0], len(str(k)))
         col_widths[1] = max(col_widths[1], len(str(v)))
 
-    top = "┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐"
-    hdr = (
-        "│ "
-        + f"{headers[0]:<{col_widths[0]}}"
-        + " │ "
-        + f"{headers[1]:<{col_widths[1]}}"
-        + " │"
+    formatter = TableFormatter(
+        "unicode" if FormatConfig.get_instance().use_unicode_tables else "ascii"
     )
-    sep = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
-    lines = [top, hdr, sep]
-    for k, v in rows:
-        k_str = str(k)
-        v_str = str(v)
-        lines.append(
-            "│ "
-            + f"{k_str:<{col_widths[0]}}"
-            + " │ "
-            + f"{v_str:<{col_widths[1]}}"
-            + " │"
-        )
-    bottom = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
+    table = formatter.format_table(headers, [[str(k), str(v)] for k, v in rows])
+    lines = table.split("\n")
+
     title_bar = f"── {title} "
     banner = "┌" + title_bar + "─" * max(0, sum(col_widths) + 5 - len(title_bar)) + "┐"
-    return "\n".join([banner] + lines + [bottom])
+    return "\n".join([banner] + lines)
+
+
+def truncate_string(
+    text: str,
+    max_length: int,
+    suffix: str = "...",
+    position: str = "end",
+) -> str:
+    """Truncate text with optional suffix placement."""
+
+    if max_length <= 0:
+        return ""
+
+    if len(text) <= max_length:
+        return text
+
+    if len(suffix) >= max_length:
+        return suffix[:max_length]
+
+    remaining = max_length - len(suffix)
+    position_lower = position.lower()
+
+    if position_lower == "start":
+        return suffix + text[-remaining:]
+    if position_lower == "middle":
+        left = remaining // 2
+        right = remaining - left
+        return text[:left] + suffix + text[-right:]
+    return text[:remaining] + suffix
+
+
+def validate_template(template: str) -> bool:
+    """Return True when placeholders in template are well-formed."""
+
+    if template.count("{") != template.count("}"):
+        return False
+
+    placeholder_pattern = re.compile(r"(?<!\{)\{([^{}]+)\}(?!\})")
+    for match in placeholder_pattern.finditer(template):
+        placeholder = match.group(1)
+        if ":" in placeholder:
+            name, _ = placeholder.split(":", 1)
+            if not name.isidentifier():
+                return False
+        elif not placeholder.isidentifier():
+            return False
+
+    return True
