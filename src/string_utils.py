@@ -519,7 +519,7 @@ def format_padded_message(message: str, log_level: str) -> str:
         "INFO": " INFO  ",
         "WARNING": "WARNING",
         "DEBUG": " DEBUG ",
-        "ERROR": " ERROR ",
+        "ERROR": "ERROR  ",
         "CRITICAL": "CRITCL",
     }
 
