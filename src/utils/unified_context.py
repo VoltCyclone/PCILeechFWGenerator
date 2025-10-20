@@ -77,6 +77,7 @@ DEFAULT_PCIE_CLOCK_CONFIG = {
     "pcie_userclk2_freq": 2,    # Same encoding as userclk1
     "pcie_link_speed": 2,       # 1=Gen1, 2=Gen2, 3=Gen3
     "pcie_oobclk_mode": 1,      # OOB clock mode
+    "pcie_refclk_loc": "",      # IBUFDS_GTE2 LOC constraint (e.g., "IBUFDS_GTE2_X0Y1")
 }
 
 # Defaults for PCILeech-specific runtime configuration used by templates

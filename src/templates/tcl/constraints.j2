@@ -104,6 +104,19 @@ set timing_constraints_content {
 # need to override pin locations, provide board-specific XDC entries.
 # Do NOT apply an IOSTANDARD here – the clock buffer primitive owns that.
 
+# IBUFDS_GTE2 LOC constraint - required for 7-series devices
+{% if board is defined -%}
+{%- set pcie_refclk_loc = safe_attr(board, 'pcie_refclk_loc', '') -%}
+{%- if pcie_refclk_loc %}
+# PCIe reference clock buffer location for {{ board_name(board) }}
+set_property LOC {{ pcie_refclk_loc }} [get_cells pcie_refclk_ibuf]
+{%- else %}
+# WARNING: No IBUFDS_GTE2 LOC constraint provided for {{ board_name(board) }}
+# This will cause DRC errors during place_design
+# Please add pcie_refclk_loc to board configuration (e.g., IBUFDS_GTE2_X0Y1)
+{%- endif %}
+{%- endif %}
+
 # System reset
 # NOTE: Pin assignments MUST be loaded from board-specific XDC files
 # Uncomment and set for your specific board:
