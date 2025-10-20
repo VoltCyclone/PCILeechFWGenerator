@@ -17,6 +17,7 @@ core device cloning logic and VFIO device interaction. Tests include:
 import ctypes
 import fcntl
 import hashlib
+from logging import config
 import os
 import struct
 import sys
@@ -172,7 +173,8 @@ class MockBuilder:
         config.enable_interrupt_coalescing = enable_interrupts
         config.pcileech_command_timeout = timeout
         config.pcileech_buffer_size = buffer_size
-
+        config.board = None
+        config.fpga_part = None
         config.device_config = Mock()
         config.device_config.capabilities = TestDataFactory.create_device_capabilities()
 
@@ -534,6 +536,19 @@ class TestContextBuilding:
         builder._build_active_device_config = Mock(return_value={"active": "test"})
         builder._generate_unique_device_signature = Mock(return_value="32'h12345678")
         builder._build_generation_metadata = Mock(return_value={"metadata": "test"})
+        builder._build_board_config = Mock(
+            return_value={
+                "name": "test_board",
+                "fpga_part": "xc7a35t",
+                "fpga_family": "artix7",
+                "pcie_ip_type": "pcie_7x",
+                "max_lanes": 1,
+                "supports_msi": True,
+                "supports_msix": False,
+                "constraints": {"xdc_file": "pcileech_test.xdc"},
+                "sys_clk_freq_mhz": 100,
+            }
+        )
 
     def _assert_complete_context(self, context):
         """Assert that context contains all required sections."""
@@ -556,6 +571,13 @@ class TestContextBuilding:
 
         for section in required_sections:
             assert section in context, f"Missing section: {section}"
+
+        assert context.get("board_name") == "test_board"
+        assert context.get("fpga_part") == "xc7a35t"
+        assert context.get("pcie_ip_type") == "pcie_7x"
+        assert context.get("supports_msi") is True
+        assert context.get("supports_msix") is False
+        assert context.get("board_constraints")
 
 
 class TestDeviceIdentifiers:

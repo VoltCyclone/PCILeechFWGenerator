@@ -12,14 +12,16 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.string_utils import (build_device_info_string, build_file_size_string,
-                              build_progress_string, format_bar_summary_table,
-                              format_bar_table, format_padded_message,
-                              format_raw_bar_table, generate_sv_header_comment,
+from src.string_utils import (FormatConfig, build_device_info_string,
+                              build_file_size_string, build_progress_string,
+                              format_bar_summary_table, format_bar_table,
+                              format_padded_message, format_raw_bar_table,
+                              generate_sv_header_comment,
                               generate_tcl_header_comment, get_short_timestamp,
                               log_debug_safe, log_error_safe, log_info_safe,
                               log_warning_safe, multiline_format, safe_format,
-                              safe_log_format, safe_print_format)
+                              safe_log_format, safe_print_format,
+                              truncate_string, validate_template)
 
 
 class TestSafeFormat:
@@ -47,18 +49,33 @@ class TestSafeFormat:
 
     def test_missing_key_handling(self):
         """Test handling of missing keys."""
-        with patch("logging.warning") as mock_warning:
+        with patch("logging.getLogger") as mock_get_logger:
+            logger = Mock()
+            mock_get_logger.return_value = logger
             result = safe_format("Hello {missing_key}", name="World")
             assert "<MISSING:missing_key>" in result
-            mock_warning.assert_called_once()
+            logger.warning.assert_called_once()
 
     def test_format_error_handling(self):
         """Test handling of format specification errors."""
-        with patch("logging.error") as mock_error:
+        with patch("logging.getLogger") as mock_get_logger:
+            logger = Mock()
+            mock_get_logger.return_value = logger
             result = safe_format("Invalid format {value:invalid}", value=123)
-            # Should return the original template on format errors
             assert "Invalid format {value:invalid}" in result
-            mock_error.assert_called_once()
+            logger.error.assert_called_once()
+
+    def test_validate_template(self):
+        """Validate template syntax detection."""
+        assert validate_template("Hello {name}") is True
+        assert validate_template("{invalid placeholder}") is False
+        assert validate_template("Unbalanced {brace") is False
+
+    def test_truncate_string_variants(self):
+        """Ensure truncation helper supports multiple positions."""
+        assert truncate_string("abcdef", 4) == "a..."
+        assert truncate_string("abcdef", 4, position="start") == "...f"
+        assert truncate_string("abcdef", 5, position="middle") == "a...f"
 
 
 class TestDeviceInfoString:
@@ -381,6 +398,21 @@ class TestBarTableFormatting:
         assert "unknown" in result or "0" in result
         assert "┌" in result  # Table structure should still be present
 
+    def test_bar_table_ascii_style(self):
+        """Ensure ASCII borders render when configured."""
+        config = FormatConfig.get_instance()
+        original_flag = config.use_unicode_tables
+        try:
+            config.use_unicode_tables = False
+            bar_info = MockBarInfo(
+                index=0, base_address=0xF6600000, size=16384, is_memory=True
+            )
+            result = format_bar_table([bar_info])
+            assert result.startswith("+")
+            assert "|" in result
+        finally:
+            config.use_unicode_tables = original_flag
+
 
 class TestLoggingFunctions:
     """Test cases for logging convenience functions."""
@@ -464,6 +496,19 @@ class TestTimestampFunction:
             mock_datetime.now.return_value = datetime(2025, 7, 23, 14, 23, 45)
             result = get_short_timestamp()
             assert result == "14:23:45"
+
+    def test_timestamp_respects_config(self):
+        """Timestamp formatting should follow configuration."""
+        config = FormatConfig.get_instance()
+        original_format = config.timestamp_format
+        try:
+            config.timestamp_format = "%H:%M"
+            with patch("src.string_utils.datetime") as mock_datetime:
+                mock_datetime.now.return_value = datetime(2025, 7, 23, 14, 23, 45)
+                result = get_short_timestamp()
+                assert result == "14:23"
+        finally:
+            config.timestamp_format = original_format
 
 
 if __name__ == "__main__":
