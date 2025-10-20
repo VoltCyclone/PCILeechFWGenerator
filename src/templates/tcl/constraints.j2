@@ -82,26 +82,38 @@ set timing_constraints_content {
 # System Clock: {{ _sys_clk_mhz }} MHz (period: {{ sys_clk_period }} ns)
 
 # PCIe Transceiver Pin Constraints
-# NOTE: Pin assignments MUST be loaded from board-specific XDC files
-# The following are commented placeholders for reference only
+# PCIe differential pairs connect directly to GTX/GTP/GTH transceivers
+# These are NOT regular IO - they are handled by the PCIE IP core
 
-# PCIe transceiver differential pairs (board-specific)
-# set_property PACKAGE_PIN B8 [get_ports {pci_exp_rxp[0]}]
-# set_property PACKAGE_PIN A8 [get_ports {pci_exp_rxn[0]}]
-# set_property PACKAGE_PIN B6 [get_ports {pci_exp_txp[0]}]
-# set_property PACKAGE_PIN A6 [get_ports {pci_exp_txn[0]}]
+# The PCIe IP core manages transceiver placement automatically
+# based on the PCIE primitive site configuration in the IP.
+# No PACKAGE_PIN or IOSTANDARD constraints should be applied
+# to pci_exp_* ports - they are internal to the transceiver tiles.
 
-# System clock differential input
-# set_property PACKAGE_PIN E19 [get_ports sys_clk_p]
-# set_property PACKAGE_PIN E18 [get_ports sys_clk_n]
-# set_property IOSTANDARD DIFF_SSTL15 [get_ports sys_clk_p]
-# set_property IOSTANDARD DIFF_SSTL15 [get_ports sys_clk_n]
+# NOTE: The PCIE IP core XDC files handle all necessary constraints
+# for the transceiver pins. Any additional constraints here would
+# conflict with the IP core and cause DRC errors.
+
+# System Reference Clock (PCIe REFCLK)
+# This differential clock is the reference for the PCIe transceiver
+# IMPORTANT: This clock connects to the IBUFDS_GTE2 primitive, NOT regular IO
+# Pin locations are typically set by the PCIE IP core configuration
+
+# The sys_clk_p/sys_clk_n ports feed the IBUFDS_GTE2 instance in the top level
+# to create the single-ended sys_clk input required by the PCIe core. If you
+# need to override pin locations, provide board-specific XDC entries.
+# Do NOT apply an IOSTANDARD here – the clock buffer primitive owns that.
 
 # System reset
+# NOTE: Pin assignments MUST be loaded from board-specific XDC files
+# Uncomment and set for your specific board:
 # set_property PACKAGE_PIN U7 [get_ports sys_rst_n]
 # set_property IOSTANDARD LVCMOS33 [get_ports sys_rst_n]
+# set_property PULLUP TRUE [get_ports sys_rst_n]
 
 # Timing Constraints
+# Create clock constraint for the reference clock
+# Note: Period depends on whether using 100MHz or 125MHz reference
 create_clock -period {{ sys_clk_period }} -name sys_clk_p [get_ports sys_clk_p]
 set_input_delay -clock sys_clk_p 2.000 [get_ports sys_rst_n]
 set_false_path -from [get_ports sys_rst_n]

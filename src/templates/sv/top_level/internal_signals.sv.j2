@@ -14,6 +14,8 @@
     {%- endif %}
 
     logic        clk;
+    logic        pcie_sys_clk;
+    logic        pcie_sys_clk_div2;
     logic        reset;  // Active-high reset
     logic        device_ready;
     logic [{{ _local_data_width - 1 }}:0] pcie_rx_data;
