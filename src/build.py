@@ -985,6 +985,9 @@ class FirmwareBuilder:
             # Step 6: Generate TCL scripts
             self._generate_tcl_scripts(generation_result)
 
+            # Step 6.5: Write XDC constraint files
+            self._write_xdc_files(generation_result)
+
             self._phase("Saving device information …")
             # Step 7: Save device information
             self._save_device_info(generation_result)
@@ -1343,6 +1346,40 @@ class FirmwareBuilder:
         log_info_safe(
             self.logger,
             "  • Emitted Vivado scripts → vivado_project.tcl, vivado_build.tcl",
+            prefix="BUILD",
+        )
+
+    def _write_xdc_files(self, result: Dict[str, Any]) -> None:
+        """Write XDC constraint files to output directory."""
+        ctx = result.get("template_context", {})
+        board_xdc_content = ctx.get("board_xdc_content", "")
+        
+        if not board_xdc_content:
+            log_warning_safe(
+                self.logger,
+                "No board XDC content available to write",
+                prefix="BUILD",
+            )
+            return
+        
+        # Create constraints directory
+        constraints_dir = self.config.output_dir / "constraints"
+        constraints_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write board-specific XDC file
+        board_name = self.config.board
+        xdc_filename = f"{board_name}.xdc"
+        xdc_path = constraints_dir / xdc_filename
+        
+        xdc_path.write_text(board_xdc_content, encoding="utf-8")
+        
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "Wrote XDC constraints file: {filename} ({size} bytes)",
+                filename=xdc_filename,
+                size=len(board_xdc_content),
+            ),
             prefix="BUILD",
         )
 
