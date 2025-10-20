@@ -214,7 +214,7 @@ class TestVivadoFixValidation:
             ".s_axis_tx_tdata(pcie_tx_data)",
             ".s_axis_tx_tvalid(pcie_tx_valid)",
             ".cfg_mgmt_do(cfg_mgmt_do)",
-            ".sys_clk(sys_clk_p)",
+            ".sys_clk(pcie_sys_clk)",
             ".sys_rst_n(sys_rst_n)",
         ]
 
