@@ -50,8 +50,10 @@ module pcileech_top (
     input  wire [{{ _lane_width }}:0]  pci_exp_rxn,
 
     // System clock and reset (external)
+    // Note: sys_clk_p connects to internal IBUFDS_GTE2 within PCIe IP
+    // The differential pair is handled inside the IP core
     input  wire        sys_clk_p,
-    input  wire        sys_clk_n,
+        input  wire        sys_clk_n,
     input  wire        sys_rst_n
 {%- set _enable_pme_flag = enable_pme|default(false) %}
 {%- set _enable_wake_events_flag = enable_wake_events|default(false) %}
@@ -75,6 +77,22 @@ module pcileech_top (
 
     // Internal PCIe interface signals
     {% include "sv/top_level/internal_signals.sv.j2" %}
+
+    // Convert differential PCIe reference clock to single-ended
+    IBUFDS_GTE2 #(
+        .CLKCM_CFG("TRUE"),
+        .CLKRCV_TRST("TRUE"),
+        .CLKSWING_CFG(2'b11)
+    ) pcie_refclk_ibuf (
+        .O(pcie_sys_clk),
+        .ODIV2(pcie_sys_clk_div2),
+        .CEB(1'b0),
+        .I(sys_clk_p),
+        .IB(sys_clk_n)
+    );
+
+    // Unused divided clock exposed for completeness
+    wire __unused_sys_clk_div2 = pcie_sys_clk_div2;
 
     {% include "sv/top_level/pcie_core_instance.sv.j2" %}
 

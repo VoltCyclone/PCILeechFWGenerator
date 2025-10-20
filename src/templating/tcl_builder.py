@@ -1128,6 +1128,16 @@ class TCLBuilder:
                 template_context["generated_xdc_path"] = (
                     copied_files[0] if copied_files else None
                 )
+                if copied_files:
+                    log_info_safe(
+                        self.logger,
+                        safe_format(
+                            "Board-specific XDC files selected for {board}: {files}",
+                            board=context.board_name,
+                            files=", ".join(copied_files),
+                        ),
+                        prefix=self.prefix,
+                    )
             except XDCConstraintError as e:
                 log_warning_safe(
                     self.logger,
@@ -1145,6 +1155,26 @@ class TCLBuilder:
         template_context.setdefault(
             "board_xdc_content", ""
         )  # Empty content if not available
+        embedded_xdc = template_context.get("board_xdc_content")
+        if embedded_xdc:
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Embedded board XDC content detected for {board} (chars={count})",
+                    board=context.board_name,
+                    count=len(embedded_xdc),
+                ),
+                prefix=self.prefix,
+            )
+        else:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "No embedded board XDC content provided for {board}",
+                    board=context.board_name or "<unspecified>",
+                ),
+                prefix=self.prefix,
+            )
 
         # Ensure header is defined
         template_context.setdefault(

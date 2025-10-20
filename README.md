@@ -66,11 +66,14 @@ sudo modprobe vfio vfio-pci
 - **Donor PCIe card** (any inexpensive NIC, sound, or capture card)
 - **Linux OS** (You need this)
 
+### Recommended Requirements
+
+- **Podman** (recommended for containerized builds) - The build system uses Podman by default for consistency and reproducibility. If Podman isn't installed, you'll be prompted to run locally.
+
 ### Optional Requirements
 
-- **Podman** (*not Docker* - required for proper PCIe device mounting) You use podman or run the python locally. *You must use linux for either option*
-- **DMA board** (pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1) You don't need to flash your firmware with this tooling but you can.
-- **Vivado Studio** (2022.2+ for synthesis and bitstream generation) You can use a locally generated Vivado project or insert the files into an existing one.
+- **DMA board** (pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1) - You don't need to flash your firmware with this tooling but you can.
+- **Vivado Studio** (2022.2+ for synthesis and bitstream generation) - You can use a locally generated Vivado project or insert the files into an existing one.
 
 
 ### Basic Usage
@@ -164,7 +167,7 @@ sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
 - **Rebind donors**: Use TUI/CLI to rebind donor devices to original drivers
 - **Keep firmware private**: Generated firmware contains real device identifiers
 - **Use isolated build environments**: Never build on production systems
-- **Container cleanup**: `podman rmi pcileechfwgenerator:latest`
+- **Container cleanup** (if needed): `podman rmi pcileechfwgenerator:latest`
 
 > [!IMPORTANT]
 > This tool is intended for educational research and legitimate PCIe development purposes only. Users are responsible for ensuring compliance with all applicable laws and regulations. The authors assume no liability for misuse of this software.
