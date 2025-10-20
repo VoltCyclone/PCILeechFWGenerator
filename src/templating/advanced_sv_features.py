@@ -8,11 +8,7 @@ reduce import complexity.
 """
 
 import logging
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Set
-
-from src.utils import validation_constants as VC
+from typing import Dict, List, Optional
 
 # Centralized version import (avoid hardcoding versions)
 try:
@@ -35,6 +31,17 @@ try:
         log_warning_safe,
         safe_format,
     )
+    from .sv_config import (
+        AdvancedFeatureConfig,
+        ErrorHandlingConfig,
+        ErrorType,
+        LinkState,
+        PerformanceConfig,
+        PerformanceMetric,
+        PowerManagementConfig,
+        PowerState,
+        TransitionCycles,
+    )
     from .template_renderer import TemplateRenderer, TemplateRenderError
 except ImportError:
     # Fallback for standalone usage
@@ -46,181 +53,21 @@ except ImportError:
         log_warning_safe,
         safe_format,
     )
+    from src.templating.sv_config import (
+        AdvancedFeatureConfig,
+        ErrorHandlingConfig,
+        ErrorType,
+        LinkState,
+        PerformanceConfig,
+        PerformanceMetric,
+        PowerManagementConfig,
+        PowerState,
+        TransitionCycles,
+    )
     from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
 
 # Setup logger
 logger = logging.getLogger(__name__)
-
-
-_DEFAULT_TRANSITION_CYCLES = VC.get_power_transition_cycles()
-
-
-class PowerState(Enum):
-    """PCIe power states."""
-
-    D0 = "D0"  # Fully operational
-    D1 = "D1"  # Light sleep
-    D2 = "D2"  # Deep sleep
-    D3_HOT = "D3_HOT"  # Deep sleep with aux power
-    D3_COLD = "D3_COLD"  # No power
-
-
-class LinkState(Enum):
-    """PCIe link power states."""
-
-    L0 = "L0"  # Active state
-    L0S = "L0s"  # Standby state
-    L1 = "L1"  # Low power standby
-    L2 = "L2"  # Auxiliary power
-    L3 = "L3"  # Off state
-
-
-class ErrorType(Enum):
-    """Types of errors that can be detected and handled."""
-
-    NONE = "none"
-    PARITY = "parity"
-    CRC = "crc"
-    TIMEOUT = "timeout"
-    OVERFLOW = "overflow"
-    UNDERFLOW = "underflow"
-    PROTOCOL = "protocol"
-    ALIGNMENT = "alignment"
-    INVALID_TLP = "invalid_tlp"
-    UNSUPPORTED = "unsupported"
-
-
-class PerformanceMetric(Enum):
-    """Performance metrics that can be monitored."""
-
-    TLP_COUNT = "tlp_count"
-    COMPLETION_LATENCY = "completion_latency"
-    BANDWIDTH_UTILIZATION = "bandwidth_utilization"
-    ERROR_RATE = "error_rate"
-    POWER_TRANSITIONS = "power_transitions"
-    INTERRUPT_LATENCY = "interrupt_latency"
-
-
-@dataclass
-class ErrorHandlingConfig:
-    """Configuration for error handling features."""
-
-    enable_error_detection: bool = True
-    enable_error_logging: bool = True
-    enable_auto_retry: bool = True  # Enable automatic retry for recoverable errors
-    error_log_depth: int = 256
-    error_recovery_cycles: int = 1000  # Clock cycles for error recovery
-    max_retry_count: int = 3  # Maximum number of retries for recoverable errors
-    recoverable_errors: Set[ErrorType] = field(
-        default_factory=lambda: {ErrorType.PARITY, ErrorType.CRC, ErrorType.TIMEOUT}
-    )
-
-    fatal_errors: Set[ErrorType] = field(
-        default_factory=lambda: {ErrorType.PROTOCOL, ErrorType.INVALID_TLP}
-    )
-    error_thresholds: Dict[ErrorType, int] = field(
-        default_factory=lambda: {
-            ErrorType.PARITY: 10,
-            ErrorType.CRC: 5,
-            ErrorType.TIMEOUT: 3,
-        }
-    )
-
-
-@dataclass
-class PerformanceConfig:
-    """Configuration for performance monitoring."""
-
-    enable_performance_counters: bool = True
-    enable_transaction_counters: bool = True
-    enable_bandwidth_monitoring: bool = True
-    enable_latency_tracking: bool = True
-    enable_latency_measurement: bool = True
-    enable_error_counting: bool = True
-    enable_error_rate_tracking: bool = True
-    enable_performance_grading: bool = True
-    enable_perf_outputs: bool = True
-    counter_width: int = VC.DEFAULT_COUNTER_WIDTH
-    sampling_period: int = 1000  # Clock cycles
-    bandwidth_sample_period: int = 100000  # Clock cycles for bandwidth sampling
-    transfer_width: int = 4  # Transfer width in bytes
-    bandwidth_shift: int = 10  # Shift for bandwidth calculation
-    min_operations_for_error_rate: int = 100
-    high_performance_threshold: int = 1000
-    medium_performance_threshold: int = 100
-    high_bandwidth_threshold: int = 100
-    medium_bandwidth_threshold: int = 50
-    low_latency_threshold: int = 10
-    medium_latency_threshold: int = 50
-    low_error_threshold: int = 1
-    medium_error_threshold: int = 5
-    avg_packet_size: int = 1500  # For network devices
-    metrics_to_monitor: Set[PerformanceMetric] = field(
-        default_factory=lambda: {
-            PerformanceMetric.TLP_COUNT,
-            PerformanceMetric.COMPLETION_LATENCY,
-            PerformanceMetric.BANDWIDTH_UTILIZATION,
-        }
-    )
-    enable_histograms: bool = False
-    histogram_bins: int = 16
-
-
-@dataclass
-class TransitionCycles:
-    """Power state transition cycle counts."""
-
-    # Default to centralized validation constants; allow overrides
-    d0_to_d1: int = field(
-        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d0_to_d1"]
-    )
-    d1_to_d0: int = field(
-        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d1_to_d0"]
-    )
-    d0_to_d3: int = field(
-        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d0_to_d3"]
-    )
-    d3_to_d0: int = field(
-        default_factory=lambda: _DEFAULT_TRANSITION_CYCLES["d3_to_d0"]
-    )
-
-
-@dataclass
-class PowerManagementConfig:
-    """Configuration for power management features."""
-
-    enable_power_management: bool = True
-    supported_states: Set[PowerState] = field(
-        default_factory=lambda: {PowerState.D0, PowerState.D3_HOT}
-    )
-    transition_delays: Dict[tuple, int] = field(
-        default_factory=lambda: {
-            (PowerState.D0, PowerState.D3_HOT): 100,
-            (PowerState.D3_HOT, PowerState.D0): 1000,
-        }
-    )
-    transition_cycles: TransitionCycles = field(default_factory=TransitionCycles)
-    enable_clock_gating: bool = True
-    enable_power_gating: bool = False
-    idle_threshold: int = 10000  # Clock cycles before entering low power
-
-
-@dataclass
-class AdvancedFeatureConfig:
-    """Combined configuration for all advanced features."""
-
-    error_handling: ErrorHandlingConfig = field(default_factory=ErrorHandlingConfig)
-    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
-    power_management: PowerManagementConfig = field(
-        default_factory=PowerManagementConfig
-    )
-
-    # Global settings
-    enable_debug_ports: bool = True
-    enable_assertions: bool = True
-    enable_coverage: bool = False
-    clock_frequency_mhz: int = 250
-    prefix: str = "ADV_SV_FEATURES"
 
 
 class AdvancedSVFeatureGenerator:

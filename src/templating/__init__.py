@@ -6,6 +6,7 @@ This module contains all templating-related functionality including:
 - Jinja2-based template rendering
 - TCL script generation
 - SystemVerilog code generation
+- Configuration classes for advanced features
 """
 
 # Import with fallback for missing dependencies
@@ -34,6 +35,30 @@ except ImportError:
     AdvancedSVGenerator = None
     DeviceSpecificLogic = None
 
+# Import centralized config classes
+try:
+    from .sv_config import (
+        AdvancedFeatureConfig,
+        ErrorHandlingConfig,
+        ErrorType,
+        LinkState,
+        PerformanceConfig,
+        PerformanceMetric,
+        PowerManagementConfig,
+        PowerState,
+        TransitionCycles,
+    )
+except ImportError:
+    AdvancedFeatureConfig = None
+    ErrorHandlingConfig = None
+    ErrorType = None
+    LinkState = None
+    PerformanceConfig = None
+    PerformanceMetric = None
+    PowerManagementConfig = None
+    PowerState = None
+    TransitionCycles = None
+
 __all__ = [
     # Template rendering
     "TemplateRenderer",
@@ -48,4 +73,14 @@ __all__ = [
     "SystemVerilogGenerator",
     "AdvancedSVGenerator",
     "DeviceSpecificLogic",
+    # Configuration classes
+    "AdvancedFeatureConfig",
+    "ErrorHandlingConfig",
+    "ErrorType",
+    "LinkState",
+    "PerformanceConfig",
+    "PerformanceMetric",
+    "PowerManagementConfig",
+    "PowerState",
+    "TransitionCycles",
 ]

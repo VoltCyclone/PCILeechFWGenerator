@@ -9,52 +9,10 @@ and error logging.
 Advanced Error Handling feature for the PCILeechFWGenerator project.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
+from .sv_config import ErrorHandlingConfig, ErrorType
 from .template_renderer import TemplateRenderer
-
-
-class ErrorType(Enum):
-    """PCIe error types."""
-
-    CORRECTABLE = "correctable"
-    UNCORRECTABLE_NON_FATAL = "uncorrectable_non_fatal"
-    UNCORRECTABLE_FATAL = "uncorrectable_fatal"
-
-
-@dataclass
-class ErrorHandlingConfig:
-    """Configuration for error detection and handling."""
-
-    # Supported error types
-    supported_error_types: List[ErrorType] = field(
-        default_factory=lambda: [
-            ErrorType.CORRECTABLE,
-            ErrorType.UNCORRECTABLE_NON_FATAL,
-        ]
-    )
-
-    # Error detection features
-    enable_ecc: bool = True
-    enable_parity_check: bool = True
-    enable_crc_check: bool = True
-    enable_timeout_detection: bool = True
-
-    # Error recovery features
-    enable_auto_retry: bool = True
-    max_retry_count: int = 3
-    enable_error_logging: bool = True
-
-    # Error thresholds
-    correctable_error_threshold: int = 100
-    uncorrectable_error_threshold: int = 10
-
-    # Recovery timing (in clock cycles)
-    error_recovery_cycles: int = 1000
-    retry_delay_cycles: int = 100
-    timeout_cycles: int = 1048576  # ~10ms at 100MHz
 
 
 class ErrorHandlingGenerator:

@@ -22,7 +22,7 @@ import pytest
 from src.device_clone.overlay_utils import compute_sparse_hash_table_size
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 from src.templating.advanced_sv_power import PowerManagementConfig
-from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+from src.templating.sv_config import ErrorHandlingConfig, PerformanceConfig
 from src.templating.template_renderer import TemplateRenderer
 
 

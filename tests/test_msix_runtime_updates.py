@@ -15,7 +15,7 @@ import pytest
 from src.device_clone.pcileech_context import PCILeechContextBuilder
 from src.templating.systemverilog_generator import AdvancedSVGenerator
 from src.templating.advanced_sv_power import PowerManagementConfig
-from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+from src.templating.sv_config import ErrorHandlingConfig, PerformanceConfig
 
 _TEMPLATE_HELPERS_PATH = (
     Path(__file__).parent / "test_systemverilog_template_integration.py"
