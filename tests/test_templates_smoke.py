@@ -1,7 +1,7 @@
 import pytest
 
 from src.device_clone.device_config import DeviceClass, DeviceType
-from src.templating.advanced_sv_features import ErrorHandlingConfig, PerformanceConfig
+from src.templating.sv_config import ErrorHandlingConfig, PerformanceConfig
 from src.templating.advanced_sv_power import PowerManagementConfig
 from src.templating.systemverilog_generator import (
     AdvancedSVGenerator,

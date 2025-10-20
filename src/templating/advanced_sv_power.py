@@ -10,38 +10,12 @@ Simplified Power Management feature for the PCILeechFWGenerator project.
 """
 
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from ..string_utils import generate_sv_header_comment
-from .advanced_sv_features import PowerState, TransitionCycles
+from .sv_config import PowerManagementConfig, PowerState, TransitionCycles
 from .sv_constants import SV_CONSTANTS
 from .template_renderer import TemplateRenderer
-
-
-@dataclass
-class PowerManagementConfig:
-    """Configuration for power management features."""
-
-    # Clock frequency for timing calculations
-    clk_hz: int = SV_CONSTANTS.DEFAULT_CLOCK_HZ  # 100 MHz default
-
-    # Transition timeout (nanoseconds) - PCIe spec allows up to 10ms
-    transition_timeout_ns: int = (
-        SV_CONSTANTS.DEFAULT_POWER_TRANSITION_TIMEOUT_NS
-    )  # 10 ms
-
-    # Enable PME (Power Management Event) support
-    enable_pme: bool = True
-
-    # Enable wake event support
-    enable_wake_events: bool = False
-
-    # Interface signal configuration
-    has_interface_signals: bool = True
-
-    # Transition cycle counts
-    transition_cycles: TransitionCycles = field(default_factory=TransitionCycles)
 
 
 class PowerManagementGenerator:

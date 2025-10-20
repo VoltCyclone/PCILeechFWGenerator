@@ -51,6 +51,26 @@ class BoardDiscovery:
         },
     }
 
+    # PCIe reference clock IBUFDS_GTE2 LOC constraints for 7-series boards
+    # Maps board name to IBUFDS_GTE2 site location
+    PCIE_REFCLK_LOC_MAP = {
+        # Artix-7 75T boards (FGG484 package)
+        "pcileech_enigma_x1": "IBUFDS_GTE2_X0Y1",
+        "pcileech_75t484_x1": "IBUFDS_GTE2_X0Y1",
+        "75t": "IBUFDS_GTE2_X0Y1",
+        # Artix-7 35T boards (FGG484 package)
+        "pcileech_35t484_x1": "IBUFDS_GTE2_X0Y0",
+        "pcileech_squirrel": "IBUFDS_GTE2_X0Y0",
+        "35t": "IBUFDS_GTE2_X0Y0",
+        # Artix-7 35T boards (CSG324 package)
+        "pcileech_35t325_x4": "IBUFDS_GTE2_X0Y0",
+        "pcileech_35t325_x1": "IBUFDS_GTE2_X0Y0",
+        "pcileech_pciescreamer_xc7a35": "IBUFDS_GTE2_X0Y0",
+        # Artix-7 100T boards (FGG484 package)
+        "pcileech_100t484_x1": "IBUFDS_GTE2_X0Y1",
+        "100t": "IBUFDS_GTE2_X0Y1",
+    }
+
     @classmethod
     def discover_boards(cls, repo_root: Optional[Path] = None) -> Dict[str, Dict]:
         """
@@ -141,6 +161,18 @@ class BoardDiscovery:
         config.setdefault("max_lanes", 1)
         config.setdefault("supports_msi", True)
         config.setdefault("supports_msix", False)
+
+        # Add PCIe reference clock LOC constraint for 7-series boards
+        board_name = config.get("name", "")
+        if board_name in cls.PCIE_REFCLK_LOC_MAP:
+            config["pcie_refclk_loc"] = cls.PCIE_REFCLK_LOC_MAP[board_name]
+        elif config["fpga_family"] == "7series":
+            # Default to X0Y0 for unknown 7-series boards
+            config["pcie_refclk_loc"] = "IBUFDS_GTE2_X0Y0"
+            log_warning_safe(
+                logger,
+                safe_format("No PCIe refclk LOC mapping for board '{board}', using default: IBUFDS_GTE2_X0Y0", board=board_name)
+            )
 
         return config
 

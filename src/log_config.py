@@ -21,6 +21,10 @@ def setup_logging(
     Args:
         level: Logging level (default: INFO)
         log_file: Optional log file path (default: generate.log)
+    
+    Note:
+        Console output uses a minimal formatter since string_utils.py handles
+        timestamp/level formatting. File output includes full context.
     """
     # Clear any existing handlers to avoid conflicts
     root_logger = logging.getLogger()
@@ -29,27 +33,13 @@ def setup_logging(
 
     handlers = []
 
-    # Console handler with color support
+    # Console handler with minimal formatting
+    # string_utils.py safe_log_format() already adds timestamp, level, and prefix
     console_handler = logging.StreamHandler(sys.stdout)
-
-    if HAS_COLORLOG and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-        # Use colorlog for colored output
-        console_formatter = ColoredFormatter(
-            "%(log_color)s%(asctime)s %(levelname)s %(message)s",
-            datefmt="%H:%M:%S",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "red,bg_white",
-            },
-        )
-    else:
-        # Use fallback colored formatter when colorlog is not available
-        console_formatter = FallbackColoredFormatter(
-            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
-        )
+    
+    # Use simple formatter that just outputs the message
+    # Color is handled by string_utils.py format_padded_message()
+    console_formatter = logging.Formatter("%(message)s")
 
     console_handler.setFormatter(console_formatter)
     handlers.append(console_handler)
@@ -74,7 +64,11 @@ def setup_logging(
 
 
 class FallbackColoredFormatter(logging.Formatter):
-    """Fallback formatter with basic ANSI color support when colorlog is not available."""
+    """Fallback formatter - now deprecated since string_utils handles formatting.
+    
+    Kept for backwards compatibility but not used by default setup_logging().
+    Color formatting is now handled by string_utils.format_padded_message().
+    """
 
     COLORS = {
         "DEBUG": "\033[36m",  # Cyan

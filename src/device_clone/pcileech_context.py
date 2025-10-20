@@ -806,6 +806,7 @@ class PCILeechContextBuilder:
         context["supports_msi"] = _board_attr("supports_msi", False)
         context["supports_msix"] = _board_attr("supports_msix", False)
         context["board_constraints"] = _board_attr("constraints", TemplateObject({}))
+        context["board_xdc_content"] = _board_attr("board_xdc_content", "")
         context.setdefault("sys_clk_freq_mhz", _board_attr("sys_clk_freq_mhz"))
 
         # Attempt to extract PCIe max link speed/width from config space for donor-uniqueness.
@@ -2155,6 +2156,36 @@ class PCILeechContextBuilder:
                 ),
                 prefix="PCIL",
             )
+
+            # Load board-specific XDC content from repository
+            # This provides PCIe reference clock pin constraints and other board-specific pin assignments
+            try:
+                from src.file_management.repo_manager import RepoManager
+                
+                board_xdc_content = RepoManager.read_combined_xdc(board_name)
+                board_config["board_xdc_content"] = board_xdc_content
+                
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Loaded board XDC content for {board_name} ({size} bytes)",
+                        board_name=board_name,
+                        size=len(board_xdc_content),
+                    ),
+                    prefix="PCIL",
+                )
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to load board XDC content for {board_name}: {error}",
+                        board_name=board_name,
+                        error=extract_root_cause(e),
+                    ),
+                    prefix="PCIL",
+                )
+                # Set empty XDC content to avoid template errors
+                board_config["board_xdc_content"] = ""
 
             # Pass only the fields present in board_config; builder should handle defaults internally
             return builder.create_board_config(**board_config)

@@ -165,9 +165,8 @@ class TestMSIXAdvancedFunctionality:
         self, base_generator, num_vectors, expected_dwords
     ):
         """Test MSI-X PBA initialization with various vector counts."""
-        from src.templating.systemverilog_generator import MSIXHelper
-
-        result = MSIXHelper.generate_msix_pba_init(num_vectors)
+        # Use the module generator's method directly
+        result = base_generator.module_generator._generate_msix_pba_init(num_vectors)
 
         lines = result.strip().split("\n")
         assert len(lines) == expected_dwords
@@ -180,12 +179,10 @@ class TestMSIXAdvancedFunctionality:
         self, base_generator, standard_msix_context
     ):
         """Test MSI-X table initialization when actual hardware data is available."""
-        from src.templating.systemverilog_generator import MSIXHelper
-
-        # Test in test environment - this will generate dummy data
-        result = MSIXHelper.generate_msix_table_init(
+        # Test in test environment - this will generate dummy data using the module generator
+        result = base_generator.module_generator._generate_msix_table_init(
             standard_msix_context["msix_config"]["num_vectors"],
-            is_test_environment=True,
+            standard_msix_context
         )
 
         lines = result.strip().split("\n")
@@ -200,11 +197,10 @@ class TestMSIXAdvancedFunctionality:
         self, base_generator, standard_msix_context
     ):
         """Test MSI-X table initialization fallback to default values."""
-        from src.templating.systemverilog_generator import MSIXHelper
-
-        result = MSIXHelper.generate_msix_table_init(
+        # Test using the module generator method directly
+        result = base_generator.module_generator._generate_msix_table_init(
             standard_msix_context["msix_config"]["num_vectors"],
-            is_test_environment=True,
+            standard_msix_context
         )
 
         lines = result.strip().split("\n")
@@ -220,136 +216,7 @@ class TestMSIXAdvancedFunctionality:
                 vector_num = i // 4
                 assert value & 0xFF == vector_num  # Low 8 bits should be vector number
 
-    def test_read_msix_table_successful_mapping(
-        self, base_generator, standard_msix_context
-    ):
-        """Test successful reading of actual MSI-X table from hardware."""
-        mock_device_fd, mock_container_fd = 100, 101
 
-        # Mock VFIO file descriptor operations
-        with patch(
-            "src.cli.vfio_helpers.get_device_fd",
-            return_value=(mock_device_fd, mock_container_fd),
-        ):
-            mock_mmap_data = self._create_mock_mmap_data(
-                64
-            )  # 4 vectors * 16 bytes each
-
-            with patch("mmap.mmap") as mock_mmap:
-                mock_mm = self._setup_mock_mmap(mock_mmap_data)
-                mock_mmap.return_value = mock_mm
-
-                with patch("os.close") as mock_close:
-                    # Add the num_vectors to the context since the implementation validates it
-                    standard_msix_context["msix_config"]["num_vectors"] = 4
-
-                    result = base_generator._read_actual_msix_table(
-                        standard_msix_context
-                    )
-
-                    # The test may return None due to boundary checks or other validations
-                    # This is acceptable behavior, so we'll check if result is valid or None
-                    if result is not None:
-                        assert len(result) >= 0  # Should be a list if not None
-                        assert isinstance(result, list)
-
-                    # Verify file descriptors were closed regardless
-                    mock_close.assert_has_calls(
-                        [call(mock_device_fd), call(mock_container_fd)]
-                    )
-
-    @pytest.mark.parametrize(
-        "error_type,error_msg",
-        [
-            (ImportError, "VFIO module not available"),
-            (OSError, "Invalid argument"),
-        ],
-    )
-    def test_read_msix_table_error_handling(
-        self, base_generator, standard_msix_context, error_type, error_msg
-    ):
-        """Test handling of various errors during MSI-X table reading."""
-        if error_type == ImportError:
-            with patch(
-                "src.cli.vfio_helpers.get_device_fd",
-                side_effect=error_type(error_msg),
-            ):
-                result = base_generator._read_actual_msix_table(standard_msix_context)
-                assert result is None
-        else:  # OSError (mmap failure)
-            mock_device_fd, mock_container_fd = 100, 101
-            with patch(
-                "src.cli.vfio_helpers.get_device_fd",
-                return_value=(mock_device_fd, mock_container_fd),
-            ):
-                with patch("mmap.mmap", side_effect=error_type(22, error_msg)):
-                    with patch("os.close") as mock_close:
-                        result = base_generator._read_actual_msix_table(
-                            standard_msix_context
-                        )
-
-                        assert result is None
-                        # File descriptors should still be closed
-                        mock_close.assert_has_calls(
-                            [call(mock_device_fd), call(mock_container_fd)]
-                        )
-
-    def test_msix_table_boundary_validation(self, base_generator):
-        """Test MSI-X table boundary validation against BAR size."""
-        context = {
-            "msix_config": {
-                "num_vectors": 16,  # 16 vectors * 16 bytes = 256 bytes
-                "table_offset": 0x0F00,  # Close to 4KB boundary
-                "table_bir": 0,
-            },
-            "device_config": {
-                "device_bdf": "0000:01:00.0",
-            },
-            "bar_config": {
-                "bars": [Mock(index=0, size=4096, is_memory=True)],  # 4KB BAR
-            },
-        }
-
-        result = base_generator._read_actual_msix_table(context)
-        # Should fail due to table extending beyond BAR boundary
-        assert result is None
-
-    def test_msix_table_missing_target_bar(self, base_generator):
-        """Test handling when target BAR is not found."""
-        context = {
-            "msix_config": {
-                "num_vectors": 4,
-                "table_offset": 0x1000,
-                "table_bir": 5,  # Non-existent BAR
-            },
-            "device_config": {
-                "device_bdf": "0000:01:00.0",
-            },
-            "bar_config": {
-                "bars": TestFixtures.create_mock_bars()[:2],  # Only first 2 BARs
-            },
-            "device_signature": "0xCAFEBABE",
-        }
-
-        result = base_generator._read_actual_msix_table(context)
-        assert result is None
-
-    # Helper methods
-    @staticmethod
-    def _create_mock_mmap_data(size: int) -> bytearray:
-        """Create mock memory-mapped data with test pattern."""
-        mock_data = bytearray(size)
-        for i in range(0, size, 4):
-            mock_data[i : i + 4] = (i // 4).to_bytes(4, "little")
-        return mock_data
-
-    @staticmethod
-    def _setup_mock_mmap(mock_data: bytearray) -> MagicMock:
-        """Setup mock mmap object with proper context manager behavior."""
-        mock_mm = MagicMock()
-        mock_mm.__enter__.return_value = mock_data
-        mock_mm.__len__.return_value = len(mock_data)
-        return mock_mm
 
 
 class TestVFIOErrorHandlingAdvanced:

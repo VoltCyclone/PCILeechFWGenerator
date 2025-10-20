@@ -14,6 +14,7 @@ from datetime import datetime
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
 
 from src.error_utils import extract_root_cause
@@ -76,6 +77,7 @@ DEFAULT_PCIE_CLOCK_CONFIG = {
     "pcie_userclk2_freq": 2,    # Same encoding as userclk1
     "pcie_link_speed": 2,       # 1=Gen1, 2=Gen2, 3=Gen3
     "pcie_oobclk_mode": 1,      # OOB clock mode
+    "pcie_refclk_loc": "",      # IBUFDS_GTE2 LOC constraint (e.g., "IBUFDS_GTE2_X0Y1")
 }
 
 # Defaults for PCILeech-specific runtime configuration used by templates
@@ -125,10 +127,14 @@ class InterruptStrategy(Enum):
 # Resolve package version at import time so templates and builders can access it
 try:
     PACKAGE_VERSION = get_package_version()
-except Exception:
+except Exception as exc:
     logger = logging.getLogger(__name__)
-    log_debug_safe(
-        logger, "Failed to resolve package version during import; using fallback"
+    log_warning_safe(
+        logger,
+        safe_format(
+            "Failed to resolve package version during import; using fallback | reason={reason}",
+            reason=extract_root_cause(exc),
+        ),
     )
     PACKAGE_VERSION = "unknown"
 
@@ -173,26 +179,39 @@ class TemplateObject:
         """Convert data to attributes efficiently."""
         converted_attrs = object.__getattribute__(self, "_converted_attrs")
         data = object.__getattribute__(self, "_data")
+        pending_updates: Dict[str, Any] = {}
+        keys_to_delete: List[str] = []
+        seen_ids: Set[int] = {id(data)}
 
-        for key, value in data.items():
-            # Ensure key is a valid attribute name
-            # Call static method via class for clarity and consistency
+        for key, value in list(data.items()):
             clean_key = TemplateObject._clean_key(key)
+            updated_value = value
 
-            # Convert value if needed
+            if clean_key != key:
+                keys_to_delete.append(key)
+
             if isinstance(value, dict) and clean_key not in converted_attrs:
-                value = TemplateObject(value)
-                data[clean_key] = value
+                if id(value) not in seen_ids:
+                    seen_ids.add(id(value))
+                    updated_value = TemplateObject(value)
+                else:
+                    updated_value = value
             elif isinstance(value, list) and clean_key not in converted_attrs:
-                value = TemplateObject._convert_list(value)
-                data[clean_key] = value
-            elif not isinstance(value, (dict, list)) and hasattr(
-                value, "value"
-            ):  # Enum-like objects
-                value = value.value  # type: ignore
-                data[clean_key] = value
-            # Mark this attribute as converted so we don't re-wrap it
+                updated_value = TemplateObject._convert_list(value, seen_ids)
+            elif not isinstance(value, (dict, list)) and hasattr(value, "value"):
+                updated_value = value.value  # type: ignore
+
+            key_requires_update = clean_key != key or updated_value is not value
+            if clean_key not in pending_updates and key_requires_update:
+                pending_updates[clean_key] = updated_value
+
             converted_attrs.add(clean_key)
+
+        for old_key in keys_to_delete:
+            data.pop(old_key, None)
+
+        if pending_updates:
+            data.update(pending_updates)
 
     @staticmethod
     def _clean_key(key: Any) -> str:
@@ -207,11 +226,28 @@ class TemplateObject:
         return str(key)
 
     @staticmethod
-    def _convert_list(items: List[Any]) -> List[Any]:
-        """Convert list items that might contain dicts."""
-        return [
-            TemplateObject(item) if isinstance(item, dict) else item for item in items
-        ]
+    def _convert_list(
+        items: List[Any], seen: Optional[Set[int]] = None
+    ) -> List[Any]:
+        """Convert list items that might contain dicts, guarding circular refs."""
+        if seen is None:
+            seen = set()
+        result: List[Any] = []
+
+        for item in items:
+            if isinstance(item, dict):
+                item_id = id(item)
+                if item_id in seen:
+                    result.append(item)
+                else:
+                    seen.add(item_id)
+                    result.append(TemplateObject(item))
+            elif isinstance(item, list):
+                result.append(TemplateObject._convert_list(item, seen))
+            else:
+                result.append(item)
+
+        return result
 
     def __getattr__(self, name: str) -> Any:
         """Support attribute access, with fallbacks to safe defaults."""
@@ -337,6 +373,8 @@ class TemplateObject:
         empty so templates don't accidentally replace them with dicts.
         """
         return True
+
+
 
 
 class SafeDefaults:
@@ -524,14 +562,58 @@ class UnifiedContextBuilder:
         self._version_cache: Optional[str] = None
         self.strict_identity = strict_identity
 
-    def validate_hex_value(self, value: str, field_name: str) -> None:
-        """Validate a hex string value."""
-        try:
-            int(str(value), 16)
-        except ValueError:
+    def validate_hex_value(
+        self, value: str, field_name: str, expected_length: Optional[int] = None
+    ) -> str:
+        """Validate and normalize a hex string value.
+        
+        Args:
+            value: Hex string to validate (may have 0x prefix)
+            field_name: Name of field for error messages
+            expected_length: Expected length of hex string (without 0x prefix)
+            
+        Returns:
+            Normalized lowercase hex string without prefix
+            
+        Raises:
+            ConfigurationError: If validation fails
+        """
+        if not value:
             raise ConfigurationError(
-                safe_format("Invalid hex value for {field_name}: {value}")
+                safe_format("Empty hex value for {field_name}", field_name=field_name)
             )
+
+        # Remove common prefixes and normalize
+        normalized = str(value).lower().strip()
+        if normalized.startswith(("0x", "0X")):
+            normalized = normalized[2:]
+
+        # Validate hex characters
+        if not all(c in "0123456789abcdef" for c in normalized):
+            raise ConfigurationError(
+                safe_format(
+                    "Invalid hex characters in {field_name}: {value}",
+                    field_name=field_name,
+                    value=value,
+                )
+            )
+
+        # Check length if specified
+        if expected_length is not None:
+            if len(normalized) > expected_length:
+                raise ConfigurationError(
+                    safe_format(
+                        "Hex value too long for {field_name}: expected {expected}, got {actual}",
+                        field_name=field_name,
+                        expected=expected_length,
+                        actual=len(normalized),
+                    )
+                )
+            # Pad if needed
+            if len(normalized) < expected_length:
+                normalized = normalized.zfill(expected_length)
+
+        return normalized
 
     def validate_required_fields(
         self, fields: Dict[str, Any], required: List[str]
@@ -945,6 +1027,7 @@ class UnifiedContextBuilder:
 
         # Build base context
         from src.templating.sv_constants import SV_CONSTANTS
+
         from src.utils.validation_constants import SV_FILE_HEADER
 
         context = {
@@ -1118,7 +1201,15 @@ class UnifiedContextBuilder:
             dc = context.get("device_config")
             dc_class = getattr(dc, "class_code", DEFAULT_CLASS_CODE)
             dc_rev = getattr(dc, "revision_id", DEFAULT_REVISION_ID)
-        except Exception:
+        except Exception as e:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Failed to extract class_code/revision_id from device_config: {rc}",
+                    rc=extract_root_cause(e),
+                ),
+                prefix="BUILD",
+            )
             dc_class = DEFAULT_CLASS_CODE
             dc_rev = DEFAULT_REVISION_ID
 
@@ -1312,9 +1403,17 @@ class UnifiedContextBuilder:
                     context["power_management"].transition_cycles = context[
                         "transition_cycles"
                     ]
-            except Exception:
+            except Exception as e:
                 # Be defensive: if power_management isn't the expected object,
                 # set a safe dict
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to set transition_cycles on power_management: {rc}",
+                        rc=extract_root_cause(e),
+                    ),
+                    prefix="BUILD",
+                )
                 context["power_management"] = TemplateObject(
                     {"transition_cycles": dict(POWER_TRANSITION_CYCLES)}
                 )
@@ -1511,16 +1610,14 @@ class UnifiedContextBuilder:
             from src.utils.behavioral_context import build_behavioral_context
             
             # Create mock device config from context
-            class DeviceConfig:
-                def __init__(self, ctx, kw):
-                    self.enable_behavioral_simulation = kw.get(
-                        "enable_behavioral_simulation", False
-                    )
-                    self.class_code = int(kw.get("class_code", "000000"), 16)
-                    self.device_id = kw.get("device_id", "0000")
-                    self.behavioral_bar_index = kw.get("behavioral_bar_index", 0)
-                    
-            device_config = DeviceConfig(context, kwargs)
+            device_config = SimpleNamespace(
+                enable_behavioral_simulation=kwargs.get(
+                    "enable_behavioral_simulation", False
+                ),
+                class_code=int(kwargs.get("class_code", "000000"), 16),
+                device_id=kwargs.get("device_id", "0000"),
+                behavioral_bar_index=kwargs.get("behavioral_bar_index", 0),
+            )
             behavioral_ctx = build_behavioral_context(device_config)
             
             if behavioral_ctx:
