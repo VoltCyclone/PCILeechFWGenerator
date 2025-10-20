@@ -171,7 +171,7 @@ class BoardDiscovery:
             config["pcie_refclk_loc"] = "IBUFDS_GTE2_X0Y0"
             log_warning_safe(
                 logger,
-                f"No PCIe refclk LOC mapping for board '{board_name}', using default: IBUFDS_GTE2_X0Y0"
+                safe_format("No PCIe refclk LOC mapping for board '{board}', using default: IBUFDS_GTE2_X0Y0", board=board_name)
             )
 
         return config
