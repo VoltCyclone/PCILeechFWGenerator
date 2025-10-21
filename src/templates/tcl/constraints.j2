@@ -44,7 +44,6 @@ foreach xdc_file $pcileech_xdc_files {
 # Generate device-specific timing constraints
 puts "Adding device-specific timing constraints..."
 # Try to use board-specific XDC constraints if board type is specified
-{%- if board is defined -%}
 puts "Attempting to load board-specific XDC constraints for: {{ board_name(board) }}"
 
 {%- if board_xdc_content is defined and board_xdc_content %}
@@ -67,13 +66,12 @@ puts "Added auto-generated board XDC: $board_auto_xdc_file"
 puts "WARNING: No board-specific XDC constraints available for {{ board_name(board) }}"
 puts "Using generic timing constraints only. You may need to add board-specific pin assignments."
 {%- endif %}
-{%- endif %}
 
 # Generate device-specific timing constraints file
 {# Determine safe system clock frequency in MHz. Prefer explicit context key; otherwise, use any board hint; finally fall back to 100. #}
 {% set _sys_clk_mhz = (sys_clk_freq_mhz | safe_int(0)) if (sys_clk_freq_mhz is defined) else 0 %}
 {% if _sys_clk_mhz <= 0 %}
-    {% set _sys_clk_mhz = (safe_attr(board, 'sys_clk_mhz', 0) | int) if (board is defined) else 0 %}
+    {% set _sys_clk_mhz = (safe_attr(board, 'sys_clk_mhz', 0) | int) %}
 {% endif %}
 {% if _sys_clk_mhz <= 0 %}
     {% set _sys_clk_mhz = 100 %}
@@ -84,31 +82,10 @@ set timing_constraints_content {
 # Board: {{ board_name(board) }}
 # System Clock: {{ _sys_clk_mhz }} MHz (period: {{ sys_clk_period }} ns)
 
-# PCIe Transceiver Pin Constraints
-# PCIe differential pairs connect directly to GTX/GTP/GTH transceivers
-# These are NOT regular IO - they are handled by the PCIE IP core
-
-# The PCIe IP core manages transceiver placement automatically
-# based on the PCIE primitive site configuration in the IP.
-# No PACKAGE_PIN or IOSTANDARD constraints should be applied
-# to pci_exp_* ports - they are internal to the transceiver tiles.
-
-# NOTE: The PCIE IP core XDC files handle all necessary constraints
-# for the transceiver pins. Any additional constraints here would
-# conflict with the IP core and cause DRC errors.
-
-# System Reference Clock (PCIe REFCLK)
-# This differential clock is the reference for the PCIe transceiver
-# IMPORTANT: This clock connects to the IBUFDS_GTE2 primitive, NOT regular IO
-# Pin locations are typically set by the PCIE IP core configuration
-
-# The sys_clk_p/sys_clk_n ports feed the IBUFDS_GTE2 instance in the top level
-# to create the single-ended sys_clk input required by the PCIe core. If you
-# need to override pin locations, provide board-specific XDC entries.
-# Do NOT apply an IOSTANDARD here – the clock buffer primitive owns that.
+# NOTE: PCIe transceiver pins (pci_exp_*) are managed by PCIE IP core - do not constrain
+# System clock feeds IBUFDS_GTE2; IOSTANDARD handled by clock buffer primitive
 
 # System clock pin assignments (board-dependent: differential or single-ended)
-{% if board is defined -%}
 {%- set sys_clk_p_pin = safe_attr(board, 'sys_clk_p_pin', '') -%}
 {%- set sys_clk_n_pin = safe_attr(board, 'sys_clk_n_pin', '') -%}
 {%- set clk_pin = safe_attr(board, 'clk_pin', '') -%}
@@ -135,14 +112,8 @@ set_property IOSTANDARD LVCMOS33 [get_ports clk]
 #   - Single-ended clock: clk_pin (for most PCILeech boards)
 # Add appropriate clock pin(s) to board configuration to prevent UCIO-1 DRC errors
 {%- endif %}
-{%- else %}
-# WARNING: No board configuration provided
-# Cannot assign clock pins - this will cause UCIO-1 DRC errors
-# Add board configuration with appropriate clock pin assignments
-{%- endif %}
 
 # IBUFDS_GTE2 LOC constraint - required for 7-series devices
-{% if board is defined -%}
 {%- set pcie_refclk_loc = safe_attr(board, 'pcie_refclk_loc', '') -%}
 {%- if pcie_refclk_loc %}
 # PCIe reference clock buffer location for {{ board_name(board) }}
@@ -152,10 +123,8 @@ set_property LOC {{ pcie_refclk_loc }} [get_cells pcie_refclk_ibuf]
 # This will cause DRC errors during place_design
 # Please add pcie_refclk_loc to board configuration (e.g., IBUFDS_GTE2_X0Y1)
 {%- endif %}
-{%- endif %}
 
 # System reset pin assignment
-{% if board is defined -%}
 {%- set sys_rst_n_pin = safe_attr(board, 'sys_rst_n_pin', '') -%}
 {%- if sys_rst_n_pin %}
 # System reset pin for {{ board_name(board) }}
@@ -167,13 +136,12 @@ set_property PULLUP TRUE [get_ports sys_rst_n]
 # Many PCILeech boards use pcie_perst_n as the system reset
 # If your board requires explicit sys_rst_n, add sys_rst_n_pin to board configuration
 {%- endif %}
-{%- endif %}
 
 # Timing Constraints
 # Create clock constraint for the system reference clock
 # Period depends on board clock frequency (typically 100 MHz)
-{%- set sys_clk_p_pin = safe_attr(board, 'sys_clk_p_pin', '') if board is defined else '' -%}
-{%- set clk_pin = safe_attr(board, 'clk_pin', '') if board is defined else '' -%}
+{%- set sys_clk_p_pin = safe_attr(board, 'sys_clk_p_pin', '') -%}
+{%- set clk_pin = safe_attr(board, 'clk_pin', '') -%}
 {%- set waveform_half = (sys_clk_period / 2) | round(3) -%}
 {% if sys_clk_p_pin %}
 # Differential clock timing (sys_clk_p/sys_clk_n)
