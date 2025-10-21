@@ -51,10 +51,13 @@ puts "Attempting to load board-specific XDC constraints for: {{ board_name(board
 # Load XDC constraints from PCILeech repository
 # This will be populated by the constraint generation system
 # with actual XDC content from the PCILeech FPGA repository
-# Write board XDC content to temporary file to avoid brace/semicolon issues
+# Write board XDC content to temporary file with safe quoting
 set board_auto_xdc_file [file join $script_dir "{{ board_name(board) }}_auto.xdc"]
 set fp [open $board_auto_xdc_file w]
-puts $fp {{ "{" ~ board_xdc_content ~ "}" }}
+# Use subst with -nobackslashes -nocommands to safely write XDC content
+puts $fp [subst -nobackslashes -nocommands {
+{{ board_xdc_content }}
+}]
 close $fp
 add_files -fileset constrs_1 -norecurse $board_auto_xdc_file
 read_xdc $board_auto_xdc_file
@@ -104,6 +107,40 @@ set timing_constraints_content {
 # need to override pin locations, provide board-specific XDC entries.
 # Do NOT apply an IOSTANDARD here – the clock buffer primitive owns that.
 
+# System clock pin assignments (board-dependent: differential or single-ended)
+{% if board is defined -%}
+{%- set sys_clk_p_pin = safe_attr(board, 'sys_clk_p_pin', '') -%}
+{%- set sys_clk_n_pin = safe_attr(board, 'sys_clk_n_pin', '') -%}
+{%- set clk_pin = safe_attr(board, 'clk_pin', '') -%}
+
+{%- if sys_clk_p_pin and sys_clk_n_pin %}
+# Differential system clock (for boards like AC701, Acorn, SP605)
+# System reference clock pin assignments for {{ board_name(board) }}
+set_property PACKAGE_PIN {{ sys_clk_p_pin }} [get_ports sys_clk_p]
+set_property PACKAGE_PIN {{ sys_clk_n_pin }} [get_ports sys_clk_n]
+# Note: IOSTANDARD for differential clocks is typically LVDS_25 or DIFF_SSTL15
+# The IBUFDS_GTE2 primitive handles the clock buffer, IOSTANDARD is optional
+# set_property IOSTANDARD LVDS_25 [get_ports {sys_clk_p sys_clk_n}]
+
+{%- elif clk_pin %}
+# Single-ended system clock (most PCILeech boards: ScreamerM2, EnigmaX1, CaptainDMA, etc.)
+# Clock pin assignment for {{ board_name(board) }}
+set_property PACKAGE_PIN {{ clk_pin }} [get_ports clk]
+set_property IOSTANDARD LVCMOS33 [get_ports clk]
+
+{%- else %}
+# WARNING: No clock pin assignments provided for {{ board_name(board) }}
+# This board needs either:
+#   - Differential clock: sys_clk_p_pin + sys_clk_n_pin (for AC701, Acorn, SP605)
+#   - Single-ended clock: clk_pin (for most PCILeech boards)
+# Add appropriate clock pin(s) to board configuration to prevent UCIO-1 DRC errors
+{%- endif %}
+{%- else %}
+# WARNING: No board configuration provided
+# Cannot assign clock pins - this will cause UCIO-1 DRC errors
+# Add board configuration with appropriate clock pin assignments
+{%- endif %}
+
 # IBUFDS_GTE2 LOC constraint - required for 7-series devices
 {% if board is defined -%}
 {%- set pcie_refclk_loc = safe_attr(board, 'pcie_refclk_loc', '') -%}
@@ -117,18 +154,45 @@ set_property LOC {{ pcie_refclk_loc }} [get_cells pcie_refclk_ibuf]
 {%- endif %}
 {%- endif %}
 
-# System reset
-# NOTE: Pin assignments MUST be loaded from board-specific XDC files
-# Uncomment and set for your specific board:
-# set_property PACKAGE_PIN U7 [get_ports sys_rst_n]
-# set_property IOSTANDARD LVCMOS33 [get_ports sys_rst_n]
-# set_property PULLUP TRUE [get_ports sys_rst_n]
+# System reset pin assignment
+{% if board is defined -%}
+{%- set sys_rst_n_pin = safe_attr(board, 'sys_rst_n_pin', '') -%}
+{%- if sys_rst_n_pin %}
+# System reset pin for {{ board_name(board) }}
+set_property PACKAGE_PIN {{ sys_rst_n_pin }} [get_ports sys_rst_n]
+set_property IOSTANDARD LVCMOS33 [get_ports sys_rst_n]
+set_property PULLUP TRUE [get_ports sys_rst_n]
+{%- else %}
+# NOTE: No sys_rst_n pin assignment in board configuration
+# Many PCILeech boards use pcie_perst_n as the system reset
+# If your board requires explicit sys_rst_n, add sys_rst_n_pin to board configuration
+{%- endif %}
+{%- endif %}
 
 # Timing Constraints
-# Create clock constraint for the reference clock
-# Note: Period depends on whether using 100MHz or 125MHz reference
+# Create clock constraint for the system reference clock
+# Period depends on board clock frequency (typically 100 MHz)
+{%- set sys_clk_p_pin = safe_attr(board, 'sys_clk_p_pin', '') if board is defined else '' -%}
+{%- set clk_pin = safe_attr(board, 'clk_pin', '') if board is defined else '' -%}
+{%- set waveform_half = (sys_clk_period / 2) | round(3) -%}
+{% if sys_clk_p_pin %}
+# Differential clock timing (sys_clk_p/sys_clk_n)
+create_clock -period {{ sys_clk_period }} -name sys_clk_p -waveform {0.000 {{ waveform_half }}} [get_ports sys_clk_p]
+{% elif clk_pin %}
+# Single-ended clock timing (clk)
+create_clock -period {{ sys_clk_period }} -name net_clk -waveform {0.000 {{ waveform_half }}} [get_ports clk]
+{% else %}
+# Default clock constraint (assumes sys_clk_p port exists)
 create_clock -period {{ sys_clk_period }} -name sys_clk_p [get_ports sys_clk_p]
-set_input_delay -clock sys_clk_p 2.000 [get_ports sys_rst_n]
+{% endif %}
+
+# PCIe reference clock timing constraint (on the buffered clock net)
+# This is the output of the IBUFDS_GTE2 primitive
+{%- set pcie_clk_period = 10.0 %}  {# 100 MHz PCIe reference clock #}
+create_clock -name pcie_refclk_p -period {{ pcie_clk_period }} [get_nets pcie_clk_p]
+
+# System reset timing - use false path (asynchronous reset)
+# Reset signals are typically asynchronous and don't need setup/hold timing
 set_false_path -from [get_ports sys_rst_n]
 
 # PCIe IP Core Clocks (generated by IP, constraints added automatically)

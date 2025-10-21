@@ -71,6 +71,86 @@ class BoardDiscovery:
         "100t": "IBUFDS_GTE2_X0Y1",
     }
 
+    # System clock differential pair pin assignments for 7-series boards
+    # Maps board name to (sys_clk_p_pin, sys_clk_n_pin) tuple
+    # Based on actual PCILeech FPGA repository constraint files
+    # NOTE: Most PCILeech boards use single-ended 'clk' - only these specific boards need differential pairs
+    SYS_CLK_PIN_MAP = {
+        # AC701 development board (LVDS_25)
+        "ac701": ("R3", "P3"),
+        "pcileech_ac701": ("R3", "P3"),
+        # Acorn boards (DIFF_SSTL15) - use clk_sys_p/clk_sys_n naming
+        "acorn": ("J19", "H19"),
+        "pcileech_acorn": ("J19", "H19"),
+        # SP605 board (uses sys_clk_p/sys_clk_n) - estimated pins
+        "sp605": ("M6", "L6"),  
+        "pcileech_sp605": ("M6", "L6"),
+        # Note: CaptainDMA, PCIeScreamer, EnigmaX1, and most other boards 
+        # use single-ended 'clk' instead of differential sys_clk_p/sys_clk_n
+        # Do not add them here - they will use the single-ended clock constraint template
+    }
+
+    # Single-ended clock pin assignments for PCILeech boards
+    # Maps board name to clock pin location
+    # Based on actual PCILeech FPGA repository XDC constraint files
+    CLK_PIN_MAP = {
+        # ScreamerM2 boards (Artix-7 35T CSG325)
+        "pcileech_screamer_m2": "R2",
+        "screamer_m2": "R2",
+        "ScreamerM2": "R2",
+        # EnigmaX1 boards (Artix-7 75T FGG484)
+        "pcileech_enigma_x1": "J19",
+        "enigma_x1": "J19",
+        "EnigmaX1": "J19",
+        "75t": "J19",
+        # PCIeScreamer boards (Artix-7 35T FGG484)
+        "pcileech_pciescreamer": "R4",
+        "pcileech_pciescreamer_xc7a35": "R4",
+        "pciescreamer": "R4",
+        # CaptainDMA 35T variants (CSG325 and FGG484)
+        "pcileech_35t325_x1": "R2",
+        "pcileech_35t325_x4": "R2",
+        "pcileech_35t484_x1": "H4",
+        "35t": "H4",
+        # CaptainDMA 75T variant (FGG484)
+        "pcileech_75t484_x1": "J19",
+        # CaptainDMA 100T variant (FGG484)
+        "pcileech_100t484_x1": "J19",
+        "100t": "J19",
+        # PCIeSquirrel (Artix-7 35T FGG484)
+        "pcileech_squirrel": "H4",
+        "squirrel": "H4",
+        "PCIeSquirrel": "H4",
+        # GBOX (Artix-7 75T FGG484)
+        "pcileech_gbox": "J19",
+        "gbox": "J19",
+        "GBOX": "J19",
+        # ZDMA boards (use same clock structure)
+        "pcileech_zdma_100t": "J19",
+        "zdma": "J19",
+        "XilinxZDMA": "J19",
+    }
+
+    # System reset pin assignments for PCILeech boards
+    # Maps board name to reset pin location (active-low reset)
+    # Based on actual PCILeech FPGA repository XDC constraint files
+    SYS_RST_N_PIN_MAP = {
+        # ScreamerM2 boards
+        "pcileech_screamer_m2": "M1",
+        "screamer_m2": "M1",
+        "ScreamerM2": "M1",
+        # EnigmaX1 boards
+        "pcileech_enigma_x1": "C13",
+        "enigma_x1": "C13",
+        "EnigmaX1": "C13",
+        # PCIeScreamer boards
+        "pcileech_pciescreamer": "AB4",
+        "pciescreamer": "AB4",
+        # CaptainDMA variants typically use pcie_perst_n, not separate sys_rst_n
+        # PCIeSquirrel uses pcie_perst_n
+        # GBOX uses pcie_perst_n
+    }
+
     @classmethod
     def discover_boards(cls, repo_root: Optional[Path] = None) -> Dict[str, Dict]:
         """
@@ -171,7 +251,55 @@ class BoardDiscovery:
             config["pcie_refclk_loc"] = "IBUFDS_GTE2_X0Y0"
             log_warning_safe(
                 logger,
-                safe_format("No PCIe refclk LOC mapping for board '{board}', using default: IBUFDS_GTE2_X0Y0", board=board_name)
+                "No PCIe refclk LOC mapping for board '{board}', using default: IBUFDS_GTE2_X0Y0",
+                board=board_name
+            )
+
+        # Add system clock pin assignments based on board type
+        # Most PCILeech boards use single-ended 'clk', only AC701/Acorn/SP605 need differential sys_clk_p/sys_clk_n
+        if board_name in cls.SYS_CLK_PIN_MAP:
+            # Differential clock board
+            sys_clk_p_pin, sys_clk_n_pin = cls.SYS_CLK_PIN_MAP[board_name]
+            config["sys_clk_p_pin"] = sys_clk_p_pin
+            config["sys_clk_n_pin"] = sys_clk_n_pin
+            log_info_safe(
+                logger,
+                "Added differential sys_clk pins for board '{board}': {p_pin}/{n_pin}",
+                board=board_name,
+                p_pin=sys_clk_p_pin,
+                n_pin=sys_clk_n_pin
+            )
+        elif board_name in cls.CLK_PIN_MAP:
+            # Single-ended clock board (most PCILeech boards)
+            clk_pin = cls.CLK_PIN_MAP[board_name]
+            config["clk_pin"] = clk_pin
+            log_info_safe(
+                logger,
+                "Added single-ended clk pin for board '{board}': {pin}",
+                board=board_name,
+                pin=clk_pin
+            )
+        else:
+            # No clock pin mapping found - check if this is a differential clock board
+            if any(keyword in board_name.lower() for keyword in ["ac701", "sp605", "acorn"]):
+                # Default to common differential clock pins for boards that typically need them
+                config["sys_clk_p_pin"] = "J19"
+                config["sys_clk_n_pin"] = "H19"
+                log_warning_safe(
+                    logger,
+                    "No sys_clk pin mapping for differential-clock board '{board}', using default: J19/H19",
+                    board=board_name
+                )
+
+        # Add system reset pin assignment if available for this board
+        if board_name in cls.SYS_RST_N_PIN_MAP:
+            sys_rst_n_pin = cls.SYS_RST_N_PIN_MAP[board_name]
+            config["sys_rst_n_pin"] = sys_rst_n_pin
+            log_info_safe(
+                logger,
+                "Added sys_rst_n pin for board '{board}': {pin}",
+                board=board_name,
+                pin=sys_rst_n_pin
             )
 
         return config
