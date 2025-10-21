@@ -8,6 +8,8 @@ flatter structure, ensuring backward compatibility during the transition.
 
 # Mapping from old paths to new paths
 TEMPLATE_PATH_MAPPING = {
+    # Helper templates (root level)
+    "_helpers.j2": "_helpers.j2",
     # SystemVerilog templates
     "systemverilog/bar_controller.sv.j2": "sv/bar_controller.sv.j2",
     "systemverilog/basic_bar_controller.sv.j2": "sv/basic_bar_controller.sv.j2",

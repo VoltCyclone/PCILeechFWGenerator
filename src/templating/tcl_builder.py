@@ -20,10 +20,13 @@ from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.device_clone.fallback_manager import get_global_fallback_manager
+from jinja2 import TemplateNotFound
+
 from src.exceptions import (
     DeviceConfigError,
     TCLBuilderError,
     TemplateNotFoundError,
+    TemplateRenderError,
     XDCConstraintError,
 )
 from src.import_utils import safe_import, safe_import_class
@@ -676,13 +679,23 @@ class TCLScriptBuilder:
 
         try:
             return self.template_renderer.render_template(template_path, context)
-        except Exception as e:
+        except TemplateNotFound as e:
             raise TemplateNotFoundError(
                 safe_format(
                     "Template not found for {script_type_value}. "
                     "Ensure '{template_path}' exists in the template directory.",
                     script_type_value=script_type.value,
                     template_path=template_path,
+                )
+            ) from e
+        except Exception as e:
+            # Re-raise template rendering errors with proper context
+            raise TemplateRenderError(
+                safe_format(
+                    "Failed to render template '{template_path}' for {script_type_value}: {error}",
+                    template_path=template_path,
+                    script_type_value=script_type.value,
+                    error=str(e),
                 )
             ) from e
 
