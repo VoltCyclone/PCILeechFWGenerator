@@ -1,0 +1,217 @@
+name: TCL Generation E2E
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'templates/**'
+      - 'scripts/ci_tcl_generation.py'
+      - '.github/workflows/tcl-generation-e2e.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'templates/**'
+      - 'scripts/ci_tcl_generation.py'
+      - '.github/workflows/tcl-generation-e2e.yml'
+  workflow_dispatch:
+    inputs:
+      board:
+        description: 'Specific board to test (leave empty for all boards)'
+        required: false
+        default: ''
+        type: string
+      verbose:
+        description: 'Enable verbose logging'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: tcl-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  NO_INTERACTIVE: '1'
+  FORCE_COLOR: '1'
+  CACHE_VERSION: v1
+
+jobs:
+  tcl-generation-test:
+    name: E2E TCL Generation Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.local
+          key: python-deps-${{ env.CACHE_VERSION }}-${{ hashFiles('requirements.txt', 'requirements-test.txt') }}
+          restore-keys: |
+            python-deps-${{ env.CACHE_VERSION }}-
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Install package in editable mode
+        run: |
+          pip install -e .
+
+      - name: Create output directory
+        run: mkdir -p ci_tcl_output
+
+      - name: Run E2E TCL generation (all boards)
+        if: github.event.inputs.board == ''
+        run: |
+          python3 scripts/ci_tcl_generation.py \
+            --output ci_tcl_output \
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+
+      - name: Run E2E TCL generation (specific board)
+        if: github.event.inputs.board != ''
+        run: |
+          python3 scripts/ci_tcl_generation.py \
+            --output ci_tcl_output \
+            --board "${{ github.event.inputs.board }}" \
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+
+      - name: Verify TCL file generation
+        run: |
+          echo "Verifying generated TCL files..."
+          TOTAL_FILES=$(find ci_tcl_output -name "*.tcl" | wc -l)
+          echo "Total TCL files generated: $TOTAL_FILES"
+          
+          if [ "$TOTAL_FILES" -lt 10 ]; then
+            echo "ERROR: Expected at least 10 TCL files, found $TOTAL_FILES"
+            exit 1
+          fi
+          
+          echo "✓ TCL file count verification passed"
+
+      - name: Check TCL file quality
+        run: |
+          echo "Checking TCL file quality..."
+          
+          # Check for empty files
+          EMPTY_FILES=$(find ci_tcl_output -name "*.tcl" -size 0)
+          if [ -n "$EMPTY_FILES" ]; then
+            echo "ERROR: Found empty TCL files:"
+            echo "$EMPTY_FILES"
+            exit 1
+          fi
+          
+          # Check for suspicious small files (<50 bytes)
+          SMALL_FILES=$(find ci_tcl_output -name "*.tcl" -size -50c)
+          if [ -n "$SMALL_FILES" ]; then
+            echo "WARNING: Found suspiciously small TCL files:"
+            echo "$SMALL_FILES"
+          fi
+          
+          # Sample check: verify TCL files contain expected Vivado commands
+          SAMPLE_FILE=$(find ci_tcl_output -name "*.tcl" | head -1)
+          if [ -f "$SAMPLE_FILE" ]; then
+            if ! grep -q "set\|create_" "$SAMPLE_FILE"; then
+              echo "ERROR: Sample TCL file missing expected Vivado commands: $SAMPLE_FILE"
+              exit 1
+            fi
+            echo "✓ Sample TCL file contains expected commands"
+          fi
+          
+          echo "✓ TCL file quality checks passed"
+
+      - name: Generate file tree report
+        if: always()
+        run: |
+          echo "## TCL Generation Output Structure" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          tree -L 3 ci_tcl_output || find ci_tcl_output -type f -name "*.tcl" | sort
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # Count files per device
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files Generated Per Device" >> $GITHUB_STEP_SUMMARY
+          for device_dir in ci_tcl_output/*/*; do
+            if [ -d "$device_dir" ]; then
+              device_name=$(basename "$device_dir")
+              board_name=$(basename "$(dirname "$device_dir")")
+              file_count=$(find "$device_dir" -name "*.tcl" | wc -l)
+              echo "- **$board_name/$device_name**: $file_count TCL files" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Upload generated TCL files
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tcl-generation-output
+          path: ci_tcl_output/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload generation logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: tcl-generation-logs
+          path: |
+            ci_tcl_output/**/*.log
+            *.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Summary job to provide overall status
+  tcl-e2e-summary:
+    name: E2E Summary
+    runs-on: ubuntu-latest
+    needs: [tcl-generation-test]
+    if: always()
+    
+    steps:
+      - name: Check workflow status
+        run: |
+          echo "## TCL Generation E2E Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.tcl-generation-test.result }}" == "success" ]]; then
+            echo "✅ **TCL generation test passed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All test device configurations successfully generated TCL files." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **TCL generation test failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details on which device configurations failed." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow completed at $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set workflow status
+        run: |
+          if [[ "${{ needs.tcl-generation-test.result }}" != "success" ]]; then
+            echo "TCL generation test failed"
+            exit 1
+          fi
+          
+          echo "All TCL generation tests passed successfully!"
