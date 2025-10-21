@@ -437,12 +437,12 @@ class TestAdvancedSystemVerilogFeatures:
             ) as mock_render:
                 mock_render.return_value = "advanced controller module"
 
-                result = advanced_generator._generate_pcileech_advanced_modules(
-                    template_context, behavior_profile
-                )
-
-                assert "pcileech_advanced_controller" in result
-                assert result["pcileech_advanced_controller"] is not None
+                # Config-only architecture: no advanced modules generated
+                result = advanced_generator.generate_config_modules(template_context)
+                
+                # Should only contain config modules
+                assert "device_config" in result
+                assert "pcileech_advanced_controller" not in result
 
     def test_extract_pcileech_registers_complex_behavior(self, advanced_generator):
         """Test extraction of registers from complex behavior profiles."""

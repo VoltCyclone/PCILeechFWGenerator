@@ -348,26 +348,12 @@ class TestTemplateRendering:
         assert "status_reg" in result
         assert "data_reg" in result
 
+    @pytest.mark.skip(reason="Advanced controller removed in config-only architecture")
     def test_advanced_controller_template(self, renderer, base_context):
-        """Test advanced_controller template with complete context."""
-        from src.utils.unified_context import UnifiedContextBuilder
-
-        # Create a complete context using the unified builder
-        builder = UnifiedContextBuilder()
-        complete_context = builder.create_complete_template_context(
-            vendor_id="8086",
-            device_id="1234",
-            device_type="network",
-            device_class="enterprise",
-        )
-
-        # Convert to dict for template rendering
-        context_dict = complete_context.to_dict()
-
-        result = renderer.render_template("sv/advanced_controller.sv.j2", context_dict)
-
-        # Should render module with parameters
-        assert "advanced_pcileech_controller" in result
+        """Legacy test - advanced controller no longer generated."""
+        # This template has been removed in favor of config-only architecture
+        # PCILeech provides all controller logic
+        pass
         assert 'DEVICE_TYPE = "network"' in result
         assert 'DEVICE_CLASS = "enterprise"' in result
 

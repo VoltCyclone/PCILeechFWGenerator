@@ -3,7 +3,7 @@ puts "Setting up PCILeech source files..."
 {% from "_helpers.j2" import safe_board_name %}
 {{ header_comment if header_comment else "# PCILeech Sources" }}
 #
- # Generated sources list
+ # Generated sources list - Config-only architecture
  #
  # Board: {{ safe_board_name(board) }}
 #
@@ -12,43 +12,35 @@ puts "Setting up PCILeech source files..."
 set src_dir "{{ pcileech.src_dir if pcileech.src_dir else 'src' }}"
 set ip_dir "{{ pcileech.ip_dir if pcileech.ip_dir else 'ip' }}"
 
-puts "Adding PCILeech source files..."
+puts "Adding PCILeech source files from repository..."
 
-# Add PCILeech SystemVerilog source files
+# Add PCILeech HDL files from the cloned repository
+# These are the proven, tested HDL modules from ufrisk/pcileech-fpga
 {% if pcileech.source_files %}
 {% for source_file in pcileech.source_files %}
 if {[file exists "$src_dir/{{ source_file }}"]} {
     add_files -norecurse "$src_dir/{{ source_file }}"
-    puts "Added source file: {{ source_file }}"
+    puts "Added PCILeech source: {{ source_file }}"
 } else {
-    puts "WARNING: Source file not found: $src_dir/{{ source_file }}"
+    puts "WARNING: PCILeech source not found: $src_dir/{{ source_file }}"
 }
 {% endfor %}
-{% else %}
-# Default PCILeech source files
-set pcileech_sources [list \
-    "pcileech_tlps128_bar_controller.sv" \
-    "pcileech_fifo.sv" \
-    "bar_controller.sv" \
-    "cfg_shadow.sv" \
+{% endif %}
+
+# Add our generated device configuration (config-only)
+puts "Adding device configuration files..."
+set config_files [list \
     "device_config.sv" \
-    "msix_capability_registers.sv" \
-    "msix_implementation.sv" \
-    "msix_table.sv" \
-    "option_rom_bar_window.sv" \
-    "option_rom_spi_flash.sv" \
-    "top_level_wrapper.sv" \
 ]
 
-foreach source_file $pcileech_sources {
-    if {[file exists "$src_dir/$source_file"]} {
-        add_files -norecurse "$src_dir/$source_file"
-        puts "Added source file: $source_file"
+foreach config_file $config_files {
+    if {[file exists "$src_dir/$config_file"]} {
+        add_files -norecurse "$src_dir/$config_file"
+        puts "Added config file: $config_file"
     } else {
-        puts "WARNING: Source file not found: $src_dir/$source_file"
+        puts "WARNING: Config file not found: $src_dir/$config_file"
     }
 }
-{% endif %}
 
 # Add PCILeech IP core files
 {% if pcileech.ip_files %}
@@ -60,42 +52,19 @@ if {[file exists "$ip_dir/{{ ip_file }}"]} {
     puts "WARNING: IP file not found: $ip_dir/{{ ip_file }}"
 }
 {% endfor %}
-{% else %}
-# Default PCILeech IP files
-set pcileech_ip_files [list \
-    "pcie_7x_0.xci" \
-    "fifo_generator_0.xci" \
-    "clk_wiz_0.xci" \
-]
-
-foreach ip_file $pcileech_ip_files {
-    if {[file exists "$ip_dir/$ip_file"]} {
-        add_files -norecurse "$ip_dir/$ip_file"
-        puts "Added IP file: $ip_file"
-    } else {
-        puts "INFO: Optional IP file not found: $ip_dir/$ip_file"
-    }
-}
 {% endif %}
 
-# Add PCILeech coefficient files
-{% if pcileech.coefficient_files %}
-{% for coeff_file in pcileech.coefficient_files %}
-if {[file exists "$src_dir/{{ coeff_file }}"]} {
-    add_files -norecurse "$src_dir/{{ coeff_file }}"
-    set_property file_type "Coefficient Files" [get_files "$src_dir/{{ coeff_file }}"]
-    puts "Added coefficient file: {{ coeff_file }}"
-} else {
-    puts "WARNING: Coefficient file not found: $src_dir/{{ coeff_file }}"
-}
-{% endfor %}
-{% else %}
-# Default PCILeech coefficient files
-set pcileech_coeff_files [list \
+# Add generated coefficient files
+set coeff_files [list \
     "pcileech_cfgspace.coe" \
 ]
 
-foreach coeff_file $pcileech_coeff_files {
+{% if msix_enabled %}
+# Add MSI-X writemask COE if present
+lappend coeff_files "pcileech_cfgspace_writemask.coe"
+{% endif %}
+
+foreach coeff_file $coeff_files {
     if {[file exists "$src_dir/$coeff_file"]} {
         add_files -norecurse "$src_dir/$coeff_file"
         set_property file_type "Coefficient Files" [get_files "$src_dir/$coeff_file"]
@@ -104,13 +73,26 @@ foreach coeff_file $pcileech_coeff_files {
         puts "INFO: Optional coefficient file not found: $src_dir/$coeff_file"
     }
 }
-{% endif %}
 
-# Set top-level module
+# Set top-level module to PCILeech's board-specific top
 {% if top_module %}
 set_property top {{ top_module }} [current_fileset]
+puts "Set top module: {{ top_module }}"
+{% else %}
+# Default to common PCILeech top module naming pattern
+{% if board.name == "AC701" %}
+set_property top pcileech_ac701_top [current_fileset]
+puts "Set top module: pcileech_ac701_top"
+{% elif board.name == "KC705" %}
+set_property top pcileech_kc705_top [current_fileset]  
+puts "Set top module: pcileech_kc705_top"
+{% elif board.name == "75T" %}
+set_property top pcileech_75t_top [current_fileset]
+puts "Set top module: pcileech_75t_top"
 {% else %}
 set_property top pcileech_top [current_fileset]
+puts "Set top module: pcileech_top (default)"
+{% endif %}
 {% endif %}
 
 # Update compile order

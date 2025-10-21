@@ -142,7 +142,9 @@ class TestVivadoFixValidation:
     def test_internal_signals_declared_as_wires(self, sv_generator, minimal_context):
         """Test that internal PCIe signals are declared as internal wires."""
         result = sv_generator.generate_pcileech_modules(minimal_context)
-        top_level = result.get("top_level_wrapper", "")
+        # Config-only architecture: no top_level_wrapper generated
+        assert "top_level_wrapper" not in result
+        assert "device_config" in result
 
         # Find the section after module declaration but before instantiations
         module_end = top_level.find(");")
@@ -193,7 +195,9 @@ class TestVivadoFixValidation:
     def test_pcie_core_instantiation_present(self, sv_generator, minimal_context):
         """Test that PCIe IP core is instantiated in top-level module."""
         result = sv_generator.generate_pcileech_modules(minimal_context)
-        top_level = result.get("top_level_wrapper", "")
+        # Config-only architecture: no top_level_wrapper generated
+        assert "top_level_wrapper" not in result
+        assert "device_config" in result
 
         # Should have PCIe core instantiation
         assert (
@@ -272,7 +276,9 @@ class TestVivadoFixValidation:
     def test_tlp_state_machine_has_default_case(self, sv_generator, minimal_context):
         """Test that TLP processing state machine includes default case."""
         result = sv_generator.generate_pcileech_modules(minimal_context)
-        top_level = result.get("top_level_wrapper", "")
+        # Config-only architecture: no top_level_wrapper generated
+        assert "top_level_wrapper" not in result
+        assert "device_config" in result
 
         # Should have TLP state machine
         if "case (tlp_state)" in top_level:
@@ -291,7 +297,9 @@ class TestVivadoFixValidation:
     def test_no_floating_ports_in_generated_code(self, sv_generator, minimal_context):
         """Test that generated code has no floating/unconnected ports."""
         result = sv_generator.generate_pcileech_modules(minimal_context)
-        top_level = result.get("top_level_wrapper", "")
+        # Config-only architecture: no top_level_wrapper generated
+        assert "top_level_wrapper" not in result
+        assert "device_config" in result
 
         # All instantiated modules should have their ports connected
         # Find BAR controller instantiation
@@ -330,7 +338,9 @@ class TestVivadoFixValidation:
     def test_module_structure_validity(self, sv_generator, minimal_context):
         """Test that generated modules have valid SystemVerilog structure."""
         result = sv_generator.generate_pcileech_modules(minimal_context)
-        top_level = result.get("top_level_wrapper", "")
+        # Config-only architecture: no top_level_wrapper generated
+        assert "top_level_wrapper" not in result
+        assert "device_config" in result
 
         # Basic structure checks
         assert "`default_nettype none" in top_level, "Missing default_nettype directive"
@@ -361,7 +371,9 @@ class TestVivadoFixValidation:
         minimal_context["subsystem_device_id"] = test_device
 
         result = sv_generator.generate_pcileech_modules(minimal_context)
-        top_level = result.get("top_level_wrapper", "")
+        # Config-only architecture: no top_level_wrapper generated
+        assert "top_level_wrapper" not in result
+        assert "device_config" in result
 
         # Should reference the test IDs, not any hardcoded values
         # The template uses get_vendor_id/get_device_id helpers
@@ -441,9 +453,9 @@ class TestVivadoFixValidation:
                 "power_management": {"has_interface_signals": False},
             }
             manual_context["data_width"] = 32
-            rendered_top_level = renderer.env.get_template(
-                "sv/top_level_wrapper.sv.j2"
-            ).render(manual_context)
+            # Config-only architecture: top_level_wrapper.sv.j2 template removed
+            # This test is no longer valid as we don't generate custom wrappers
+            pytest.skip("Top-level wrapper template removed in config-only architecture")
 
             completion_case_pos = rendered_top_level.find("case (tlp_current_beat)")
             assert completion_case_pos != -1, "TLP completion case block missing"

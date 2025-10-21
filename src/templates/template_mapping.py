@@ -6,42 +6,14 @@ This module provides mappings from the old nested template paths to the new
 flatter structure, ensuring backward compatibility during the transition.
 """
 
-# Mapping from old paths to new paths
+# Mapping from old paths to new paths (config-only architecture)
 TEMPLATE_PATH_MAPPING = {
     # Helper templates (root level)
     "_helpers.j2": "_helpers.j2",
-    # SystemVerilog templates
-    "systemverilog/bar_controller.sv.j2": "sv/bar_controller.sv.j2",
-    "systemverilog/basic_bar_controller.sv.j2": "sv/basic_bar_controller.sv.j2",
-    "systemverilog/cfg_shadow.sv.j2": "sv/cfg_shadow.sv.j2",
+    # SystemVerilog config-only templates
     "systemverilog/device_config.sv.j2": "sv/device_config.sv.j2",
-    "systemverilog/msix_capability_registers.sv.j2": "sv/msix_capability_registers.sv.j2",
-    "systemverilog/msix_implementation.sv.j2": "sv/msix_implementation.sv.j2",
-    "systemverilog/msix_table.sv.j2": "sv/msix_table.sv.j2",
-    "systemverilog/option_rom_bar_window.sv.j2": "sv/option_rom_bar_window.sv.j2",
-    "systemverilog/option_rom_spi_flash.sv.j2": "sv/option_rom_spi_flash.sv.j2",
     "systemverilog/pcileech_cfgspace.coe.j2": "sv/pcileech_cfgspace.coe.j2",
-    "systemverilog/pcileech_fifo.sv.j2": "sv/pcileech_fifo.sv.j2",
-    "systemverilog/pcileech_tlps128_bar_controller.sv.j2": "sv/pcileech_tlps128_bar_controller.sv.j2",
-    "systemverilog/top_level_wrapper.sv.j2": "sv/top_level_wrapper.sv.j2",
-    # Advanced SystemVerilog templates (backward-compatibility only - internal code uses sv/ directly)
-    "systemverilog/advanced/advanced_controller.sv.j2": "sv/advanced_controller.sv.j2",
-    "systemverilog/advanced/error_handling_complete.sv.j2": "sv/error_handling_complete.sv.j2",
-    "systemverilog/advanced/main_module.sv.j2": "sv/main_module.sv.j2",
-    "systemverilog/advanced/performance_counters.sv.j2": "sv/performance_counters.sv.j2",
-    "systemverilog/advanced/power_management.sv.j2": "sv/power_management.sv.j2",
-    # Component templates
-    "systemverilog/components/clock_domain_logic.sv.j2": "sv/components/clock_domain_logic.sv.j2",
-    "systemverilog/components/device_specific_ports.sv.j2": "sv/components/device_specific_ports.sv.j2",
-    "systemverilog/components/interrupt_logic.sv.j2": "sv/components/interrupt_logic.sv.j2",
-    "systemverilog/components/power_declarations.sv.j2": "sv/components/power_declarations.sv.j2",
-    "systemverilog/components/power_integration.sv.j2": "sv/components/power_integration.sv.j2",
-    "systemverilog/components/power_monitoring.sv.j2": "sv/components/power_monitoring.sv.j2",
-    "systemverilog/components/read_logic.sv.j2": "sv/components/read_logic.sv.j2",
-    "systemverilog/components/register_declarations.sv.j2": "sv/components/register_declarations.sv.j2",
-    "systemverilog/components/register_logic.sv.j2": "sv/components/register_logic.sv.j2",
-    # Module templates
-    "systemverilog/modules/pmcsr_stub.sv.j2": "sv/pmcsr_stub.sv.j2",
+    "systemverilog/pcileech_header.svh.j2": "sv/pcileech_header.svh.j2",
     # TCL templates
     "tcl/bitstream.j2": "tcl/bitstream.j2",
     "tcl/constraints.j2": "tcl/constraints.j2",

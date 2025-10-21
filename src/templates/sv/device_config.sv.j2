@@ -1,38 +1,74 @@
-{#- Device Configuration Module Template -#}
-{% from "_helpers.j2" import safe_attr, get_vendor_id, get_device_id, get_subsystem_vendor_id, get_subsystem_device_id %}
+{#- Device Configuration Module Template - Pure Configuration Only -#}
+{% from "_helpers.j2" import safe_attr, get_vendor_id, get_device_id, get_subsystem_vendor_id, get_subsystem_device_id, safe_int %}
 {{ header | safe }}
 
 `default_nettype none
 
-module device_config #(
-    {# Use centralized helper macros for consistent ID handling #}
-    parameter [15:0] VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
-    parameter [15:0] DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }},
-    parameter [23:0] CLASS_CODE = 24'h{{ "%06X"|format((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0)) }},
-    parameter [15:0] SUBSYSTEM_VENDOR_ID = 16'h{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }},
-    parameter [15:0] SUBSYSTEM_DEVICE_ID = 16'h{{ get_subsystem_device_id(device_config, device, device_id_int) }},
+module device_config;
+    // PCIe Device Identifiers (from donor)
+    localparam [15:0] VENDOR_ID = 16'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }};
+    localparam [15:0] DEVICE_ID = 16'h{{ get_device_id(device_config, device, config_space, device_id_int) }};
+    localparam [7:0]  REVISION_ID = 8'h{{ "%02X"|format((safe_attr(config_space, 'revision_id', '00') | string).replace('0x', '').upper().zfill(2)) }};
+    localparam [23:0] CLASS_CODE = 24'h{{ "%06X"|format((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0)) }};
+    
+    // Subsystem IDs
+    localparam [15:0] SUBSYSTEM_VENDOR_ID = 16'h{{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }};
+    localparam [15:0] SUBSYSTEM_ID = 16'h{{ get_subsystem_device_id(device_config, device, device_id_int) }};
+    
+    // BAR Configuration (sizes only, PCILeech handles implementation)
 {%- for i in range(6) %}
-    {# guard bars indexing and coerce numeric default for apertures #}
-    parameter [31:0] BAR{{ i }}_APERTURE = 32'h{{ "%08X"|format((safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0)|safe_int(0)) }}{{ "," if not loop.last else "" }}
+    localparam [31:0] BAR{{ i }}_SIZE = 32'h{{ "%08X"|format((safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0)|safe_int(0)) }};
 {%- endfor %}
-) (
-    // Configuration space interface
-    output logic [31:0] cfg_device_id,
-    output logic [31:0] cfg_class_code,
-    output logic [31:0] cfg_subsystem_id,
-    output logic [31:0] cfg_bar [0:5]
-);
-
-    // Device identification
-    assign cfg_device_id = {DEVICE_ID, VENDOR_ID};
-    assign cfg_class_code = {8'h00, CLASS_CODE};
-    assign cfg_subsystem_id = {SUBSYSTEM_DEVICE_ID, SUBSYSTEM_VENDOR_ID};
-
-    // BAR configuration
-{%- for i in range(6) %}
-    assign cfg_bar[{{ i }}] = BAR{{ i }}_APERTURE;
-{%- endfor %}
-
+    
+    // Config Space Shadow (read-only data from donor)
+    // This is a full 256-byte capture of the donor device's config space
+    localparam [7:0] CONFIG_SPACE [0:255] = '{
+{%- if config_space_data is defined and config_space_data %}
+  {%- for i in range(0, 256, 16) %}
+    {%- for j in range(16) %}
+        8'h{{ "%02X"|format(config_space_data[i+j] if (i+j < config_space_data|length) else 0) }}{{ "," if not (i == 240 and j == 15) else "" }}
+    {%- endfor %}  // 0x{{ "%03X"|format(i) }}-0x{{ "%03X"|format(i+15) }}
+  {%- endfor %}
+{%- else %}
+        // No config space data provided - using default values
+        8'h{{ get_device_id(device_config, device, config_space, device_id_int)[-2:] }}, 8'h{{ get_device_id(device_config, device, config_space, device_id_int)[:2] }},  // Vendor ID
+        8'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int)[-2:] }}, 8'h{{ get_vendor_id(device_config, device, config_space, vendor_id_int)[:2] }},  // Device ID
+        8'h00, 8'h00, 8'h00, 8'h00,  // Command/Status
+        8'h{{ "%02X"|format((safe_attr(config_space, 'revision_id', '00') | string).replace('0x', '').upper().zfill(2)) }}, 8'h{{ "%02X"|format((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0) & 0xFF) }}, 8'h{{ "%02X"|format(((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0) >> 8) & 0xFF) }}, 8'h{{ "%02X"|format(((device_config.class_code if device_config.class_code is defined else 0)|safe_int(0) >> 16) & 0xFF) }},  // Rev/Class
+        8'h00, 8'h00, 8'h00, 8'h00,  // Cache Line/Latency/Header/BIST
+        // BARs (16 bytes each for 6 BARs = 24 bytes)
+  {%- for i in range(6) %}
+    {%- set bar_val = (safe_attr(bars[i], 'size', 0) if (bars is defined and bars|length > i and bars[i] is not none) else 0)|safe_int(0) %}
+        8'h{{ "%02X"|format(bar_val & 0xFF) }}, 8'h{{ "%02X"|format((bar_val >> 8) & 0xFF) }}, 8'h{{ "%02X"|format((bar_val >> 16) & 0xFF) }}, 8'h{{ "%02X"|format((bar_val >> 24) & 0xFF) }},
+  {%- endfor %}
+        // Rest of config space (220 bytes)
+        default: 8'h00
+{%- endif %}
+    };
+    
+    // Capability Offsets (parsed from config space)
+{%- if pm_cap_offset is defined %}
+    localparam [7:0] PM_CAP_OFFSET = 8'h{{ "%02X"|format(pm_cap_offset|safe_int(0)) }};
+{%- endif %}
+{%- if msi_cap_offset is defined %}
+    localparam [7:0] MSI_CAP_OFFSET = 8'h{{ "%02X"|format(msi_cap_offset|safe_int(0)) }};
+{%- endif %}
+{%- if msix_cap_offset is defined %}
+    localparam [7:0] MSIX_CAP_OFFSET = 8'h{{ "%02X"|format(msix_cap_offset|safe_int(0)) }};
+{%- endif %}
+{%- if pcie_cap_offset is defined %}
+    localparam [7:0] PCIE_CAP_OFFSET = 8'h{{ "%02X"|format(pcie_cap_offset|safe_int(0)) }};
+{%- endif %}
+    
+    // MSI-X Configuration (if present)
+{%- if msix_config is defined and msix_config and (msix_config.is_supported or msix_config.num_vectors|default(0) > 0) %}
+    localparam [10:0] MSIX_TABLE_SIZE = 11'd{{ msix_config.num_vectors|default(0) }};  // Number of vectors
+    localparam [2:0]  MSIX_TABLE_BAR = 3'd{{ msix_config.table_bir|default(0) }};
+    localparam [31:0] MSIX_TABLE_OFFSET = 32'h{{ "%08X"|format(msix_config.table_offset|default(0)|safe_int(0)) }};
+    localparam [2:0]  MSIX_PBA_BAR = 3'd{{ msix_config.pba_bir|default(0) }};
+    localparam [31:0] MSIX_PBA_OFFSET = 32'h{{ "%08X"|format(msix_config.pba_offset|default(0)|safe_int(0)) }};
+{%- endif %}
+    
 endmodule
 
 `default_nettype wire

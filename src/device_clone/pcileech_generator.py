@@ -2090,6 +2090,31 @@ class PCILeechGenerator:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            # Copy PCILeech sources first - MANDATORY for config-only architecture
+            log_info_safe(
+                self.logger,
+                "Copying PCILeech HDL sources from repository",
+                prefix="PCIL",
+            )
+            
+            # Import FileManager and copy PCILeech sources
+            from ..file_management.file_manager import FileManager
+            file_manager = FileManager(output_dir)
+            
+            # Get board from config
+            board = self.config.fpga_board or "default"
+            pcileech_files = file_manager.copy_pcileech_sources(board)
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Copied PCILeech sources: {sv_count} SystemVerilog, {v_count} Verilog files",
+                    sv_count=len(pcileech_files.get("systemverilog", [])),
+                    v_count=len(pcileech_files.get("verilog", []))
+                ),
+                prefix="PCIL",
+            )
+            
             # Save SystemVerilog modules
             # IMPORTANT: TCL scripts expect files in "src" directory
             # (avoid using legacy systemverilog path)
@@ -2099,7 +2124,7 @@ class PCILeechGenerator:
             log_info_safe(
                 self.logger,
                 safe_format(
-                    "Saving SystemVerilog modules to {path}",
+                    "Saving device configuration modules to {path}",
                     path=str(sv_dir),
                 ),
                 prefix="PCIL",

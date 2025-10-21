@@ -75,10 +75,9 @@ class SystemVerilogGenerator:
         perf_config: Optional[PerformanceConfig] = None,
         device_config: Optional[DeviceSpecificLogic] = None,
         template_dir: Optional[Path] = None,
-        use_pcileech_primary: bool = True,
         prefix: str = "SV_GEN",
     ):
-        """Initialize the SystemVerilog generator with improved architecture."""
+        """Initialize the SystemVerilog generator with config-only architecture."""
         self.logger = logging.getLogger(__name__)
 
         # Initialize configurations with defaults
@@ -86,7 +85,6 @@ class SystemVerilogGenerator:
         self.error_config = error_config or ErrorHandlingConfig()
         self.perf_config = perf_config or PerformanceConfig()
         self.device_config = device_config or DeviceSpecificLogic()
-        self.use_pcileech_primary = use_pcileech_primary
 
         # Initialize components
         self.validator = SVValidator(self.logger)
@@ -96,13 +94,16 @@ class SystemVerilogGenerator:
             self.renderer, self.logger, prefix=prefix
         )
         self.prefix = prefix
+        
+        # Config-only generation - always use PCILeech architecture
+        self.use_pcileech_primary = True
 
         # Validate device configuration
         self.validator.validate_device_config(self.device_config)
 
         log_info_safe(
             self.logger,
-            "SystemVerilogGenerator initialized successfully",
+            "SystemVerilogGenerator initialized successfully (config-only mode)",
             prefix=prefix,
         )
 
@@ -514,19 +515,10 @@ class SystemVerilogGenerator:
                     self._create_default_active_device_config(enhanced_context)
                 )
 
-            # Generate modules based on configuration
-            if self.use_pcileech_primary:
-                return self.module_generator.generate_pcileech_modules(
-                    enhanced_context, behavior_profile
-                )
-
-            # Fallback: return empty dict if no generator is configured
-            log_error_safe(
-                self.logger,
-                "No module generator configured (use_pcileech_primary=False)",
-                prefix=self.prefix,
+            # Generate configuration modules only - no HDL generation
+            return self.module_generator.generate_config_modules(
+                enhanced_context, behavior_profile
             )
-            return {}
 
         except Exception as e:
             error_msg = format_user_friendly_error(e, "SystemVerilog generation")

@@ -100,21 +100,12 @@ def test_msix_config_includes_runtime_flags(mock_config, msix_data):
     assert msix_ctx["entry_size_bytes"] == 16
 
 
+@pytest.mark.skip(reason="bar_controller.sv.j2 removed in config-only architecture")
 def test_bar_controller_template_contains_msix_capability_registers():
-    """Inspect template directly for msix runtime wiring (fast + deterministic)."""
-    tpl = Path("src/templates/sv/bar_controller.sv.j2")
-    assert tpl.exists(), "bar_controller template missing"
-    content = tpl.read_text(encoding="utf-8")
-    assert (
-        "msix_capability_registers" in content
-    ), "msix_capability_registers module instantiation not present in template"
-    for sig in [
-        "msix_cap_wr",
-        "msix_cap_addr",
-        "msix_cap_wdata",
-        "msix_cap_be",
-    ]:
-        assert sig in content, f"Missing signal {sig} in bar_controller template"
+    """Legacy test - bar controller no longer generated in config-only architecture."""
+    # This test checked bar_controller.sv.j2 which has been removed
+    # PCILeech now provides all BAR controller logic
+    pass
 
 
 def test_msix_capability_render_preserves_signal_wiring():

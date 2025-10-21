@@ -43,12 +43,13 @@ class TestSystemVerilogGenerator:
         )
 
         generator = SystemVerilogGenerator(
-            device_config=device_config, use_pcileech_primary=False
+            device_config=device_config
         )
 
         assert generator.device_config.device_type == DeviceType.NETWORK
         assert generator.device_config.max_payload_size == 512
-        assert generator.use_pcileech_primary is False
+        # Config-only architecture always uses PCILeech
+        assert generator.use_pcileech_primary is True
 
     def test_backward_compatibility_alias(self):
         """Test that AdvancedSVGenerator alias works."""

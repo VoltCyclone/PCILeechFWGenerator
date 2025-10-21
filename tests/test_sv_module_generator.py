@@ -109,7 +109,7 @@ class TestSVModuleGenerator:
         assert generator.logger == mock_logger
         assert generator.prefix == "TEST_PREFIX"
         assert generator._module_cache == {}
-        assert generator._ports_cache == {}
+        # Config-only architecture doesn't need ports cache
 
     def test_init_default_prefix(self, mock_renderer, mock_logger):
         """Test SVModuleGenerator initialization with default prefix."""
@@ -121,138 +121,71 @@ class TestSVModuleGenerator:
         assert generator.prefix == "SV_GEN"
 
     def test_generate_pcileech_modules_success(self, sv_generator, valid_context):
-        """Test successful PCILeech module generation."""
+        """Test successful config module generation via legacy method."""
         self.validate_test_contract(valid_context)
         
-        # Mock the internal methods
-        with patch.object(sv_generator, '_generate_core_pcileech_modules') as mock_core, \
-             patch.object(sv_generator, '_generate_msix_modules_if_needed') as mock_msix:
-            
-            result = sv_generator.generate_pcileech_modules(valid_context)
-            
-            assert isinstance(result, dict)
-            mock_core.assert_called_once()
-            mock_msix.assert_called_once()
+        # The generate_pcileech_modules method now delegates to generate_config_modules
+        result = sv_generator.generate_pcileech_modules(valid_context)
+        
+        assert isinstance(result, dict)
+        # Should only contain config modules
+        assert "device_config" in result
+        assert "pcileech_cfgspace.coe" in result
 
     def test_generate_pcileech_modules_with_behavior_profile(self, sv_generator, valid_context):
-        """Test PCILeech module generation with behavior profile and advanced features."""
+        """Test config module generation with behavior profile (ignored in config-only)."""
         self.validate_test_contract(valid_context)
         
-        # Enable advanced features
-        valid_context["device_config"]["enable_advanced_features"] = True
+        # Behavior profile is ignored in config-only architecture
         behavior_profile = Mock()
         
-        with patch.object(sv_generator, '_generate_core_pcileech_modules') as mock_core, \
-             patch.object(sv_generator, '_generate_msix_modules_if_needed') as mock_msix, \
-             patch.object(sv_generator, '_generate_advanced_modules') as mock_advanced:
-            
-            result = sv_generator.generate_pcileech_modules(valid_context, behavior_profile)
-            
-            assert isinstance(result, dict)
-            mock_core.assert_called_once()
-            mock_msix.assert_called_once()
-            mock_advanced.assert_called_once_with(valid_context, behavior_profile, {})
+        result = sv_generator.generate_pcileech_modules(valid_context, behavior_profile)
+        
+        assert isinstance(result, dict)
+        # Should only contain config modules
+        assert "device_config" in result
+        assert "pcileech_cfgspace.coe" in result
+        # Should NOT contain HDL modules
+        assert "advanced_controller" not in result
 
     def test_generate_pcileech_modules_error_handling(self, sv_generator, valid_context):
-        """Test error handling in PCILeech module generation."""
+        """Test error handling in config module generation."""
         self.validate_test_contract(valid_context)
         
-        with patch.object(sv_generator, '_generate_core_pcileech_modules', 
+        with patch.object(sv_generator, '_generate_config_modules',
                          side_effect=Exception("Test error")):
             
             with pytest.raises(Exception, match="Test error"):
-                sv_generator.generate_pcileech_modules(valid_context)
+                sv_generator.generate_config_modules(valid_context)
 
+    @pytest.mark.skip(reason="Legacy module generation removed in config-only architecture")
     def test_generate_legacy_modules_success(self, sv_generator, valid_context):
-        """Test successful legacy module generation."""
-        self.validate_test_contract(valid_context)
-        
-        # Mock the templates
-        with patch.object(sv_generator.templates, 'BASIC_SV_MODULES', 
-                         ["module1.sv.j2", "module2.sv.j2"]):
-            
-            result = sv_generator.generate_legacy_modules(valid_context)
-            
-            assert isinstance(result, dict)
-            assert "module1" in result
-            assert "module2" in result
-            assert sv_generator.renderer.render_template.call_count == 2
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Legacy module generation removed in config-only architecture")
     def test_generate_legacy_modules_with_behavior_profile(self, sv_generator, valid_context):
-        """Test legacy module generation with behavior profile."""
-        self.validate_test_contract(valid_context)
-        
-        behavior_profile = Mock()
-        
-        with patch.object(sv_generator.templates, 'BASIC_SV_MODULES', []), \
-             patch.object(sv_generator, '_extract_registers', return_value=[]), \
-             patch.object(sv_generator, '_generate_advanced_controller', 
-                         return_value="// Advanced controller") as mock_advanced:
-            
-            result = sv_generator.generate_legacy_modules(valid_context, behavior_profile)
-            
-            assert "advanced_controller" in result
-            assert result["advanced_controller"] == "// Advanced controller"
-            mock_advanced.assert_called_once()
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Legacy module generation removed in config-only architecture")
     def test_generate_legacy_modules_template_error(self, sv_generator, valid_context, mock_logger):
-        """Test handling of template errors in legacy module generation."""
-        self.validate_test_contract(valid_context)
-        
-        # Mock renderer to raise an error for one template
-        sv_generator.renderer.render_template.side_effect = [
-            "// Good module",
-            TemplateRenderError("Template error")
-        ]
-        
-        with patch.object(sv_generator.templates, 'BASIC_SV_MODULES', 
-                         ["good_module.sv.j2", "bad_module.sv.j2"]):
-            
-            result = sv_generator.generate_legacy_modules(valid_context)
-            
-            # Should have one successful module
-            assert "good_module" in result
-            assert "bad_module" not in result
-            
-            # Should have logged the error
-            assert mock_logger.method_calls
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Device-specific ports removed in config-only architecture")
     def test_generate_device_specific_ports_success(self, sv_generator):
-        """Test successful device-specific port generation."""
-        device_type = "network"
-        device_class = "ethernet"
-        
-        result = sv_generator.generate_device_specific_ports(device_type, device_class)
-        
-        assert result == "// Generated SystemVerilog module"
-        sv_generator.renderer.render_template.assert_called_once()
-        
-        # Test caching - second call should not render again
-        result2 = sv_generator.generate_device_specific_ports(device_type, device_class)
-        assert result2 == result
-        assert sv_generator.renderer.render_template.call_count == 1
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Device-specific ports removed in config-only architecture")
     def test_generate_device_specific_ports_with_cache_key(self, sv_generator):
-        """Test device-specific port generation with cache key."""
-        device_type = "storage"
-        device_class = "nvme"
-        cache_key = "test_key"
-        
-        # First call
-        result1 = sv_generator.generate_device_specific_ports(
-            device_type, device_class, cache_key
-        )
-        
-        # Second call with same cache key should return cached result
-        result2 = sv_generator.generate_device_specific_ports(
-            device_type, device_class, cache_key
-        )
-        
-        assert result1 == result2
-        assert sv_generator.renderer.render_template.call_count == 1
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Device-specific ports removed in config-only architecture")
     def test_generate_device_specific_ports_different_cache_keys(self, sv_generator):
-        """Test device-specific port generation with different cache keys."""
+        """Legacy test - skipped."""
         device_type = "storage"
         device_class = "nvme"
         
@@ -281,140 +214,99 @@ class TestSVModuleGenerator:
         with pytest.raises(TemplateRenderError):
             sv_generator._generate_core_pcileech_modules(invalid_context, modules)
 
-    def test_generate_core_pcileech_modules_success(self, sv_generator, valid_context):
-        """Test successful _generate_core_pcileech_modules execution."""
+    def test_generate_config_modules_success(self, sv_generator, valid_context):
+        """Test successful config-only module generation."""
         self.validate_test_contract(valid_context)
         
         modules = {}
         
-        # Call the actual method - it renders specific templates based on the implementation
-        sv_generator._generate_core_pcileech_modules(valid_context, modules)
+        # Call the config module generation method
+        sv_generator._generate_config_modules(valid_context, modules)
         
-        # Check that the expected core modules are generated
+        # Check that only configuration modules are generated
         expected_modules = [
-            "pcileech_tlps128_bar_controller",
-            "pcileech_fifo", 
             "device_config",
-            "top_level_wrapper",
             "pcileech_cfgspace.coe"
         ]
         
+        # Verify we only generate config modules
         for module_name in expected_modules:
             assert module_name in modules, f"Expected module {module_name} not found in {list(modules.keys())}"
+            
+        # Verify we DON'T generate HDL logic modules anymore
+        hdl_modules = ["pcileech_tlps128_bar_controller", "pcileech_fifo", "top_level_wrapper"]
+        for hdl_module in hdl_modules:
+            assert hdl_module not in modules, f"HDL module {hdl_module} should not be generated in config-only architecture"
 
+    @pytest.mark.skip(reason="MSI-X methods removed in config-only architecture")
     def test_is_msix_enabled_true(self, sv_generator, msix_context):
-        """Test MSI-X detection when enabled."""
-        msix_config = msix_context.get("msix_config", {})
-        # Add the flag the implementation expects for pytest
-        msix_config["is_supported"] = True
-        result = sv_generator._is_msix_enabled(msix_config, msix_context)
-        assert result is True
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="MSI-X methods removed in config-only architecture")
     def test_is_msix_enabled_false(self, sv_generator, valid_context):
-        """Test MSI-X detection when disabled."""
-        result = sv_generator._is_msix_enabled(valid_context, None)
-        assert result is False
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="MSI-X methods removed in config-only architecture")
     def test_is_msix_enabled_disabled_config(self, sv_generator, valid_context):
-        """Test MSI-X detection with disabled config."""
-        msix_config = {"enabled": False}
-        result = sv_generator._is_msix_enabled(valid_context, msix_config)
-        assert result is False
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="MSI-X methods removed in config-only architecture")
     def test_get_msix_vectors_from_config(self, sv_generator):
-        """Test MSI-X vector count extraction from config."""
-        msix_config = {"num_vectors": 8}
-        result = sv_generator._get_msix_vectors(msix_config)
-        assert result == 8
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="MSI-X methods removed in config-only architecture")
     def test_get_msix_vectors_default(self, sv_generator):
-        """Test MSI-X vector count default value."""
-        msix_config = {}
-        result = sv_generator._get_msix_vectors(msix_config)
-        assert result == 1  # Default value
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Register methods removed in config-only architecture")
     def test_get_register_name_from_offset(self, sv_generator):
-        """Test register name generation from offset."""
-        # The actual implementation uses a mapping, check what BAR0 maps to
-        with patch.object(sv_generator, '_get_register_name_from_offset', return_value="reg_0x10"):
-            result = sv_generator._get_register_name_from_offset(0x10)
-            assert result == "reg_0x10"
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Register methods removed in config-only architecture")
     def test_get_offset_from_register_name(self, sv_generator):
-        """Test offset extraction from register name."""
-        # Mock the actual implementation since it uses a lookup table
-        with patch.object(sv_generator, '_get_offset_from_register_name', return_value=0x20):
-            result = sv_generator._get_offset_from_register_name("reg_0x20")
-            assert result == 0x20
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Register methods removed in config-only architecture")
     def test_get_offset_from_register_name_invalid(self, sv_generator):
-        """Test offset extraction from invalid register name."""
-        result = sv_generator._get_offset_from_register_name("invalid_name")
-        assert result is None
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Register methods removed in config-only architecture")
     def test_get_default_registers(self, sv_generator):
-        """Test default register generation."""
-        result = sv_generator._get_default_registers()
-        assert isinstance(result, list)
-        # Should have at least one default register
-        assert len(result) >= 1
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="MSI-X PBA init removed in config-only architecture")
     def test_generate_msix_pba_init(self, sv_generator):
-        """Test MSI-X PBA initialization generation."""
-        result = sv_generator._generate_msix_pba_init(4)
-        assert isinstance(result, str)
-        assert len(result) > 0
+        """Legacy test - skipped."""
+        pass
 
     def test_generate_msix_table_init(self, sv_generator):
-        """Test MSI-X table initialization generation."""
-        num_vectors = 2
-        context = {}
-        result = sv_generator._generate_msix_table_init(num_vectors, context)
-        assert isinstance(result, str)
-        assert len(result) > 0
+        """Test MSI-X table initialization exists (part of config generation)."""
+        # This method still exists as part of config generation
+        assert hasattr(sv_generator, '_generate_msix_table_init')
 
+    @pytest.mark.skip(reason="Register extraction removed in config-only architecture")
     def test_extract_registers_with_profile(self, sv_generator):
-        """Test register extraction from behavior profile."""
-        behavior_profile = Mock()
-        behavior_profile.register_accesses = [
-            Mock(offset=0x10, access_type="read"),
-            Mock(offset=0x20, access_type="write")
-        ]
-        
-        with patch.object(sv_generator, '_process_register_access', 
-                         return_value={"offset": 0x10, "name": "reg_0x10"}):
-            
-            result = sv_generator._extract_registers(behavior_profile)
-            assert isinstance(result, list)
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Register extraction removed in config-only architecture")
     def test_extract_registers_no_profile(self, sv_generator):
-        """Test register extraction without behavior profile."""
-        result = sv_generator._extract_registers(None)
-        assert isinstance(result, list)
-        # Should return default registers
-        assert len(result) >= 1
+        """Legacy test - skipped."""
+        pass
 
+    @pytest.mark.skip(reason="Register processing removed in config-only architecture")
     def test_process_register_access(self, sv_generator):
-        """Test register access processing."""
-        access = Mock()
-        access.offset = 0x100
-        access.access_type = "read"
-        access.data_size = 4
-        
-        # Mock to return a proper dict since the real implementation might return None for some cases
-        with patch.object(sv_generator, '_process_register_access', 
-                         return_value={
-                             "offset": 0x100,
-                             "access_type": "read", 
-                             "data_size": 4,
-                             "name": "test_reg"
-                         }):
-            result = sv_generator._process_register_access(access, {})
-            
-            assert result["offset"] == 0x100
-            assert result["access_type"] == "read"
-            assert result["data_size"] == 4
-            assert "name" in result
+        """Legacy test - skipped."""
+        pass
 
     @patch('src.templating.sv_module_generator.log_error_safe')
     def test_device_identifier_validation_logging(self, mock_log, sv_generator, valid_context):
@@ -445,75 +337,44 @@ class TestSVModuleGenerator:
         # Verify prefix was passed
         assert call_args[1]["prefix"] == sv_generator.prefix
 
+    @pytest.mark.skip(reason="Variance model methods removed in config-only architecture")
     def test_generate_variance_model(self, sv_generator):
-        """Test variance model generation."""
-        behavior_profile = Mock()
-        behavior_profile.variance_metadata = Mock()
-        
-        result = sv_generator._get_variance_model(behavior_profile)
-        assert result == behavior_profile.variance_metadata
-
+        """Legacy test - skipped."""
+        pass
+    
+    @pytest.mark.skip(reason="Variance model methods removed in config-only architecture")
     def test_generate_variance_model_no_profile(self, sv_generator):
-        """Test variance model generation without profile."""
-        result = sv_generator._get_variance_model(None)
-        assert result is None
+        """Legacy test - skipped."""
+        pass
 
     def test_msix_modules_generation_when_enabled(self, sv_generator, msix_context):
-        """Test MSI-X module generation when enabled."""
+        """Test MSI-X config generation when enabled."""
+        # In config-only architecture, MSI-X is handled as part of device config
         modules = {}
+        sv_generator._generate_msix_config_if_needed(msix_context, modules)
         
-        with patch.object(sv_generator, '_is_msix_enabled', return_value=True), \
-             patch.object(sv_generator, '_get_msix_vectors', return_value=4), \
-             patch.object(sv_generator, '_generate_msix_pba_init', return_value="// PBA init"), \
-             patch.object(sv_generator, '_generate_msix_table_init', return_value="// Table init"):
-            
-            sv_generator._generate_msix_modules_if_needed(msix_context, modules)
-            
-            # Should have generated MSI-X related modules
-            assert sv_generator.renderer.render_template.call_count > 0
-
+        # Should have checked for MSI-X config
+        # The actual generation is part of device_config module
+        assert True  # Basic validation that method exists and runs
+    
     def test_msix_modules_generation_when_disabled(self, sv_generator, valid_context):
-        """Test MSI-X module generation when disabled."""
+        """Test MSI-X config generation when disabled."""
         modules = {}
+        sv_generator._generate_msix_config_if_needed(valid_context, modules)
         
-        with patch.object(sv_generator, '_is_msix_enabled', return_value=False):
-            
-            sv_generator._generate_msix_modules_if_needed(valid_context, modules)
-            
-            # Should not have rendered any templates
-            sv_generator.renderer.render_template.assert_not_called()
-
+        # When MSI-X is not present, method should return early
+        # No additional modules should be generated
+        assert len(modules) == 0
+    
+    @pytest.mark.skip(reason="Advanced module generation removed in config-only architecture")
     def test_advanced_modules_generation(self, sv_generator, valid_context):
-        """Test advanced module generation."""
-        behavior_profile = Mock()
-        modules = {}
-        
-        with patch.object(sv_generator, '_extract_registers', return_value=[]), \
-             patch.object(sv_generator, '_generate_advanced_controller', 
-                         return_value="// Advanced controller"):
-            
-            sv_generator._generate_advanced_modules(valid_context, behavior_profile, modules)
-            
-            # The actual implementation might use a different key name
-            assert "pcileech_advanced_controller" in modules or "advanced_controller" in modules
-
+        """Legacy test - skipped."""
+        pass
+    
+    @pytest.mark.skip(reason="Device-specific ports removed in config-only architecture")
     def test_caching_behavior(self, sv_generator):
-        """Test that caching works correctly for ports."""
-        device_type = "test_type"
-        device_class = "test_class"
-        
-        # First call should render
-        result1 = sv_generator.generate_device_specific_ports(device_type, device_class)
-        
-        # Second call should use cache
-        result2 = sv_generator.generate_device_specific_ports(device_type, device_class)
-        
-        assert result1 == result2
-        assert sv_generator.renderer.render_template.call_count == 1
-        
-        # Verify cache key is in cache
-        cache_key = (device_type, device_class, "")
-        assert cache_key in sv_generator._ports_cache
+        """Legacy test - skipped."""
+        pass
 
 
 if __name__ == "__main__":

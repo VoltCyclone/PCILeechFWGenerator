@@ -29,7 +29,6 @@ from src.device_clone.device_config import (ActiveDeviceConfig,
                                             DeviceConfiguration,
                                             DeviceIdentification, DeviceType,
                                             PCIeRegisters,
-                                            generate_device_state_machine,
                                             get_config_manager,
                                             get_device_config, validate_hex_id)
 from src.device_clone.payload_size_config import (PayloadSizeConfig,
@@ -1106,53 +1105,8 @@ class TestGlobalFunctions:
         assert result is None
 
 
-class TestGenerateDeviceStateMachine:
-    """Test generate_device_state_machine function."""
-
-    def test_generate_device_state_machine_with_registers(self):
-        """Test generating state machine with register data."""
-        registers = [
-            {"name": "COMMAND", "offset": 0x04},
-            {"name": "STATUS", "offset": 0x06},
-            {"name": "BAR0", "offset": 0x10},
-        ]
-
-        result = generate_device_state_machine(registers)
-
-        assert "device_states" in result
-        assert "state_transitions" in result
-        assert "registers" in result
-        assert result["register_count"] == 3
-        assert result["registers"] == ["COMMAND", "STATUS", "BAR0"]
-        assert len(result["device_states"]) == 4  # INIT, READY, ACTIVE, ERROR
-        assert len(result["state_transitions"]) == 4
-
-    def test_generate_device_state_machine_empty_registers(self):
-        """Test generating state machine with empty register list."""
-        result = generate_device_state_machine([])
-
-        assert result["states"] == ["IDLE"]
-        assert result["registers"] == []
-
-    def test_generate_device_state_machine_none_registers(self):
-        """Test generating state machine with None register list."""
-        # Test with empty list instead of None to match type hints
-        result = generate_device_state_machine([])
-
-        assert result["states"] == ["IDLE"]
-        assert result["registers"] == []
-
-    @patch("src.device_clone.device_config.logger")
-    def test_generate_device_state_machine_exception(self, mock_logger):
-        """Test generating state machine with exception handling."""
-        # Create a register that will cause an exception
-        registers = "invalid_string"  # This will cause a TypeError when iterating
-
-        result = generate_device_state_machine(registers)  # type: ignore
-
-        # Should return empty dict on exception
-        assert result == {}
-        mock_logger.error.assert_called_once()
+# State machine generation removed in config-only architecture
+# Legacy tests removed to align with new architecture
 
 
 class TestDeviceConfigIntegration:

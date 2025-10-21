@@ -150,6 +150,80 @@ class SVValidator:
             )
             log_error_safe(self.logger, error_msg, prefix="VALID")
             raise TemplateRenderError(error_msg)
+    
+    def validate_pcileech_sources(self, output_dir: Optional[Any] = None) -> bool:
+        """
+        Validate that PCILeech sources are present (config-only architecture).
+        
+        Args:
+            output_dir: Output directory containing src/ with PCILeech sources
+            
+        Returns:
+            True if PCILeech sources are present, False otherwise
+        """
+        if output_dir is None:
+            log_warning_safe(
+                self.logger,
+                "No output directory specified for PCILeech source validation",
+                prefix="VALID"
+            )
+            return False
+            
+        try:
+            from pathlib import Path
+            src_dir = Path(output_dir) / "src"
+            if not src_dir.exists():
+                log_error_safe(
+                    self.logger,
+                    safe_format(
+                        "PCILeech src directory not found: {path}",
+                        path=str(src_dir)
+                    ),
+                    prefix="VALID"
+                )
+                return False
+                
+            # Check for essential PCILeech HDL files
+            essential_files = [
+                "pcileech_pcie_a7.sv",  # PCIe core wrapper
+                "pcileech_tlps128.sv",   # TLP processor
+                "pcileech_bar_controller.sv"  # BAR logic
+            ]
+            
+            missing_files = []
+            for filename in essential_files:
+                file_path = src_dir / filename
+                if not file_path.exists():
+                    missing_files.append(filename)
+                    
+            if missing_files:
+                log_error_safe(
+                    self.logger,
+                    safe_format(
+                        "Missing essential PCILeech files: {files}",
+                        files=", ".join(missing_files)
+                    ),
+                    prefix="VALID"
+                )
+                return False
+                
+            log_info_safe(
+                self.logger,
+                "PCILeech source validation passed",
+                prefix="VALID"
+            )
+            return True
+            
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Error validating PCILeech sources: {error}",
+                    error=str(e)
+                ),
+                prefix="VALID"
+            )
+            return False
 
     def _validate_donor_artifacts(self, context: Any) -> None:
         """

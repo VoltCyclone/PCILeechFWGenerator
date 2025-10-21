@@ -32,6 +32,9 @@ Generate authentic PCIe DMA firmware from real donor hardware with a single comm
 > [!WARNING]
 > This tool requires *real* hardware. The templates are built using the device identifiers directly from a donor card and placeholder values are explicitly avoided. Using your own donor device ensures your firmware will be unique.
 
+> [!NOTE]
+> **Config-Only Architecture**: As of version 8.0, PCILeechFWGenerator uses a config-only architecture. We generate device configuration parameters and rely on proven PCILeech HDL for all logic implementation. This eliminates board-specific errors and ensures compatibility.
+
 ## Key Features
 
 - **Donor Hardware Analysis**: Extract real PCIe device configurations and register maps from live hardware via VFIO

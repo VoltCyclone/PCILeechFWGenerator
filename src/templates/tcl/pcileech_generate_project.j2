@@ -179,12 +179,41 @@ set REVISION_ID {{ device.revision_id }}
 set SUBSYSTEM_VENDOR_ID {{ get_subsystem_vendor_id(device_config, device, vendor_id_int) }}
 set SUBSYSTEM_ID {{ get_subsystem_device_id(device_config, device, device_id_int) }}
 
-puts "Using custom PCIe implementation for Artix-7 35T"
+puts "Using AXI PCIe implementation for Artix-7 35T"
 puts "Device ID: $DEVICE_ID"
 puts "Vendor ID: $VENDOR_ID"
 puts "Revision ID: $REVISION_ID"
 
-# No IP cores required - PCIe functionality implemented in custom SystemVerilog modules
+# Create AXI PCIe IP core for 7-Series (used by small Artix-7 parts like 35T)
+create_ip -name axi_pcie -vendor xilinx.com -library ip -version 2.9 -module_name pcie_7x_bridge
+{%- if not device.device_id or not device.vendor_id %}
+{%- error "Device ID and Vendor ID are required - no fallback values allowed to prevent generic firmware" %}
+{%- endif %}
+{%- if not device.revision_id %}
+{%- error "Revision ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
+{%- endif %}
+{%- if not device.subsys_device_id %}
+{%- error "Subsystem Device ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
+{%- endif %}
+{%- if not device.subsys_vendor_id %}
+{%- error "Subsystem Vendor ID must be derived from donor device - no fallback values allowed to prevent generic firmware" %}
+{%- endif %}
+set_property -dict [list \
+    CONFIG.AXIBAR_NUM {1} \
+    CONFIG.DEVICE_ID [format "%04X" $DEVICE_ID] \
+    CONFIG.VENDOR_ID [format "%04X" $VENDOR_ID] \
+    CONFIG.REV_ID [format "%02X" $REVISION_ID] \
+    CONFIG.SUBSYSTEM_ID [format "%04X" $SUBSYSTEM_ID] \
+    CONFIG.SUBSYSTEM_VENDOR_ID [format "%04X" $SUBSYSTEM_VENDOR_ID] \
+    CONFIG.CLASS_CODE {020000} \
+    CONFIG.BAR0_ENABLED {true} \
+    CONFIG.BAR0_64BIT {true} \
+    CONFIG.BAR0_TYPE {1} \
+    CONFIG.BAR0_SCALE {Kilobytes} \
+    CONFIG.BAR0_SIZE {64}{% if supports_msi %} \
+    CONFIG.INCLUDE_RC {Root_Port_of_PCI_Express_Root_Complex}{% endif %}{% if supports_msix %} \
+    CONFIG.MSI_ENABLED {true}{% endif %} \
+] [get_ips pcie_7x_bridge]
 
 {% elif pcie_ip_type == "pcie_ultrascale" %}
 # UltraScale PCIe IP
