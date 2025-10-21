@@ -87,6 +87,7 @@ def discover_pcileech_files(
                 "Scoping PCILeech file discovery to board: {board_name} ({fpga_part})",
                 board_name=board_name,
                 fpga_part=board_config.get("fpga_part", "unknown"),
+                prefix="CORE",
             )
         except Exception as e:
             log_warning_safe(
@@ -94,6 +95,7 @@ def discover_pcileech_files(
                 "Failed to get board config for {board_name}: {error}, using generic search",
                 board_name=board_name,
                 error=str(e),
+                prefix="CORE",
             )
 
     discovered_files = {}
@@ -142,11 +144,12 @@ def discover_pcileech_files(
             board_name=board_name,
             fpga_family=fpga_family,
             pcie_ip=pcie_ip_type,
+            prefix="CORE",
         )
     else:
         target_files = CRITICAL_PCILEECH_FILES | OPTIONAL_PCILEECH_FILES
         log_info_safe(
-            logger, "Generic search: {count} target files", count=len(target_files)
+            logger, "Generic search: {count} target files", count=len(target_files), prefix="CORE"
         )
 
     # If board configuration is available, use board-specific search paths
@@ -164,6 +167,7 @@ def discover_pcileech_files(
                     logger,
                     "Added board-specific search path: {board_path}",
                     board_path=str(board_path),
+                    prefix="CORE",
                 )
             except Exception as e:
                 log_warning_safe(
@@ -171,6 +175,7 @@ def discover_pcileech_files(
                     "Failed to get board path for {board_name}: {error}",
                     board_name=board_name,
                     error=str(e),
+                    prefix="CORE",
                 )
                 search_roots.append(cached_repo_root)  # Fallback to general search
         else:
@@ -194,6 +199,7 @@ def discover_pcileech_files(
                 "Found {file} at {path}",
                 file=target_file,
                 path=str(found_path),
+                prefix="CORE",
             )
 
     # Use existing discovery mechanism for any files we haven't found yet (from cached repo)
@@ -208,6 +214,7 @@ def discover_pcileech_files(
                 "Added cached file {file} at {path}",
                 file=filename,
                 path=str(filepath),
+                prefix="CORE",
             )
 
     # Report discovery statistics
@@ -220,6 +227,7 @@ def discover_pcileech_files(
         critical=critical_found,
         total_critical=len(CRITICAL_PCILEECH_FILES),
         optional=optional_found,
+        prefix="CORE",
     )
 
     # Search for missing critical files in cached repo as fallback
@@ -229,6 +237,7 @@ def discover_pcileech_files(
             logger,
             "Searching cached repo for {count} remaining critical files",
             count=len(missing_critical),
+            prefix="CORE",
         )
 
         for missing_file in missing_critical:
@@ -240,6 +249,7 @@ def discover_pcileech_files(
                     "Found cached fallback {file} at {path}",
                     file=missing_file,
                     path=str(found_path),
+                    prefix="CORE",
                 )
 
     # Report final missing critical files
@@ -249,6 +259,7 @@ def discover_pcileech_files(
             logger,
             "Still missing critical PCILeech files: {files}",
             files=list(final_missing_critical),
+            prefix="CORE",
         )
 
     return discovered_files
@@ -401,30 +412,33 @@ if __name__ == "__main__":
     # Test the discovery system
     import sys
 
+    from .string_utils import safe_format
+
     # Allow passing board name as command line argument
     board_name = sys.argv[1] if len(sys.argv) > 1 else None
 
-    print(
-        f"Testing PCILeech file discovery{f' for board: {board_name}' if board_name else ''}..."
-    )
+    if board_name:
+        print(safe_format("Testing PCILeech file discovery for board: {board_name}...", board_name=board_name))
+    else:
+        print("Testing PCILeech file discovery...")
 
     try:
         files = discover_pcileech_files(board_name=board_name)
         issues = validate_pcileech_environment(files)
 
-        print(f"\nDiscovered {len(files)} PCILeech files:")
+        print(safe_format("\nDiscovered {count} PCILeech files:", count=len(files)))
         for name, path in sorted(files.items()):
-            print(f"  {name}: {path}")
+            print(safe_format("  {name}: {path}", name=name, path=str(path)))
 
         if issues:
-            print(f"\nValidation issues:")
+            print("\nValidation issues:")
             for issue in issues:
-                print(f"  - {issue}")
+                print(safe_format("  - {issue}", issue=issue))
         else:
             print("\n✓ PCILeech environment validation passed")
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(safe_format("Error: {error}", error=str(e)))
         import traceback
 
         traceback.print_exc()
