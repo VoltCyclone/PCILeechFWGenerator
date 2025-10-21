@@ -364,9 +364,9 @@ puts "Project: $project_name"
 puts "Location: $project_dir"
 puts "FPGA Part: $fpga_part"
 puts "PCIe IP Type: {{ pcie_ip_type }}"
-{% if pcie_ip_type != 'pcie_ultrascale' %}
+{% if pcie_ip_type != 'pcie_ultrascale' and _lanes is defined %}
 puts "Max Lanes (effective 7x): {{ _lanes }}"
-{% else %}
+{% elif max_lanes is defined %}
 puts "Max Lanes: {{ max_lanes }}"
 {% endif %}
 {% if supports_msi %}
