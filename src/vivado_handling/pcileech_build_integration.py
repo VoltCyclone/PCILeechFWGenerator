@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..file_management.board_discovery import BoardDiscovery, get_board_config
 from ..file_management.repo_manager import RepoManager
 from ..file_management.template_discovery import TemplateDiscovery
-from ..string_utils import log_error_safe, log_info_safe, log_warning_safe, safe_format
+from ..string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+                            safe_format)
 from ..templating.tcl_builder import BuildContext, TCLBuilder
 
 logger = logging.getLogger(__name__)
@@ -36,10 +37,6 @@ class PCILeechBuildIntegration:
         self.repo_root = repo_root or RepoManager.ensure_repo()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize components
-        self.board_discovery = BoardDiscovery()
-        self.template_discovery = TemplateDiscovery()
-
         # Cache discovered boards
         self._boards_cache = None
         self.prefix = "BUILD"
@@ -52,7 +49,7 @@ class PCILeechBuildIntegration:
             Dictionary mapping board names to configurations
         """
         if self._boards_cache is None:
-            self._boards_cache = self.board_discovery.discover_boards(self.repo_root)
+            self._boards_cache = BoardDiscovery.discover_boards(self.repo_root)
         return self._boards_cache
 
     def prepare_build_environment(self, board_name: str) -> Dict[str, Any]:
@@ -92,12 +89,14 @@ class PCILeechBuildIntegration:
         board_output_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy templates from repository
-        templates = self.template_discovery.copy_board_templates(
+        templates = TemplateDiscovery.copy_board_templates(
             board_name, board_output_dir / "templates", self.repo_root
         )
 
         # Copy XDC files
-        xdc_files = self._copy_xdc_files(board_name, board_output_dir / "constraints")
+        xdc_files = self._copy_xdc_files(
+            board_name, board_output_dir / "constraints"
+        )
 
         # Copy source files from repository
         src_files = self._copy_source_files(board_name, board_output_dir / "src")
@@ -123,7 +122,9 @@ class PCILeechBuildIntegration:
         copied_files = []
 
         try:
-            xdc_files = RepoManager.get_xdc_files(board_name, repo_root=self.repo_root)
+            xdc_files = RepoManager.get_xdc_files(
+                board_name, repo_root=self.repo_root
+            )
             for xdc_file in xdc_files:
                 dest_path = output_dir / xdc_file.name
                 shutil.copy2(xdc_file, dest_path)
@@ -131,7 +132,8 @@ class PCILeechBuildIntegration:
                 log_info_safe(
                     logger,
                     safe_format(
-                        "Copied XDC file: {xdc_file_name}", xdc_file_name=xdc_file.name
+                        "Copied XDC file: {name}",
+                        name=xdc_file.name
                     ),
                     prefix=self.prefix,
                 )
@@ -150,7 +152,9 @@ class PCILeechBuildIntegration:
         copied_files = []
 
         # Get source files from template discovery
-        src_files = self.template_discovery.get_source_files(board_name, self.repo_root)
+        src_files = TemplateDiscovery.get_source_files(
+            board_name, self.repo_root
+        )
 
         for src_file in src_files:
             try:
@@ -177,7 +181,7 @@ class PCILeechBuildIntegration:
                 )
 
         # Also copy core PCILeech files
-        core_files = self.template_discovery.get_pcileech_core_files(self.repo_root)
+        core_files = TemplateDiscovery.get_pcileech_core_files(self.repo_root)
         for filename, filepath in core_files.items():
             dest_path = output_dir / filename
             try:
@@ -210,8 +214,8 @@ class PCILeechBuildIntegration:
 
         build_scripts = {}
 
-        # Check if board has its own build script
-        existing_script = self.template_discovery.get_vivado_build_script(
+        # Check if there's an existing build script in the repository
+        existing_script = TemplateDiscovery.get_vivado_build_script(
             board_name, self.repo_root
         )
 
@@ -222,7 +226,8 @@ class PCILeechBuildIntegration:
 
             # Adapt script content if needed
             content = dest_path.read_text()
-            adapted_content = self.template_discovery.adapt_template_for_board(
+            # Try to adapt the template for the specific board configuration
+            adapted_content = TemplateDiscovery.adapt_template_for_board(
                 content, board_config
             )
             dest_path.write_text(adapted_content)

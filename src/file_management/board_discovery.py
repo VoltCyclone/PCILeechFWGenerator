@@ -1,53 +1,95 @@
 #!/usr/bin/env python3
 """
-Dynamic Board Discovery Module
+Board Discovery Module
 
-This module provides functionality to dynamically discover available boards
-from the cloned pcileech-fpga repository, eliminating the need for hardcoded
-board configurations.
+This module provides functionality to discover and analyze available boards
+from the voltcyclone-fpga git submodule, extracting board capabilities
+and configurations dynamically.
 """
 
 import json
-import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ..log_config import get_logger
 from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe)
+                            log_warning_safe, safe_format)
 from .repo_manager import RepoManager
 
 logger = get_logger(__name__)
 
 
 class BoardDiscovery:
-    """Dynamically discover and analyze boards from pcileech-fpga repository."""
+    """Discover and analyze boards from voltcyclone-fpga submodule.
+    
+    This class should NOT be instantiated - use class methods only.
+    """
+    
+    def __new__(cls, *args, **kwargs):
+        raise TypeError(
+            "BoardDiscovery may not be instantiated; call class methods only"
+        )
 
-    # Known board directory patterns in pcileech-fpga
-    BOARD_DIR_PATTERNS = {
-        # Legacy boards
-        "PCIeSquirrel": {"name": "35t", "fpga_part": "xc7a35tfgg484-2"},
-        "PCIeEnigmaX1": {"name": "75t", "fpga_part": "xc7a75tfgg484-2"},
-        "XilinxZDMA": {"name": "100t", "fpga_part": "xczu3eg-sbva484-1-e"},
-        # Modern boards with more specific patterns
-        "EnigmaX1": {"name": "pcileech_enigma_x1", "fpga_part": "xc7a75tfgg484-2"},
-        "pciescreamer": {
-            "name": "pcileech_pciescreamer_xc7a35",
-            "fpga_part": "xc7a35tcsg324-2",
+    # Board configurations - aligned with RepoManager.get_board_path()
+    # These match the actual directory structure in voltcyclone-fpga submodule
+    BOARD_CONFIGS = {
+        # Legacy name mappings
+        "35t": {
+            "dir": "PCIeSquirrel",
+            "fpga_part": "xc7a35tfgg484-2",
+            "max_lanes": 1,
         },
-    }
-
-    # CaptainDMA boards have a special structure
-    CAPTAINDMA_BOARDS = {
-        "75t484_x1": {"fpga_part": "xc7a75tfgg484-2", "max_lanes": 1},
-        "35t484_x1": {"fpga_part": "xc7a35tfgg484-2", "max_lanes": 1},
-        "35t325_x4": {"fpga_part": "xc7a35tcsg324-2", "max_lanes": 4},
-        "35t325_x1": {"fpga_part": "xc7a35tcsg324-2", "max_lanes": 1},
-        "100t484-1": {
-            # CaptainDMA 100T board uses Artix-7 100T in FGG484 package
+        "75t": {
+            "dir": "EnigmaX1",
+            "fpga_part": "xc7a75tfgg484-2",
+            "max_lanes": 1,
+        },
+        "100t": {
+            "dir": "ZDMA",
+            "fpga_part": "xczu3eg-sbva484-1-e",
+            "max_lanes": 1,
+        },
+        # Modern board names
+        "pcileech_enigma_x1": {
+            "dir": "EnigmaX1",
+            "fpga_part": "xc7a75tfgg484-2",
+            "max_lanes": 1,
+        },
+        "pcileech_squirrel": {
+            "dir": "PCIeSquirrel",
+            "fpga_part": "xc7a35tfgg484-2",
+            "max_lanes": 1,
+        },
+        "pcileech_pciescreamer_xc7a35": {
+            "dir": "pciescreamer",
+            "fpga_part": "xc7a35tcsg324-2",
+            "max_lanes": 1,
+        },
+        # CaptainDMA boards
+        "pcileech_75t484_x1": {
+            "dir": "CaptainDMA/75t484_x1",
+            "fpga_part": "xc7a75tfgg484-2",
+            "max_lanes": 1,
+        },
+        "pcileech_35t484_x1": {
+            "dir": "CaptainDMA/35t484_x1",
+            "fpga_part": "xc7a35tfgg484-2",
+            "max_lanes": 1,
+        },
+        "pcileech_35t325_x4": {
+            "dir": "CaptainDMA/35t325_x4",
+            "fpga_part": "xc7a35tcsg324-2",
+            "max_lanes": 4,
+        },
+        "pcileech_35t325_x1": {
+            "dir": "CaptainDMA/35t325_x1",
+            "fpga_part": "xc7a35tcsg324-2",
+            "max_lanes": 1,
+        },
+        "pcileech_100t484_x1": {
+            "dir": "CaptainDMA/100t484-1",
             "fpga_part": "xc7a100tfgg484-1",
             "max_lanes": 1,
-            "canonical_name": "pcileech_100t484_x1",
         },
     }
 
@@ -74,10 +116,10 @@ class BoardDiscovery:
     @classmethod
     def discover_boards(cls, repo_root: Optional[Path] = None) -> Dict[str, Dict]:
         """
-        Discover all available boards from the pcileech-fpga repository.
+        Discover all available boards from the voltcyclone-fpga submodule.
 
         Args:
-            repo_root: Optional repository root path (will clone if not provided)
+            repo_root: Optional repository root path (uses submodule if not provided)
 
         Returns:
             Dictionary mapping board names to their configurations
@@ -87,51 +129,53 @@ class BoardDiscovery:
 
         boards = {}
 
-        # Discover standard boards
-        for dir_name, config in cls.BOARD_DIR_PATTERNS.items():
-            board_path = repo_root / dir_name
+        # Iterate through known board configurations
+        for board_name, config in cls.BOARD_CONFIGS.items():
+            board_path = repo_root / config["dir"]
             if board_path.exists() and board_path.is_dir():
-                board_name = config["name"]
-                boards[board_name] = cls._analyze_board(board_path, config)
-                log_info_safe(
+                boards[board_name] = cls._analyze_board(
+                    board_name, board_path, config
+                )
+                log_debug_safe(
                     logger,
-                    "Discovered board: {board_name} at {board_path}",
-                    board_name=board_name,
-                    board_path=board_path,
+                    safe_format(
+                        "Discovered board: {name} at {path}",
+                        name=board_name,
+                        path=board_path
+                    ),
+                    prefix="BOARDS"
+                )
+            else:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Board '{name}' directory not found at {path}",
+                        name=board_name,
+                        path=board_path
+                    ),
+                    prefix="BOARDS"
                 )
 
-        # Discover CaptainDMA boards
-        captaindma_root = repo_root / "CaptainDMA"
-        if captaindma_root.exists() and captaindma_root.is_dir():
-            for subdir, config in cls.CAPTAINDMA_BOARDS.items():
-                board_path = captaindma_root / subdir
-                if board_path.exists() and board_path.is_dir():
-                    # Use canonical name if specified, otherwise construct standard name
-                    board_name = config.get(
-                        "canonical_name", f"pcileech_{subdir.replace('-', '_')}"
-                    )
-                    boards[board_name] = cls._analyze_board(
-                        board_path, {"name": board_name, **config}
-                    )
-                    log_info_safe(
-                        logger,
-                        "Discovered CaptainDMA board: {board_name} at {board_path}",
-                        board_name=board_name,
-                        board_path=board_path,
-                    )
-
-        # Discover any additional boards by scanning for vivado project files
-        additional_boards = cls._scan_for_additional_boards(repo_root, boards)
-        boards.update(additional_boards)
+        log_info_safe(
+            logger,
+            safe_format(
+                "Discovered {count} boards from submodule",
+                count=len(boards)
+            ),
+            prefix="BOARDS"
+        )
 
         return boards
 
     @classmethod
-    def _analyze_board(cls, board_path: Path, base_config: Dict) -> Dict:
+    def _analyze_board(
+        cls, board_name: str, board_path: Path, base_config: Dict
+    ) -> Dict:
         """
         Analyze a board directory to extract configuration details.
 
         Args:
+            board_name: Name identifier for the board
             board_path: Path to the board directory
             base_config: Base configuration for the board
 
@@ -139,6 +183,7 @@ class BoardDiscovery:
             Complete board configuration
         """
         config = base_config.copy()
+        config["name"] = board_name
 
         # Detect FPGA family from part number
         fpga_part = config.get("fpga_part", "")
@@ -158,12 +203,10 @@ class BoardDiscovery:
         config.update(capabilities)
 
         # Set default values if not already present
-        config.setdefault("max_lanes", 1)
         config.setdefault("supports_msi", True)
         config.setdefault("supports_msix", False)
 
         # Add PCIe reference clock LOC constraint for 7-series boards
-        board_name = config.get("name", "")
         if board_name in cls.PCIE_REFCLK_LOC_MAP:
             config["pcie_refclk_loc"] = cls.PCIE_REFCLK_LOC_MAP[board_name]
         elif config["fpga_family"] == "7series":
@@ -171,7 +214,12 @@ class BoardDiscovery:
             config["pcie_refclk_loc"] = "IBUFDS_GTE2_X0Y0"
             log_warning_safe(
                 logger,
-                safe_format("No PCIe refclk LOC mapping for board '{board}', using default: IBUFDS_GTE2_X0Y0", board=board_name)
+                safe_format(
+                    "No PCIe refclk LOC mapping for '{board}', "
+                    "using default: IBUFDS_GTE2_X0Y0",
+                    board=board_name
+                ),
+                prefix="BOARDS"
             )
 
         return config
@@ -344,75 +392,7 @@ class BoardDiscovery:
 
         return capabilities
 
-    @classmethod
-    def _scan_for_additional_boards(
-        cls, repo_root: Path, existing_boards: Dict[str, Dict]
-    ) -> Dict[str, Dict]:
-        """Scan for additional boards not covered by known patterns."""
-        additional_boards = {}
 
-        # Look for directories containing vivado project files or build scripts
-        project_indicators = [
-            "*.xpr",
-            "build.tcl",
-            "generate_project.tcl",
-            "vivado_generate_project.tcl",
-        ]
-
-        for indicator in project_indicators:
-            for project_file in repo_root.rglob(indicator):
-                board_dir = project_file.parent
-
-                # Skip if already discovered or in a subdirectory of a known board
-                if any(
-                    str(board_dir).startswith(str(repo_root / existing))
-                    for existing in existing_boards
-                ):
-                    continue
-
-                # Extract board name from directory
-                board_name = board_dir.name.lower().replace("-", "_")
-                if (
-                    board_name not in existing_boards
-                    and board_name not in additional_boards
-                ):
-                    # Try to extract FPGA part from project file
-                    fpga_part = cls._extract_fpga_part_from_project(project_file)
-                    if fpga_part:
-                        additional_boards[board_name] = cls._analyze_board(
-                            board_dir, {"name": board_name, "fpga_part": fpga_part}
-                        )
-                        log_info_safe(
-                            logger,
-                            "Discovered additional board: {board_name} at {board_dir}",
-                            board_name=board_name,
-                            board_dir=board_dir,
-                        )
-
-        return additional_boards
-
-    @classmethod
-    def _extract_fpga_part_from_project(cls, project_file: Path) -> Optional[str]:
-        """Extract FPGA part number from project file."""
-        try:
-            content = project_file.read_text(encoding="utf-8", errors="ignore")
-
-            # Look for part number patterns
-            part_patterns = [
-                r'part["\s]*[:=]\s*["\'](xc[^"\']+)["\']',
-                r'PART["\s]*[:=]\s*["\'](xc[^"\']+)["\']',
-                r'set_property\s+PART\s+["\'](xc[^"\']+)["\']',
-                r'<Option Name="Part".*?Val="(xc[^"]+)"',
-            ]
-
-            for pattern in part_patterns:
-                match = re.search(pattern, content, re.IGNORECASE)
-                if match:
-                    return match.group(1)
-        except Exception:
-            pass
-
-        return None
 
     @classmethod
     def get_board_display_info(
@@ -561,7 +541,12 @@ def get_board_config(board_name: str, repo_root: Optional[Path] = None) -> Dict:
     """
     boards = discover_all_boards(repo_root)
     if board_name not in boards:
+        available = ", ".join(boards.keys())
         raise KeyError(
-            f"Board '{board_name}' not found. Available boards: {', '.join(boards.keys())}"
+            safe_format(
+                "Board '{name}' not found. Available boards: {avail}",
+                name=board_name,
+                avail=available
+            )
         )
     return boards[board_name]

@@ -7,11 +7,18 @@ This guide covers development setup, testing, and contributing to the PCILeech F
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
+git clone --recurse-submodules https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 pip install -e .
+```
+
+**Note:** The `--recurse-submodules` flag is required to initialize the `voltcyclone-fpga` submodule at `lib/voltcyclone-fpga`.
+
+If you already cloned without submodules, initialize them with:
+```bash
+git submodule update --init --recursive
 ```
 
 ### 2. Install Pre-commit Hooks

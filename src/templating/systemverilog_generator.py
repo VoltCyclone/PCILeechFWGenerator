@@ -53,7 +53,7 @@ from .sv_context_builder import SVContextBuilder
 
 from .sv_device_config import DeviceSpecificLogic
 
-from .sv_module_generator import SVModuleGenerator
+from .sv_overlay_generator import SVOverlayGenerator
 
 from .sv_validator import SVValidator
 
@@ -92,7 +92,7 @@ class SystemVerilogGenerator:
         self.validator = SVValidator(self.logger)
         self.context_builder = SVContextBuilder(self.logger)
         self.renderer = TemplateRenderer(template_dir)
-        self.module_generator = SVModuleGenerator(
+        self.overlay_generator = SVOverlayGenerator(
             self.renderer, self.logger, prefix=prefix
         )
         self.prefix = prefix
@@ -514,16 +514,16 @@ class SystemVerilogGenerator:
                     self._create_default_active_device_config(enhanced_context)
                 )
 
-            # Generate modules based on configuration
+            # Generate overlay files based on configuration
             if self.use_pcileech_primary:
-                return self.module_generator.generate_pcileech_modules(
-                    enhanced_context, behavior_profile
+                return self.overlay_generator.generate_config_space_overlay(
+                    enhanced_context
                 )
 
             # Fallback: return empty dict if no generator is configured
             log_error_safe(
                 self.logger,
-                "No module generator configured (use_pcileech_primary=False)",
+                "No overlay generator configured (use_pcileech_primary=False)",
                 prefix=self.prefix,
             )
             return {}
@@ -558,38 +558,28 @@ class SystemVerilogGenerator:
         return self.generate_modules(template_context, behavior_profile)
 
     def generate_device_specific_ports(self, context_hash: str = "") -> str:
-        """Generate device-specific ports for backward compatibility."""
-        return self.module_generator.generate_device_specific_ports(
-            self.device_config.device_type.value,
-            self.device_config.device_class.value,
-            context_hash,
+        """Generate device-specific ports for backward compatibility.
+        
+        DEPRECATED: This method generated full SystemVerilog modules.
+        The new overlay-only architecture only generates .coe configuration files.
+        This method now returns an empty string for backward compatibility.
+        """
+        log_debug_safe(
+            self.logger,
+            "generate_device_specific_ports is deprecated in overlay-only mode",
+            prefix=self.prefix,
         )
+        return ""
 
     def clear_cache(self) -> None:
         """Clear any internal caches used by the generator.
 
-        Tries to clear an LRU cache on generate_device_specific_ports if present,
-        otherwise falls back to clearing internal dict-based caches. Also clears
-        the template renderer cache when available. This method must not raise.
+        Updated for overlay-only architecture - clears renderer cache only.
         """
         try:
-            # Prefer clearing an LRU cache if the method is decorated
-            func = getattr(
-                self.module_generator, "generate_device_specific_ports", None
-            )
-            cache_clear = getattr(func, "cache_clear", None)
-            if callable(cache_clear):
-                cache_clear()
-        except Exception:
-            # Never fail cache clearing
-            pass
-
-        # Fallback: clear internal dict caches if present
-        try:
-            if hasattr(self.module_generator, "_ports_cache"):
-                self.module_generator._ports_cache.clear()
-            if hasattr(self.module_generator, "_module_cache"):
-                self.module_generator._module_cache.clear()
+            # Clear template renderer cache
+            if hasattr(self.renderer, "clear_cache"):
+                self.renderer.clear_cache()
         except Exception as e:
             log_error_safe(
                 self.logger,

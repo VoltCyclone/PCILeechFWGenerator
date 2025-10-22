@@ -110,7 +110,7 @@ The tool automatically checks for newer versions during CLI builds. You can:
 ### Development from Repository
 
 ```bash
-git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
+git clone --recurse-submodules https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
