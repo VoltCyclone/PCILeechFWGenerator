@@ -4,3 +4,6 @@
 [submodule "site"]
 	path = site
 	url = https://github.com/voltcyclone/PCILeechFWGenerator-site.git
+[submodule "lib/voltcyclone-fpga"]
+	path = lib/voltcyclone-fpga
+	url = https://github.com/VoltCyclone/voltcyclone-fpga.git

@@ -30,10 +30,12 @@ except ImportError:
 try:
     from .systemverilog_generator import (AdvancedSVGenerator,
                                           DeviceSpecificLogic)
+    from .sv_overlay_generator import SVOverlayGenerator
 except ImportError:
     SystemVerilogGenerator = None
     AdvancedSVGenerator = None
     DeviceSpecificLogic = None
+    SVOverlayGenerator = None
 
 # Import centralized config classes
 try:
@@ -69,10 +71,12 @@ __all__ = [
     "TCLScriptBuilder",
     "TCLScriptType",
     "BuildContext",
-    # SystemVerilog generation
+    # SystemVerilog generation (legacy)
     "SystemVerilogGenerator",
     "AdvancedSVGenerator",
     "DeviceSpecificLogic",
+    # Overlay generation (new)
+    "SVOverlayGenerator",
     # Configuration classes
     "AdvancedFeatureConfig",
     "ErrorHandlingConfig",

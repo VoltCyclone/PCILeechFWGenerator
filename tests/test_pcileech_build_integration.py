@@ -68,8 +68,8 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             },
         }
 
-        # Configure board discovery mock
-        self.mock_board_discovery.return_value.discover_boards.return_value = (
+        # Configure board discovery mock (class method, not instance method)
+        self.mock_board_discovery.discover_boards.return_value = (
             self.sample_boards
         )
 
@@ -91,9 +91,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertEqual(integration.output_dir, self.output_dir)
         self.assertEqual(integration.repo_root, self.repo_root)
 
-        # Check component initialization
-        self.mock_board_discovery.assert_called_once()
-        self.mock_template_discovery.assert_called_once()
+        # No longer expecting instantiation calls (classes used directly now)
 
         # Check directory creation
         self.mock_path_mkdir.assert_called_with(parents=True, exist_ok=True)
@@ -105,15 +103,15 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         # First call should discover boards
         boards = integration.get_available_boards()
         self.assertEqual(boards, self.sample_boards)
-        self.mock_board_discovery.return_value.discover_boards.assert_called_once_with(
+        self.mock_board_discovery.discover_boards.assert_called_once_with(
             self.repo_root
         )
 
         # Second call should use cache
-        self.mock_board_discovery.return_value.discover_boards.reset_mock()
+        self.mock_board_discovery.discover_boards.reset_mock()
         boards_cached = integration.get_available_boards()
         self.assertEqual(boards_cached, self.sample_boards)
-        self.mock_board_discovery.return_value.discover_boards.assert_not_called()
+        self.mock_board_discovery.discover_boards.assert_not_called()
 
     def test_prepare_build_environment_invalid_board(self):
         """Test preparing build environment with invalid board."""
@@ -136,7 +134,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             return_value={"main": Path("/tmp/build.tcl")}
         )
 
-        self.mock_template_discovery.return_value.copy_board_templates.return_value = [
+        self.mock_template_discovery.copy_board_templates.return_value = [
             "template1.v"
         ]
 
@@ -152,8 +150,8 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertEqual(result["src_files"], [Path("/tmp/test.v")])
         self.assertEqual(result["build_scripts"], {"main": Path("/tmp/build.tcl")})
 
-        # Verify method calls
-        self.mock_template_discovery.return_value.copy_board_templates.assert_called_once()
+        # Verify method calls (class method now)
+        self.mock_template_discovery.copy_board_templates.assert_called_once()
         integration._copy_xdc_files.assert_called_once()
         integration._copy_source_files.assert_called_once()
         integration._prepare_build_scripts.assert_called_once()
@@ -186,15 +184,13 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         """Test copying source files."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
 
-        # Setup mock source files
+        # Setup mock source files (class methods now, not instance methods)
         src_files = [Path("/tmp/test_repo/boards/artix7/src/top.v")]
-        self.mock_template_discovery.return_value.get_source_files.return_value = (
-            src_files
-        )
+        self.mock_template_discovery.get_source_files.return_value = src_files
 
-        # Setup mock core files
+        # Setup mock core files (class methods now, not instance methods)
         core_files = {"pcileech_core.v": Path("/tmp/test_repo/common/pcileech_core.v")}
-        self.mock_template_discovery.return_value.get_pcileech_core_files.return_value = (
+        self.mock_template_discovery.get_pcileech_core_files.return_value = (
             core_files
         )
 
@@ -210,11 +206,11 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         # Check results
         self.assertEqual(len(result), 2)
 
-        # Verify method calls
-        self.mock_template_discovery.return_value.get_source_files.assert_called_once_with(
+        # Verify method calls (class methods now)
+        self.mock_template_discovery.get_source_files.assert_called_once_with(
             "artix7", self.repo_root
         )
-        self.mock_template_discovery.return_value.get_pcileech_core_files.assert_called_once_with(
+        self.mock_template_discovery.get_pcileech_core_files.assert_called_once_with(
             self.repo_root
         )
         self.mock_repo_manager.get_board_path.assert_called_once_with(
@@ -231,15 +227,15 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         """Test preparing build scripts with existing script."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
 
-        # Setup mock existing script
+        # Setup mock existing script (class method now)
         existing_script = Path("/tmp/test_repo/boards/artix7/build.tcl")
-        self.mock_template_discovery.return_value.get_vivado_build_script.return_value = (
+        self.mock_template_discovery.get_vivado_build_script.return_value = (
             existing_script
         )
 
-        # Setup mock read/adapt
+        # Setup mock read/adapt (class method now)
         mock_read_text.return_value = "# Original TCL content"
-        self.mock_template_discovery.return_value.adapt_template_for_board.return_value = (
+        self.mock_template_discovery.adapt_template_for_board.return_value = (
             "# Adapted TCL content"
         )
 
@@ -252,15 +248,15 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertIn("main", result)
         self.assertEqual(result["main"], output_dir / "scripts" / existing_script.name)
 
-        # Verify method calls
-        self.mock_template_discovery.return_value.get_vivado_build_script.assert_called_once_with(
+        # Verify method calls (class methods now)
+        self.mock_template_discovery.get_vivado_build_script.assert_called_once_with(
             "artix7", self.repo_root
         )
         mock_copy2.assert_called_once_with(
             existing_script, output_dir / "scripts" / existing_script.name
         )
         mock_read_text.assert_called_once()
-        self.mock_template_discovery.return_value.adapt_template_for_board.assert_called_once_with(
+        self.mock_template_discovery.adapt_template_for_board.assert_called_once_with(
             "# Original TCL content", board_config
         )
         mock_write_text.assert_called_once_with("# Adapted TCL content")
@@ -270,10 +266,8 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         """Test preparing build scripts with generated scripts."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
 
-        # Setup mock for no existing script
-        self.mock_template_discovery.return_value.get_vivado_build_script.return_value = (
-            None
-        )
+        # Setup mock - no existing script (class method now)
+        self.mock_template_discovery.get_vivado_build_script.return_value = None
 
         # Setup mock for TCL builder
         mock_tcl_instance = self.mock_tcl_builder.return_value
@@ -291,8 +285,8 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertIn("project", result)
         self.assertIn("build", result)
 
-        # Verify method calls
-        self.mock_template_discovery.return_value.get_vivado_build_script.assert_called_once_with(
+        # Verify method calls (class method now)
+        self.mock_template_discovery.get_vivado_build_script.assert_called_once_with(
             "artix7", self.repo_root
         )
         self.mock_tcl_builder.assert_called_once_with(output_dir=output_dir / "scripts")

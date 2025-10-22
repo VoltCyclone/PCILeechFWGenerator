@@ -26,9 +26,7 @@ from ..models.device import PCIDevice
 from ..models.progress import BuildProgress, BuildStage, ValidationResult
 
 # Constants
-PCILEECH_FPGA_REPO = "https://github.com/ufrisk/pcileech-fpga.git"
-REPO_CACHE_DIR = Path(os.path.expanduser("~/.cache/pcileech-fw-generator/repos"))
-GIT_REPO_UPDATE_DAYS = 7  # Number of days before repo update is needed
+PCILEECH_FPGA_REPO = "https://github.com/VoltCyclone/voltcyclone-fpga.git"
 RESOURCE_MONITOR_INTERVAL = 1.0  # Seconds between resource usage updates
 PROCESS_TERMINATION_TIMEOUT = 2.0  # Seconds to wait for process termination
 
@@ -53,16 +51,7 @@ LOG_PROGRESS_TOKENS = {
 
 logger = logging.getLogger(__name__)
 
-# Optional imports with fallbacks
-try:
-    from git import GitCommandError, InvalidGitRepositoryError, Repo
-
-    GIT_AVAILABLE = True
-except ModuleNotFoundError:
-    GIT_AVAILABLE = False
-    Repo = None
-    GitCommandError = InvalidGitRepositoryError = Exception
-
+# Import RepoManager for submodule access
 try:
     from ...file_management.repo_manager import RepoManager
 except ImportError:
@@ -581,211 +570,33 @@ class BuildOrchestrator:
 
     async def _ensure_git_repo(self) -> None:
         """
-        Ensure the pcileech-fpga git repository is available and up-to-date.
+        Ensure the voltcyclone-fpga git submodule is available.
 
-        Uses RepoManager if available, otherwise falls back to GitPython or
-        manual directory creation.
+        Uses RepoManager to check submodule status.
         """
         if self._current_progress:
             self._current_progress.current_operation = (
-                "Checking pcileech-fpga repository"
+                "Checking voltcyclone-fpga submodule"
             )
             await self._notify_progress()
-
-        # Create cache directory if it doesn't exist
-        repo_dir = REPO_CACHE_DIR / "pcileech-fpga"
-        os.makedirs(REPO_CACHE_DIR, exist_ok=True)
-
-        # Use RepoManager if available
-        if RepoManager is not None:
-            await self._ensure_repo_with_manager()
-            return
-
-        # Fall back to GitPython if available
-        if GIT_AVAILABLE and Repo is not None:
-            await self._ensure_repo_with_git(repo_dir)
-            return
-
-        # Last resort: just create the directory
-        await self._ensure_repo_fallback(repo_dir)
-
-    async def _ensure_repo_with_manager(self) -> None:
-        """Ensure repository using RepoManager."""
-        if RepoManager is None:
-            return
-
-        repo_path = RepoManager.ensure_repo(repo_url=PCILEECH_FPGA_REPO)
-
-        if self._current_progress:
-            self._current_progress.current_operation = (
-                f"PCILeech FPGA repository ensured at {repo_path}"
-            )
-            await self._notify_progress()
-
-    async def _ensure_repo_with_git(self, repo_dir: Path) -> None:
-        """
-        Ensure repository using GitPython.
-
-        Args:
-            repo_dir: Repository directory path
-        """
-        if not GIT_AVAILABLE or Repo is None:
-            return
 
         try:
-            # Check if repository already exists
-            os.makedirs(repo_dir, exist_ok=True)
-            repo = Repo(repo_dir)
-
+            # RepoManager will raise RuntimeError if submodule not initialized
+            repo_path = RepoManager.ensure_repo()
+            
             if self._current_progress:
                 self._current_progress.current_operation = (
-                    f"PCILeech FPGA repository found at {repo_dir}"
+                    f"voltcyclone-fpga submodule ready at {repo_path}"
                 )
                 await self._notify_progress()
-
-            # Check if repository needs update
-            await self._update_git_repo_if_needed(repo, repo_dir)
-
-        except (InvalidGitRepositoryError, GitCommandError):
-            # Repository doesn't exist or is corrupted, clone it
-            await self._clone_git_repo(repo_dir)
-
-    async def _update_git_repo_if_needed(self, repo: Any, repo_dir: Path) -> None:
-        """
-        Update git repository if it's older than the update threshold.
-
-        Args:
-            repo: Git repository object
-            repo_dir: Repository directory path
-        """
-        try:
-            last_update_file = repo_dir / ".last_update"
-            update_needed = True
-
-            if last_update_file.exists():
-                update_needed = self._check_if_update_needed(last_update_file)
-
-            if update_needed:
-                await self._update_git_repo(repo, last_update_file)
-
-        except (OSError, IOError) as e:
-            self._add_progress_warning(
-                "Error checking repository update status: {msg}", msg=str(e)
+        except RuntimeError as e:
+            error_msg = str(e)
+            self._add_progress_error(
+                "Submodule not initialized: {msg}. "
+                "Run: git submodule update --init --recursive",
+                msg=error_msg
             )
-
-    def _check_if_update_needed(self, last_update_file: Path) -> bool:
-        """
-        Check if repository update is needed based on last update timestamp.
-
-        Args:
-            last_update_file: Path to file containing last update timestamp
-
-        Returns:
-            bool: True if update is needed
-        """
-        try:
-            with open(last_update_file, "r") as f:
-                last_update = datetime.datetime.fromisoformat(f.read().strip())
-                days_since_update = (datetime.datetime.now() - last_update).days
-                return days_since_update >= GIT_REPO_UPDATE_DAYS
-        except (ValueError, TypeError):
-            return True
-        return True
-
-    async def _update_git_repo(self, repo: Any, last_update_file: Path) -> None:
-        """
-        Update git repository and record update timestamp.
-
-        Args:
-            repo: Git repository object
-            last_update_file: Path to file for recording update timestamp
-        """
-        if self._current_progress:
-            self._current_progress.current_operation = (
-                "Updating PCILeech FPGA repository"
-            )
-            await self._notify_progress()
-
-        try:
-            # Pull latest changes
-            origin = repo.remotes.origin
-            origin.pull()
-
-            # Update last update timestamp
-            with open(last_update_file, "w") as f:
-                f.write(datetime.datetime.now().isoformat())
-
-            if self._current_progress:
-                self._current_progress.current_operation = (
-                    "PCILeech FPGA repository updated successfully"
-                )
-                await self._notify_progress()
-
-        except GitCommandError as e:
-            if self._current_progress:
-                self._current_progress.add_warning(
-                    f"Failed to update repository: {str(e)}"
-                )
-
-    async def _clone_git_repo(self, repo_dir: Path) -> None:
-        """
-        Clone git repository and record update timestamp.
-
-        Args:
-            repo_dir: Repository directory path
-
-        Raises:
-            RuntimeError: If clone fails
-        """
-        if not GIT_AVAILABLE or Repo is None:
-            return
-
-        if self._current_progress:
-            self._current_progress.current_operation = (
-                f"Cloning PCILeech FPGA repository to {repo_dir}"
-            )
-            await self._notify_progress()
-
-        try:
-            # Remove existing directory if it exists but is not a valid git repo
-            if os.path.exists(repo_dir):
-                shutil.rmtree(repo_dir)
-
-            # Clone repository
-            repo = Repo.clone_from(PCILEECH_FPGA_REPO, repo_dir)
-
-            # Create last update timestamp
-            with open(repo_dir / ".last_update", "w") as f:
-                f.write(datetime.datetime.now().isoformat())
-
-            if self._current_progress:
-                self._current_progress.current_operation = (
-                    "PCILeech FPGA repository cloned successfully"
-                )
-                await self._notify_progress()
-
-        except (GitCommandError, OSError) as e:
-            self._add_progress_error("Failed to clone repository: {msg}", msg=str(e))
-            raise RuntimeError(f"Failed to clone PCILeech FPGA repository: {str(e)}")
-
-    async def _ensure_repo_fallback(self, repo_dir: Path) -> None:
-        """
-        Fallback method to ensure repository directory exists.
-
-        Args:
-            repo_dir: Repository directory path
-        """
-        # Create directory as fallback
-        os.makedirs(repo_dir, exist_ok=True)
-
-        if self._current_progress:
-            self._current_progress.add_warning(
-                "GitPython not available. Using fallback directory."
-            )
-            self._current_progress.current_operation = (
-                f"Using fallback directory at {repo_dir}"
-            )
-            await self._notify_progress()
+            raise
 
     async def _check_donor_module(self, config: BuildConfiguration) -> None:
         """

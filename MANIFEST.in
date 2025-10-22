@@ -49,6 +49,9 @@ recursive-include configs *.yaml
 # Include PCILeech RTL and simulation files
 recursive-include pcileech *.sv *.svh
 
+# Include voltcyclone-fpga submodule contents
+recursive-include lib/voltcyclone-fpga *.xdc *.sv *.svh *.tcl *.py *.md *.txt *.v *.vh *.xci *.xco *.ucf *.coe *.yml
+
 # Exclude build artifacts and cache
 global-exclude *.pyc
 global-exclude *.pyo
