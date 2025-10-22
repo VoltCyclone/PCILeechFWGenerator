@@ -258,12 +258,21 @@ def install_requirements(requirements_file):
 
 
 def check_critical_imports():
-    """Check for imports that are absolutely required for basic functionality."""
+    """Check for imports that are absolutely required for basic functionality.
+    
+    Only checks TUI dependencies if the 'tui' command is being used.
+    """
+    # Check if user is trying to run TUI command
+    is_tui_command = len(sys.argv) > 1 and sys.argv[1] == "tui"
+    
     critical_packages = {
-        "textual": "TUI functionality (install with: pip install textual)",
-        "rich": "Rich text display (install with: pip install rich)",
         "psutil": "System information (install with: pip install psutil)",
     }
+    
+    # Only require textual/rich for TUI command
+    if is_tui_command:
+        critical_packages["textual"] = "TUI functionality (install with: pip install textual)"
+        critical_packages["rich"] = "Rich text display (install with: pip install rich)"
 
     missing_critical = []
 

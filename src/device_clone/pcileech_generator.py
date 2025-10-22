@@ -2031,18 +2031,24 @@ class PCILeechGenerator:
             PCILeechGenerationError: If validation fails
         """
         if self.config.strict_validation:
-            # Validate SystemVerilog modules
-            required_modules = ["pcileech_tlps128_bar_controller"]
-            missing_modules = [
-                mod for mod in required_modules if mod not in systemverilog_modules
+            # NOTE: Validation updated for overlay-only architecture
+            # The new architecture generates .coe overlay files instead of full .sv modules
+            # The bar_controller now comes from lib/voltcyclone-fpga statically
+            
+            # Validate that we have at least config space overlay
+            expected_overlays = ["pcileech_cfgspace"]
+            missing_overlays = [
+                name for name in expected_overlays if name not in systemverilog_modules
             ]
-
-            if missing_modules:
-                raise PCILeechGenerationError(
+            
+            if missing_overlays:
+                log_warning_safe(
+                    self.logger,
                     safe_format(
-                        "Missing required SystemVerilog modules: {mods}",
-                        mods=missing_modules,
-                    )
+                        "Missing expected overlay files: {missing}",
+                        missing=missing_overlays,
+                    ),
+                    prefix="PCIL",
                 )
 
             # Validate module content
