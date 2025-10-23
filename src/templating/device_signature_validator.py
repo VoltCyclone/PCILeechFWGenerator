@@ -70,7 +70,7 @@ def ensure_valid_device_signature(context: Dict[str, Any]) -> None:
         ValueError: If device signature is invalid
     """
     if "device_signature" not in context:
-        error_message = "device_signature key missing in context"
+        error_message = "device_signature key missing from template context"
         log_error_safe(
             logger,
             safe_format("CRITICAL: {error_message}", error_message=error_message),

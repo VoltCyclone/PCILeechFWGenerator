@@ -8,17 +8,13 @@ using the template system, integrating with constants and build helpers.
 
 import logging
 import shutil
-
-# Use absolute imports for better compatibility
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# Import exceptions and utilities - these should be in the package structure
 from src.device_clone.fallback_manager import get_global_fallback_manager
 from src.exceptions import (
     DeviceConfigError,
@@ -26,9 +22,6 @@ from src.exceptions import (
     TemplateNotFoundError,
     XDCConstraintError,
 )
-from src.import_utils import safe_import, safe_import_class
-
-# String utilities (always use these)
 from src.string_utils import (
     generate_tcl_header_comment,
     get_project_name,
@@ -39,59 +32,122 @@ from src.string_utils import (
     safe_format,
 )
 
+# Constants
+DEFAULT_VENDOR_ID = 0x10EC  # Realtek
+DEFAULT_DEVICE_ID = 0x8168  # RTL8168
+DEFAULT_REVISION_ID = 0x15
+DEFAULT_CLASS_CODE = 0x020000  # Ethernet controller
+
+HEX_WIDTH_MAP = {
+    'revision': 2,
+    'vendor': 4,
+    'device': 4,
+    'class': 6,
+}
+
+PCIE_SPEED_CODES = {
+    1: "2.5GT/s",
+    2: "5.0GT/s",
+    3: "8.0GT/s",
+    4: "16.0GT/s",
+    5: "32.0GT/s",
+}
+
+PCIE_WIDTH_CODES = {
+    1: "x1",
+    2: "x2",
+    4: "x4",
+    8: "x8",
+    16: "x16",
+}
+
+
+class HexFormatter:
+    """Handles formatting of hexadecimal device IDs with validation."""
+    
+    @staticmethod
+    def format_id(
+        val: Union[int, str, None],
+        width: int = 4,
+        permissive: bool = False,
+        field_name: str = "id"
+    ) -> str:
+        """
+        Format device ID values as hex strings with optional permissive defaults.
+        
+        Args:
+            val: Value to format (int, str, or None)
+            width: Width of hex string (2, 4, or 6)
+            permissive: If True, use legacy defaults for None values
+            field_name: Name of field for error messages
+            
+        Returns:
+            Formatted hex string without 0x prefix
+            
+        Raises:
+            ValueError: If val is None and permissive=False
+        """
+        if val is None:
+            if not permissive:
+                raise ValueError(
+                    safe_format(
+                        "Cannot format None value as hex ID for {field_name} "
+                        "width={width}",
+                        "Donor-unique device identification values are required.",
+                        field_name=field_name,
+                        width=width
+                    )
+                )
+            
+            # Legacy defaults for testing/development
+            defaults = {
+                2: DEFAULT_REVISION_ID,
+                4: DEFAULT_VENDOR_ID,
+                6: DEFAULT_CLASS_CODE,
+            }
+            val = defaults.get(width, DEFAULT_VENDOR_ID)
+        
+        # Handle Enum values
+        if isinstance(val, Enum):
+            val = val.value if hasattr(val, "value") else str(val)
+        
+        # Format as hex
+        if isinstance(val, str):
+            return val.replace("0x", "").replace("0X", "").upper()
+        return f"{val:0{width}X}"
+
+
+# Standalone function for backward compatibility
 
 def format_hex_id(
-    val: Union[int, str, None], width: int = 4, permissive: bool = False
+    val: Union[int, str, None],
+    width: int = 4,
+    permissive: bool = False,
+    field_name: str = "id"
 ) -> str:
     """
     Format device ID values as hex strings with optional permissive defaults.
-
-    In strict mode (permissive=False), this enforces donor-uniqueness by requiring
-    explicit values and failing fast when None is encountered.
-
-    In permissive mode (permissive=True), legacy defaults are provided for
-    testing/development purposes.
-
+    
+    This is a convenience function that delegates to HexFormatter.format_id().
+    
     Args:
         val: Value to format (int, str, or None)
         width: Width of hex string (2, 4, or 6)
         permissive: If True, use legacy defaults for None values
-
+        field_name: Name of field for error messages
+        
     Returns:
         Formatted hex string without 0x prefix
-
+        
     Raises:
         ValueError: If val is None and permissive=False
     """
-    if val is None:
-        if permissive:
-            # Legacy defaults for testing/development
-            # These are NOT production values - use only in permissive mode
-            _PERMISSIVE_DEFAULTS = {
-                2: 0x15,  # revision_id default
-                4: 0x10EC,  # vendor_id default (Realtek)
-                6: 0x020000,  # class_code default (Ethernet controller)
-            }
-            val = _PERMISSIVE_DEFAULTS.get(width, 0x10EC)
-        else:
-            raise ValueError(
-                f"Cannot format None value as hex ID (width={width}). "
-                "Donor-unique device identification values are required."
-            )
-
-    # Coerce Enum values to their underlying integer before formatting
-    if isinstance(val, Enum):
-        # Prefer numeric value; if not available, fall back to string handling below
-        if hasattr(val, "value"):
-            val = val.value  # type: ignore[assignment]
-
-    if isinstance(val, str):
-        # Remove 0x prefix if present and return just the hex digits
-        return val.replace("0x", "").replace("0X", "").upper()
-    return f"{val:0{width}X}"
+    return HexFormatter.format_id(val, width, permissive, field_name)
 
 
 # Enums for better type safety
+
+
 class TCLScriptType(Enum):
     """Enumeration of TCL script types."""
 
@@ -110,10 +166,11 @@ class TCLScriptType(Enum):
     PCILEECH_BUILD = "pcileech_build"
 
 
-@dataclass(frozen=True)
+@dataclass
 class BuildContext:
     """Immutable build context containing all necessary build parameters."""
-
+    
+    # Required fields
     board_name: str
     fpga_part: str
     fpga_family: str
@@ -121,27 +178,30 @@ class BuildContext:
     max_lanes: int
     supports_msi: bool
     supports_msix: bool
+    
+    # Optional device identifiers
     vendor_id: Optional[int] = None
     device_id: Optional[int] = None
     revision_id: Optional[int] = None
     class_code: Optional[int] = None
     subsys_vendor_id: Optional[int] = None
     subsys_device_id: Optional[int] = None
-    project_name: str = get_project_name()
+    
+    # Project configuration
+    project_name: str = field(default_factory=get_project_name)
     project_dir: str = "./vivado_project"
     output_dir: str = "."
+    
+    # Build strategies
     synthesis_strategy: str = "Vivado Synthesis Defaults"
     implementation_strategy: str = "Performance_Explore"
     build_jobs: int = 4
     build_timeout: int = 3600
-
-    # Optional donor-derived PCIe capability fields
-    # If provided, these will be mapped to Xilinx enum strings for use in templates
-    pcie_max_link_speed_code: Optional[int] = (
-        None  # 1=2.5, 2=5.0, 3=8.0, 4=16.0, 5=32.0
-    )
-    pcie_max_link_width: Optional[int] = None  # lane count: 1,2,4,8,16
-
+    
+    # PCIe capabilities
+    pcie_max_link_speed_code: Optional[int] = None
+    pcie_max_link_width: Optional[int] = None
+    
     # PCILeech-specific parameters
     pcileech_src_dir: str = "src"
     pcileech_ip_dir: str = "ip"
@@ -151,13 +211,67 @@ class BuildContext:
     ip_file_list: Optional[List[str]] = None
     coefficient_file_list: Optional[List[str]] = None
     batch_mode: bool = True
-
+    
     def __post_init__(self):
         """Validate required fields after initialization."""
+        self._validate_required_fields()
+        self._validate_pcie_parameters()
+    
+    def _validate_required_fields(self):
+        """Validate that required fields are present and valid."""
         if not self.fpga_part:
             raise ValueError("fpga_part is required and cannot be empty")
         if not self.board_name:
             raise ValueError("board_name is required and cannot be empty")
+        if not self.fpga_family:
+            raise ValueError("fpga_family is required and cannot be empty")
+        if not self.pcie_ip_type:
+            raise ValueError("pcie_ip_type is required and cannot be empty")
+    
+    def _validate_pcie_parameters(self):
+        """Validate PCIe-specific parameters."""
+        if self.max_lanes not in [1, 2, 4, 8, 16]:
+            raise ValueError(f"Invalid max_lanes value: {self.max_lanes}")
+        
+        if (self.pcie_max_link_speed_code and 
+            self.pcie_max_link_speed_code not in PCIE_SPEED_CODES):
+            raise ValueError(
+                safe_format(
+                    "Invalid PCIe speed code: {self.pcie_max_link_speed_code}", 
+                    self=self
+                )
+            )
+        
+        if (self.pcie_max_link_width and 
+            self.pcie_max_link_width not in PCIE_WIDTH_CODES):
+            raise ValueError(
+                safe_format(
+                    "Invalid PCIe width: {self.pcie_max_link_width}", 
+                    self=self
+                )
+            )
+    
+    def require_donor_values(self):
+        """
+        Check that all donor-derived values are present.
+        
+        Raises:
+            ValueError: If any required donor value is missing
+        """
+        required_fields = {
+            'vendor_id': self.vendor_id,
+            'device_id': self.device_id,
+            'revision_id': self.revision_id,
+            'class_code': self.class_code,
+        }
+        
+        missing = [name for name, value in required_fields.items() if value is None]
+        if missing:
+            raise ValueError(
+                f"Missing required donor-derived values: {', '.join(missing)}. "
+                "Cannot generate donor-unique firmware without explicit values "
+                "from donor device profiling."
+            )
 
     # no-dd-sa
     def to_template_context(self, strict: bool = True) -> Dict[str, Any]:
@@ -181,31 +295,22 @@ class BuildContext:
         }
 
         # In strict mode, enforce donor-uniqueness: require all critical device IDs
-        if strict:
-            if self.vendor_id is None:
+        def require_donor_value(value: Optional[int], field_name: str) -> None:
+            """Validate donor-derived value is present in strict mode."""
+            if strict and value is None:
                 raise ValueError(
-                    "Strict mode enabled: Missing required vendor_id. Cannot generate "
-                    "donor-unique firmware without explicit vendor identification from "
-                    "donor device profiling."
+                    safe_format(
+                        "Strict mode: Missing required {field}. Cannot generate "
+                        "donor-unique firmware without explicit {field} from "
+                        "donor device profiling.",
+                        field=field_name,
+                    )
                 )
-            if self.device_id is None:
-                raise ValueError(
-                    "Strict mode enabled: Missing required device_id. Cannot generate "
-                    "donor-unique firmware without explicit device identification from "
-                    "donor device profiling."
-                )
-            if self.revision_id is None:
-                raise ValueError(
-                    "Strict mode enabled: Missing required revision_id. Cannot generate "
-                    "donor-unique firmware without explicit revision from donor device "
-                    "profiling."
-                )
-            if self.class_code is None:
-                raise ValueError(
-                    "Strict mode enabled: Missing required class_code. Cannot generate "
-                    "donor-unique firmware without explicit class code from donor device "
-                    "profiling."
-                )
+
+        require_donor_value(self.vendor_id, "vendor_id")
+        require_donor_value(self.device_id, "device_id")
+        require_donor_value(self.revision_id, "revision_id")
+        require_donor_value(self.class_code, "class_code")
 
         # Apply values (with permissive defaults if not strict)
         # Legacy defaults: vendor_id=0x10EC (Realtek), device_id=0x8168 (RTL8168)
@@ -245,7 +350,9 @@ class BuildContext:
             subsys_vendor_id = vendor_id
             context_metadata["defaults_used"]["subsys_vendor_id"] = "vendor_id"
         else:
-            context_metadata["explicit_values"]["subsys_vendor_id"] = subsys_vendor_id
+            context_metadata["explicit_values"]["subsys_vendor_id"] = (
+                subsys_vendor_id
+            )
 
         subsys_device_id = getattr(self, "subsys_device_id", None)
         if subsys_device_id is None:
@@ -253,7 +360,9 @@ class BuildContext:
             subsys_device_id = device_id
             context_metadata["defaults_used"]["subsys_device_id"] = "device_id"
         else:
-            context_metadata["explicit_values"]["subsys_device_id"] = subsys_device_id
+            context_metadata["explicit_values"]["subsys_device_id"] = (
+                subsys_device_id
+            )
 
         # Generate device signature for security compliance
         device_signature = safe_format(
@@ -349,8 +458,9 @@ class BuildContext:
             if code is None:
                 if strict:
                     raise TCLBuilderError(
-                        "Missing required PCIe link speed from donor device profiling. "
-                        "Cannot generate donor-unique firmware without speed capability data."
+                        "Missing required PCIe link speed from donor device "
+                        "profiling. Cannot generate donor-unique firmware without "
+                        "speed capability data."
                     )
                 # Non-strict mode: provide safe default for testing
                 # Track this default in context_metadata
@@ -359,7 +469,8 @@ class BuildContext:
             if code not in mapping:
                 raise TCLBuilderError(
                     safe_format(
-                        "Invalid PCIe speed code {code} from donor device (valid: 1-5)",
+                        "Invalid PCIe speed code {code} from donor device "
+                        "(valid: 1-5)",
                         code=code,
                     )
                 )
@@ -372,8 +483,9 @@ class BuildContext:
             if lanes is None or lanes == 0:
                 if strict:
                     raise TCLBuilderError(
-                        "Missing required PCIe link width from donor device profiling. "
-                        "Cannot generate donor-unique firmware without lane configuration data."
+                        "Missing required PCIe link width from donor device "
+                        "profiling. Cannot generate donor-unique firmware without "
+                        "lane configuration data."
                     )
                 # Non-strict mode: use max_lanes as fallback for testing
                 lanes = default_lanes if default_lanes > 0 else 1
@@ -381,7 +493,8 @@ class BuildContext:
             if lanes < 1 or lanes > 16:
                 raise TCLBuilderError(
                     safe_format(
-                        "Invalid PCIe link width {lanes} from donor device (valid: 1-16)",
+                        "Invalid PCIe link width {lanes} from donor device "
+                        "(valid: 1-16)",
                         lanes=lanes,
                     )
                 )
@@ -444,7 +557,8 @@ class BuildContext:
             "bar_config": bar_config,
             "timing_config": timing_config,
             "pcileech_config": pcileech_config,
-            # Nested device information (backward compatibility) - use TemplateObject for attribute access
+            # Nested device information (backward compatibility) 
+            # use TemplateObject for attribute access
             "device": TemplateObject(
                 {
                     "vendor_id": format_hex_id(vendor_id, 4),
@@ -455,7 +569,8 @@ class BuildContext:
                     "subsys_device_id": format_hex_id(subsys_device_id, 4),
                 }
             ),
-            # Nested board information (backward compatibility) - use TemplateObject for attribute access
+            # Nested board information (backward compatibility) 
+            # use TemplateObject for attribute access
             "board": TemplateObject(
                 {
                     "name": self.board_name,
@@ -493,7 +608,7 @@ class BuildContext:
                     "coefficient_files": self.coefficient_file_list or [],
                 }
             ),
-            # Flat variables for backward compatibility (donor-derived values required)
+            # Flat variables for backward compatibility 
             "board_name": self.board_name,
             "fpga_part": self.fpga_part,
             "pcie_ip_type": self.pcie_ip_type,
@@ -543,12 +658,23 @@ class DeviceConfigProvider(Protocol):
         ...
 
 
+@dataclass
+
 class ConstraintManager:
     """Manages XDC constraint file operations."""
 
-    def __init__(self, output_dir: Path, logger: logging.Logger):
+    output_dir: Path
+    logger: logging.Logger
+
+    def __init__(
+        self,
+        output_dir: Path,
+        logger: logging.Logger,
+        prefix: str = "XDC",
+    ):
         self.output_dir = output_dir
         self.logger = logger
+        self.prefix = prefix
 
     def copy_xdc_files(self, board_name: str) -> List[str]:
         """
@@ -565,7 +691,7 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from file_management.repo_manager import (
+            from src.file_management.repo_manager import (
                 get_xdc_files,
                 is_repository_accessible,
             )
@@ -592,6 +718,7 @@ class ConstraintManager:
                         safe_format(
                             "Copied XDC file: {filename}", filename=xdc_file.name
                         ),
+                        prefix=self.prefix,
                     )
                 except Exception as e:
                     raise XDCConstraintError(
@@ -607,6 +734,7 @@ class ConstraintManager:
                 safe_format(
                     "Successfully copied {count} XDC files", count=len(copied_files)
                 ),
+                prefix=self.prefix,
             )
             return copied_files
 
@@ -621,9 +749,12 @@ class ConstraintManager:
                 )
             ) from e
 
-
+@dataclass
 class TCLScriptBuilder:
     """Builds individual TCL scripts using templates."""
+
+    template_renderer: Any
+    logger: logging.Logger
 
     def __init__(self, template_renderer, logger: logging.Logger):
         self.template_renderer = template_renderer
@@ -689,6 +820,7 @@ class TCLScriptBuilder:
             ) from e
 
 
+@dataclass
 class TCLBuilder:
     """
     High-level interface for building TCL scripts using templates.
@@ -731,7 +863,6 @@ class TCLBuilder:
         self._init_repo_manager()
 
         # Initialize (shared) fallback manager
-        # Use the global/shared FallbackManager to avoid multiple default registrations
         self.fallback_manager = get_global_fallback_manager()
 
         # Initialize script builder
@@ -754,6 +885,7 @@ class TCLBuilder:
                 "TCL builder initialized with output dir: {output_dir}",
                 output_dir=self.output_dir,
             ),
+            prefix=self.prefix,
         )
 
     def _init_template_renderer(self, template_dir: Optional[Union[str, Path]]):
@@ -764,14 +896,19 @@ class TCLBuilder:
             self.template_renderer = TemplateRenderer(template_dir)
         except ImportError as e:
             raise TCLBuilderError(
-                safe_format("Failed to initialize template renderer: {error}", error=e)
+                safe_format(
+                    "Failed to initialize template renderer: {error}",
+                    error=e
+                )
             ) from e
 
     def _init_device_config(self, device_profile: Optional[str]):
         """Initialize device configuration with robust error handling."""
         if device_profile is None:
             log_info_safe(
-                self.logger, "No device profile specified, using live device detection"
+                self.logger,
+                "No device profile specified, using live device detection",
+                prefix=self.prefix,
             )
             self.device_config = None
             return
@@ -791,7 +928,7 @@ class TCLBuilder:
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from build_helpers import (
+            from src.build_helpers import (
                 batch_write_tcl_files,
                 create_fpga_strategy_selector,
                 validate_fpga_part,
@@ -936,13 +1073,8 @@ class TCLBuilder:
         Args:
             board: Board name
             fpga_part: FPGA part string
-        device_signature = safe_format(
-            "{vid}:{did}:{rid}",
-            vid=format_hex_id(vendor_id, 4),
-            did=format_hex_id(device_id, 4),
-            rid=format_hex_id(revision_id, 2),
-        )
-            Validated build context
+            Returns:
+                Validated build context
 
         Raises:
             ValueError: If required parameters are invalid
@@ -1226,6 +1358,7 @@ class TCLBuilder:
                 did=template_context["device"].get("device_id", "N/A"),
                 cls=template_context["device"].get("class_code", "N/A"),
             ),
+            prefix=self.prefix,
         )
 
         # 2. Handle board information - extract from BuildContext if available
@@ -1659,4 +1792,6 @@ __all__ = [
     "DeviceConfigError",
     "XDCConstraintError",
     "create_tcl_builder",
+    "format_hex_id",
+    "HexFormatter",
 ]

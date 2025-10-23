@@ -39,7 +39,7 @@ def test_permissive_defaults_still_apply():
 
 def test_strict_mode_missing_ids_raises():
     ctx = _mk_base_ctx()
-    with pytest.raises(ValueError, match=r"Strict mode enabled.*vendor_id"):
+    with pytest.raises(ValueError, match=r"Strict mode:.*vendor_id"):
         ctx.to_template_context(strict=True)
 
 

@@ -115,11 +115,15 @@ class PerformanceCounterGenerator:
         if hasattr(self.config, "enable_latency_measurement") and not hasattr(
             self.config, "enable_latency_tracking"
         ):
-            self.config.enable_latency_tracking = self.config.enable_latency_measurement
+            self.config.enable_latency_tracking = (
+                self.config.enable_latency_measurement
+            )
         elif hasattr(self.config, "enable_latency_tracking") and not hasattr(
             self.config, "enable_latency_measurement"
         ):
-            self.config.enable_latency_measurement = self.config.enable_latency_tracking
+            self.config.enable_latency_measurement = (
+                self.config.enable_latency_tracking
+            )
         self.device_type = device_type
         self.logger = logger or logging.getLogger(__name__)
         self.prefix = prefix
@@ -134,7 +138,8 @@ class PerformanceCounterGenerator:
         log_info_safe(
             self.logger,
             safe_format(
-                "Initialized PerformanceCounterGenerator for device type: {device_type}",
+                "Initialized PerformanceCounterGenerator for "
+                "device type: {device_type}",
                 device_type=device_type.value,
             ),
             prefix=prefix,
@@ -165,10 +170,12 @@ class PerformanceCounterGenerator:
         context = {
             # Enable flags from template context or config
             "enable_transaction_counters": perf_config.get(
-                "enable_transaction_counters", self.config.enable_transaction_counters
+                "enable_transaction_counters",
+                self.config.enable_transaction_counters
             ),
             "enable_bandwidth_monitoring": perf_config.get(
-                "enable_bandwidth_monitoring", self.config.enable_bandwidth_monitoring
+                "enable_bandwidth_monitoring",
+                self.config.enable_bandwidth_monitoring
             ),
             "enable_latency_measurement": perf_config.get(
                 "enable_latency_measurement", self.config.enable_latency_measurement
@@ -216,7 +223,9 @@ class PerformanceCounterGenerator:
                 "medium_bandwidth_threshold", 50
             ),
             "low_latency_threshold": perf_config.get("low_latency_threshold", 10),
-            "medium_latency_threshold": perf_config.get("medium_latency_threshold", 50),
+            "medium_latency_threshold": perf_config.get(
+                "medium_latency_threshold", 50
+            ),
             "low_error_threshold": perf_config.get("low_error_threshold", 1),
             "medium_error_threshold": perf_config.get("medium_error_threshold", 5),
             # Device-specific parameters with smart defaults based on device type
@@ -231,7 +240,8 @@ class PerformanceCounterGenerator:
         log_info_safe(
             self.logger,
             safe_format(
-                "Built performance context with {count} parameters for device type {device_type}",
+                "Built performance context with {count} parameters "
+                "for device type {device_type}",
                 count=len(context),
                 device_type=context["device_type"],
             ),
@@ -254,14 +264,18 @@ class PerformanceCounterGenerator:
     ) -> str:
         """Generate transaction counting logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def generate_bandwidth_monitoring(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate bandwidth monitoring logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def generate_latency_measurement(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -334,7 +348,8 @@ class PerformanceCounterGenerator:
         log_info_safe(
             self.logger,
             safe_format(
-                "Generating complete performance counters for device type: {device_type}",
+                "Generating complete performance counters for "
+                "device type: {device_type}",
                 device_type=context["device_type"],
             ),
             prefix=self.prefix,

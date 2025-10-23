@@ -72,6 +72,7 @@ SYSTEMVERILOG_EXTENSION = ".sv"
 # Type Definitions
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _as_int(value: Union[int, str], field: str) -> int:
     """Normalize numeric identifier that may be int or hex string."""
     if isinstance(value, int):
@@ -1180,7 +1181,9 @@ class FirmwareBuilder:
             config_space_bytes = None
             # Try to get config space bytes from result
             if "config_space_data" in result:
-                config_space_bytes = result["config_space_data"].get("raw_config_space")
+                config_space_bytes = result["config_space_data"].get(
+                    "raw_config_space"
+                )
                 if not config_space_bytes:
                     # Try config_space_bytes key
                     config_space_bytes = result["config_space_data"].get(
@@ -1353,7 +1356,7 @@ class FirmwareBuilder:
         """Write XDC constraint files to output directory."""
         ctx = result.get("template_context", {})
         board_xdc_content = ctx.get("board_xdc_content", "")
-        
+
         if not board_xdc_content:
             log_warning_safe(
                 self.logger,
@@ -1361,18 +1364,18 @@ class FirmwareBuilder:
                 prefix="BUILD",
             )
             return
-        
+
         # Create constraints directory
         constraints_dir = self.config.output_dir / "constraints"
         constraints_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Write board-specific XDC file
         board_name = self.config.board
         xdc_filename = f"{board_name}.xdc"
         xdc_path = constraints_dir / xdc_filename
-        
+
         xdc_path.write_text(board_xdc_content, encoding="utf-8")
-        
+
         log_info_safe(
             self.logger,
             safe_format(
