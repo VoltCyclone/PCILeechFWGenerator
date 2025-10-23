@@ -414,12 +414,16 @@ endmodule
 
     def _generate_error_recovery_logic(self) -> str:
         """Generate error recovery logic."""
-        log_debug_safe(logger, "Generating error recovery logic", prefix="ERROR_LOGIC")
+        log_debug_safe(logger, "Generating error recovery logic", prefix=self.prefix)
 
         context = {
             "config": self.config.error_handling,
-            "recoverable_errors": list(self.config.error_handling.recoverable_errors),
-            "fatal_errors": list(self.config.error_handling.fatal_errors),
+            "recoverable_errors": list(
+                self.config.error_handling.recoverable_errors
+            ),
+            "fatal_errors": list(
+                self.config.error_handling.fatal_errors
+            ),
             "error_thresholds": self.config.error_handling.error_thresholds,
         }
         return self.renderer.render_template(
@@ -428,7 +432,7 @@ endmodule
 
     def _generate_error_logging_logic(self) -> str:
         """Generate error logging logic."""
-        log_debug_safe(logger, "Generating error logging logic", prefix="ERROR_LOGIC")
+        log_debug_safe(logger, "Generating error logging logic", prefix=self.prefix)
 
         context = {"config": self.config.error_handling}
         return self.renderer.render_template(
@@ -442,7 +446,9 @@ endmodule
         )
 
         context = {"config": self.config.performance}
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def _generate_sampling_logic(self) -> str:
         """Generate sampling logic."""

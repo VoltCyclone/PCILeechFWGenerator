@@ -1,5 +1,32 @@
 {{ header }}
 # PCILeech Synthesis Script
+puts "Validating project before synthesis..."
+
+# Verify top module is set
+set top_module [get_property top [current_fileset]]
+if {$top_module == ""} {
+    puts "ERROR: Top module is not set in project"
+    puts "Cannot proceed with synthesis"
+    exit 1
+}
+puts "Top module: $top_module"
+
+# Verify source files exist
+set source_files [get_files -of_objects [get_filesets sources_1]]
+if {[llength $source_files] == 0} {
+    puts "ERROR: No source files in project"
+    puts "Cannot proceed with synthesis"
+    exit 1
+}
+puts "Source files: [llength $source_files] file(s)"
+
+# List SystemVerilog files for verification
+set sv_files [get_files -of_objects [get_filesets sources_1] -filter {FILE_TYPE == "SystemVerilog"}]
+puts "SystemVerilog files: [llength $sv_files]"
+foreach sv_file $sv_files {
+    puts "  - [file tail $sv_file]"
+}
+
 puts "Configuring synthesis settings..."
 set_property strategy "Vivado Synthesis Defaults" [get_runs synth_1]
 set_property steps.synth_design.args.directive "AreaOptimized_high" [get_runs synth_1]

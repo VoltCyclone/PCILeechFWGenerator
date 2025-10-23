@@ -10,6 +10,8 @@ import importlib
 import sys
 from typing import Any, Optional
 
+from src.string_utils import safe_format
+
 
 def safe_import(module_name: str, relative_name: Optional[str] = None) -> Any:
     """
@@ -56,7 +58,13 @@ def safe_import(module_name: str, relative_name: Optional[str] = None) -> Any:
     try:
         return importlib.import_module(module_name)
     except ImportError as e:
-        raise ImportError(f"Could not import {module_name} using any method: {e}")
+        raise ImportError(
+            safe_format(
+                "Could not import {module_name} using any method: {e}",
+                module_name=module_name,
+                e=e,
+            )
+        )
 
 
 def safe_import_class(
@@ -80,7 +88,13 @@ def safe_import_class(
     try:
         return getattr(module, class_name)
     except AttributeError:
-        raise ImportError(f"Class {class_name} not found in module {module_name}")
+        raise ImportError(
+            safe_format(
+                "Class {class_name} not found in module {module_name}",
+                class_name=class_name,
+                module_name=module_name,
+            )
+        )
 
 
 def get_repo_manager():
@@ -92,11 +106,19 @@ def get_repo_manager():
         class FallbackRepoManager:
             @staticmethod
             def read_xdc_constraints(board: str) -> str:
-                return f"# Fallback XDC constraints for board: {board}\n# RepoManager not available"
+                return safe_format(
+                    "# Fallback XDC constraints for board: {board}\n"
+                    "# RepoManager not available",
+                    board=board,
+                )
 
             @staticmethod
             def read_combined_xdc(board: str) -> str:
-                return f"# Fallback XDC constraints for board: {board}\n# RepoManager not available"
+                return safe_format(
+                    "# Fallback XDC constraints for board: {board}\n"
+                    "# RepoManager not available",
+                    board=board,
+                )
 
             @staticmethod
             def ensure_git_repo():

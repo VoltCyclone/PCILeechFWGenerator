@@ -50,7 +50,8 @@ def validate_device_signature(device_signature: Any) -> Tuple[bool, Optional[str
             return True, None
 
     # Special case for vendor:device format (used in some contexts)
-    if re.match(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[0-9a-fA-F]{2})?$", device_signature):
+    vendor_device_pattern = r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[0-9a-fA-F]{2})?$"
+    if re.match(vendor_device_pattern, device_signature):
         return True, None
 
     return False, safe_format(
@@ -69,12 +70,15 @@ def ensure_valid_device_signature(context: Dict[str, Any]) -> None:
         ValueError: If device signature is invalid
     """
     if "device_signature" not in context:
+        error_message = "device_signature key missing in context"
         log_error_safe(
             logger,
-            "CRITICAL: device_signature is missing from template context",
+            safe_format("CRITICAL: {error_message}", error_message=error_message),
             prefix="SECURITY",
         )
-        raise ValueError("CRITICAL: device_signature is missing from template context")
+        raise ValueError(
+            safe_format("CRITICAL: {error_message}", error_message=error_message)
+        )
 
     device_signature = context["device_signature"]
     is_valid, error_message = validate_device_signature(device_signature)

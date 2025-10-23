@@ -163,6 +163,7 @@ def build_sub(parser: argparse._SubParsersAction):
     p.add_argument("--bdf", help="PCI BDF (skip for interactive picker)")
     p.add_argument(
         "--board",
+        choices=get_supported_boards(),
         help="FPGA board name or shorthand (e.g., 'pcileech_35t325_x1' or '35t')",
     )
     p.add_argument(

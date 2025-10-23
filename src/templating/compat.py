@@ -15,6 +15,7 @@ import logging
 import warnings
 from typing import Any, Dict, Optional
 
+from src.__version__ import __version__
 from src.string_utils import log_warning_safe, safe_format
 
 # Import the new implementations
@@ -28,8 +29,13 @@ class DeprecationHelper:
     """Helper class to manage deprecation warnings and migration guidance."""
 
     @staticmethod
-    def warn_deprecated(old_name: str, new_name: str, version: str = "2.0.0") -> None:
+    def warn_deprecated(
+        old_name: str, new_name: str, version: str = None
+    ) -> None:
         """Issue a deprecation warning with migration guidance."""
+        if version is None:
+            version = __version__
+        
         warning_msg = safe_format(
             "{old} is deprecated and will be removed in v{version}. "
             "Use {new} instead. See site/docs/REFRACTOR_PLAN.md for "
@@ -197,8 +203,6 @@ __all__ = [
     "DeprecationHelper",
 ]
 
-
-# Module-level deprecation notice
 def __getattr__(name: str) -> Any:
     """Handle legacy imports with deprecation warnings."""
     legacy_mappings = {

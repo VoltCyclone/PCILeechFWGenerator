@@ -103,6 +103,7 @@ class TCLScriptType(Enum):
     IMPLEMENTATION = "implementation"
     BITSTREAM = "bitstream"
     MASTER_BUILD = "master_build"
+    VALIDATE_PROJECT = "validate_project"
 
     # PCILeech-specific script types
     PCILEECH_PROJECT = "pcileech_project"
@@ -638,6 +639,7 @@ class TCLScriptBuilder:
             TCLScriptType.IMPLEMENTATION: "tcl/implementation.j2",
             TCLScriptType.BITSTREAM: "tcl/bitstream.j2",
             TCLScriptType.MASTER_BUILD: "tcl/master_build.j2",
+            TCLScriptType.VALIDATE_PROJECT: "tcl/validate_project.j2",
             # PCILeech templates
             TCLScriptType.PCILEECH_PROJECT: "tcl/pcileech_generate_project.j2",
             TCLScriptType.PCILEECH_BUILD: "tcl/pcileech_build.j2",
