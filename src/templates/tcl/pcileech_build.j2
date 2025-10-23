@@ -72,6 +72,25 @@ if {[llength $sv_in_proj] > 0} {
 # Refresh compile order after file-type changes
 update_compile_order -fileset sources_1
 
+# Ensure a top module is set (fallback if project lacks one)
+set _current_top [get_property top [current_fileset]]
+if {$_current_top eq ""} {
+    # Prefer an explicitly provided top module name from context; else use default
+    set _fallback_top "{{ top_module | default('pcileech_top') }}"
+    if {$_fallback_top ne ""} {
+        catch { set_property top $_fallback_top [current_fileset] }
+        set _current_top [get_property top [current_fileset]]
+        if {$_current_top ne ""} {
+            puts "Top module was not set; configured top to: $_current_top"
+            # Disable auto-setting to avoid Vivado changing it later
+            catch { set_property top_auto_set 0 [current_fileset] }
+        } else {
+            puts "WARNING: Unable to set top module automatically (tried: $_fallback_top)"
+            puts "         You can set it manually with: set_property top <module_name> [current_fileset]"
+        }
+    }
+}
+
 # Reset runs to ensure clean build
 reset_run synth_1
 reset_run impl_1
