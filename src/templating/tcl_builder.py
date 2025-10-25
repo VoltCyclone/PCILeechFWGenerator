@@ -464,8 +464,9 @@ class BuildContext:
                     )
                 # Non-strict mode: provide safe default for testing
                 # Track this default in context_metadata
-                context_metadata["defaults_used"]["pcie_max_link_speed_code"] = 2
-                return "5.0_GT/s"  # Gen2 - safe default for most 7-series boards
+                # Use Gen1 (2.5 GT/s) for maximum compatibility with 7-series
+                context_metadata["defaults_used"]["pcie_max_link_speed_code"] = 1
+                return "2.5_GT/s"  # Gen1 - maximum compatibility
             if code not in mapping:
                 raise TCLBuilderError(
                     safe_format(
@@ -474,7 +475,33 @@ class BuildContext:
                         code=code,
                     )
                 )
-            return mapping[code]
+            
+            speed = mapping[code]
+            
+            # Clamp speed to IP-specific maximum
+            if ip_type in ("pcie_7x", "7x"):
+                # 7-series only supports Gen1 (2.5 GT/s)
+                if code > 1:
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Clamping PCIe speed from {requested} to 2.5_GT/s for "
+                            "7-series IP (Gen1 only)",
+                            requested=speed,
+                        ),
+                        prefix="TCL_BLDER",
+                    )
+                    context_metadata["clamped_values"] = context_metadata.get(
+                        "clamped_values", {}
+                    )
+                    context_metadata["clamped_values"]["pcie_speed"] = {
+                        "requested": speed,
+                        "clamped_to": "2.5_GT/s",
+                        "reason": "7-series IP maximum",
+                    }
+                    return "2.5_GT/s"
+            
+            return speed
 
         def _map_width(
             width_val: Optional[int], default_lanes: int, strict: bool
@@ -501,23 +528,15 @@ class BuildContext:
             return f"X{lanes}"
 
         def _validate_enums(ip_type: str, speed_enum: str, width_enum: str) -> None:
-            if ip_type == "pcie_7x":
-                allowed_speeds = {"2.5_GT/s", "5.0_GT/s"}
+            """Validate PCIe enums against IP capabilities."""
+            if ip_type in ("pcie_7x", "7x"):
                 allowed_widths = {"X1", "X2", "X4", "X8"}
-            elif ip_type == "pcie_ultrascale":
-                allowed_speeds = {"2.5_GT/s", "5.0_GT/s", "8.0_GT/s", "16.0_GT/s"}
+            elif ip_type in ("pcie_ultrascale", "ultrascale"):
                 allowed_widths = {"X1", "X2", "X4", "X8", "X16"}
             else:
                 return
 
-            if speed_enum not in allowed_speeds:
-                raise TCLBuilderError(
-                    safe_format(
-                        "Unsupported link speed {speed} for IP {ip}",
-                        speed=speed_enum,
-                        ip=ip_type,
-                    )
-                )
+            # Speed is already clamped in _map_speed, just validate width
             if width_enum not in allowed_widths:
                 raise TCLBuilderError(
                     safe_format(
@@ -1160,23 +1179,16 @@ class TCLBuilder:
             )
 
         # Extract device configuration values
-        config_vendor_id = self._safe_getattr(
-            self.device_config, "identification.vendor_id"
-        )
-        config_device_id = self._safe_getattr(
-            self.device_config, "identification.device_id"
-        )
-        config_revision_id = self._safe_getattr(
-            self.device_config, "registers.revision_id"
-        )
-        config_class_code = self._safe_getattr(
-            self.device_config, "identification.class_code"
-        )
+        # device_config is a flat dict with direct properties, not nested
+        config_vendor_id = self._safe_getattr(self.device_config, "vendor_id")
+        config_device_id = self._safe_getattr(self.device_config, "device_id")
+        config_revision_id = self._safe_getattr(self.device_config, "revision_id")
+        config_class_code = self._safe_getattr(self.device_config, "class_code")
         config_subsys_vendor_id = self._safe_getattr(
-            self.device_config, "identification.subsystem_vendor_id"
+            self.device_config, "subsystem_vendor_id"
         )
         config_subsys_device_id = self._safe_getattr(
-            self.device_config, "identification.subsystem_device_id"
+            self.device_config, "subsystem_device_id"
         )
 
         # Resolve final device identification values
