@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 
 from src.__version__ import __version__
 from src.error_utils import format_user_friendly_error
-from src.pci_capability.constants import MSIX_TABLE_ENTRY_SIZE
 from src.string_utils import (
     format_bar_summary_table,
     format_bar_table,
@@ -24,9 +23,12 @@ from src.string_utils import (
     safe_format,
     utc_timestamp,
 )
-from src.templating.sv_constants import (
+
+# Single source of truth for constants and templates
+from .sv_constants import (
     SV_CONSTANTS,
     SV_TEMPLATES,
+    SV_VALIDATION,
     SVConstants,
     SVTemplates,
     SVValidation,
@@ -46,8 +48,6 @@ from .advanced_sv_features import (
 )
 
 from .advanced_sv_power import PowerManagementConfig
-
-from .sv_constants import SVConstants, SVTemplates
 
 from .sv_context_builder import SVContextBuilder
 
@@ -96,6 +96,10 @@ class SystemVerilogGenerator:
             self.renderer, self.logger, prefix=prefix
         )
         self.prefix = prefix
+        
+        # module_generator is not available in overlay-only architecture
+        # Legacy methods that reference it will raise clear errors
+        self.module_generator = None
 
         # Validate device configuration
         self.validator.validate_device_config(self.device_config)
@@ -104,6 +108,22 @@ class SystemVerilogGenerator:
             self.logger,
             "SystemVerilogGenerator initialized successfully",
             prefix=prefix,
+        )
+
+    def _ensure_module_generator_available(self) -> None:
+        """
+        Validate that module_generator is available for legacy methods.
+
+        Raises:
+            TemplateRenderError: Always, since module_generator is not supported
+                                in overlay-only architecture
+        """
+        raise TemplateRenderError(
+            "Advanced SystemVerilog module generation is not available in "
+            "overlay-only mode. The new architecture generates only .coe "
+            "configuration files. Full SystemVerilog HDL modules are sourced "
+            "from the upstream pcileech-fpga repository. "
+            "For migration guidance, see site/docs/architecture/overlay-mode.md"
         )
 
     # Local timestamp helper removed; use utc_timestamp from string_utils
@@ -136,7 +156,7 @@ class SystemVerilogGenerator:
 
     def _create_default_active_device_config(
         self, enhanced_context: Dict[str, Any]
-    ) -> TemplateObject:
+    ) -> Dict[str, Any]:
         """
         Create a proper default active_device_config with all required attributes.
 
@@ -179,7 +199,7 @@ class SystemVerilogGenerator:
 
         # Create unified context builder and generate proper active_device_config
         builder = UnifiedContextBuilder(self.logger)
-        return builder.create_active_device_config(
+        adc = builder.create_active_device_config(
             vendor_id=str(vendor_id),
             device_id=str(device_id),
             class_code="000000",  # Default class code
@@ -187,6 +207,14 @@ class SystemVerilogGenerator:
             interrupt_strategy="intx",  # Default interrupt strategy
             interrupt_vectors=1,  # Default interrupt vectors
         )
+        
+        # Normalize to dict for template compatibility
+        if hasattr(adc, "to_dict"):
+            return adc.to_dict()
+        elif isinstance(adc, dict):
+            return adc
+        else:
+            return dict(adc)
 
     def _prepare_initial_context(
         self, template_context: Dict[str, Any]
@@ -462,6 +490,34 @@ class SystemVerilogGenerator:
                 "enable_perf_counters": False,
             }
 
+    def _normalize_msix_config(self, enhanced_context: Dict[str, Any]) -> None:
+        """
+        Normalize MSI-X configuration keys for template compatibility.
+
+        Ensures both 'is_supported'/'enabled' and 'num_vectors'/'vectors'
+        variants are available to support templates with different conventions.
+
+        Args:
+            enhanced_context: Enhanced context (modified in-place)
+        """
+        msix = enhanced_context.get("msix_config", {})
+        if not isinstance(msix, dict):
+            return
+
+        # Normalize enabled/is_supported
+        if "enabled" in msix and "is_supported" not in msix:
+            msix["is_supported"] = bool(msix["enabled"])
+        elif "is_supported" in msix and "enabled" not in msix:
+            msix["enabled"] = bool(msix["is_supported"])
+
+        # Normalize vectors/num_vectors
+        if "vectors" in msix and "num_vectors" not in msix:
+            msix["num_vectors"] = int(msix["vectors"])
+        elif "num_vectors" in msix and "vectors" not in msix:
+            msix["vectors"] = int(msix["num_vectors"])
+
+        enhanced_context["msix_config"] = msix
+
     def generate_modules(
         self,
         template_context: Dict[str, Any],
@@ -508,6 +564,9 @@ class SystemVerilogGenerator:
             # Normalize device_config to dict format
             self._normalize_device_config(enhanced_context)
 
+            # Normalize MSI-X config for template compatibility
+            self._normalize_msix_config(enhanced_context)
+
             # Create proper active_device_config if missing
             if "active_device_config" not in enhanced_context:
                 enhanced_context["active_device_config"] = (
@@ -520,13 +579,17 @@ class SystemVerilogGenerator:
                     enhanced_context
                 )
 
-            # Fallback: return empty dict if no generator is configured
+            # Fail fast if no generator is configured
             log_error_safe(
                 self.logger,
-                "No overlay generator configured (use_pcileech_primary=False)",
+                "No overlay generator configured: use_pcileech_primary=False. "
+                "Set use_pcileech_primary=True to enable overlay generation.",
                 prefix=self.prefix,
             )
-            return {}
+            raise TemplateRenderError(
+                "SystemVerilog generation requires use_pcileech_primary=True. "
+                "Set this flag in the generator constructor."
+            )
 
         except Exception as e:
             error_msg = format_user_friendly_error(e, "SystemVerilog generation")
@@ -589,22 +652,6 @@ class SystemVerilogGenerator:
                 ),
                 prefix=self.prefix,
             )
-            pass
-
-        # Clear renderer cache if supported
-        try:
-            if hasattr(self.renderer, "clear_cache"):
-                self.renderer.clear_cache()
-        except Exception as e:
-            log_error_safe(
-                self.logger,
-                safe_format(
-                    "Unexpected error during renderer cache clearing: {error}",
-                    error=str(e),
-                ),
-                prefix=self.prefix,
-            )
-            pass
 
         log_info_safe(
             self.logger, "Cleared SystemVerilog generator cache", prefix=self.prefix
@@ -618,134 +665,23 @@ class SystemVerilogGenerator:
         """
         Legacy method for generating advanced SystemVerilog controller.
 
+        This method is deprecated in the overlay-only architecture.
+        
         Args:
             regs: List of register definitions
             variance_model: Optional variance model
 
         Returns:
             Generated SystemVerilog code
+
+        Raises:
+            TemplateRenderError: Always, as this functionality is not supported
         """
-        # Build a complete context for the advanced controller without hardcoding
-        # donor-unique identifiers. Prefer deriving identifiers from existing
-        # configuration; otherwise use a safe placeholder that validates format.
+        self._ensure_module_generator_available()
 
-        # Attempt to source identifiers from provided device_config
-        derived_vendor_id: Optional[str] = None
-        derived_device_id: Optional[str] = None
-        derived_revision_id: Optional[str] = None
-        derived_signature: Optional[str] = None
-
-        dc_raw = self.device_config
-        dc_dict: Dict[str, Any] = {}
-        if isinstance(dc_raw, TemplateObject):
-            try:
-                dc_dict = dc_raw.to_dict()
-            except Exception:
-                dc_dict = {}
-        elif isinstance(dc_raw, dict):
-            dc_dict = dc_raw
-        elif hasattr(dc_raw, "__dict__"):
-            # Handle dataclasses and other objects with __dict__
-            dc_dict = getattr(dc_raw, "__dict__", {})
-
-        derived_vendor_id = dc_dict.get("vendor_id") or dc_dict.get(
-            "identification", {}
-        ).get("vendor_id")
-        derived_device_id = dc_dict.get("device_id") or dc_dict.get(
-            "identification", {}
-        ).get("device_id")
-        # Accept either raw hex like "0x01" or already normalized strings
-        derived_revision_id = dc_dict.get("revision_id") or dc_dict.get(
-            "registers", {}
-        ).get("revision_id")
-        derived_signature = dc_dict.get("device_signature")
-
-        def _fmt(val: Any, width: int) -> str:
-            s = str(val)
-            s = s.replace("0x", "").replace("0X", "").upper()
-            return s.zfill(width)
-
-        # Fail fast if required identifiers are missing - no silent fallbacks
-        if not derived_signature:
-            if not derived_vendor_id or not derived_device_id:
-                log_error_safe(
-                    self.logger,
-                    safe_format(
-                        "Cannot generate advanced SystemVerilog: missing device "
-                        "identifiers (vendor_id={vid}, device_id={did})",
-                        vid=derived_vendor_id or "MISSING",
-                        did=derived_device_id or "MISSING",
-                    ),
-                    prefix=self.prefix,
-                )
-                raise TemplateRenderError(SVValidation.NO_DONOR_DEVICE_IDS_ERROR)
-            rid = derived_revision_id or "00"
-            derived_signature = (
-                f"{_fmt(derived_vendor_id,4)}:{_fmt(derived_device_id,4)}:{_fmt(rid,2)}"
-            )
-
-        # Construct device_config without hardcoding VID/DID. Include only when present.
-        device_cfg_payload: Dict[str, Any] = {
-            "enable_advanced_features": True,
-            "max_payload_size": SV_CONSTANTS.DEFAULT_MPS_BYTES,
-            "enable_perf_counters": True,
-            "enable_error_handling": True,
-            "enable_power_management": False,
-            "msi_vectors": 0,  # Default MSI vectors (0 = disabled)
-        }
-        if derived_vendor_id:
-            device_cfg_payload["vendor_id"] = derived_vendor_id
-        if derived_device_id:
-            device_cfg_payload["device_id"] = derived_device_id
-        if derived_revision_id:
-            device_cfg_payload["revision_id"] = derived_revision_id
-
-        context = {
-            "device_signature": derived_signature,
-            "device_config": device_cfg_payload,
-            # Keep non-unique, conservative defaults for peripheral config
-            "bar_config": {
-                "bars": [],
-                "aperture_size": SV_CONSTANTS.MAX_QUEUE_DEPTH,  # 64KB default
-                "bar_index": 0,
-                "bar_type": 0,
-                "prefetchable": False,
-            },
-            "msix_config": {
-                "is_supported": False,
-                "num_vectors": 4,
-                "table_bir": 0,
-                "table_offset": SV_CONSTANTS.DEFAULT_MSIX_TABLE_OFFSET,
-                "pba_bir": 0,
-                "pba_offset": SV_CONSTANTS.DEFAULT_MSIX_PBA_OFFSET,
-            },
-            "timing_config": {
-                "clock_frequency_mhz": 100,
-                "read_latency": 2,
-                "write_latency": 1,
-                "timeout_cycles": 1024,  # Timeout for PCIe transactions
-            },
-            "generation_metadata": {
-                "generator_version": __version__,
-                # Dynamic build timestamp (UTC)
-                "timestamp": utc_timestamp(),
-            },
-            "device_type": "GENERIC",
-            "device_class": "CONSUMER",
-            # Include the configuration objects from the constructor
-            "perf_config": self.perf_config,
-            "error_config": self.error_config,
-            "power_config": self.power_config,
-            "error_handling": self.error_config,
-            "power_management": self.power_config,
-        }
-
-        # Use the module generator's method directly
-        return self.module_generator._generate_advanced_controller(
-            context, regs, variance_model
-        )
-
-    def generate_pcileech_integration_code(self, vfio_context: Dict[str, Any]) -> str:
+    def generate_pcileech_integration_code(
+        self, vfio_context: Dict[str, Any]
+    ) -> str:
         """
         Legacy method for generating PCILeech integration code.
 
@@ -779,7 +715,12 @@ class SystemVerilogGenerator:
             skip_check = False
 
         if not (has_direct or was_verified or skip_check):
-            raise TemplateRenderError("VFIO device access failed")
+            raise TemplateRenderError(
+                "VFIO device access failed: no /dev/vfio/vfio or IOMMU group "
+                "devices detected, and vfio_binding_verified flag not set. "
+                "For local builds without VFIO, set environment variable "
+                "PCILEECH_SKIP_VFIO_CHECK=1"
+            )
 
         # Build a minimal template context satisfying template contract.
         device_cfg = vfio_context.get("device_config", {}) or {}
@@ -790,10 +731,11 @@ class SystemVerilogGenerator:
             },
             "device_config": device_cfg,
             # Provide required integration metadata keys expected by template.
-            "pcileech_modules": device_cfg.get("pcileech_modules", ["pcileech_core"]),
+            "pcileech_modules": device_cfg.get(
+                "pcileech_modules", ["pcileech_core"]
+            ),
             "integration_type": vfio_context.get("integration_type", "pcileech"),
         }
-        from .sv_constants import SVTemplates
 
         try:
             rendered = self.renderer.render_template(
@@ -811,14 +753,18 @@ class SystemVerilogGenerator:
         """
         Legacy method for extracting PCILeech registers from behavior profile.
 
+        This method is deprecated in the overlay-only architecture.
+
         Args:
             behavior_profile: Behavior profile data
 
         Returns:
             List of register definitions
+
+        Raises:
+            TemplateRenderError: Always, as this functionality is not supported
         """
-        # Delegate to the module generator's method
-        return self.module_generator._extract_registers(behavior_profile)
+        self._ensure_module_generator_available()
 
     def _generate_pcileech_advanced_modules(
         self,
@@ -828,46 +774,19 @@ class SystemVerilogGenerator:
         """
         Generate advanced PCILeech modules.
 
+        This method is deprecated in the overlay-only architecture.
+
         Args:
             template_context: Template context data
             behavior_profile: Optional behavior profile
 
         Returns:
             Dictionary mapping module names to generated code
+
+        Raises:
+            TemplateRenderError: Always, as this functionality is not supported
         """
-        log_info_safe(
-            self.logger, "Generating advanced PCILeech modules", prefix=self.prefix
-        )
-
-        # Extract registers from behavior profile
-        registers = (
-            self._extract_pcileech_registers(behavior_profile)
-            if behavior_profile
-            else []
-        )
-
-        # Generate the advanced controller module
-        context_with_defaults = template_context.copy()
-
-        # Ensure device_config has advanced features enabled
-        device_config = context_with_defaults.get("device_config", {})
-        if isinstance(device_config, dict):
-            device_config.setdefault("enable_advanced_features", True)
-            device_config.setdefault("enable_perf_counters", True)
-            device_config.setdefault("enable_error_handling", True)
-
-        # Apply Phase 0 compatibility defaults
-        context_with_defaults.setdefault("bar_config", {})
-        context_with_defaults.setdefault(
-            "generation_metadata", {"generator_version": __version__}
-        )
-
-        # Generate the advanced controller
-        advanced_controller = self.module_generator._generate_advanced_controller(
-            context_with_defaults, registers, None
-        )
-
-        return {"pcileech_advanced_controller": advanced_controller}
+        self._ensure_module_generator_available()
 
 
 # Backward compatibility alias

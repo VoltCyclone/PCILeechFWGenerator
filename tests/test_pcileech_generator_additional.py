@@ -92,14 +92,14 @@ def test_raw_config_space_extraction_failure(generator: PCILeechGenerator):
 
 
 def test_validate_generated_firmware_success_and_failure(generator: PCILeechGenerator):
-    # Success path
+    # Success path - with expected overlay
     generator._validate_generated_firmware(
-        {"pcileech_tlps128_bar_controller": "module x; endmodule"}, {}
+        {"pcileech_cfgspace": "module x; endmodule"}, {}
     )
 
-    # Failure path - missing required module
-    with pytest.raises(PCILeechGenerationError):
-        generator._validate_generated_firmware({"other": "module y; endmodule"}, {})
+    # Validation is lenient now - missing overlays only log warnings
+    # This should not raise, just warn
+    generator._validate_generated_firmware({"other": "module y; endmodule"}, {})
 
 
 def test_generate_writemask_coe_with_existing_cfgspace(generator: PCILeechGenerator):

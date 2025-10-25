@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from string_utils import log_debug_safe, safe_format
+from src.string_utils import log_debug_safe, safe_format
 
 logger = logging.getLogger(__name__)
 

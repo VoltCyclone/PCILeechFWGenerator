@@ -96,6 +96,63 @@ def get_supported_boards():
     return list_supported_boards()
 
 
+def resolve_board_name(board_input: str) -> str:
+    """Resolve board shorthand to full board name.
+    
+    Args:
+        board_input: User-provided board name or shorthand (e.g., "35t", "75t484")
+    
+    Returns:
+        Full board name (e.g., "pcileech_35t325_x1")
+    
+    Raises:
+        ValueError: If board cannot be resolved
+    """
+    supported = get_supported_boards()
+    
+    # Exact match
+    if board_input in supported:
+        return board_input
+    
+    # Try with pcileech_ prefix
+    with_prefix = f"pcileech_{board_input}"
+    if with_prefix in supported:
+        return with_prefix
+    
+    # Try fuzzy match - find boards containing the input
+    matches = [b for b in supported if board_input.lower() in b.lower()]
+    
+    if len(matches) == 1:
+        log_info_safe(
+            logger,
+            safe_format(
+                "Board shorthand '{short}' resolved to '{full}'",
+                short=board_input,
+                full=matches[0],
+            ),
+            prefix="BOARD",
+        )
+        return matches[0]
+    elif len(matches) > 1:
+        raise ValueError(
+            safe_format(
+                "Ambiguous board shorthand '{short}'. Multiple matches: {matches}. "
+                "Please specify one of: {boards}",
+                short=board_input,
+                matches=", ".join(matches),
+                boards=", ".join(supported),
+            )
+        )
+    else:
+        raise ValueError(
+            safe_format(
+                "Unknown board '{board}'. Supported boards: {boards}",
+                board=board_input,
+                boards=", ".join(supported),
+            )
+        )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # CLI setup
 # ──────────────────────────────────────────────────────────────────────────────
@@ -104,7 +161,11 @@ def get_supported_boards():
 def build_sub(parser: argparse._SubParsersAction):
     p = parser.add_parser("build", help="Build firmware (guided or scripted)")
     p.add_argument("--bdf", help="PCI BDF (skip for interactive picker)")
-    p.add_argument("--board", choices=get_supported_boards(), help="FPGA board")
+    p.add_argument(
+        "--board",
+        choices=get_supported_boards(),
+        help="FPGA board name or shorthand (e.g., 'pcileech_35t325_x1' or '35t')",
+    )
     p.add_argument(
         "--advanced-sv", action="store_true", help="Enable advanced SV features"
     )
@@ -210,7 +271,9 @@ def flash_sub(parser: argparse._SubParsersAction):
     p = parser.add_parser("flash", help="Flash a firmware binary via usbloader")
     p.add_argument("firmware", help="Path to .bin")
     p.add_argument(
-        "--board", required=True, choices=get_supported_boards(), help="FPGA board"
+        "--board",
+        required=True,
+        help="FPGA board name or shorthand (e.g., 'pcileech_35t325_x1' or '35t')",
     )
 
 
@@ -306,7 +369,15 @@ def main(argv: Optional[List[str]] = None):
 
     if args.cmd == "build":
         bdf = args.bdf or choose_device()["bdf"]
-        board = args.board or pick(get_supported_boards(), "Board #: ")
+        board_input = args.board or pick(get_supported_boards(), "Board #: ")
+        
+        # Resolve board shorthand to full name
+        try:
+            board = resolve_board_name(board_input)
+        except ValueError as e:
+            log_error_safe(logger, str(e), prefix="BOARD")
+            sys.exit(1)
+        
         # Process fallback lists
         allowed_fallbacks = []
         if hasattr(args, "allow_fallbacks") and args.allow_fallbacks:
@@ -370,6 +441,14 @@ def main(argv: Optional[List[str]] = None):
         run_build(cfg)
 
     elif args.cmd == "flash":
+        # Resolve board shorthand
+        try:
+            board = resolve_board_name(args.board)
+        except ValueError as e:
+            log_error_safe(logger, str(e), prefix="BOARD")
+            sys.exit(1)
+        # Update args with resolved board name for flash_bin
+        args.board = board
         flash_bin(Path(args.firmware))
 
     elif args.cmd == "donor-template":

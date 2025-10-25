@@ -58,16 +58,21 @@ class DeviceSpecificLogic:
 
         if self.tx_queue_depth <= 0:
             raise ValueError(
-                safe_format("Invalid tx_queue_depth: {self.tx_queue_depth}", self=self)
+                safe_format(
+                    "Invalid tx_queue_depth: {self.tx_queue_depth}", self=self
+                )
             )
         if self.rx_queue_depth <= 0:
             raise ValueError(
-                safe_format("Invalid rx_queue_depth: {self.rx_queue_depth}", self=self)
+                safe_format(
+                    "Invalid rx_queue_depth: {self.rx_queue_depth}", self=self
+                )
             )
 
         if self.base_frequency_mhz <= 0:
             raise ValueError(
                 safe_format(
-                    "Invalid base_frequency_mhz: {self.base_frequency_mhz}", self=self
+                    "Invalid base_frequency_mhz: {self.base_frequency_mhz}",
+                    self=self,
                 )
             )

@@ -34,9 +34,24 @@ set class_code {{ device.class_code }}
 set revision_id {{ device.revision_id }}
 {% endif %}
 
+# Remove existing project if it exists (force clean rebuild)
+if {[file exists $project_dir]} {
+    puts "Removing existing project directory: $project_dir"
+    file delete -force $project_dir
+}
+
 # Create project
 puts "Creating PCILeech project: $project_name"
-create_project $project_name $project_dir -part $fpga_part -force
+if {[catch {create_project $project_name $project_dir -part $fpga_part -force} err]} {
+    puts "ERROR: Failed to create project: $err"
+    exit 1
+}
+
+# Verify project was created
+if {![file exists [file join $project_dir "${project_name}.xpr"]]} {
+    puts "ERROR: Project file not created"
+    exit 1
+}
 
 # Set project properties
 set_property target_language Verilog [current_project]
@@ -60,4 +75,14 @@ set_property STEPS.SYNTH_DESIGN.ARGS.NO_LC true [get_runs synth_1]
 set_property STEPS.SYNTH_DESIGN.ARGS.SHREG_MIN_SIZE 5 [get_runs synth_1]
 {% endif %}
 
+# Verify project properties
+set actual_part [get_property PART [current_project]]
+if {$actual_part != $fpga_part} {
+    puts "ERROR: FPGA part mismatch. Expected: $fpga_part, Got: $actual_part"
+    exit 1
+}
+
 puts "PCILeech project setup completed successfully"
+puts "  Project: $project_name"
+puts "  Directory: $project_dir"
+puts "  FPGA Part: $fpga_part"

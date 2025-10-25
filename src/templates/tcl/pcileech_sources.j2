@@ -106,14 +106,71 @@ foreach coeff_file $pcileech_coeff_files {
 }
 {% endif %}
 
+# Validate that source files were added
+set source_files [get_files -of_objects [get_filesets sources_1]]
+if {[llength $source_files] == 0} {
+    puts "ERROR: No source files were added to the project"
+    puts "Check that source files exist in the expected directories:"
+    puts "  Source directory: $src_dir"
+    puts "  IP directory: $ip_dir"
+    exit 1
+}
+
+puts "Successfully added [llength $source_files] file(s) to project"
+
+# Ensure all .sv files are treated as SystemVerilog
+set sv_files [get_files -of_objects [get_filesets sources_1] -filter {FILE_TYPE == "Verilog"}]
+foreach sv_file $sv_files {
+    if {[string match "*.sv" $sv_file]} {
+        set_property file_type SystemVerilog [get_files $sv_file]
+        puts "Set file type to SystemVerilog: [file tail $sv_file]"
+    }
+}
+
 # Set top-level module
 {% if top_module %}
-set_property top {{ top_module }} [current_fileset]
+set top_name "{{ top_module }}"
 {% else %}
-set_property top pcileech_top [current_fileset]
+set top_name "pcileech_top"
 {% endif %}
+
+set_property top $top_name [current_fileset]
+puts "Set top module: $top_name"
+
+# Disable auto-inference of top module to prevent changes
+set_property top_auto_set 0 [current_fileset]
 
 # Update compile order
 update_compile_order -fileset sources_1
 
+# Validate top module is set correctly
+set actual_top [get_property top [current_fileset]]
+if {$actual_top != $top_name} {
+    puts "ERROR: Top module not set correctly"
+    puts "  Expected: $top_name"
+    puts "  Got: $actual_top"
+    exit 1
+}
+
+# Verify top module exists in source files
+set top_found 0
+foreach src_file $source_files {
+    if {[string match "*$top_name*" $src_file]} {
+        set top_found 1
+        puts "Found top module in: [file tail $src_file]"
+        break
+    }
+}
+
+if {!$top_found} {
+    puts "WARNING: Top module file not found in added sources"
+    puts "  Looking for: $top_name"
+    puts "  Available files:"
+    foreach src_file $source_files {
+        puts "    - [file tail $src_file]"
+    }
+}
+
 puts "PCILeech source files added successfully"
+puts "  Total files: [llength $source_files]"
+puts "  Top module: $actual_top"

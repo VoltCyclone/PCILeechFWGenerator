@@ -82,8 +82,10 @@ sudo modprobe vfio vfio-pci
 # Interactive TUI (recommended for first-time users)
 sudo pcileech tui
 
-# CLI interface for scripted builds
+# CLI interface for scripted builds (supports board shorthands)
 sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1
+# Or use shorthand:
+sudo pcileech build --bdf 0000:03:00.0 --board 35t
 
 # CLI build with custom Vivado settings
 sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \

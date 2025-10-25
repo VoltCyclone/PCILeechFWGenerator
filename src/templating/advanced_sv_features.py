@@ -64,7 +64,10 @@ except ImportError:
         PowerState,
         TransitionCycles,
     )
-    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
+    from src.templating.template_renderer import (
+        TemplateRenderer,
+        TemplateRenderError,
+    )
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -97,14 +100,21 @@ class AdvancedSVFeatureGenerator:
 
         try:
             # Import here to avoid circular imports
-            from .advanced_sv_error import ErrorHandlingConfig, ErrorHandlingGenerator
+            from .advanced_sv_error import (
+                ErrorHandlingConfig,
+                ErrorHandlingGenerator,
+            )
 
             # Create error handling configuration from our config
             error_config = ErrorHandlingConfig(
                 enable_ecc=self.config.error_handling.enable_error_detection,
-                enable_parity_check=self.config.error_handling.enable_error_detection,
+                enable_parity_check=(
+                    self.config.error_handling.enable_error_detection
+                ),
                 enable_crc_check=self.config.error_handling.enable_error_detection,
-                enable_timeout_detection=self.config.error_handling.enable_error_detection,
+                enable_timeout_detection=(
+                    self.config.error_handling.enable_error_detection
+                ),
                 enable_auto_retry=True,
                 max_retry_count=3,
                 enable_error_logging=self.config.error_handling.enable_error_logging,
@@ -202,14 +212,19 @@ class AdvancedSVFeatureGenerator:
             )
             return ""
 
-        log_info_safe(logger, "Generating power management module", prefix=self.prefix)
+        log_info_safe(
+            logger,
+            "Generating power management module",
+            prefix=self.prefix
+        )
 
         try:
+            pm_config = self.config.power_management
             context = {
-                "config": self.config.power_management,
-                "supported_states": list(self.config.power_management.supported_states),
-                "enable_clock_gating": self.config.power_management.enable_clock_gating,
-                "enable_power_gating": self.config.power_management.enable_power_gating,
+                "config": pm_config,
+                "supported_states": list(pm_config.supported_states),
+                "enable_clock_gating": pm_config.enable_clock_gating,
+                "enable_power_gating": pm_config.enable_power_gating,
             }
 
             return self._generate_module_template(
@@ -414,7 +429,7 @@ endmodule
 
     def _generate_error_recovery_logic(self) -> str:
         """Generate error recovery logic."""
-        log_debug_safe(logger, "Generating error recovery logic", prefix="ERROR_LOGIC")
+        log_debug_safe(logger, "Generating error recovery logic", prefix=self.prefix)
 
         context = {
             "config": self.config.error_handling,
@@ -428,7 +443,7 @@ endmodule
 
     def _generate_error_logging_logic(self) -> str:
         """Generate error logging logic."""
-        log_debug_safe(logger, "Generating error logging logic", prefix="ERROR_LOGIC")
+        log_debug_safe(logger, "Generating error logging logic", prefix=self.prefix)
 
         context = {"config": self.config.error_handling}
         return self.renderer.render_template(

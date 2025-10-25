@@ -1,20 +1,7 @@
 #!/usr/bin/env python3
 """
-PCILeech Firmware Build - Helper Library (strict‑mode)
-=====================================================
-Shared utilities for the *unified* build flow.  All functions assume a fully‑
-provisioned production environment: **no fall‑backs, no mocks, no legacy
-shims**.  Any missing dependency is treated as a fatal error.
+PCILeech Firmware Build - Helper Library
 
-Provided helpers
-----------------
-• `add_src_to_path()` - ensure `<project‑root>/src` is importable.
-• `select_pcie_ip_core()` - map FPGA part → correct Xilinx PCIe IP name.
-• `write_tcl_file()` - atomic TCL write with INFO logging + list bookkeeping.
-• `create_fpga_strategy_selector()` - returns a strategy func giving per‑family
-  parameters (IP core, lane‑count, constraint file, …).
-• `batch_write_tcl_files()` - convenience wrapper for writing many TCL files.
-• `validate_fpga_part()` - quick sanity‑check for part numbers.
 """
 
 from __future__ import annotations

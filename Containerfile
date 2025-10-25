@@ -54,6 +54,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt -r requirements-tui.txt
 # Copy application files
 COPY src ./src
 COPY configs ./configs
+COPY lib/voltcyclone-fpga ./lib/voltcyclone-fpga
 COPY pcileech.py .
 
 # Copy the patched VFIO constants from build stage
