@@ -32,33 +32,24 @@ from src.string_utils import (
     safe_format,
 )
 
+# Module-level logger for utility functions
+_logger = logging.getLogger(__name__)
+
 # Constants
 DEFAULT_VENDOR_ID = 0x10EC  # Realtek
 DEFAULT_DEVICE_ID = 0x8168  # RTL8168
 DEFAULT_REVISION_ID = 0x15
 DEFAULT_CLASS_CODE = 0x020000  # Ethernet controller
 
+# PCIe link parameter validation sets
+PCIE_SPEED_CODES = {1, 2, 3, 4, 5}  # Gen1-Gen5 (2.5GT/s - 32GT/s)
+PCIE_WIDTH_CODES = {1, 2, 4, 8, 16}  # Valid lane widths
+
 HEX_WIDTH_MAP = {
     'revision': 2,
     'vendor': 4,
     'device': 4,
     'class': 6,
-}
-
-PCIE_SPEED_CODES = {
-    1: "2.5GT/s",
-    2: "5.0GT/s",
-    3: "8.0GT/s",
-    4: "16.0GT/s",
-    5: "32.0GT/s",
-}
-
-PCIE_WIDTH_CODES = {
-    1: "x1",
-    2: "x2",
-    4: "x4",
-    8: "x8",
-    16: "x16",
 }
 
 
@@ -85,7 +76,7 @@ class HexFormatter:
             Formatted hex string without 0x prefix
             
         Raises:
-            ValueError: If val is None and permissive=False
+            ValueError: If val is None and permissive=False, or invalid hex string
         """
         if val is None:
             if not permissive:
@@ -111,10 +102,26 @@ class HexFormatter:
         if isinstance(val, Enum):
             val = val.value if hasattr(val, "value") else str(val)
         
-        # Format as hex
+        # Format as hex with proper zero-padding
         if isinstance(val, str):
-            return val.replace("0x", "").replace("0X", "").upper()
-        return f"{val:0{width}X}"
+            s = val.strip()
+            if s.startswith(("0x", "0X")):
+                s = s[2:]
+            # Validate hex and normalize with zero-padding
+            try:
+                ival = int(s, 16)
+            except ValueError as e:
+                raise ValueError(
+                    safe_format(
+                        "Invalid hex string for {field_name}: {val}",
+                        field_name=field_name,
+                        val=val
+                    )
+                ) from e
+            return f"{ival:0{width}X}"
+        
+        # Integer path with zero-padding
+        return f"{int(val):0{width}X}"
 
 
 # Standalone function for backward compatibility
@@ -273,7 +280,6 @@ class BuildContext:
                 "from donor device profiling."
             )
 
-    # no-dd-sa
     def to_template_context(self, strict: bool = True) -> Dict[str, Any]:
         """Convert build context to template context dictionary with all
         required variables.
@@ -448,12 +454,16 @@ class BuildContext:
 
         # Derive and validate PCIe link speed/width enums from donor/IP context
         def _map_speed(code: Optional[int], ip_type: str, strict: bool) -> str:
+            """Map PCIe speed code to canonical string representation.
+            
+            Returns canonical format without underscores (e.g., "2.5GT/s").
+            """
             mapping = {
-                1: "2.5_GT/s",
-                2: "5.0_GT/s",
-                3: "8.0_GT/s",
-                4: "16.0_GT/s",
-                5: "32.0_GT/s",
+                1: "2.5GT/s",
+                2: "5.0GT/s",
+                3: "8.0GT/s",
+                4: "16.0GT/s",
+                5: "32.0GT/s",
             }
             if code is None:
                 if strict:
@@ -466,7 +476,7 @@ class BuildContext:
                 # Track this default in context_metadata
                 # Use Gen1 (2.5 GT/s) for maximum compatibility with 7-series
                 context_metadata["defaults_used"]["pcie_max_link_speed_code"] = 1
-                return "2.5_GT/s"  # Gen1 - maximum compatibility
+                return "2.5GT/s"  # Gen1 - maximum compatibility
             if code not in mapping:
                 raise TCLBuilderError(
                     safe_format(
@@ -483,9 +493,9 @@ class BuildContext:
                 # 7-series only supports Gen1 (2.5 GT/s)
                 if code > 1:
                     log_warning_safe(
-                        logger,
+                        _logger,
                         safe_format(
-                            "Clamping PCIe speed from {requested} to 2.5_GT/s for "
+                            "Clamping PCIe speed from {requested} to 2.5GT/s for "
                             "7-series IP (Gen1 only)",
                             requested=speed,
                         ),
@@ -496,10 +506,10 @@ class BuildContext:
                     )
                     context_metadata["clamped_values"]["pcie_speed"] = {
                         "requested": speed,
-                        "clamped_to": "2.5_GT/s",
+                        "clamped_to": "2.5GT/s",
                         "reason": "7-series IP maximum",
                     }
-                    return "2.5_GT/s"
+                    return "2.5GT/s"
             
             return speed
 
@@ -553,6 +563,20 @@ class BuildContext:
 
         # Validate derived enums against the IP type; fail fast on mismatch
         _validate_enums(self.pcie_ip_type, derived_speed, derived_width)
+
+        # Normalize PCIe representations and ship all flavors for templates
+        # Speed: provide canonical ("2.5GT/s") as primary, code as numeric
+        speed_canonical = derived_speed  # "2.5GT/s" (canonical, no underscore)
+        speed_enum = derived_speed  # Same - kept for template compatibility
+        speed_code = self.pcie_max_link_speed_code
+
+        # Width: provide uppercase enum ("X4"), lowercase ("x4"), and numeric (4)
+        width_enum = derived_width  # "X4"
+        width_num = (
+            int(derived_width[1:]) if derived_width.upper().startswith("X") else None
+        )
+        width_str = f"x{width_num}" if width_num else None
+        width_code = self.pcie_max_link_width or width_num
 
         # Map board name to official Xilinx board part ID (if available)
         # This enables board-specific optimizations and constraints
@@ -660,9 +684,16 @@ class BuildContext:
             "constraint_files": [],  # Add empty constraint files list
             # Board part ID for Xilinx board-specific optimizations (optional)
             "board_part_id": board_part_id,
-            # Link configuration propagated to templates
-            "target_link_speed": derived_speed,
-            "target_link_width_enum": derived_width,
+            # Link configuration: provide all representation variants for templates
+            # Speed variants
+            "target_link_speed": speed_canonical,  # "2.5GT/s" (canonical)
+            "target_link_speed_enum": speed_enum,  # "2.5_GT/s" (with underscore)
+            "target_link_speed_code": speed_code,  # 1..5 (numeric code)
+            # Width variants
+            "target_link_width": width_str,  # "x4" (lowercase)
+            "target_link_width_enum": width_enum,  # "X4" (uppercase)
+            "target_link_width_num": width_num,  # 4 (numeric)
+            "target_link_width_code": width_code,  # Original code or derived
             # Context metadata for introspection and strict mode validation
             "context_metadata": context_metadata,
         }
@@ -678,7 +709,6 @@ class DeviceConfigProvider(Protocol):
 
 
 @dataclass
-
 class ConstraintManager:
     """Manages XDC constraint file operations."""
 
@@ -815,7 +845,8 @@ class TCLScriptBuilder:
             Rendered TCL content
 
         Raises:
-            TemplateNotFoundError: If the template is not found
+            TemplateNotFoundError: If the template file is not found
+            TCLBuilderError: If template rendering fails
         """
         template_path = self._template_map.get(script_type)
         if not template_path:
@@ -828,13 +859,23 @@ class TCLScriptBuilder:
 
         try:
             return self.template_renderer.render_template(template_path, context)
-        except Exception as e:
+        except FileNotFoundError as e:
+            # Renderer surfaced an actual missing file
             raise TemplateNotFoundError(
                 safe_format(
                     "Template not found for {script_type_value}. "
                     "Ensure '{template_path}' exists in the template directory.",
                     script_type_value=script_type.value,
                     template_path=template_path,
+                )
+            ) from e
+        except Exception as e:
+            # Real render error: preserve signal
+            raise TCLBuilderError(
+                safe_format(
+                    "Failed to render template '{template_path}': {error}",
+                    template_path=template_path,
+                    error=e,
                 )
             ) from e
 
@@ -1024,13 +1065,27 @@ class TCLBuilder:
 
     @staticmethod
     def _safe_getattr(obj: Any, attr_path: str, default: Any = None) -> Any:
-        """Safely retrieve nested attributes from an object."""
+        """Safely retrieve nested attributes/keys from an object or dict.
+        
+        Supports dot-separated paths over mixed objects and dicts.
+        
+        Args:
+            obj: Object or dict to traverse
+            attr_path: Dot-separated path (e.g., "device.vendor_id")
+            default: Value to return if path not found
+            
+        Returns:
+            Value at the path, or default if not found
+        """
         if obj is None:
             return default
 
         current = obj
-        for attr in attr_path.split("."):
-            current = getattr(current, attr, None)
+        for part in attr_path.split("."):
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                current = getattr(current, part, None)
             if current is None:
                 return default
         return current
@@ -1179,17 +1234,22 @@ class TCLBuilder:
             )
 
         # Extract device configuration values
-        # device_config is a flat dict with direct properties, not nested
-        config_vendor_id = self._safe_getattr(self.device_config, "vendor_id")
-        config_device_id = self._safe_getattr(self.device_config, "device_id")
-        config_revision_id = self._safe_getattr(self.device_config, "revision_id")
-        config_class_code = self._safe_getattr(self.device_config, "class_code")
-        config_subsys_vendor_id = self._safe_getattr(
-            self.device_config, "subsystem_vendor_id"
-        )
-        config_subsys_device_id = self._safe_getattr(
-            self.device_config, "subsystem_device_id"
-        )
+        # device_config can be either a dict or an object with attributes
+        cfg = self.device_config or {}
+        if isinstance(cfg, dict):
+            config_vendor_id = cfg.get("vendor_id")
+            config_device_id = cfg.get("device_id")
+            config_revision_id = cfg.get("revision_id")
+            config_class_code = cfg.get("class_code")
+            config_subsys_vendor_id = cfg.get("subsystem_vendor_id")
+            config_subsys_device_id = cfg.get("subsystem_device_id")
+        else:
+            config_vendor_id = self._safe_getattr(cfg, "vendor_id")
+            config_device_id = self._safe_getattr(cfg, "device_id")
+            config_revision_id = self._safe_getattr(cfg, "revision_id")
+            config_class_code = self._safe_getattr(cfg, "class_code")
+            config_subsys_vendor_id = self._safe_getattr(cfg, "subsystem_vendor_id")
+            config_subsys_device_id = self._safe_getattr(cfg, "subsystem_device_id")
 
         # Resolve final device identification values
         final_vendor_id = vendor_id or config_vendor_id
@@ -1208,11 +1268,15 @@ class TCLBuilder:
             missing_ids.append("revision_id")
 
         if missing_ids:
+            missing_list = ', '.join(missing_ids)
             raise ValueError(
-                f"Missing required device identification values: {', '.join(missing_ids)}. "
-                "Cannot generate donor-unique firmware without complete device configuration. "
-                "Ensure device profiling/detection completed successfully and "
-                "all required parameters are provided."
+                f"Missing required device identification values: {missing_list}. "
+                "Cannot generate donor-unique firmware without complete device "
+                "configuration. Ensure device profiling/detection completed "
+                "successfully and all required parameters are provided.\n\n"
+                "Remediation: Run device detection/profiling to extract these "
+                "values from the donor device's PCI configuration space using "
+                "VFIO or similar tools."
             )
 
         return BuildContext(
@@ -1287,11 +1351,15 @@ class TCLBuilder:
             except XDCConstraintError as e:
                 log_warning_safe(
                     self.logger,
-                    safe_format("XDC file handling failed: {error}", error=e),
+                    safe_format(
+                        "XDC file handling failed: {error}. "
+                        "Proceeding without board-specific XDC files.",
+                        error=e
+                    ),
                     prefix=self.prefix,
                 )
-                raise
-                # Proceed without XDC files if copying fails
+                # Proceed without XDC files - build can continue with
+                # user-provided constraints or embedded XDC content
 
         # Add required variables for constraints template
         template_context.setdefault("sys_clk_freq_mhz", 100)  # Default to 100MHz
@@ -1573,7 +1641,8 @@ class TCLBuilder:
                 self.TCL_SCRIPT_FILES[1]: self.script_builder.build_script(
                     TCLScriptType.IP_CONFIG, template_context
                 ),
-                self.TCL_SCRIPT_FILES[2]: self.build_sources_tcl(context, source_files),
+                self.TCL_SCRIPT_FILES[2]: self.build_sources_tcl(
+                    context, source_files),
                 self.TCL_SCRIPT_FILES[3]: self.build_constraints_tcl(
                     context, constraint_files
                 ),

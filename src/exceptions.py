@@ -8,6 +8,8 @@ error handling and debugging capabilities throughout the application.
 
 from typing import Optional
 
+from src.string_utils import safe_format
+
 
 class PCILeechError(Exception):
     """Base exception for all PCILeech firmware generator errors."""
@@ -18,14 +20,23 @@ class PCILeechError(Exception):
 class TemplateError(PCILeechError):
     """Base exception for template-related errors."""
 
-    def __init__(self, message: Optional[str] = None, root_cause: Optional[str] = None):
-        super().__init__(message if message else "Template error occurred")
+    def __init__(
+        self, 
+        message: Optional[str] = None, 
+        root_cause: Optional[str] = None
+        ):
+        super().__init__(
+            message if message else "Template error occurred"
+        )
         self.root_cause = root_cause
 
     def __str__(self):
         base_msg = super().__str__()
         if self.root_cause and self.root_cause != base_msg:
-            return f"{base_msg} | Root cause: {self.root_cause}"
+            return safe_format(
+                "{base_msg} | Root cause: {self.root_cause}",
+                base_msg=base_msg, self=self
+            )    
         return base_msg
 
 

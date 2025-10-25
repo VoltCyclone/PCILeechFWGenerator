@@ -1112,16 +1112,20 @@ def test_file_operations_manager_write_single_file(temp_dir, mock_logger):
     file_path = temp_dir / "test.txt"
     content = "Test content"
 
-    # Mock open to avoid actual file operations
-    with mock.patch("builtins.open", mock.mock_open()) as mock_file:
+    # Create a mock for builtins.open to properly track calls
+    m = mock.mock_open()
+    with mock.patch("builtins.open", m):
         # Call the method
         manager._write_single_file(file_path, content)
 
-        # Check that file was opened correctly
-        mock_file.assert_called_once_with(file_path, "w", buffering=BUFFER_SIZE)
+        # Check that file was opened correctly with encoding parameter
+        # Note: mock_open creates a call with the arguments we expect
+        m.assert_called_once_with(
+            file_path, "w", buffering=BUFFER_SIZE, encoding="utf-8"
+        )
 
         # Check that write was called with correct content
-        handle = mock_file()
+        handle = m()
         handle.write.assert_called_once_with(content)
 
 
@@ -1644,9 +1648,13 @@ def test_firmware_builder_run_vivado_user_path(mock_firmware_builder):
     builder, mocks = mock_firmware_builder
     builder.config.vivado_path = "/custom/vivado/path"
 
-    with mock.patch("src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
+    with mock.patch(
+        "src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
         "src.vivado_handling.find_vivado_installation", return_value=None
-    ):
+    ), mock.patch("pathlib.Path.exists") as mock_path_exists:
+        # Mock Path.exists to return True for vivado executable check
+        # The check is: Path(vivado_path) / "bin" / "vivado" -> exists()
+        mock_path_exists.return_value = True
 
         mock_runner = mock.MagicMock()
         mock_runner_cls.return_value = mock_runner

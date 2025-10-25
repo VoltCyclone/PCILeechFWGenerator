@@ -36,14 +36,15 @@ class TestBuildHelperFunctions:
 
     def test_as_int_with_hex_string(self):
         """Test _as_int with hex string input."""
-        assert _as_int("0x1234", "test_field") == 0x1234
-        assert _as_int("0X1234", "test_field") == 0x1234
-        assert _as_int("1234", "test_field") == 0x1234
+        assert _as_int("0x1234", "test_field") == 0x1234  # 4660 decimal
+        assert _as_int("0X1234", "test_field") == 0x1234  # 4660 decimal
+        # Without 0x prefix, int(s, 0) treats it as decimal
+        assert _as_int("1234", "test_field") == 1234  # decimal 1234
 
     def test_as_int_with_decimal_string(self):
-        """Test _as_int with decimal string that looks like hex."""
-        # When no 0x prefix, it's interpreted as hex
-        assert _as_int("123", "test_field") == 0x123
+        """Test _as_int with decimal string."""
+        # int(s, 0) interprets strings without prefix as decimal
+        assert _as_int("123", "test_field") == 123  # decimal 123
 
     def test_optional_int_with_valid_values(self):
         """Test _optional_int with valid values."""

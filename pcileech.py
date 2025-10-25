@@ -10,12 +10,13 @@ import argparse
 import importlib
 import logging
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
 
-# Add project root to path for imports
-project_root = Path(__file__).parent
+# Add project root to path for imports (use absolute path to avoid symlink issues)
+project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
@@ -37,6 +38,14 @@ class RequirementsError(Exception):
     """Raised when requirements cannot be satisfied."""
 
     pass
+
+
+def _is_interactive_stdin() -> bool:
+    """Check if stdin is interactive (safe for all environments)."""
+    try:
+        return sys.stdin.isatty()
+    except Exception:
+        return False
 
 
 def check_and_install_requirements():
@@ -89,12 +98,14 @@ def check_and_install_requirements():
         print("2. Exit and install manually")
         print("3. Continue anyway (may cause errors)")
 
-        if not os.isatty(sys.stdin.fileno()):
+        if not _is_interactive_stdin():
             print(
-                "\nError: Non-interactive environment detected. Unable to prompt for input."
+                "\nError: Non-interactive environment detected. "
+                "Unable to prompt for input."
             )
             print(
-                "Set PCILEECH_AUTO_INSTALL=1 to auto-install or run the script in an interactive terminal."
+                "Set PCILEECH_AUTO_INSTALL=1 to auto-install or "
+                "run in an interactive terminal."
             )
             sys.exit(1)
 
@@ -134,7 +145,7 @@ def is_package_available(package_name):
         "python-magic": "magic",
         "opencv-python": "cv2",
         "scikit-learn": "sklearn",
-        "matplotlib": "matplotlib.pyplot",
+        "matplotlib": "matplotlib",  # not matplotlib.pyplot to avoid backend init
     }
 
     import_name = import_mappings.get(package_name.lower(), package_name)
@@ -179,30 +190,44 @@ def install_requirements(requirements_file):
             print("🐍 Detected virtual environment")
         else:
             print(
-                "⚠️  Installing to system Python (consider using a virtual environment)"
+                "⚠️  Installing to system Python "
+                "(consider using a virtual environment)"
             )
             print(
-                "\nNote: On Python 3.12+/Debian 12+, you may see 'externally-managed-environment' errors."
+                "\nNote: On Python 3.12+/Debian 12+, "
+                "you may see 'externally-managed-environment' errors."
             )
             print(
-                "Solution: Use a virtual environment or see docs/installation-python312.md"
+                "Solution: Use a virtual environment or "
+                "see docs/installation-python312.md"
             )
 
             # Ask for confirmation for system-wide install
             if os.getenv("PCILEECH_AUTO_INSTALL") != "1":
+                if not _is_interactive_stdin():
+                    print(
+                        "\nNon-interactive shell; "
+                        "refusing to install to system Python."
+                    )
+                    return False
                 confirm = (
-                    input("\nInstall to system Python anyway? [y/N]: ").strip().lower()
+                    input("\nInstall to system Python anyway? [y/N]: ")
+                    .strip()
+                    .lower()
                 )
                 if confirm not in ("y", "yes"):
                     print(
-                        "\nAborted. Please use a virtual environment or install manually:"
+                        "\nAborted. Please use a virtual environment "
+                        "or install manually:"
                     )
                     print(f"  python3 -m venv ~/.pcileech-venv")
                     print(f"  source ~/.pcileech-venv/bin/activate")
                     print(f"  pip install -r {requirements_file}")
-                    print(
-                        f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
+                    venv_cmd = (
+                        f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} "
+                        f"{' '.join(sys.argv[1:])}"
                     )
+                    print(venv_cmd)
                     sys.exit(1)
 
             # Try --user flag, but catch externally-managed-environment errors
@@ -298,32 +323,11 @@ def safe_import_with_fallback(module_name, fallback_msg=None):
 
 # Early requirements check before any other imports
 if __name__ == "__main__":
-    # Check requirements before proceeding
-    try:
-        requirements_ok = check_and_install_requirements()
-
-        # Check critical packages that might not be in requirements.txt
-        missing_critical = check_critical_imports()
-        if missing_critical:
-            print("\n❌ Critical packages missing:")
-            for package, description in missing_critical:
-                print(f"   - {package}: {description}")
-
-            if not requirements_ok:
-                print("\nPlease install missing packages and try again.")
-                sys.exit(1)
-
-    except KeyboardInterrupt:
-        print("\n⚠️  Installation interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ Error checking requirements: {e}")
-        sys.exit(1)
+    pass  # Requirements check moved to main() after argparse
 
 
 # Import our custom utilities (after requirements check)
 try:
-    from src.error_utils import format_concise_error, log_error_with_root_cause
     from src.log_config import get_logger, setup_logging
     from src.string_utils import (
         log_debug_safe,
@@ -354,19 +358,27 @@ def get_fallback_boards():
     """Get fallback board list when discovery fails."""
     from src.device_clone.constants import BOARD_FALLBACKS
 
-    return list(BOARD_FALLBACKS)
+    return sorted(list(BOARD_FALLBACKS))
 
 
 def check_sudo():
     """Check if running as root and warn if not."""
     logger = get_logger(__name__)
+    if not hasattr(os, "geteuid"):
+        # Non-POSIX system (e.g., Windows)
+        log_warning_safe(
+            logger, "Non-POSIX OS detected; root check skipped.", prefix="SUDO"
+        )
+        return False
     if os.geteuid() != 0:
         log_warning_safe(
             logger,
             "PCILeech requires root privileges for hardware access.",
             prefix="SUDO",
         )
-        log_warning_safe(logger, "Please run with sudo or as root user.", prefix="SUDO")
+        log_warning_safe(
+            logger, "Please run with sudo or as root user.", prefix="SUDO"
+        )
         return False
     return True
 
@@ -403,9 +415,27 @@ def check_vfio_requirements():
 def rebuild_vfio_constants():
     """Rebuild VFIO constants using the build script."""
     logger = get_logger(__name__)
+    script = project_root / "build_vfio_constants.sh"
+    
+    if not script.exists():
+        log_warning_safe(
+            logger, 
+            safe_format("VFIO constants script missing: {script}", script=script), 
+            prefix="VFIO"
+        )
+        return False
+    
+    if not os.access(script, os.X_OK):
+        log_warning_safe(
+            logger,
+            safe_format("VFIO constants script not executable: {script}", script=script),
+            prefix="VFIO"
+        )
+        return False
+    
     try:
         result = subprocess.run(
-            ["./build_vfio_constants.sh"],
+            [str(script)],
             capture_output=True,
             text=True,
             cwd=project_root,
@@ -510,7 +540,6 @@ Environment Variables:
     build_parser.add_argument(
         "--board",
         required=True,
-        choices=get_available_boards(),
         help="Target board configuration",
     )
     build_parser.add_argument(
@@ -628,8 +657,25 @@ def main():
     # Skip requirements check if requested
     if not args.skip_requirements_check:
         try:
-            check_and_install_requirements()
+            requirements_ok = check_and_install_requirements()
+
+            # Check critical packages that might not be in requirements.txt
+            missing_critical = check_critical_imports()
+            if missing_critical:
+                print("\n❌ Critical packages missing:")
+                for package, description in missing_critical:
+                    print(f"   - {package}: {description}")
+
+                if not requirements_ok:
+                    print("\nPlease install missing packages and try again.")
+                    return 1
+        except KeyboardInterrupt:
+            print("\n⚠️  Installation interrupted by user")
+            return 1
         except RequirementsError:
+            return 1
+        except Exception as e:
+            print(f"❌ Error checking requirements: {e}")
             return 1
 
     # Setup logging with our custom configuration
@@ -641,6 +687,9 @@ def main():
         setup_logging(level=logging.INFO)
 
     logger = get_logger(__name__)
+
+    # Detect OS for platform-specific checks
+    is_linux = platform.system().lower() == "linux"
 
     # Handle console script auto-command detection
     if not args.command:
@@ -656,15 +705,21 @@ def main():
             parser.print_help()
             return 1
 
-    # Check sudo requirements for hardware operations
-    if args.command in ["build", "check"] and not check_sudo():
-        log_error_safe(
-            logger, "Root privileges required for hardware operations.", prefix="MAIN"
-        )
-        return 1
+    # Check sudo requirements for hardware operations (Linux only)
+    if args.command in ["build", "check"]:
+        if not is_linux:
+            log_error_safe(logger, "This command requires Linux.", prefix="MAIN")
+            return 1
+        if not check_sudo():
+            log_error_safe(
+                logger,
+                "Root privileges required for hardware operations.",
+                prefix="MAIN",
+            )
+            return 1
 
-    # Check VFIO requirements for build operations
-    if args.command == "build" and not check_vfio_requirements():
+    # Check VFIO requirements for build operations (Linux only)
+    if args.command == "build" and is_linux and not check_vfio_requirements():
         log_error_safe(
             logger,
             "Run 'sudo python3 pcileech.py check' to validate VFIO setup.",
@@ -698,6 +753,15 @@ def handle_build(args):
     """Handle CLI build mode."""
     logger = get_logger(__name__)
     try:
+        # Validate board before proceeding
+        valid_boards = set(get_available_boards())
+        if args.board not in valid_boards:
+            print(
+                f"❌ Unknown board '{args.board}'. "
+                f"Valid options: {', '.join(sorted(valid_boards))}"
+            )
+            return 1
+
         # Import and use the existing CLI build functionality
         from src.cli.cli import main as cli_main
 
@@ -837,24 +901,32 @@ def handle_flash(args):
             flash_firmware(firmware_path)
         except ImportError:
             # Fallback to direct usbloader if available
-            result = subprocess.run(
-                ["usbloader", "-f", str(firmware_path)], capture_output=True, text=True
-            )
-            if result.returncode != 0:
+            try:
+                result = subprocess.run(
+                    ["usbloader", "-f", str(firmware_path)],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    log_error_safe(
+                        logger,
+                        safe_format("Flash failed: {error}", error=result.stderr),
+                        prefix="FLASH",
+                    )
+                    return 1
+                log_info_safe(
+                    logger,
+                    safe_format("Successfully flashed {path}", path=firmware_path),
+                    prefix="FLASH",
+                )
+            except FileNotFoundError:
                 log_error_safe(
                     logger,
-                    safe_format("Flash failed: {error}", error=result.stderr),
+                    "usbloader not found in PATH. "
+                    "Install or use the built-in flasher.",
                     prefix="FLASH",
                 )
                 return 1
-            log_info_safe(
-                logger,
-                safe_format(
-                    "Successfully flashed {path}",
-                    path=firmware_path,
-                ),
-                prefix="FLASH",
-            )
 
         return 0
 
@@ -870,8 +942,6 @@ def handle_check(args):
     logger = get_logger(__name__)
     try:
         # Import the VFIO diagnostics functionality
-        from pathlib import Path
-
         from src.cli.vfio_diagnostics import (
             Diagnostics,
             Status,

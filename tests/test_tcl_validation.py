@@ -13,10 +13,11 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.templating.tcl_builder import (  # noqa: E402
+from src.templating.tcl_builder import (
     BuildContext,
     TCLScriptType,
-)
+    PCIE_SPEED_CODES,
+)  # noqa: E402
 
 
 class TestTCLValidationEnhancements(unittest.TestCase):

@@ -8,8 +8,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.templating.tcl_builder import BuildContext  # noqa: E402
-from src.templating.tcl_builder import format_hex_id
+from src.templating.tcl_builder import (
+    BuildContext,
+    format_hex_id,
+    PCIE_SPEED_CODES,
+)  # noqa: E402
 
 
 def _mk_base_ctx(**over):

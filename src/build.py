@@ -17,7 +17,11 @@ import os
 import re
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+    as_completed,
+)
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -74,14 +78,22 @@ SYSTEMVERILOG_EXTENSION = ".sv"
 
 
 def _as_int(value: Union[int, str], field: str) -> int:
-    """Normalize numeric identifier that may be int or hex string."""
+    """Normalize numeric identifier that may be int, hex (0x) or decimal string."""
     if isinstance(value, int):
         return value
     if isinstance(value, str):
-        v = value.strip().lower()
-        if v.startswith("0x"):
-            v = v[2:]
-        return int(v, 16)
+        s = value.strip()
+        # int(s, 0) accepts 0x... hex, 0o... octal, or decimal (no prefix)
+        try:
+            return int(s, 0)
+        except ValueError as e:
+            raise TypeError(
+                safe_format(
+                    "Unsupported numeric format for {field}: {val}",
+                    field=field,
+                    val=value,
+                )
+            ) from e
     raise TypeError(safe_format("Unsupported type for {field}", field=field))
 
 
@@ -527,7 +539,7 @@ class FileOperationsManager:
             FileOperationError: If writing fails
         """
         sv_dir = self.output_dir / "src"
-        sv_dir.mkdir(exist_ok=True)
+        sv_dir.mkdir(parents=True, exist_ok=True)
 
         # Prepare file write tasks
         write_tasks = []
@@ -681,12 +693,17 @@ class FileOperationsManager:
                 for path, content in write_tasks
             }
 
-            for future in as_completed(futures, timeout=FILE_WRITE_TIMEOUT):
-                path = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    raise FileOperationError(f"Failed to write file {path}: {e}") from e
+            try:
+                for future in as_completed(futures, timeout=FILE_WRITE_TIMEOUT):
+                    path = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        raise FileOperationError(
+                            f"Failed to write file {path}: {e}"
+                        ) from e
+            except FutureTimeoutError as e:
+                raise FileOperationError("Parallel write timed out") from e
 
     def _sequential_write(self, write_tasks: List[Tuple[Path, str]]) -> None:
         """
@@ -712,7 +729,8 @@ class FileOperationsManager:
             path: File path
             content: File content
         """
-        with open(path, "w", buffering=BUFFER_SIZE) as f:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", buffering=BUFFER_SIZE, encoding="utf-8") as f:
             f.write(content)
 
     def _json_serialize_default(self, obj: Any) -> str:
@@ -753,7 +771,11 @@ class ConfigurationManager:
         self._validate_args(args)
 
         # Optional environment toggle to apply production defaults
-        use_prod = bool(os.environ.get("PCILEECH_PRODUCTION_DEFAULTS"))
+        use_prod = os.environ.get("PCILEECH_PRODUCTION_DEFAULTS", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         enable_profiling = args.profile > 0
         preload_msix = getattr(args, "preload_msix", True)
         if use_prod:
@@ -822,7 +844,7 @@ class ConfigurationManager:
 
             # Check for invalid/generic values that could create non-unique firmware
             if isinstance(value, (int, str)):
-                int_value = int(value, 16) if isinstance(value, str) else value
+                int_value = _as_int(value, field)
                 if int_value == 0:
                     raise ConfigurationError(
                         f"{display_name} is zero (0x{int_value:04X}), which "
@@ -1040,6 +1062,15 @@ class FirmwareBuilder:
                 ),
                 prefix="VIVADO",
             )
+            # Sanity check: ensure vivado executable exists
+            vivado_exe = Path(vivado_path) / "bin" / "vivado"
+            if not vivado_exe.exists():
+                raise VivadoIntegrationError(
+                    safe_format(
+                        "Vivado executable not found at {exe}",
+                        exe=str(vivado_exe),
+                    )
+                )
         else:
             # Auto-detect Vivado installation
             vivado_info = find_vivado_installation()
@@ -1157,10 +1188,10 @@ class FirmwareBuilder:
         # Ensure a conservative template_context exists with MSI-X defaults.
         # This prevents template generation from crashing when the generator
         # returns a minimal result.
-        if "template_context" not in result or not isinstance(
-            result.get("template_context"), dict
-        ):
-            result["template_context"] = {}
+        result.setdefault("template_context", {})
+        result.setdefault("systemverilog_modules", {})
+        result.setdefault("config_space_data", {})
+        result.setdefault("msix_data", None)
 
         tc = result["template_context"]
         # Provide conservative MSI-X defaults if missing
@@ -1272,9 +1303,16 @@ class FirmwareBuilder:
 
     def _write_modules(self, result: Dict[str, Any]) -> None:
         """Write SystemVerilog modules to disk."""
-        sv_files, special_files = self.file_manager.write_systemverilog_modules(
-            result["systemverilog_modules"]
-        )
+        modules = result.get("systemverilog_modules", {})
+        if not modules:
+            log_warning_safe(
+                self.logger,
+                "No SystemVerilog modules in generation result",
+                prefix="BUILD",
+            )
+            return
+
+        sv_files, special_files = self.file_manager.write_systemverilog_modules(modules)
 
         log_info_safe(
             self.logger,
@@ -1388,7 +1426,15 @@ class FirmwareBuilder:
 
     def _save_device_info(self, result: Dict[str, Any]) -> None:
         """Save device information for auditing."""
-        device_info = result["config_space_data"].get("device_info", {})
+        config_space_data = result.get("config_space_data", {})
+        device_info = config_space_data.get("device_info", {})
+        if not device_info:
+            log_warning_safe(
+                self.logger,
+                "No device info available to save",
+                prefix="BUILD",
+            )
+            return
         self.file_manager.write_json("device_info.json", device_info)
 
     def _store_device_config(self, result: Dict[str, Any]) -> None:
