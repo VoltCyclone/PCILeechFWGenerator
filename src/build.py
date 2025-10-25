@@ -84,16 +84,28 @@ def _as_int(value: Union[int, str], field: str) -> int:
     if isinstance(value, str):
         s = value.strip()
         # int(s, 0) accepts 0x... hex, 0o... octal, or decimal (no prefix)
-        try:
-            return int(s, 0)
-        except ValueError as e:
+        if not s:
             raise TypeError(
                 safe_format(
                     "Unsupported numeric format for {field}: {val}",
                     field=field,
                     val=value,
                 )
-            ) from e
+            )
+        try:
+            return int(s, 0)
+        except ValueError:
+            if re.fullmatch(r"[0-9A-Fa-f]+", s):
+                return int(s, 16)
+            if re.fullmatch(r"\d+", s):
+                return int(s, 10)
+            raise TypeError(
+                safe_format(
+                    "Unsupported numeric format for {field}: {val}",
+                    field=field,
+                    val=value,
+                )
+            )
     raise TypeError(safe_format("Unsupported type for {field}", field=field))
 
 

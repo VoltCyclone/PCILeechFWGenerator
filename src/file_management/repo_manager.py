@@ -87,12 +87,17 @@ class RepoManager:
     # Entry points
     # ---------------------------------------------------------------------
 
+
     @classmethod
     def ensure_repo(cls) -> Path:
-        """Ensure voltcyclone-fpga submodule is initialized and return its path.
-        
+        """Ensure voltcyclone-fpga assets exist and return their path.
+
+        Prefers a full git submodule but accepts read-only vendor payloads
+        that ship without git metadata when the expected board directories
+        are present.
+
         Raises:
-            RuntimeError: If submodule is not initialized or invalid
+            RuntimeError: If no firmware assets are available
         """
         if not SUBMODULE_PATH.exists():
             raise RuntimeError(
@@ -102,28 +107,36 @@ class RepoManager:
                     path=SUBMODULE_PATH,
                 )
             )
-        
-        if not cls._is_valid_repo(SUBMODULE_PATH):
-            raise RuntimeError(
-                safe_format(
-                    "voltcyclone-fpga submodule at {path} is not a valid repository."
-                    "Reinitialize with: git submodule update --init --recursive",
-                    path=SUBMODULE_PATH,
-                )
+
+        if cls._is_valid_repo(SUBMODULE_PATH):
+            log_debug_safe(
+                _logger,
+                "Using voltcyclone-fpga submodule at {path}",
+                path=SUBMODULE_PATH,
+                prefix="REPO",
             )
-        
-        log_debug_safe(
-            _logger,
-            "Using voltcyclone-fpga submodule at {path}",
-            path=SUBMODULE_PATH,
-            prefix="REPO"
+            return SUBMODULE_PATH
+
+        if cls._has_vendored_payload(SUBMODULE_PATH):
+            log_warning_safe(
+                _logger,
+                "voltcyclone-fpga assets missing git metadata; using vendored copy",
+                prefix="REPO",
+            )
+            return SUBMODULE_PATH
+
+        raise RuntimeError(
+            safe_format(
+                "voltcyclone-fpga assets at {path} are unavailable or incomplete. "
+                "Reinitialize with: git submodule update --init --recursive",
+                path=SUBMODULE_PATH,
+            )
         )
-        return SUBMODULE_PATH
 
     @classmethod
     def update_submodule(cls) -> None:
         """Update the voltcyclone-fpga submodule to latest upstream changes.
-        
+
         Raises:
             RuntimeError: If git is not available or update fails
         """
@@ -248,19 +261,35 @@ class RepoManager:
     @classmethod
     def _is_valid_repo(cls, path: Path) -> bool:
         """Check if path contains a valid git repository."""
-        if not (path / ".git").exists():
+        git_dir = path / ".git"
+        if not git_dir.exists():
             return False
 
         if not _git_available():
-            # Best-effort: assume OK when .git exists and git not available
             return True
 
         try:
-            # Use git command to verify repository is valid
             _run(["git", "rev-parse", "--git-dir"], cwd=path)
             return True
         except Exception:
             return False
+
+    @classmethod
+    def _has_vendored_payload(cls, path: Path) -> bool:
+        """Return True when required board assets exist without git metadata."""
+        expected = [
+            path / "CaptainDMA",
+            path / "EnigmaX1",
+            path / "PCIeSquirrel",
+        ]
+        missing = [p for p in expected if not p.exists()]
+        if missing:
+            return False
+        # At least one XDC file should exist beneath the tree
+        for root in expected:
+            if any(root.rglob("*.xdc")):
+                return True
+        return False
 
 
 ###############################################################################

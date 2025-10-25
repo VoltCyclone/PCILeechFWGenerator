@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 from src.__version__ import __version__
+from src.exceptions import TemplateRenderError
 from src.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
@@ -26,8 +27,6 @@ from src.templates.template_mapping import update_template_path
 from src.utils.unified_context import ensure_template_compatibility
 
 from .sv_constants import SV_CONSTANTS
-
-__import__ = builtins.__import__
 
 try:
     from jinja2 import (
@@ -770,156 +769,6 @@ class TemplateRenderer:
             "Cleared template renderer caches",
             prefix=self.prefix,
         )
-
-
-# Performance optimization: Cache the import result
-_cached_exception_class: Optional[Type[Exception]] = None
-
-
-class _FallbackTemplateRenderError(Exception):
-    """Minimal fallback when src.exceptions.TemplateRenderError is unavailable."""
-
-    def __init__(
-        self,
-        message: str = "Template render error",
-        template_name: Optional[str] = None,
-        line_number: Optional[int] = None,
-        original_error: Optional[Exception] = None,
-    ):
-        super().__init__(message)
-        self.template_name = template_name
-        self.line_number = line_number
-        self.original_error = original_error
-
-    def __str__(self) -> str:
-        parts = [str(self.args[0]) if self.args else "Template render error"]
-        if self.template_name:
-            parts.append(f"Template: {self.template_name}")
-        if self.line_number is not None:
-            parts.append(f"Line: {self.line_number}")
-        if self.original_error:
-            try:
-                orig_msg = (
-                    self.original_error.args[0]
-                    if getattr(self.original_error, "args", None)
-                    else repr(self.original_error)
-                )
-            except Exception:
-                orig_msg = repr(self.original_error)
-            err_type = type(self.original_error).__name__
-            parts.append(f"Caused by: {err_type}: {orig_msg}")
-        return " | ".join(parts)
-
-
-def _clear_exception_cache():
-    """Clear the cached exception class. Useful for testing."""
-    global _cached_exception_class
-    _cached_exception_class = None
-
-
-def _get_template_render_error_base() -> Type[Exception]:
-    """
-    Lazily import and cache the base TemplateRenderError class.
-
-    Returns the canonical `TemplateRenderError` from `src.exceptions` when
-    available; otherwise returns a lightweight fallback implementation.
-    """
-    global _cached_exception_class
-
-    if _cached_exception_class is not None:
-        return cast(Type[Exception], _cached_exception_class)
-
-    try:
-        # Use the module-level __import__ so tests can patch it.
-        mod = __import__(
-            "src.exceptions",
-            fromlist=["TemplateRenderError"],
-        )
-        _tr = getattr(mod, "TemplateRenderError")
-        _cached_exception_class = _tr
-        return cast(Type[Exception], _cached_exception_class)
-    except ImportError as e:
-        # Use simple fallback class with the expected API
-        _cached_exception_class = _FallbackTemplateRenderError
-
-        # Only warn when a debugger is attached (development mode)
-        if hasattr(sys, "gettrace") and sys.gettrace() is not None:
-            import warnings
-
-            warn_msg = safe_format(
-                "Failed to import TemplateRenderError from src.exceptions: {err}. "
-                "Using fallback.",
-                err=e,
-            )
-            warnings.warn(
-                warn_msg,
-                ImportWarning,
-                stacklevel=2,
-            )
-
-    return cast(Type[Exception], _cached_exception_class)
-
-
-class TemplateRenderError(_get_template_render_error_base()):
-    def __init__(
-        self,
-        message: str = "Template render error",
-        template_name: Optional[str] = None,
-        line_number: Optional[int] = None,
-        original_error: Optional[Exception] = None,
-    ):
-        # Initialize base with the message (some bases accept different kwargs)
-        try:
-            super().__init__(message)
-        except TypeError:
-            super().__init__()
-
-        # Ensure attributes exist regardless of base class
-        self.template_name = template_name
-        self.line_number = line_number
-        self.original_error = original_error
-
-    def __str__(self) -> str:
-        # Prefer base implementation when available
-        try:
-            base_msg = super().__str__()
-        except Exception:
-            base_msg = "Template render error"
-            # Try to extract message from args if available
-            try:
-                if hasattr(self, "args"):
-                    args_obj = self.args
-                    if args_obj and isinstance(args_obj, (list, tuple)):
-                        if len(args_obj) > 0:
-                            base_msg = str(args_obj[0])
-            except (IndexError, TypeError, AttributeError):
-                pass
-
-        parts = [base_msg]
-        if getattr(self, "template_name", None):
-            parts.append(f"Template: {self.template_name}")
-        if getattr(self, "line_number", None) is not None:
-            parts.append(f"Line: {self.line_number}")
-        if getattr(self, "original_error", None):
-            try:
-                orig = cast(Exception, self.original_error)
-                orig_msg = repr(orig)
-                # Try to extract message from args if available
-                try:
-                    if hasattr(orig, "args"):
-                        args_obj = orig.args
-                        if args_obj and isinstance(args_obj, (list, tuple)):
-                            if len(args_obj) > 0:
-                                orig_msg = str(args_obj[0])
-                except (IndexError, TypeError, AttributeError):
-                    pass
-            except Exception:
-                orig_msg = repr(self.original_error)
-
-            error_type = type(self.original_error).__name__
-            parts.append(f"Caused by: {error_type}: {orig_msg}")
-
-        return " | ".join(parts)
 
 
 def render_tcl_template(

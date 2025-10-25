@@ -38,18 +38,22 @@ class TestBuildHelperFunctions:
         """Test _as_int with hex string input."""
         assert _as_int("0x1234", "test_field") == 0x1234  # 4660 decimal
         assert _as_int("0X1234", "test_field") == 0x1234  # 4660 decimal
-        # Without 0x prefix, int(s, 0) treats it as decimal
-        assert _as_int("1234", "test_field") == 1234  # decimal 1234
+        # Bare strings without prefix are interpreted as decimal by int(s, 0)
+        assert _as_int("1234", "device_id") == 1234
+
+    def test_as_int_with_bare_identifier(self):
+        """Bare zero-padded identifiers must parse without raising."""
+        assert _as_int("0014", "device_id") == 20
 
     def test_as_int_with_decimal_string(self):
         """Test _as_int with decimal string."""
-        # int(s, 0) interprets strings without prefix as decimal
-        assert _as_int("123", "test_field") == 123  # decimal 123
+        assert _as_int("123", "revision_id") == 123
 
     def test_optional_int_with_valid_values(self):
         """Test _optional_int with valid values."""
         assert _optional_int(42) == 42
         assert _optional_int("0x1234") == 0x1234
+        assert _optional_int("0014") == 20
         assert _optional_int(None) is None
         assert _optional_int("") is None
 

@@ -160,11 +160,9 @@ class DeviceInfoLookup:
 
             log_info_safe(
                 logger,
-                safe_format(
-                    "Pre-fallback device_info (shape): {shape}",
-                    shape=shape,
-                ),
+                "Pre-fallback device_info (shape): {shape}",
                 prefix="LOOKUP",
+                shape=shape,
             )
 
             s = json.dumps(sanitized, indent=2, sort_keys=True)
@@ -173,11 +171,9 @@ class DeviceInfoLookup:
 
             log_info_safe(
                 logger,
-                safe_format(
-                    "Pre-fallback device_info (sanitized): {snapshot}",
-                    snapshot=s,
-                ),
+                "Pre-fallback device_info (sanitized): {snapshot}",
                 prefix="LOOKUP",
+                snapshot=s,
             )
         except Exception:
             log_warning_safe(
