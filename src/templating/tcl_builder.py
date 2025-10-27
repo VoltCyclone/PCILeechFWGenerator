@@ -567,7 +567,10 @@ class BuildContext:
         # Normalize PCIe representations and ship all flavors for templates
         # Speed: provide canonical ("2.5GT/s") as primary, code as numeric
         speed_canonical = derived_speed  # "2.5GT/s" (canonical, no underscore)
-        speed_enum = derived_speed  # Same - kept for template compatibility
+
+        # Vivado 7-series expects enum tokens with an underscore (e.g., "2.5_GT/s").
+        # Convert canonical form -> Vivado enum form for templates that need it.
+        speed_enum = derived_speed.replace("GT/s", "_GT/s")  # "2.5_GT/s"
         speed_code = self.pcie_max_link_speed_code
 
         # Width: provide uppercase enum ("X4"), lowercase ("x4"), and numeric (4)

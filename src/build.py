@@ -1128,7 +1128,6 @@ class FirmwareBuilder:
             PCILeechGenerationConfig,
             PCILeechGenerator,
         )
-        from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
             PCILeechGenerationConfig(
@@ -1143,7 +1142,6 @@ class FirmwareBuilder:
             )
         )
 
-        self.tcl = TCLBuilder(output_dir=self.config.output_dir)
         self.profiler = BehaviorProfiler(bdf=self.config.bdf)
 
     # ────────────────────────────────────────────────────────────────────────
@@ -1360,47 +1358,49 @@ class FirmwareBuilder:
             )
 
     def _generate_tcl_scripts(self, result: Dict[str, Any]) -> None:
-        """Generate TCL scripts for Vivado."""
-        ctx = result["template_context"]
-        device_config = ctx["device_config"]
-
+        """Copy static Vivado TCL scripts from submodule to output directory."""
         # Validate board is present and non-empty
         board = self.config.board
         if not board or not board.strip():
             raise ConfigurationError(
-                "Board name is required for TCL generation. "
+                "Board name is required for TCL script copying. "
                 "Use --board to specify a valid board configuration "
-                "(e.g., pcileech_100t484_x1)"
+                "(e.g., pciescreamer, ac701_ft601)"
             )
 
-        # Extract optional subsystem IDs
-        subsys_vendor_id = _optional_int(device_config.get("subsystem_vendor_id"))
-        subsys_device_id = _optional_int(device_config.get("subsystem_device_id"))
+        # Ensure RTL and constraints from the PCILeech submodule are available
+        # for Vivado by copying them into the output structure
+        try:
+            from src.file_management.file_manager import FileManager as _FM
 
-        # Extract PCIe link speed and width from template context
-        # These are critical for donor-unique firmware generation
-        pcie_max_link_speed = ctx.get("pcie_max_link_speed")
-        pcie_max_link_width = ctx.get("pcie_max_link_width")
-
-        self.tcl.build_all_tcl_scripts(
-            board=board,
-            device_id=device_config["device_id"],
-            class_code=device_config["class_code"],
-            revision_id=device_config["revision_id"],
-            vendor_id=device_config["vendor_id"],
-            subsys_vendor_id=subsys_vendor_id,
-            subsys_device_id=subsys_device_id,
-            build_jobs=self.config.vivado_jobs,
-            build_timeout=self.config.vivado_timeout,
-            pcie_max_link_speed_code=pcie_max_link_speed,
-            pcie_max_link_width=pcie_max_link_width,
-        )
-
-        log_info_safe(
-            self.logger,
-            "  • Emitted Vivado scripts → vivado_project.tcl, vivado_build.tcl",
-            prefix="BUILD",
-        )
+            fm = _FM(self.config.output_dir)
+            # Ensure src/ and ip/ directories exist
+            fm.create_pcileech_structure()
+            # Copy sources and constraints from the submodule and local pcileech/
+            copied = fm.copy_pcileech_sources(self.config.board)
+            
+            # Copy static TCL scripts from submodule instead of generating them
+            tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "  • Copied {count} Vivado TCL scripts from submodule",
+                    count=len(tcl_scripts)
+                ),
+                prefix="BUILD",
+            )
+            
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Failed to copy TCL scripts: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
+            raise
 
     def _write_xdc_files(self, result: Dict[str, Any]) -> None:
         """Write XDC constraint files to output directory."""

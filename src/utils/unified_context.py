@@ -1330,8 +1330,11 @@ class UnifiedContextBuilder:
         # PCIe link configuration (safe defaults for testing)
         # In production, these come from donor device profiling
         context["target_link_speed"] = kwargs.get(
-            "target_link_speed", "5.0_GT/s"
-        )  # Gen2 default
+            "target_link_speed", "5.0GT/s"
+        )  # Gen2 default (canonical form without underscore)
+        context["target_link_speed_enum"] = kwargs.get(
+            "target_link_speed_enum", "5.0_GT/s"
+        )  # Gen2 default (Vivado enum form with underscore)
         context["target_link_width_enum"] = kwargs.get(
             "target_link_width_enum", "X4"
         )  # x4 lanes default
