@@ -97,7 +97,7 @@ jobs:
         semgrep --config=auto src/ || echo "Semgrep found issues - check report"
     
     - name: Upload security reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       if: always()
       with:
         name: security-reports
