@@ -72,7 +72,7 @@ jobs:
         run: python scripts/validate_template_syntax.py
 
       - name: Upload validation artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: template-validation-report
@@ -181,7 +181,7 @@ jobs:
           verbose: true
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: test-results-py${{ matrix.python-version }}
@@ -250,7 +250,7 @@ jobs:
           python -m twine check dist/*
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: python-packages-${{ steps.version.outputs.version }}
           path: dist/
