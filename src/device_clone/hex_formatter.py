@@ -56,7 +56,6 @@ class ConfigSpaceHexFormatter:
         self,
         config_space_data: bytes,
         include_comments: bool = True,
-        words_per_line: int = 1,
         vendor_id: Optional[str] = None,
         device_id: Optional[str] = None,
         class_code: Optional[str] = None,
@@ -68,7 +67,6 @@ class ConfigSpaceHexFormatter:
         Args:
             config_space_data: Raw configuration space bytes
             include_comments: Whether to include offset/register comments
-            words_per_line: Number of 32-bit words per line (default: 1)
 
         Returns:
             Formatted hex string suitable for $readmemh

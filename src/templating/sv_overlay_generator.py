@@ -28,6 +28,8 @@ from .sv_constants import SV_VALIDATION
 
 from .template_renderer import TemplateRenderer, TemplateRenderError
 
+from .validation_helpers import validate_template_context
+
 
 class SVOverlayGenerator:
     """Generates device-specific overlay configuration files (.coe).
@@ -129,38 +131,13 @@ class SVOverlayGenerator:
 
     def _validate_context(self, context: Dict[str, Any]) -> None:
         """Validate that required context fields are present."""
-        # Require donor-bound device identifiers
-        device_cfg = context.get("device_config") or {}
-        device_obj = context.get("device") or {}
-
-        vid = device_obj.get("vendor_id") or device_cfg.get("vendor_id")
-        did = device_obj.get("device_id") or device_cfg.get("device_id")
-
-        if not vid or not did:
-            error_msg = safe_format(
-                "Missing required device identifiers: "
-                "vendor_id={vid}, device_id={did}",
-                vid=str(vid) if vid else "MISSING",
-                did=str(did) if did else "MISSING",
-            )
-            log_error_safe(
-                self.logger,
-                error_msg,
-                prefix=self.prefix,
-            )
-            raise TemplateRenderError(error_msg)
-
-        # Validate config_space data
-        config_space = context.get("config_space")
-        if not config_space:
-            log_error_safe(
-                self.logger,
-                "Missing required config_space in context",
-                prefix=self.prefix,
-            )
-            raise TemplateRenderError(
-                "Missing required config_space in context"
-            )
+        # Use centralized validation helper
+        validate_template_context(
+            context,
+            self.logger,
+            prefix=self.prefix,
+            require_config_space=True
+        )
 
     def _prepare_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare context with necessary defaults for template rendering."""

@@ -18,10 +18,19 @@ from .template_renderer import TemplateRenderer
 class ErrorHandlingGenerator:
     """Generator for advanced error handling SystemVerilog logic."""
 
-    def __init__(self, config: Optional[ErrorHandlingConfig] = None):
-        """Initialize the error handling generator."""
+    def __init__(
+        self,
+        config: Optional[ErrorHandlingConfig] = None,
+        renderer: Optional[TemplateRenderer] = None,
+    ):
+        """Initialize the error handling generator.
+        
+        Args:
+            config: Error handling configuration (uses defaults if None)
+            renderer: Shared TemplateRenderer instance (creates new if None)
+        """
         self.config = config or ErrorHandlingConfig()
-        self.renderer = TemplateRenderer()
+        self.renderer = renderer if renderer is not None else TemplateRenderer()
 
     def generate_error_declarations(self) -> str:
         """Generate error handling signal declarations."""

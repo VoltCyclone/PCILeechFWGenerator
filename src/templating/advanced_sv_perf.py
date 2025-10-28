@@ -282,21 +282,29 @@ class PerformanceCounterGenerator:
     ) -> str:
         """Generate latency measurement logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2",
+            context
+            )
 
     def generate_error_rate_tracking(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate error rate tracking logic."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2",
+            context
+        )
 
     def generate_device_specific_counters(
         self, template_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate device-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def _generate_network_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -304,7 +312,9 @@ class PerformanceCounterGenerator:
         """Generate network-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
         context["device_type"] = "network"
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def _generate_storage_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -312,7 +322,9 @@ class PerformanceCounterGenerator:
         """Generate storage-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
         context["device_type"] = "storage"
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def _generate_graphics_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -320,7 +332,9 @@ class PerformanceCounterGenerator:
         """Generate graphics-specific performance counters."""
         context = self._build_context_from_template_context(template_context or {})
         context["device_type"] = "graphics"
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def generate_performance_grading(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -328,7 +342,9 @@ class PerformanceCounterGenerator:
         """Generate overall performance grading logic."""
         context = self._build_context_from_template_context(template_context or {})
         context["enable_performance_grading"] = True
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )   
 
     def generate_perf_outputs(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -336,7 +352,9 @@ class PerformanceCounterGenerator:
         """Generate performance counter output assignments."""
         context = self._build_context_from_template_context(template_context or {})
         context["enable_perf_outputs"] = True
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def generate_complete_performance_counters(
         self, template_context: Optional[Dict[str, Any]] = None
@@ -355,7 +373,9 @@ class PerformanceCounterGenerator:
             prefix=self.prefix,
         )
 
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def generate(self, template_context: Optional[Dict[str, Any]] = None) -> str:
         """Alias for generate_complete_performance_counters."""

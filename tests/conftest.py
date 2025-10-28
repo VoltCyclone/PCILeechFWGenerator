@@ -72,13 +72,11 @@ def mock_textual_app():
 
 @pytest.fixture(scope="session", autouse=True)
 def explicit_config_dir():
-    """Configure a global DeviceConfigManager for tests that expect on-disk
-    profiles.
+    """Configure a global DeviceConfigManager for tests.
 
-    This fixture sets `src.device_clone.device_config._config_manager` to an
-    instance with `config_dir` pointed at `configs/devices` inside the repo
-    root when that directory exists. It avoids changing runtime defaults while
-    keeping tests passing.
+    SECURITY: Explicitly set to None to enforce no default/generic configs.
+    Tests must use live device detection or explicit in-memory fixtures only.
+    This prevents insecure generic firmware generation.
     """
     try:
         import src.device_clone.device_config as dc
@@ -88,13 +86,9 @@ def explicit_config_dir():
         return
 
     prev = getattr(dc, "_config_manager", None)
-    repo_root = Path(__file__).resolve().parents[1]
-    configs_dir = repo_root / "configs" / "devices"
-
-    if configs_dir.exists():
-        dc._config_manager = dc.DeviceConfigManager(config_dir=configs_dir)
-    else:
-        dc._config_manager = None
+    
+    # Explicitly disable on-disk configs to enforce security principles
+    dc._config_manager = None
 
     yield
 

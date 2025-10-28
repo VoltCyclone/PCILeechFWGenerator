@@ -76,9 +76,17 @@ logger = logging.getLogger(__name__)
 class AdvancedSVFeatureGenerator:
     """Generator for advanced SystemVerilog features."""
 
-    def __init__(self, config: AdvancedFeatureConfig):
+    def __init__(
+        self, config: AdvancedFeatureConfig, renderer: Optional[TemplateRenderer] = None
+    ):
+        """Initialize the advanced SV feature generator.
+        
+        Args:
+            config: Advanced feature configuration
+            renderer: Shared TemplateRenderer instance (creates new if None)
+        """
         self.config = config
-        self.renderer = TemplateRenderer()
+        self.renderer = renderer if renderer is not None else TemplateRenderer()
         self.prefix = config.prefix
         log_info_safe(
             logger,

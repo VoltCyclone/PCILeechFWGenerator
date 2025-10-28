@@ -80,7 +80,8 @@ class ErrorTagExtension(Extension):
             self.call_method("_raise_error", args), [], [], []
         ).set_lineno(lineno)
 
-    def _raise_error(self, message, caller=None):
+    def _raise_error(self, message):
+        """Raise a template runtime error with the given message."""
         raise TemplateRuntimeError(message)
 
 
