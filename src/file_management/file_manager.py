@@ -747,6 +747,100 @@ class FileManager:
 
         return copied_files
 
+    def copy_vivado_tcl_scripts(self, board: str) -> List[Path]:
+        """Copy Vivado TCL scripts from submodule to output directory.
+        
+        Copies the static TCL scripts (vivado_generate_project.tcl, vivado_build.tcl)
+        from lib/voltcyclone-fpga/<board>/ to the output directory.
+        
+        Args:
+            board: Board name (e.g., 'pciescreamer', 'ac701_ft601')
+            
+        Returns:
+            List of copied TCL script paths
+            
+        Raises:
+            FileNotFoundError: If board directory or TCL scripts not found
+        """
+        copied_scripts = []
+        
+        try:
+            from ..file_management.repo_manager import RepoManager
+            
+            # Get repository and board paths
+            repo_path = RepoManager.ensure_repo()
+            board_path = RepoManager.get_board_path(board, repo_root=repo_path)
+            
+            if not board_path.exists():
+                raise FileNotFoundError(
+                    safe_format(
+                        "Board directory not found: {board_path}",
+                        board_path=board_path
+                    )
+                )
+            
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Copying Vivado TCL scripts for board: {board}",
+                    board=board
+                ),
+                prefix="FILE_MANAGER",
+            )
+            
+            # Copy all vivado_*.tcl files
+            tcl_pattern = "vivado_*.tcl"
+            tcl_files = list(board_path.glob(tcl_pattern))
+            
+            if not tcl_files:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "No TCL scripts found matching {pattern} in {board_path}",
+                        pattern=tcl_pattern,
+                        board_path=board_path
+                    ),
+                    prefix="FILE_MANAGER",
+                )
+                return copied_scripts
+            
+            for tcl_file in tcl_files:
+                dest_file = self.output_dir / tcl_file.name
+                shutil.copy2(tcl_file, dest_file)
+                copied_scripts.append(dest_file)
+                
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "  Copied TCL script: {script_name}",
+                        script_name=tcl_file.name
+                    ),
+                    prefix="FILE_MANAGER",
+                )
+            
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Successfully copied {count} TCL scripts",
+                    count=len(copied_scripts)
+                ),
+                prefix="FILE_MANAGER",
+            )
+            
+        except Exception as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Error copying TCL scripts for {board}: {error}",
+                    board=board,
+                    error=e
+                ),
+                prefix="FILE_MANAGER",
+            )
+            raise
+        
+        return copied_scripts
+
     def get_source_file_lists(self) -> Dict[str, List[str]]:
         """Get lists of source files in the output directory for TCL generation."""
         file_lists = {

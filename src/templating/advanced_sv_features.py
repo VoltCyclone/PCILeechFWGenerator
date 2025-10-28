@@ -64,7 +64,10 @@ except ImportError:
         PowerState,
         TransitionCycles,
     )
-    from src.templating.template_renderer import TemplateRenderer, TemplateRenderError
+    from src.templating.template_renderer import (
+        TemplateRenderer,
+        TemplateRenderError,
+    )
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -73,9 +76,19 @@ logger = logging.getLogger(__name__)
 class AdvancedSVFeatureGenerator:
     """Generator for advanced SystemVerilog features."""
 
-    def __init__(self, config: AdvancedFeatureConfig):
+    def __init__(
+        self,
+        config: AdvancedFeatureConfig,
+        renderer: Optional[TemplateRenderer] = None,
+    ):
+        """Initialize the advanced SV feature generator.
+        
+        Args:
+            config: Advanced feature configuration
+            renderer: Shared TemplateRenderer instance (creates new if None)
+        """
         self.config = config
-        self.renderer = TemplateRenderer()
+        self.renderer = renderer if renderer is not None else TemplateRenderer()
         self.prefix = config.prefix
         log_info_safe(
             logger,
@@ -97,14 +110,21 @@ class AdvancedSVFeatureGenerator:
 
         try:
             # Import here to avoid circular imports
-            from .advanced_sv_error import ErrorHandlingConfig, ErrorHandlingGenerator
+            from .advanced_sv_error import (
+                ErrorHandlingConfig,
+                ErrorHandlingGenerator,
+            )
 
             # Create error handling configuration from our config
             error_config = ErrorHandlingConfig(
                 enable_ecc=self.config.error_handling.enable_error_detection,
-                enable_parity_check=self.config.error_handling.enable_error_detection,
+                enable_parity_check=(
+                    self.config.error_handling.enable_error_detection
+                ),
                 enable_crc_check=self.config.error_handling.enable_error_detection,
-                enable_timeout_detection=self.config.error_handling.enable_error_detection,
+                enable_timeout_detection=(
+                    self.config.error_handling.enable_error_detection
+                ),
                 enable_auto_retry=True,
                 max_retry_count=3,
                 enable_error_logging=self.config.error_handling.enable_error_logging,
@@ -202,14 +222,19 @@ class AdvancedSVFeatureGenerator:
             )
             return ""
 
-        log_info_safe(logger, "Generating power management module", prefix=self.prefix)
+        log_info_safe(
+            logger,
+            "Generating power management module",
+            prefix=self.prefix
+        )
 
         try:
+            pm_config = self.config.power_management
             context = {
-                "config": self.config.power_management,
-                "supported_states": list(self.config.power_management.supported_states),
-                "enable_clock_gating": self.config.power_management.enable_clock_gating,
-                "enable_power_gating": self.config.power_management.enable_power_gating,
+                "config": pm_config,
+                "supported_states": list(pm_config.supported_states),
+                "enable_clock_gating": pm_config.enable_clock_gating,
+                "enable_power_gating": pm_config.enable_power_gating,
             }
 
             return self._generate_module_template(
@@ -231,7 +256,7 @@ class AdvancedSVFeatureGenerator:
             return self._generate_fallback_power_module()
 
     def _generate_fallback_error_module(self) -> str:
-        """Generate a fallback error handling module when template generation fails."""
+        """Generate a fallback error handling module when templates fail."""
         log_warning_safe(
             logger, "Using fallback error handling module", prefix=self.prefix
         )
@@ -245,9 +270,11 @@ class AdvancedSVFeatureGenerator:
         )
 
     def _generate_fallback_performance_module(self) -> str:
-        """Generate a fallback performance monitoring module when template generation fails."""
+        """Generate a fallback performance monitor when templates fail."""
         log_warning_safe(
-            logger, "Using fallback performance monitoring module", prefix=self.prefix
+            logger,
+            "Using fallback performance monitoring module",
+            prefix=self.prefix,
         )
 
         context = {"config": self.config.performance}
@@ -260,7 +287,7 @@ class AdvancedSVFeatureGenerator:
         )
 
     def _generate_fallback_power_module(self) -> str:
-        """Generate a fallback power management module when template generation fails."""
+        """Generate a fallback power manager when templates fail."""
         log_warning_safe(
             logger, "Using fallback power management module", prefix=self.prefix
         )
@@ -277,7 +304,7 @@ class AdvancedSVFeatureGenerator:
     def _generate_module_template(
         self, module_name: str, context: Dict, *components: str
     ) -> str:
-        """Generate a module template with the given components using Jinja2 templates."""
+        """Generate a module template using Jinja2 or fallback."""
         try:
             log_debug_safe(
                 logger,
@@ -299,12 +326,14 @@ class AdvancedSVFeatureGenerator:
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Template {template_name} not found, using fallback generation",
+                        "Template {template_name} not found, using fallback",
                         template_name=template_name,
                     ),
                     prefix=self.prefix,
                 )
-                return self._generate_fallback_module(module_name, context, *components)
+                return self._generate_fallback_module(
+                    module_name, context, *components
+                )
 
         except Exception as e:
             log_error_safe(
@@ -414,11 +443,13 @@ endmodule
 
     def _generate_error_recovery_logic(self) -> str:
         """Generate error recovery logic."""
-        log_debug_safe(logger, "Generating error recovery logic", prefix="ERROR_LOGIC")
+        log_debug_safe(logger, "Generating error recovery logic", prefix=self.prefix)
 
         context = {
             "config": self.config.error_handling,
-            "recoverable_errors": list(self.config.error_handling.recoverable_errors),
+            "recoverable_errors": list(
+                self.config.error_handling.recoverable_errors
+            ),
             "fatal_errors": list(self.config.error_handling.fatal_errors),
             "error_thresholds": self.config.error_handling.error_thresholds,
         }
@@ -428,7 +459,7 @@ endmodule
 
     def _generate_error_logging_logic(self) -> str:
         """Generate error logging logic."""
-        log_debug_safe(logger, "Generating error logging logic", prefix="ERROR_LOGIC")
+        log_debug_safe(logger, "Generating error logging logic", prefix=self.prefix)
 
         context = {"config": self.config.error_handling}
         return self.renderer.render_template(
@@ -442,7 +473,9 @@ endmodule
         )
 
         context = {"config": self.config.performance}
-        return self.renderer.render_template("sv/performance_counters.sv.j2", context)
+        return self.renderer.render_template(
+            "sv/performance_counters.sv.j2", context
+        )
 
     def _generate_sampling_logic(self) -> str:
         """Generate sampling logic."""
@@ -480,7 +513,9 @@ endmodule
 
     def _generate_transition_logic(self) -> str:
         """Generate power transition logic."""
-        log_debug_safe(logger, "Generating power transition logic", prefix=self.prefix)
+        log_debug_safe(
+            logger, "Generating power transition logic", prefix=self.prefix
+        )
 
         context = {"config": self.config.power_management}
         return self.renderer.render_template("sv/power_transitions.sv.j2", context)

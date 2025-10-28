@@ -1112,16 +1112,20 @@ def test_file_operations_manager_write_single_file(temp_dir, mock_logger):
     file_path = temp_dir / "test.txt"
     content = "Test content"
 
-    # Mock open to avoid actual file operations
-    with mock.patch("builtins.open", mock.mock_open()) as mock_file:
+    # Create a mock for builtins.open to properly track calls
+    m = mock.mock_open()
+    with mock.patch("builtins.open", m):
         # Call the method
         manager._write_single_file(file_path, content)
 
-        # Check that file was opened correctly
-        mock_file.assert_called_once_with(file_path, "w", buffering=BUFFER_SIZE)
+        # Check that file was opened correctly with encoding parameter
+        # Note: mock_open creates a call with the arguments we expect
+        m.assert_called_once_with(
+            file_path, "w", buffering=BUFFER_SIZE, encoding="utf-8"
+        )
 
         # Check that write was called with correct content
-        handle = mock_file()
+        handle = m()
         handle.write.assert_called_once_with(content)
 
 
@@ -1206,7 +1210,7 @@ def test_firmware_builder_init(build_config, mock_logger):
     assert hasattr(builder, "file_manager")
     assert hasattr(builder, "config_manager")
     assert hasattr(builder, "gen")
-    assert hasattr(builder, "tcl")
+    # TCLBuilder removed - now uses static TCL files from submodule
     assert hasattr(builder, "profiler")
 
 
@@ -1239,8 +1243,6 @@ def mock_firmware_builder(build_config, mock_logger):
     ) as mock_config_cls, mock.patch(
         "src.device_clone.pcileech_generator.PCILeechGenerator"
     ) as mock_gen_cls, mock.patch(
-        "src.templating.tcl_builder.TCLBuilder"
-    ) as mock_tcl_cls, mock.patch(
         "src.device_clone.behavior_profiler.BehaviorProfiler"
     ) as mock_profiler_cls:
 
@@ -1248,14 +1250,12 @@ def mock_firmware_builder(build_config, mock_logger):
         mock_file = mock.MagicMock()
         mock_config = mock.MagicMock()
         mock_gen = mock.MagicMock()
-        mock_tcl = mock.MagicMock()
         mock_profiler = mock.MagicMock()
 
         mock_msix_cls.return_value = mock_msix
         mock_file_cls.return_value = mock_file
         mock_config_cls.return_value = mock_config
         mock_gen_cls.return_value = mock_gen
-        mock_tcl_cls.return_value = mock_tcl
         mock_profiler_cls.return_value = mock_profiler
 
         builder = FirmwareBuilder(build_config, logger=mock_logger)
@@ -1266,7 +1266,6 @@ def mock_firmware_builder(build_config, mock_logger):
             "file": mock_file,
             "config": mock_config,
             "gen": mock_gen,
-            "tcl": mock_tcl,
             "profiler": mock_profiler,
         }
 
@@ -1553,7 +1552,7 @@ def test_firmware_builder_generate_profile_disabled(mock_firmware_builder):
 
 
 def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
-    """Test FirmwareBuilder._generate_tcl_scripts()."""
+    """Test FirmwareBuilder._generate_tcl_scripts() - now copies static TCL."""
     builder, mocks = mock_firmware_builder
 
     result = {
@@ -1571,21 +1570,24 @@ def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
         }
     }
 
-    builder._generate_tcl_scripts(result)
+    # Mock file manager for TCL copying and source file operations
+    with mock.patch("src.file_management.file_manager.FileManager") as mock_fm_cls:
+        from pathlib import Path
+        
+        mock_fm = mock.MagicMock()
+        mock_fm_cls.return_value = mock_fm
+        mock_fm.create_pcileech_structure.return_value = None
+        mock_fm.copy_pcileech_sources.return_value = {}
+        # Mock TCL script copying
+        mock_fm.copy_vivado_tcl_scripts.return_value = [
+            Path("vivado_generate_project.tcl"),
+            Path("vivado_build.tcl"),
+        ]
 
-    mocks["tcl"].build_all_tcl_scripts.assert_called_once_with(
-        board=builder.config.board,
-        device_id="0x5678",
-        class_code="0x020000",
-        revision_id="0x01",
-        vendor_id="0x1234",
-        subsys_vendor_id=0x1234,  # Converted to int by _optional_int
-        subsys_device_id=0x5678,  # Converted to int by _optional_int
-        build_jobs=builder.config.vivado_jobs,
-        build_timeout=builder.config.vivado_timeout,
-        pcie_max_link_speed_code=2,  # Extracted from template context
-        pcie_max_link_width=4,  # Extracted from template context
-    )
+        builder._generate_tcl_scripts(result)
+
+        # Verify TCL scripts were copied from submodule
+        mock_fm.copy_vivado_tcl_scripts.assert_called_once_with(builder.config.board)
 
 
 def test_firmware_builder_save_device_info(mock_firmware_builder):
@@ -1644,9 +1646,13 @@ def test_firmware_builder_run_vivado_user_path(mock_firmware_builder):
     builder, mocks = mock_firmware_builder
     builder.config.vivado_path = "/custom/vivado/path"
 
-    with mock.patch("src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
+    with mock.patch(
+        "src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
         "src.vivado_handling.find_vivado_installation", return_value=None
-    ):
+    ), mock.patch("pathlib.Path.exists") as mock_path_exists:
+        # Mock Path.exists to return True for vivado executable check
+        # The check is: Path(vivado_path) / "bin" / "vivado" -> exists()
+        mock_path_exists.return_value = True
 
         mock_runner = mock.MagicMock()
         mock_runner_cls.return_value = mock_runner

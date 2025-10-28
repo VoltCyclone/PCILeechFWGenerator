@@ -21,10 +21,19 @@ from .template_renderer import TemplateRenderer
 class PowerManagementGenerator:
     """Generator for simplified power management SystemVerilog logic."""
 
-    def __init__(self, config: Optional[PowerManagementConfig] = None):
-        """Initialize the power management generator."""
+    def __init__(
+        self,
+        config: Optional[PowerManagementConfig] = None,
+        renderer: Optional[TemplateRenderer] = None,
+    ):
+        """Initialize the power management generator.
+        
+        Args:
+            config: Power management configuration (uses defaults if None)
+            renderer: Shared TemplateRenderer instance (creates new if None)
+        """
         self.config = config or PowerManagementConfig()
-        self.renderer = TemplateRenderer()
+        self.renderer = renderer if renderer is not None else TemplateRenderer()
 
     def _get_template_context(self) -> dict:
         """Get template context variables from configuration."""
@@ -75,33 +84,27 @@ class PowerManagementGenerator:
         )
         return self._render_template("sv/pmcsr_stub.sv.j2", header=header)
 
-    def generate_power_management_integration(self) -> str:
-        """Generate integration code for the power management module."""
-        return self._render_template("sv/components/power_integration.sv.j2", header="")
-
-    def generate_power_declarations(self) -> str:
-        """Generate minimal power management signal declarations."""
-        return self._render_template(
-            "sv/components/power_declarations.sv.j2", header=""
-        )
-
-    def generate_power_monitoring(self) -> str:
-        """Generate monitoring and status assignments for power management."""
-
-        return self._render_template("sv/components/power_monitoring.sv.j2", header="")
-
     def generate_complete_power_management(self) -> str:
         """Generate complete simplified power management logic."""
 
         header = generate_sv_header_comment(
             "Simplified Power Management Module",
-            description="Based on minimal pmcsr_stub design for essential PCIe power management",
+            description=(
+                "Based on minimal pmcsr_stub design for "
+                "essential PCIe power management"
+            ),
         )
 
-        # Generate the individual components using templates
-        declarations = self.generate_power_declarations()
-        integration = self.generate_power_management_integration()
-        monitoring = self.generate_power_monitoring()
+        # Generate the individual components directly using templates
+        declarations = self._render_template(
+            "sv/components/power_declarations.sv.j2", header=""
+        )
+        integration = self._render_template(
+            "sv/components/power_integration.sv.j2", header=""
+        )
+        monitoring = self._render_template(
+            "sv/components/power_monitoring.sv.j2", header=""
+        )
 
         components = (
             [

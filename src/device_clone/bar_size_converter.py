@@ -8,7 +8,7 @@ shadow configuration space and validates sizes against PCIe requirements.
 """
 
 import logging
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.device_clone.constants import BAR_SIZE_CONSTANTS
 from src.exceptions import ContextError
@@ -154,9 +154,9 @@ class BarSizeConverter:
                 encoding |= BAR_SIZE_CONSTANTS["TYPE_PREFETCHABLE"]
 
             return encoding
-
     @staticmethod
     def decode_bar_register(bar_value: int) -> Tuple[str, int, bool, bool]:
+
         """
         Decode a BAR register value to extract type and properties.
 
@@ -176,9 +176,9 @@ class BarSizeConverter:
             is_64bit = bool(bar_value & BAR_SIZE_CONSTANTS["TYPE_64BIT"])
             prefetchable = bool(bar_value & BAR_SIZE_CONSTANTS["TYPE_PREFETCHABLE"])
             return ("memory", address, is_64bit, prefetchable)
-
     @staticmethod
     def validate_bar_size(size: int, bar_type: str = "memory") -> bool:
+
         """
         Validate if a BAR size meets PCIe specification requirements.
 
@@ -204,17 +204,20 @@ class BarSizeConverter:
             )
         else:
             return size >= BAR_SIZE_CONSTANTS["MIN_MEMORY_SIZE"]
-
     @staticmethod
     def get_size_from_encoding(encoded_value: int, bar_type: str = "memory") -> int:
         """
         Extract the size from an encoded BAR value.
 
         This is the reverse of size_to_encoding - it extracts the size
-        from a BAR value that has all 1s except for the size bits.
+        from a BAR value that has been encoded via write-all-1s hardware probing.
+        
+        IMPORTANT: This should ONLY be called on encoded size values (from 
+        write-all-1s), NOT on base address register values from config space.
+        For actual BAR sizes, use sysfs via _get_bar_size_from_sysfs().
 
         Args:
-            encoded_value: The encoded BAR value
+            encoded_value: The encoded BAR size value (after write-all-1s probe)
             bar_type: Type of BAR ("memory" or "io")
 
         Returns:
@@ -247,9 +250,9 @@ class BarSizeConverter:
                 )
             )
         return bar_size
-
     @staticmethod
     def format_size(size: int) -> str:
+
         """
         Format a size value for human-readable display.
 
@@ -273,9 +276,9 @@ class BarSizeConverter:
                 return f"{size // unit_size}{unit_name}"
 
         return f"{size} bytes"
-
     @classmethod
     def convert_bar_for_shadow_space(cls, bar_info: dict) -> dict:
+
         """
             Convert BAR information for use in shadow configuration space.
 
@@ -313,7 +316,9 @@ class BarSizeConverter:
                 size = 0  # Disable invalid BARs
 
             # Convert to encoding
-            encoded_value = cls.size_to_encoding(size, bar_type, is_64bit, prefetchable)
+            encoded_value = cls.size_to_encoding(
+                size, bar_type, is_64bit, prefetchable
+            )
 
             return {
                 "encoded_value": encoded_value,
@@ -324,7 +329,10 @@ class BarSizeConverter:
         except Exception as e:
             log_error_safe(
                 logger,
-                safe_format("Error converting BAR for shadow space: {error}", error=e),
+                safe_format(
+                    "Error converting BAR for shadow space: {error}",
+                    error=e,
+                ),
                 prefix="BAR",
             )
             return {
@@ -332,3 +340,22 @@ class BarSizeConverter:
                 "size": 0,
                 "size_str": "Disabled",
             }
+
+
+class BarAnalyzer:
+    """Canonical BAR parsing/analyzer facade.
+
+    Thin delegation layer to avoid introducing a third implementation
+    of BAR parsing. Centralizes entry points while reusing existing logic.
+    """
+
+    @staticmethod
+    def parse_from_config_space(cfg: str) -> List[Dict[str, Any]]:
+        """Parse BAR info from PCI config space hex string.
+
+        Delegates to the unified BAR parser to prevent duplication.
+        """
+        # Deferred import to avoid import cycles on module load
+        from src.device_clone.bar_parser import parse_bar_info_as_dicts
+
+        return parse_bar_info_as_dicts(cfg)

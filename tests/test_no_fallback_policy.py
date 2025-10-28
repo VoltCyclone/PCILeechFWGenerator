@@ -211,10 +211,10 @@ class TestNoFallbackPolicy:
         """Test that hex string IDs are properly converted and validated."""
         template_context = {
             "device_config": {
-                "vendor_id": "8086",  # Hex string
-                "device_id": "1533",  # Hex string
-                "revision_id": "01",
-                "class_code": "020000",
+                "vendor_id": "0x8086",  # Hex string with prefix
+                "device_id": "0x1533",  # Hex string with prefix
+                "revision_id": "0x01",  # Hex string with prefix
+                "class_code": "0x020000",  # Hex string with prefix
             }
         }
 
@@ -231,10 +231,10 @@ class TestNoFallbackPolicy:
         """Test that hex string zero IDs are rejected."""
         template_context = {
             "device_config": {
-                "vendor_id": "0000",  # Zero as hex string
-                "device_id": "1533",
-                "revision_id": "01",
-                "class_code": "020000",
+                "vendor_id": "0x0000",  # Zero as hex string with prefix
+                "device_id": "0x1533",
+                "revision_id": "0x01",
+                "class_code": "0x020000",
             }
         }
 

@@ -17,7 +17,11 @@ import os
 import re
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+    as_completed,
+)
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -72,15 +76,36 @@ SYSTEMVERILOG_EXTENSION = ".sv"
 # Type Definitions
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _as_int(value: Union[int, str], field: str) -> int:
-    """Normalize numeric identifier that may be int or hex string."""
+    """Normalize numeric identifier that may be int, hex (0x) or decimal string."""
     if isinstance(value, int):
         return value
     if isinstance(value, str):
-        v = value.strip().lower()
-        if v.startswith("0x"):
-            v = v[2:]
-        return int(v, 16)
+        s = value.strip()
+        # int(s, 0) accepts 0x... hex, 0o... octal, or decimal (no prefix)
+        if not s:
+            raise TypeError(
+                safe_format(
+                    "Unsupported numeric format for {field}: {val}",
+                    field=field,
+                    val=value,
+                )
+            )
+        try:
+            return int(s, 0)
+        except ValueError:
+            if re.fullmatch(r"[0-9A-Fa-f]+", s):
+                return int(s, 16)
+            if re.fullmatch(r"\d+", s):
+                return int(s, 10)
+            raise TypeError(
+                safe_format(
+                    "Unsupported numeric format for {field}: {val}",
+                    field=field,
+                    val=value,
+                )
+            )
     raise TypeError(safe_format("Unsupported type for {field}", field=field))
 
 
@@ -526,7 +551,7 @@ class FileOperationsManager:
             FileOperationError: If writing fails
         """
         sv_dir = self.output_dir / "src"
-        sv_dir.mkdir(exist_ok=True)
+        sv_dir.mkdir(parents=True, exist_ok=True)
 
         # Prepare file write tasks
         write_tasks = []
@@ -680,12 +705,17 @@ class FileOperationsManager:
                 for path, content in write_tasks
             }
 
-            for future in as_completed(futures, timeout=FILE_WRITE_TIMEOUT):
-                path = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    raise FileOperationError(f"Failed to write file {path}: {e}") from e
+            try:
+                for future in as_completed(futures, timeout=FILE_WRITE_TIMEOUT):
+                    path = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        raise FileOperationError(
+                            f"Failed to write file {path}: {e}"
+                        ) from e
+            except FutureTimeoutError as e:
+                raise FileOperationError("Parallel write timed out") from e
 
     def _sequential_write(self, write_tasks: List[Tuple[Path, str]]) -> None:
         """
@@ -711,7 +741,8 @@ class FileOperationsManager:
             path: File path
             content: File content
         """
-        with open(path, "w", buffering=BUFFER_SIZE) as f:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", buffering=BUFFER_SIZE, encoding="utf-8") as f:
             f.write(content)
 
     def _json_serialize_default(self, obj: Any) -> str:
@@ -752,7 +783,11 @@ class ConfigurationManager:
         self._validate_args(args)
 
         # Optional environment toggle to apply production defaults
-        use_prod = bool(os.environ.get("PCILEECH_PRODUCTION_DEFAULTS"))
+        use_prod = os.environ.get("PCILEECH_PRODUCTION_DEFAULTS", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         enable_profiling = args.profile > 0
         preload_msix = getattr(args, "preload_msix", True)
         if use_prod:
@@ -821,7 +856,7 @@ class ConfigurationManager:
 
             # Check for invalid/generic values that could create non-unique firmware
             if isinstance(value, (int, str)):
-                int_value = int(value, 16) if isinstance(value, str) else value
+                int_value = _as_int(value, field)
                 if int_value == 0:
                     raise ConfigurationError(
                         f"{display_name} is zero (0x{int_value:04X}), which "
@@ -1039,6 +1074,15 @@ class FirmwareBuilder:
                 ),
                 prefix="VIVADO",
             )
+            # Sanity check: ensure vivado executable exists
+            vivado_exe = Path(vivado_path) / "bin" / "vivado"
+            if not vivado_exe.exists():
+                raise VivadoIntegrationError(
+                    safe_format(
+                        "Vivado executable not found at {exe}",
+                        exe=str(vivado_exe),
+                    )
+                )
         else:
             # Auto-detect Vivado installation
             vivado_info = find_vivado_installation()
@@ -1084,7 +1128,6 @@ class FirmwareBuilder:
             PCILeechGenerationConfig,
             PCILeechGenerator,
         )
-        from .templating.tcl_builder import BuildContext, TCLBuilder
 
         self.gen = PCILeechGenerator(
             PCILeechGenerationConfig(
@@ -1099,7 +1142,6 @@ class FirmwareBuilder:
             )
         )
 
-        self.tcl = TCLBuilder(output_dir=self.config.output_dir)
         self.profiler = BehaviorProfiler(bdf=self.config.bdf)
 
     # ────────────────────────────────────────────────────────────────────────
@@ -1156,10 +1198,10 @@ class FirmwareBuilder:
         # Ensure a conservative template_context exists with MSI-X defaults.
         # This prevents template generation from crashing when the generator
         # returns a minimal result.
-        if "template_context" not in result or not isinstance(
-            result.get("template_context"), dict
-        ):
-            result["template_context"] = {}
+        result.setdefault("template_context", {})
+        result.setdefault("systemverilog_modules", {})
+        result.setdefault("config_space_data", {})
+        result.setdefault("msix_data", None)
 
         tc = result["template_context"]
         # Provide conservative MSI-X defaults if missing
@@ -1180,7 +1222,9 @@ class FirmwareBuilder:
             config_space_bytes = None
             # Try to get config space bytes from result
             if "config_space_data" in result:
-                config_space_bytes = result["config_space_data"].get("raw_config_space")
+                config_space_bytes = result["config_space_data"].get(
+                    "raw_config_space"
+                )
                 if not config_space_bytes:
                     # Try config_space_bytes key
                     config_space_bytes = result["config_space_data"].get(
@@ -1269,9 +1313,16 @@ class FirmwareBuilder:
 
     def _write_modules(self, result: Dict[str, Any]) -> None:
         """Write SystemVerilog modules to disk."""
-        sv_files, special_files = self.file_manager.write_systemverilog_modules(
-            result["systemverilog_modules"]
-        )
+        modules = result.get("systemverilog_modules", {})
+        if not modules:
+            log_warning_safe(
+                self.logger,
+                "No SystemVerilog modules in generation result",
+                prefix="BUILD",
+            )
+            return
+
+        sv_files, special_files = self.file_manager.write_systemverilog_modules(modules)
 
         log_info_safe(
             self.logger,
@@ -1307,53 +1358,55 @@ class FirmwareBuilder:
             )
 
     def _generate_tcl_scripts(self, result: Dict[str, Any]) -> None:
-        """Generate TCL scripts for Vivado."""
-        ctx = result["template_context"]
-        device_config = ctx["device_config"]
-
+        """Copy static Vivado TCL scripts from submodule to output directory."""
         # Validate board is present and non-empty
         board = self.config.board
         if not board or not board.strip():
             raise ConfigurationError(
-                "Board name is required for TCL generation. "
+                "Board name is required for TCL script copying. "
                 "Use --board to specify a valid board configuration "
-                "(e.g., pcileech_100t484_x1)"
+                "(e.g., pciescreamer, ac701_ft601)"
             )
 
-        # Extract optional subsystem IDs
-        subsys_vendor_id = _optional_int(device_config.get("subsystem_vendor_id"))
-        subsys_device_id = _optional_int(device_config.get("subsystem_device_id"))
+        # Ensure RTL and constraints from the PCILeech submodule are available
+        # for Vivado by copying them into the output structure
+        try:
+            from src.file_management.file_manager import FileManager as _FM
 
-        # Extract PCIe link speed and width from template context
-        # These are critical for donor-unique firmware generation
-        pcie_max_link_speed = ctx.get("pcie_max_link_speed")
-        pcie_max_link_width = ctx.get("pcie_max_link_width")
-
-        self.tcl.build_all_tcl_scripts(
-            board=board,
-            device_id=device_config["device_id"],
-            class_code=device_config["class_code"],
-            revision_id=device_config["revision_id"],
-            vendor_id=device_config["vendor_id"],
-            subsys_vendor_id=subsys_vendor_id,
-            subsys_device_id=subsys_device_id,
-            build_jobs=self.config.vivado_jobs,
-            build_timeout=self.config.vivado_timeout,
-            pcie_max_link_speed_code=pcie_max_link_speed,
-            pcie_max_link_width=pcie_max_link_width,
-        )
-
-        log_info_safe(
-            self.logger,
-            "  • Emitted Vivado scripts → vivado_project.tcl, vivado_build.tcl",
-            prefix="BUILD",
-        )
+            fm = _FM(self.config.output_dir)
+            # Ensure src/ and ip/ directories exist
+            fm.create_pcileech_structure()
+            # Copy sources and constraints from the submodule and local pcileech/
+            copied = fm.copy_pcileech_sources(self.config.board)
+            
+            # Copy static TCL scripts from submodule instead of generating them
+            tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "  • Copied {count} Vivado TCL scripts from submodule",
+                    count=len(tcl_scripts)
+                ),
+                prefix="BUILD",
+            )
+            
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Failed to copy TCL scripts: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
+            raise
 
     def _write_xdc_files(self, result: Dict[str, Any]) -> None:
         """Write XDC constraint files to output directory."""
         ctx = result.get("template_context", {})
         board_xdc_content = ctx.get("board_xdc_content", "")
-        
+
         if not board_xdc_content:
             log_warning_safe(
                 self.logger,
@@ -1361,18 +1414,18 @@ class FirmwareBuilder:
                 prefix="BUILD",
             )
             return
-        
+
         # Create constraints directory
         constraints_dir = self.config.output_dir / "constraints"
         constraints_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Write board-specific XDC file
         board_name = self.config.board
         xdc_filename = f"{board_name}.xdc"
         xdc_path = constraints_dir / xdc_filename
-        
+
         xdc_path.write_text(board_xdc_content, encoding="utf-8")
-        
+
         log_info_safe(
             self.logger,
             safe_format(
@@ -1385,7 +1438,15 @@ class FirmwareBuilder:
 
     def _save_device_info(self, result: Dict[str, Any]) -> None:
         """Save device information for auditing."""
-        device_info = result["config_space_data"].get("device_info", {})
+        config_space_data = result.get("config_space_data", {})
+        device_info = config_space_data.get("device_info", {})
+        if not device_info:
+            log_warning_safe(
+                self.logger,
+                "No device info available to save",
+                prefix="BUILD",
+            )
+            return
         self.file_manager.write_json("device_info.json", device_info)
 
     def _store_device_config(self, result: Dict[str, Any]) -> None:

@@ -2323,7 +2323,6 @@ class PCILeechContextBuilder:
         elif class_code.startswith("03"):
             return "graphics"
         elif class_code.startswith("04"):
-            # Previously mapped to 'audio'; we no longer generate audio-specific logic
             return "generic"
         elif class_code.startswith("0c"):
             return "serial_bus"
