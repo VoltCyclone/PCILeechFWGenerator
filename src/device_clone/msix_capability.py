@@ -544,8 +544,8 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
     """
     Parse BAR information from configuration space for overlap detection.
 
-    This method uses the BarSizeConverter for accurate PCIe-compliant BAR size
-    detection when possible, falling back to simplified estimation.
+    This method uses the unified BAR parser for consistent BAR parsing
+    across the codebase.
 
     Args:
         cfg: Configuration space as a hex string
@@ -555,135 +555,12 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
         - index: BAR index (0-5)
         - bar_type: "memory" or "io"
         - address: Base address (64-bit for 64-bit BARs)
-        - size: BAR size in bytes (PCIe-compliant detection when possible)
+        - size: BAR size in bytes
         - is_64bit: Whether this is a 64-bit BAR
         - prefetchable: Whether the BAR is prefetchable
     """
-    bars = []
-
-    try:
-        cfg_bytes = hex_to_bytes(cfg)
-    except ValueError as e:
-        log_error_safe(
-            logger,
-            safe_format("Invalid hex string in configuration space: {error}", error=e),
-            prefix="PCI_CAP",
-        )
-        return bars
-
-    # Parse each BAR (0-5)
-    i = 0
-    while i < 6:  # Standard PCI has 6 BARs max
-        bar_offset = 0x10 + (i * 4)  # BAR0 starts at offset 0x10
-
-        if not is_valid_offset(cfg_bytes, bar_offset, 4):
-            break
-
-        try:
-            bar_value = read_u32_le(cfg_bytes, bar_offset)
-
-            # Skip empty BARs
-            if bar_value == 0:
-                i += 1
-                continue
-
-            # Determine BAR type
-            is_io_bar = bool(bar_value & 0x1)
-            bar_type = "io" if is_io_bar else "memory"
-
-            # For memory BARs, check if 64-bit
-            is_64bit = False
-            prefetchable = False
-
-            if not is_io_bar:
-                memory_type = (bar_value >> 1) & 0x3
-                is_64bit = memory_type == 2  # Type 10b = 64-bit
-                prefetchable = bool(bar_value & 0x8)
-
-            # Calculate base address
-            if is_io_bar:
-                base_addr = bar_value & 0xFFFFFFFC  # Clear lower 2 bits
-            else:
-                base_addr = bar_value & 0xFFFFFFF0  # Clear lower 4 bits
-
-            # For 64-bit BARs, read upper 32 bits
-            if is_64bit and i < 5:  # Make sure we don't go beyond BAR5
-                upper_bar_offset = bar_offset + 4
-                if is_valid_offset(cfg_bytes, upper_bar_offset, 4):
-                    upper_value = read_u32_le(cfg_bytes, upper_bar_offset)
-                    base_addr = (base_addr & 0xFFFFFFF0) | (upper_value << 32)
-
-            # Estimate BAR size - try multiple methods for accuracy
-            size = 0
-            if bar_value != 0:
-
-                try:
-                    from src.device_clone.bar_size_converter import \
-                        BarSizeConverter
-
-                    size = 0  # Skip BarSizeConverter for config space parsing
-                except ImportError:
-                    pass
-
-                if size == 0:
-                    if is_io_bar:
-                        # I/O BARs are typically smaller
-                        size = BAR_IO_DEFAULT_SIZE  # Default 256 bytes for I/O
-                    else:
-                        # Memory BARs - estimate from alignment
-                        addr_mask = base_addr & 0xFFFFFFF0
-                        if addr_mask != 0:
-                            # Find the lowest set bit to estimate alignment/size
-                            alignment = addr_mask & (~addr_mask + 1)
-                            size = max(
-                                alignment, BAR_MEM_MIN_SIZE
-                            )  # Minimum 4KB for memory BARs
-                        else:
-                            size = BAR_MEM_DEFAULT_SIZE
-
-            bar_info = {
-                "index": i,
-                "bar_type": bar_type,
-                "address": base_addr,
-                "size": size,
-                "is_64bit": is_64bit,
-                "prefetchable": prefetchable,
-            }
-
-            bars.append(bar_info)
-            log_debug_safe(
-                logger,
-                safe_format(
-                    "Parsed BAR {index}: {type} @ 0x{address:016x}, "
-                    "size=0x{size:x}, 64bit={is_64bit}",
-                    index=i,
-                    type=bar_type,
-                    address=base_addr,
-                    size=size,
-                    is_64bit=is_64bit,
-                ),
-                prefix="PCI_CAP",
-            )
-
-            # Skip next BAR if this was 64-bit (it's the upper half)
-            if is_64bit:
-                i += 2
-            else:
-                i += 1
-
-        except (struct.error, IndexError) as e:
-            log_warning_safe(
-                logger,
-                safe_format(
-                    "Error parsing BAR {index}: {error}",
-                    index=i,
-                    error=e,
-                ),
-                prefix="PCI_CAP",
-            )
-            i += 1
-
-    return bars
+    from src.device_clone.bar_parser import parse_bar_info_as_dicts
+    return parse_bar_info_as_dicts(cfg)
 
 
 def validate_msix_configuration_enhanced(

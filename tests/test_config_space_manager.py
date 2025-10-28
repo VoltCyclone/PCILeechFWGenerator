@@ -230,9 +230,10 @@ class TestConfigSpaceManager:
         # BAR0 is all zeros (disabled)
         config_space[0x10:0x14] = b"\x00\x00\x00\x00"
 
-        bar_info = manager._process_single_bar(bytes(config_space), 0)
+        bars = manager._extract_bar_info(bytes(config_space))
 
-        assert bar_info is None
+        # Should return empty list when all BARs are disabled
+        assert bars == []
 
     def test_generate_synthetic_config_space(self, manager):
         """Test generating synthetic config space."""
@@ -390,7 +391,7 @@ class TestBarSizeDetection:
         assert self.manager._format_size(4 * 1024 * 1024 * 1024) == "4.0GB"
 
     def test_process_single_bar_with_sysfs_size(self):
-        """Test _process_single_bar method using sysfs size detection."""
+        """Test BAR extraction using sysfs size detection."""
         # Create mock config space with Intel Wi-Fi 6 AX200 BAR
         config_space = bytearray(256)
 
@@ -403,9 +404,10 @@ class TestBarSizeDetection:
         # Mock sysfs to return 16KB size
         with patch.object(self.manager, "_get_bar_size_from_sysfs", return_value=16384):
             with patch.object(self.manager, "_format_size", return_value="16.0KB"):
-                bar_info = self.manager._process_single_bar(bytes(config_space), 0)
+                bars = self.manager._extract_bar_info(bytes(config_space))
 
-        assert bar_info is not None
+        assert len(bars) == 1
+        bar_info = bars[0]
         assert bar_info.index == 0
         assert bar_info.address == 0xF6600000
         assert bar_info.size == 16384
@@ -438,10 +440,11 @@ class TestBarSizeDetection:
 
         with patch("builtins.open", mock_open(read_data=sysfs_content)):
             with patch("os.path.exists", return_value=True):
-                # Test BAR 0 extraction
-                bar_info = self.manager._process_single_bar(bytes(config_space), 0)
+                # Test BAR extraction
+                bars = self.manager._extract_bar_info(bytes(config_space))
 
-        assert bar_info is not None
+        assert len(bars) == 1
+        bar_info = bars[0]
         assert bar_info.index == 0
         assert bar_info.address == 0xF6600000
         assert bar_info.size == 16384  # 16KB - the correct size!

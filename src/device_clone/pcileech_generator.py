@@ -1129,8 +1129,8 @@ class PCILeechGenerator:
 
         components = {
             "build_integration": self._generate_build_integration(template_context),
-            "constraint_files": self._generate_constraint_files(template_context),
-            "tcl_scripts": self._generate_tcl_scripts(template_context),
+            "constraint_files": self._copy_constraint_files(template_context),
+            "tcl_scripts": self._copy_tcl_scripts(template_context),
             "config_space_hex": self._generate_config_space_hex(template_context),
         }
 
@@ -1199,241 +1199,173 @@ class PCILeechGenerator:
                     safe_format("Build integration generation failed: {err}", err=e)
                 ) from e
 
-    def _generate_constraint_files(
+    def _copy_constraint_files(
         self, template_context: Dict[str, Any]
     ) -> Dict[str, str]:
-        """Generate constraint files."""
+        """Copy XDC constraint files from voltcyclone-fpga submodule.
+        
+        This method copies pre-existing XDC constraint files from the 
+        lib/voltcyclone-fpga submodule instead of generating them, following 
+        the architecture where static infrastructure files should be used as-is.
+        
+        Args:
+            template_context: Template context data (used to determine board)
+            
+        Returns:
+            Dictionary mapping constraint file names to their paths
+            
+        Raises:
+            PCILeechGenerationError: If constraint file copying fails
+        """
         try:
-            # Import TCL builder components
-            from src.templating.tcl_builder import (
-                BuildContext,
-                TCLBuilder,
-                TCLScriptType,
-            )
-            from src.templating.template_renderer import TemplateRenderer
-
-            # Create template renderer
-            renderer = TemplateRenderer()
-
-            # Build constraints using the TCL builder
-            tcl_builder = TCLBuilder(output_dir=Path("./output"))
-
-            # Build comprehensive context for constraints template
-            # CRITICAL: Device IDs must be present - no fallbacks allowed
-            if not template_context.get("vendor_id") or not template_context.get(
-                "device_id"
-            ):
+            from src.file_management.file_manager import FileManager
+            from src.repo_management.repo_manager import RepoManager
+            
+            # Get board name from context
+            board = template_context.get("board_name") or template_context.get("board")
+            if not board:
                 raise PCILeechGenerationError(
-                    (
-                        "CRITICAL: Missing vendor_id or device_id in template "
-                        "context - cannot generate constraints with fallback IDs"
-                    )
+                    "Cannot copy constraint files: board name not specified"
                 )
-
-            constraints_context = {
-                # Device information - NO FALLBACKS for critical IDs
-                "device": {
-                    "vendor_id": template_context["vendor_id"],
-                    "device_id": template_context.get("device_id"),
-                    "revision_id": template_context.get("revision_id", "00"),
-                    "class_code": template_context.get("class_code"),
-                    "subsys_vendor_id": template_context.get("subsys_vendor_id"),
-                    "subsys_device_id": template_context.get("subsys_device_id"),
-                },
-                # Board information
-                "board": {
-                    "name": template_context.get("board_name", "default"),
-                    "fpga_part": template_context.get("fpga_part", ""),
-                    "fpga_family": template_context.get("fpga_family", ""),
-                    "constraints": template_context.get("board_constraints", {}),
-                },
-                # Explicit constraint files list (may be empty). This must always
-                # be present to satisfy StrictUndefined in templates.
-                "constraint_files": (
-                    template_context.get("constraint_files")
-                    if isinstance(template_context.get("constraint_files"), list)
-                    else []
-                ),
-                # Timing parameters
-                "sys_clk_freq_mhz": int(
-                    float(1000.0 / float(template_context.get("clock_period", "10.0")))
-                ),
-                "clock_period": template_context.get("clock_period", "10.0"),
-                "setup_time": template_context.get("setup_time", "0.5"),
-                "hold_time": template_context.get("hold_time", "0.5"),
-                # XDC paths and content
-                "generated_xdc_path": template_context.get("generated_xdc_path", ""),
-                "board_xdc_content": template_context.get("board_xdc_content", ""),
-                # Header comment (use unified generator if not provided)
-                "header": template_context.get(
-                    "header",
-                    generate_tcl_header_comment(
-                        "PCILeech Timing/Pin Constraints",
-                        vendor_id=str(template_context.get("vendor_id", "")),
-                        device_id=str(template_context.get("device_id", "")),
-                        board=template_context.get("board_name", ""),
-                    ),
-                ),
-            }
-
-            # Timing constraints MUST come from the template. We no longer allow
-            # falling back to a generic default because that may hide missing
-            # dynamic timing data and violates donor uniqueness policy.
-            if not renderer.template_exists("tcl/constraints.j2"):
-                raise PCILeechGenerationError(
-                    "Missing required template tcl/constraints.j2 for timing "
-                    "constraints; no fallback permitted"
-                )
-
-            timing_constraints = renderer.render_template(
-                "tcl/constraints.j2", constraints_context
-            )
-
-            # Generate pin constraints based on board
-            pin_constraints = self._generate_pin_constraints(template_context)
-
-            return {
-                "timing_constraints": timing_constraints,
-                "pin_constraints": pin_constraints,
-            }
-        except ImportError:
-            # TCL builder not available: fail fast; no generic timing fallback
-            # permitted
-            raise PCILeechGenerationError(
-                "Timing constraints template build path unavailable (ImportError); "
-                "refusing generic defaults"
-            )
-
-    def _generate_pin_constraints(self, context: Dict[str, Any]) -> str:
-        """Generate pin location constraints based on board."""
-        board_name = context.get("board_name", "") or ""
-        board_name_l = board_name.lower()
-
-        # Basic pin constraints header (kept identical for backward compatibility)
-        constraints = """# Pin Location Constraints
-# Generated by PCILeech FW Generator
-
-"""
-
-        # Allow dynamic override from context (preferred if provided)
-        board_constraints = context.get("board_constraints", {}) or {}
-        override_pin = (
-            context.get("sys_clk_pin")
-            or board_constraints.get("sys_clk_pin")
-            or board_constraints.get("sysclk_pin")
-        )
-
-        # Centralized mapping (token -> (comment, pin))
-        pin_map: Dict[str, Tuple[str, str]] = {
-            "35t": ("Artix-7 35T specific pins", "E3"),
-            "75t": ("Artix-7 75T specific pins", "F4"),
-            "100t": ("Artix-7 100T specific pins", "G4"),
-        }
-
-        # Determine source of pin assignment
-        comment: Optional[str] = None
-        selected_pin: Optional[str] = None
-
-        if override_pin:  # Dynamic override takes precedence
-            selected_pin = str(override_pin)
-            comment = "Dynamic sys_clk pin (context override)"
+            
+            # Initialize FileManager with output directory
+            output_dir = Path(template_context.get("output_dir", self.config.output_dir))
+            repo_manager = RepoManager()
+            
+            # Get XDC files from submodule
             log_info_safe(
                 self.logger,
-                "Using dynamic sys_clk_pin override {pin} for board {board}",
-                pin=selected_pin,
-                board=board_name,
-                prefix="PCIL",
+                safe_format(
+                    "Copying XDC constraint files for board {board} from submodule",
+                    board=board
+                ),
+                prefix="PCIL"
             )
-        else:
-            token = next((t for t in pin_map.keys() if t in board_name_l), None)
-            if token:
-                comment, selected_pin = pin_map[token]
+            
+            repo_path = repo_manager.ensure_repo()
+            xdc_files = repo_manager.get_xdc_files(board, repo_root=repo_path)
+            
+            # Copy XDC files to output directory
+            constraints_dir = output_dir / "constraints"
+            constraints_dir.mkdir(parents=True, exist_ok=True)
+            
+            result = {}
+            for xdc_file in xdc_files:
+                dest_file = constraints_dir / xdc_file.name
+                import shutil
+                shutil.copy2(xdc_file, dest_file)
+                result[xdc_file.name] = str(dest_file)
+                
                 log_info_safe(
                     self.logger,
                     safe_format(
-                        "Matched board token {tok} -> pin {pin}",
-                        tok=token,
-                        pin=selected_pin,
+                        "Copied constraint file: {name}",
+                        name=xdc_file.name
                     ),
-                    prefix="PCIL",
+                    prefix="PCIL"
                 )
-            else:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "No pin mapping found for board '{board}', emitting header only",
-                        board=board_name or "<unknown>",
-                    ),
-                    prefix="PCIL",
-                )
-
-        if selected_pin:
-            # Emit standardized block
-            constraints += safe_format(
-                "# {comment}\nset_property PACKAGE_PIN {pin} [get_ports sys_clk]\n"
-                "set_property IOSTANDARD LVCMOS33 [get_ports sys_clk]\n",
-                comment=comment,
-                pin=selected_pin,
-            )
-
-        return constraints
-
-    def _generate_tcl_scripts(self, template_context: Dict[str, Any]) -> Dict[str, str]:
-        """Generate TCL build scripts."""
-        try:
-            from templating.tcl_builder import TCLBuilder
-
-            # Build TCL scripts using the TCL builder
-            tcl_builder = TCLBuilder(
-                output_dir=template_context.get("output_dir", "./output")
-            )
-
-            # Create build context
-            context = tcl_builder.create_build_context(
-                board=template_context.get("board_name"),
-                fpga_part=template_context.get("fpga_part"),
-                vendor_id=template_context.get("vendor_id"),
-                device_id=template_context.get("device_id"),
-                revision_id=template_context.get("revision_id"),
-                subsys_vendor_id=template_context.get("subsys_vendor_id"),
-                subsys_device_id=template_context.get("subsys_device_id"),
-                # Auto-plumb donor PCIe link fields for IP config derivation
-                pcie_max_link_speed_code=template_context.get("pcie_max_link_speed"),
-                pcie_max_link_width=template_context.get("pcie_max_link_width"),
-            )
-
-            # Generate PCILeech project script
-            project_script = tcl_builder.build_pcileech_project_script(context)
-
-            # Generate PCILeech build script
-            build_script = tcl_builder.build_pcileech_build_script(context)
-
-            # Generate master TCL script
-            master_script = tcl_builder.build_master_tcl(context)
-
-            # Generate sources TCL
-            sources_script = tcl_builder.build_sources_tcl(
-                context, source_files=template_context.get("source_files", [])
-            )
-
-            return {
-                "build_script": build_script,
-                "project_script": project_script,
-                "master_script": master_script,
-                "sources_script": sources_script,
-            }
-
-        except (ImportError, AttributeError, Exception) as e:
-            log_warning_safe(
+            
+            log_info_safe(
                 self.logger,
                 safe_format(
-                    "TCL script generation failed, attempting fallback: {error}",
-                    error=str(e),
+                    "Copied {count} XDC constraint files from submodule",
+                    count=len(result)
                 ),
-                prefix="PCIL",
+                prefix="PCIL"
             )
-            # Fallback to basic TCL scripts if builder not available
-            return self._generate_default_tcl_scripts(template_context)
+            
+            return result
+            
+        except ImportError as e:
+            raise PCILeechGenerationError(
+                safe_format(
+                    "FileManager/RepoManager unavailable for XDC copying: {err}",
+                    err=e
+                )
+            ) from e
+        except Exception as e:
+            raise PCILeechGenerationError(
+                safe_format(
+                    "Failed to copy XDC constraint files from submodule: {err}",
+                    err=e
+                )
+            ) from e
+
+    def _copy_tcl_scripts(self, template_context: Dict[str, Any]) -> Dict[str, str]:
+        """Copy static TCL build scripts from voltcyclone-fpga submodule.
+        
+        This method copies pre-existing TCL scripts from the lib/voltcyclone-fpga
+        submodule instead of generating them from templates, following the
+        architecture where only .coe overlay files should be generated via templates.
+        
+        Args:
+            template_context: Template context data (used to determine board)
+            
+        Returns:
+            Dictionary mapping script names to their file paths
+            
+        Raises:
+            PCILeechGenerationError: If TCL copying fails
+        """
+        try:
+            from src.file_management.file_manager import FileManager
+            from src.repo_management.repo_manager import RepoManager
+            
+            # Get board name from context
+            board = template_context.get("board_name") or template_context.get("board")
+            if not board:
+                raise PCILeechGenerationError(
+                    "Cannot copy TCL scripts: board name not specified in context"
+                )
+            
+            # Initialize FileManager with output directory
+            output_dir = Path(template_context.get("output_dir", self.config.output_dir))
+            repo_manager = RepoManager()
+            fm = FileManager(repo_manager=repo_manager, output_dir=output_dir)
+            
+            # Copy TCL scripts from submodule
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Copying static TCL scripts for board {board} from voltcyclone-fpga submodule",
+                    board=board
+                ),
+                prefix="PCIL"
+            )
+            
+            tcl_paths = fm.copy_vivado_tcl_scripts(board=board)
+            
+            # Return dictionary mapping script names to paths
+            result = {}
+            for path in tcl_paths:
+                script_name = path.name
+                result[script_name] = str(path)
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Copied {count} TCL scripts from submodule",
+                    count=len(result)
+                ),
+                prefix="PCIL"
+            )
+            
+            return result
+            
+        except ImportError as e:
+            raise PCILeechGenerationError(
+                safe_format(
+                    "FileManager unavailable for TCL copying: {err}",
+                    err=e
+                )
+            ) from e
+        except Exception as e:
+            raise PCILeechGenerationError(
+                safe_format(
+                    "Failed to copy TCL scripts from submodule: {err}",
+                    err=e
+                )
+            ) from e
 
     def _generate_default_tcl_scripts(self, context: Dict[str, Any]) -> Dict[str, str]:
         from src.string_utils import get_project_name

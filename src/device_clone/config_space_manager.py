@@ -954,9 +954,9 @@ class ConfigSpaceManager:
         return 0, 0
 
     def _extract_bar_info(self, config_space: bytes) -> List[BarInfo]:
-        """Extract BAR information with improved structure and error handling."""
-        bars = []
-
+        """Extract BAR information using the unified BAR parser."""
+        from src.device_clone.bar_parser import parse_bar_info_from_config_space
+        
         log_info_safe(
             logger,
             safe_format(
@@ -965,282 +965,56 @@ class ConfigSpaceManager:
             ),
             prefix="CNFG",
         )
-
-        if len(config_space) < ConfigSpaceConstants.MINIMUM_BAR_SIZE:
-            log_warning_safe(
-                logger,
-                safe_format(
-                    "Config space too short ({length} bytes) for BAR extraction - need at least {min_size} bytes",
-                    length=len(config_space),
-                    min_size=ConfigSpaceConstants.MINIMUM_BAR_SIZE,
-                ),
-                prefix="BARX",
-            )
-            return bars
-
-        i = 0
-        while i < ConfigSpaceConstants.MAX_BARS:
-            try:
-                bar_info = self._process_single_bar(config_space, i)
-                if bar_info:
-                    bars.append(bar_info)
-                    log_info_safe(
-                        logger,
-                        safe_format(
-                            "Added BAR {index}: {info}",
-                            index=i,
-                            info=str(bar_info),
-                        ),
-                        prefix="BARS",
-                    )
-
-                    # Skip next BAR if this was 64-bit
-                    if bar_info.is_64bit:
-                        i += 2
-                    else:
-                        i += 1
-                else:
-                    i += 1
-
-            except (IndexError, ValueError) as e:
-                log_warning_safe(
-                    logger,
-                    "Error processing BAR {bar_index}: {error}",
-                    bar_index=i,
-                    error=e,
-                    prefix="BARX",
-                )
-                i += 1
-            except KeyboardInterrupt:
-                log_warning_safe(
-                    logger, "BAR extraction interrupted by user", prefix="BARX"
-                )
-                raise
-
-        log_info_safe(
-            logger,
-            safe_format(
-                "Completed BAR extraction: found {count} active BARs",
-                count=len(bars),
-            ),
-            prefix="BARX",
-        )
-
-        return bars
-
-    def _process_single_bar(
-        self, config_space: bytes, bar_index: int
-    ) -> Optional[BarInfo]:
-        """Process a single BAR and return BarInfo if active."""
-        bar_offset = ConfigSpaceConstants.BAR_BASE_OFFSET + (
-            bar_index * ConfigSpaceConstants.BAR_SIZE
-        )
-
-        log_debug_safe(
-            logger,
-            safe_format(
-                "Processing BAR {index} at offset 0x{offset:02x}",
-                index=bar_index,
-                offset=bar_offset,
-            ),
-            prefix="BARX",
-        )
-
-        if bar_offset + ConfigSpaceConstants.BAR_SIZE > len(config_space):
-            log_warning_safe(
-                logger,
-                safe_format(
-                    "Cannot read BAR {bar_index} - insufficient config space length",
-                    bar_index=bar_index,
-                ),
-                prefix="BARX",
-            )
-            return None
-
-        bar_value = int.from_bytes(
-            config_space[bar_offset : bar_offset + ConfigSpaceConstants.BAR_SIZE],
-            "little",
-        )
-
-        log_debug_safe(
-            logger,
-            safe_format(
-                "BAR {index} raw value: 0x{value:08x}",
-                index=bar_index,
-                value=bar_value,
-            ),
-            prefix="BARX",
-        )
-
-        if bar_value == 0:
-            log_debug_safe(
-                logger,
-                safe_format(
-                    "BAR {index} is empty (zero value), skipping",
-                    index=bar_index,
-                ),
-                prefix="BARX",
-            )
-            return None
-
-        log_info_safe(
-            logger,
-            safe_format(
-                "BAR {index} is active (non-zero): 0x{value:08x}",
-                index=bar_index,
-                value=bar_value,
-            ),
-            prefix="BARX",
-        )
-
-        # Decode BAR type and properties
-        bar_type = (
-            "io" if (bar_value & ConfigSpaceConstants.BAR_TYPE_MASK) else "memory"
-        )
-        bar_prefetchable = (
-            bool(bar_value & ConfigSpaceConstants.BAR_PREFETCHABLE_MASK)
-            if bar_type == "memory"
-            else False
-        )
-        bar_64bit = (
-            (
-                (bar_value & ConfigSpaceConstants.BAR_MEMORY_TYPE_MASK)
-                == ConfigSpaceConstants.BAR_64BIT_TYPE
-            )
-            if bar_type == "memory"
-            else False
-        )
-
-        log_info_safe(
-            logger,
-            safe_format(
-                "BAR {index} properties: type={type}, prefetchable={prefetchable}, is_64bit={is_64bit}",
-                index=bar_index,
-                type=bar_type,
-                prefetchable=bar_prefetchable,
-                is_64bit=bar_64bit,
-            ),
-            prefix="BARX",
-        )
-
-        # Calculate base address
-        if bar_type == "memory":
-            bar_addr = bar_value & ConfigSpaceConstants.BAR_MEMORY_ADDRESS_MASK
-        else:
-            bar_addr = bar_value & ConfigSpaceConstants.BAR_IO_ADDRESS_MASK
-
-        log_debug_safe(
-            logger,
-            safe_format(
-                "BAR {index} base address (lower 32-bit): 0x{address:08x}",
-                index=bar_index,
-                address=bar_addr,
-            ),
-            prefix="BARX",
-        )
-
-        # For 64-bit BARs, read the next BAR as well
-        if bar_64bit and bar_index < ConfigSpaceConstants.MAX_BARS - 1:
-            next_bar_offset = bar_offset + ConfigSpaceConstants.BAR_SIZE
-            log_debug_safe(
-                logger,
-                safe_format(
-                    "Reading upper 32-bit for 64-bit BAR {index} at offset 0x{offset:02x}",
-                    index=bar_index,
-                    offset=next_bar_offset,
-                ),
-                prefix="BARX",
-            )
-
-            if next_bar_offset + ConfigSpaceConstants.BAR_SIZE <= len(config_space):
-                next_bar_value = int.from_bytes(
-                    config_space[
-                        next_bar_offset : next_bar_offset
-                        + ConfigSpaceConstants.BAR_SIZE
-                    ],
-                    "little",
-                )
-                log_debug_safe(
-                    logger,
-                    safe_format(
-                        "BAR {index} upper 32-bit value: 0x{next_bar_value:08x}",
-                        index=bar_index,
-                        next_bar_value=next_bar_value,
-                    ),
-                    prefix="BARX",
-                )
-                bar_addr |= next_bar_value << 32
-                log_info_safe(
-                    logger,
-                    safe_format(
-                        "BAR {index} full 64-bit address: 0x{address:016x}",
-                        index=bar_index,
-                        address=bar_addr,
-                    ),
-                    prefix="BARX",
-                )
-            else:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Cannot read upper 32-bit for BAR {bar_index} - insufficient config space",
-                        bar_index=bar_index,
-                    ),
-                    prefix="BARX",
-                )
-
-        # Create BarInfo with initial values
-        bar_info = BarInfo(
-            index=bar_index,
-            bar_type=bar_type,
-            address=bar_addr,
-            size=0,  # Size would need to be determined by probing
-            prefetchable=bar_prefetchable,
-            is_64bit=bar_64bit,
-        )
-
-        # Try to determine BAR size using reliable methods
-        if bar_addr != 0:
-            # Method 1: Try to get size from sysfs resource file (most reliable)
-            size_found = self._get_bar_size_from_sysfs(bar_index)
-            if size_found > 0:
+        
+        # Use the unified parser
+        bars = parse_bar_info_from_config_space(config_space)
+        
+        # Enhance BARs with sysfs size information
+        enhanced_bars = []
+        for bar in bars:
+            # Try to get actual size from sysfs
+            size_from_sysfs = self._get_bar_size_from_sysfs(bar.index)
+            if size_from_sysfs > 0:
                 log_info_safe(
                     logger,
                     "BAR {index} size from sysfs: {size} bytes ({size_str})",
-                    index=bar_index,
-                    size=size_found,
-                    size_str=self._format_size(size_found),
+                    index=bar.index,
+                    size=size_from_sysfs,
+                    size_str=self._format_size(size_from_sysfs),
                     prefix="BARX",
                 )
-                bar_info.size = size_found
+                bar.size = size_from_sysfs
+                
                 # Generate proper encoding for the size
                 from src.device_clone.bar_size_converter import BarSizeConverter
-
                 try:
-                    bar_info.size_encoding = BarSizeConverter.size_to_encoding(
-                        size_found, bar_type, bar_64bit, bar_prefetchable
+                    bar.size_encoding = BarSizeConverter.size_to_encoding(
+                        size_from_sysfs, bar.bar_type, bar.is_64bit, bar.prefetchable
                     )
                 except Exception as e:
                     log_warning_safe(
                         logger,
                         safe_format(
                             "Could not generate BAR {index} size encoding: {error}",
-                            index=bar_index,
+                            index=bar.index,
                             error=str(e),
                         ),
                         prefix="BARX",
                     )
-            else:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Could not determine BAR {index} size from sysfs, leaving at 0",
-                        index=bar_index,
-                    ),
-                    prefix="BARX",
-                )
+            
+            enhanced_bars.append(bar)
+        
+        log_info_safe(
+            logger,
+            safe_format(
+                "Completed BAR extraction: found {count} active BARs",
+                count=len(enhanced_bars),
+            ),
+            prefix="BARX",
+        )
+        
+        return enhanced_bars
 
-        return bar_info
 
     def _log_extracted_device_info(self, device_info: Dict[str, Any]) -> None:
         """Log extracted device information in a structured way with resilient handling."""
