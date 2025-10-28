@@ -43,28 +43,55 @@ _logger = get_logger(__name__)
 
 
 def _run(
-    cmd: List[str], *, cwd: Optional[Path] = None, env: Optional[dict] = None
+    cmd: List[str], 
+    *, 
+    cwd: Optional[Path] = None, 
+    env: Optional[dict] = None,
+    capture_output: bool = False,
+    suppress_output: bool = False
 ) -> _sp.CompletedProcess:
-    """Run *cmd* and return the completed process, raising on error."""
+    """Run *cmd* and return the completed process, raising on error.
+    
+    Args:
+        cmd: Command and arguments to run
+        cwd: Working directory for command
+        env: Environment variables
+        capture_output: If True, capture stdout/stderr
+        suppress_output: If True, suppress all output (validation checks)
+    """
     log_debug_safe(_logger,
                    "Running {cmd} (cwd={cwd})",
                    cmd=cmd,
                    cwd=cwd,
                    prefix="GIT"
                    )
-    return _sp.run(
-        cmd,
-        cwd=str(cwd) if cwd else None,
-        env=env,
-        check=True,
-        text=True,
-    )
+    
+    kwargs = {
+        "cwd": str(cwd) if cwd else None,
+        "env": env,
+        "check": True,
+        "text": True,
+    }
+    
+    if capture_output:
+        kwargs["capture_output"] = True
+    elif suppress_output:
+        # Suppress both stdout and stderr for validation checks
+        kwargs["stdout"] = _sp.DEVNULL
+        kwargs["stderr"] = _sp.DEVNULL
+    
+    return _sp.run(cmd, **kwargs)
 
 
 def _git_available() -> bool:
     """Return *True* if ``git`` is callable in the PATH."""
     try:
-        _run(["git", "--version"], env={**_os.environ, "GIT_TERMINAL_PROMPT": "0"})
+        # Suppress output to avoid noise in logs during validation
+        _run(
+            ["git", "--version"], 
+            env={**_os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            suppress_output=True
+        )
         return True
     except Exception:
         return False
@@ -269,7 +296,13 @@ class RepoManager:
             return True
 
         try:
-            _run(["git", "rev-parse", "--git-dir"], cwd=path)
+            # Suppress output to avoid "fatal: not a git repository" errors
+            # when .git points to unavailable submodule metadata in containers
+            _run(
+                ["git", "rev-parse", "--git-dir"], 
+                cwd=path, 
+                suppress_output=True
+            )
             return True
         except Exception:
             return False
