@@ -6,17 +6,24 @@ Handles file operations, cleanup, and validation for PCILeech firmware building.
 """
 
 import fnmatch
+
 import hashlib
-import json
+
 import logging
+
 import shutil
+
 import time
+
 from pathlib import Path
+
 from typing import Any, Dict, List
 
 from ..__version__ import __version__
+
 from ..device_clone.constants import (PCILEECH_BUILD_SCRIPT,
                                       PCILEECH_PROJECT_SCRIPT)
+
 from ..string_utils import (format_kv_table, get_project_name, log_debug_safe,
                             log_error_safe, log_info_safe, log_warning_safe,
                             safe_format, safe_print_format)

@@ -10,23 +10,24 @@ at the same commit fall in the same timing band.
 """
 
 import hashlib
+
 import json
+
 import logging
+
 import random
+
 import statistics
+
 import struct
+
 from dataclasses import dataclass, field
+
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
 
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from typing import Any, Dict, List, Optional, Tuple, Union, TypedDict
 
-try:
-    from typing_extensions import TypedDict
-except ImportError:
-    # For Python 3.8+, TypedDict is available in typing
-    from typing import TypedDict
+from src.string_utils import log_info_safe, safe_format
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -395,7 +396,10 @@ class ManufacturingVarianceSimulator:
         self.rng = random.Random(seed)
         log_info_safe(
             logger,
-            safe_format("Initialized deterministic RNG with seed: {seed}", seed=seed),
+            safe_format(
+                "Initialized deterministic RNG with seed: {seed}", seed=seed
+            ),
+            prefix="VARI"
         )
         return seed
 

@@ -10,8 +10,11 @@ Tests verify that:
 
 
 import logging
+
 import sys
+
 from pathlib import Path
+
 from typing import Any, Dict
 
 import pytest
@@ -19,7 +22,6 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.string_utils import log_info_safe, safe_format
 from src.templating.sv_context_builder import SVContextBuilder
 
 

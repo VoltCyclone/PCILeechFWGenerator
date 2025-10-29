@@ -8,37 +8,21 @@ the new modular implementation internally.
 """
 
 import logging
+
 from typing import Dict, List, Optional
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+from ..string_utils import (log_error_safe, log_info_safe,
                             log_warning_safe, safe_format)
+
 from .core import CapabilityWalker, ConfigSpace
+
 from .processor import CapabilityProcessor
+
 from .rules import RuleEngine
+
 from .types import CapabilityType, EmulationCategory, PatchInfo, PruningAction
 
 logger = logging.getLogger(__name__)
-
-
-def setup_logging(verbose: bool = False) -> None:
-    """
-    Setup logging configuration for the PCI capability module.
-
-    Args:
-        verbose: If True, enables DEBUG level logging. Otherwise uses INFO level.
-
-    Note:
-        This function now only sets the logger level without calling basicConfig()
-        to avoid conflicts with existing logging configuration.
-    """
-    level = logging.DEBUG if verbose else logging.INFO
-    # Set the level for the pci_capability logger hierarchy
-    pci_logger = logging.getLogger("src.pci_capability")
-    pci_logger.setLevel(level)
-
-    # Also set for the main logger if no handlers are configured
-    if not logging.getLogger().handlers:
-        logging.getLogger().setLevel(level)
 
 
 def find_cap(cfg: str, cap_id: int) -> Optional[int]:
@@ -62,10 +46,12 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
-            "Error finding standard capability 0x{cap_id:02x}: {e}",
+            safe_format(
+                "Error finding standard capability 0x{cap_id:02x}: {e}",
+                cap_id=cap_id,
+                e=e,
+            ),
             prefix="PCI_CAP",
-            cap_id=cap_id,
-            e=e,
         )
         return None
 
@@ -91,10 +77,12 @@ def find_ext_cap(cfg: str, cap_id: int) -> Optional[int]:
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
+            safe_format(
             "Error finding extended capability 0x{cap_id:04x}: {e}",
-            prefix="PCI_CAP",
             cap_id=cap_id,
             e=e,
+            ),            
+            prefix="PCI_CAP",
         )
         return None
 
@@ -127,9 +115,11 @@ def get_all_capabilities(cfg: str) -> Dict[int, Dict]:
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
-            "Error getting standard capabilities: {e}",
+            safe_format(
+                "Error getting standard capabilities: {e}",
+                e=e,
+            ),            
             prefix="PCI_CAP",
-            e=e,
         )
 
     return capabilities
@@ -164,9 +154,11 @@ def get_all_ext_capabilities(cfg: str) -> Dict[int, Dict]:
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
-            "Error getting extended capabilities: {e}",
+            safe_format(
+                "Error getting extended capabilities: {e}",
+                e=e,
+            ),
             prefix="PCI_CAP",
-            e=e,
         )
 
     return ext_capabilities
@@ -177,14 +169,11 @@ def categorize_capabilities(
 ) -> Dict[int, "EmulationCategory"]:
     """
     Categorize capabilities based on emulation feasibility (compatibility version).
-    from .types import CapabilityInfo, CapabilityType
-    from .utils import categorize_capabilities as utils_categorize_capabilities
-        capabilities: Dictionary of capabilities (from get_all_capabilities or get_all_ext_capabilities)
 
     Returns:
         Dictionary mapping capability offsets to emulation categories
     """
-    from .types import CapabilityInfo, CapabilityType, EmulationCategory
+    from .types import CapabilityInfo, CapabilityType
     from .utils import categorize_capabilities as utils_categorize_capabilities
 
     # Convert old format to new CapabilityInfo format
@@ -275,9 +264,11 @@ def prune_capabilities(cfg: str, actions: Dict[int, PruningAction]) -> str:
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
-            "Error pruning capabilities: {e}",
+            safe_format(
+                "Error pruning capabilities: {e}",
+                e=e,
+            ),
             prefix="PCI_CAP",
-            e=e,
         )
         return cfg
 
@@ -306,9 +297,11 @@ def get_capability_patches(
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
-            "Error generating capability patches: {e}",
+            safe_format(
+                "Error generating capability patches: {e}",
+                e=e,
+            ),
             prefix="PCI_CAP",
-            e=e,
         )
         return []
 
@@ -346,9 +339,11 @@ def prune_capabilities_by_rules(cfg: str) -> str:
     except (ValueError, IndexError) as e:
         log_error_safe(
             logger,
-            "Error pruning capabilities by rules: {e}",
+            safe_format(
+                "Error pruning capabilities by rules: {e}",
+                e=e,
+            ),
             prefix="PCI_CAP",
-            e=e,
         )
         return cfg
 
@@ -428,9 +423,11 @@ def process_capabilities_enhanced(
     except Exception as e:
         log_error_safe(
             logger,
-            "Enhanced capability processing failed: {e}",
+            safe_format(
+                "Enhanced capability processing failed: {e}",
+                e=e,
+            ),
             prefix="PCI_CAP",
-            e=e,
         )
         return {
             "capabilities_found": 0,
@@ -474,9 +471,11 @@ def categorize_capabilities_with_rules(
     except Exception as e:
         log_error_safe(
             logger,
-            "Rule-based categorization failed: {e}",
+            safe_format(
+                "Rule-based categorization failed: {e}",
+                e=e,
+            ),
             prefix="PCI_CAP",
-            e=e,
         )
         return {}
 
@@ -514,7 +513,11 @@ def get_capability_patches_enhanced(
             actions = [PruningAction.REMOVE, PruningAction.MODIFY]
 
         # Process capabilities without applying patches
-        processor.process_capabilities(actions, device_context, validate_patches=False)
+        processor.process_capabilities(
+            actions,
+            device_context,
+            validate_patches=False
+        )
 
         # Return patch information
         return processor.get_patch_info_list()
@@ -522,8 +525,25 @@ def get_capability_patches_enhanced(
     except Exception as e:
         log_error_safe(
             logger,
-            "Enhanced patch generation failed: {e}",
+            safe_format(
+                "Enhanced patch generation failed: {e}",
+                e=e,
+            ),            
             prefix="PCI_CAP",
-            e=e,
         )
         return []
+
+
+def setup_logging(level: int = logging.INFO, log_file: Optional[str] = "generate.log") -> None:
+    """
+    Setup logging configuration (backward compatibility wrapper).
+
+    This function provides backward compatibility by delegating to the
+    centralized logging setup in log_config.py.
+
+    Args:
+        level: Logging level (default: INFO)
+        log_file: Optional log file path (default: generate.log)
+    """
+    from ..log_config import setup_logging as main_setup_logging
+    main_setup_logging(level=level, log_file=log_file)

@@ -9,7 +9,7 @@ latest templates from the upstream repository.
 
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from ..log_config import get_logger
 from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,

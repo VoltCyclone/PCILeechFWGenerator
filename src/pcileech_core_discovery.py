@@ -17,7 +17,7 @@ target board configuration.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from .file_management.repo_manager import RepoManager
 from .file_management.template_discovery import TemplateDiscovery

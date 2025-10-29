@@ -11,20 +11,30 @@ Usage:
 from __future__ import annotations
 
 import argparse
+
 import json
+
 import logging
+
 import os
+
 import re
+
 import sys
+
 import time
+
 from concurrent.futures import (
     ThreadPoolExecutor,
     TimeoutError as FutureTimeoutError,
     as_completed,
 )
-from dataclasses import dataclass, field
+
+from dataclasses import dataclass
+
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.string_utils import (
     log_debug_safe,
@@ -33,6 +43,7 @@ from src.string_utils import (
     log_warning_safe,
     safe_format,
 )
+
 from src.templating.template_context_validator import clear_global_template_cache
 
 # Import board functions from the correct module
@@ -40,15 +51,17 @@ from .device_clone.constants import PRODUCTION_DEFAULTS
 
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
+
 from .exceptions import (
     ConfigurationError,
     FileOperationError,
     ModuleImportError,
-    MSIXPreloadError,
     PCILeechBuildError,
     PlatformCompatibilityError,
     VivadoIntegrationError,
+    MSIXPreloadError ## needed for a unit test
 )
+
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────

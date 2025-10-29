@@ -2,8 +2,12 @@
 """Unit tests for manufacturing variance simulation."""
 
 import json
+
 import statistics
+
 from unittest.mock import Mock, patch
+
+from src.string_utils import log_info_safe, safe_format
 
 import pytest
 

@@ -13,15 +13,16 @@ Overlay RAM is used for registers that have special write behavior:
 
 import logging
 from dataclasses import dataclass
+
 from enum import IntEnum
-from typing import Any, Dict, List, Optional, Set, Tuple
+
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.device_clone.bar_size_converter import BarSizeConverter
+
 from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+
 from src.string_utils import log_debug_safe, safe_format
-
-# Module-level logger is intentionally omitted; use instance-level loggers only.
-
 
 class RegisterType(IntEnum):
     """Types of register write behavior."""
@@ -530,6 +531,15 @@ class OverlayMapper:
             # Template expects offset as register number (offset / 4)
             reg_num = offset // 4
             template_overlay_map.append((reg_num, mask))
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Final overlay entry: reg_num=0x{reg_num:02X}, mask=0x{mask:08X}",
+                    reg_num=reg_num,
+                    mask=mask,
+                ),
+                prefix="OVERLAY"
+            )
 
         return {
             "OVERLAY_MAP": template_overlay_map,

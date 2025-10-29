@@ -7,13 +7,60 @@ code duplication across network, storage, media, and USB function analyzers.
 """
 
 import logging
+
 from abc import ABC, abstractmethod
+
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
                             log_warning_safe, safe_format)
+from ..error_utils import extract_root_cause, format_user_friendly_error
 
 logger = logging.getLogger(__name__)
+
+
+class MSIXConfigurationError(ValueError):
+    """
+    Exception raised for MSI-X configuration validation failures.
+
+    This exception is raised when MSI-X table/PBA configuration conflicts
+    with BAR layout, has invalid alignment, or violates PCIe specification
+    requirements.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        vendor_id: Optional[int] = None,
+        device_id: Optional[int] = None,
+        validation_errors: Optional[List[str]] = None,
+    ):
+        """
+        Initialize MSI-X configuration error.
+
+        Args:
+            message: Human-readable error message
+            vendor_id: Optional PCI vendor ID
+            device_id: Optional PCI device ID
+            validation_errors: Optional list of specific validation errors
+        """
+        self.vendor_id = vendor_id
+        self.device_id = device_id
+        self.validation_errors = validation_errors or []
+
+        # Build detailed message
+        parts = [message]
+        if vendor_id is not None and device_id is not None:
+            parts.append(
+                f"Device: {vendor_id:04x}:{device_id:04x}"
+            )
+        if self.validation_errors:
+            parts.append(
+                f"Validation errors: {'; '.join(self.validation_errors)}"
+            )
+
+        super().__init__(" | ".join(parts))
 
 
 class BaseFunctionAnalyzer(ABC):
@@ -54,6 +101,7 @@ class BaseFunctionAnalyzer(ABC):
                 device_id=device_id,
                 category=self._device_category,
             ),
+            prefix="PCI_CAP",
         )
 
     @abstractmethod
@@ -257,6 +305,7 @@ class BaseFunctionAnalyzer(ABC):
                 vendor_id=self.vendor_id,
                 device_id=self.device_id,
             ),
+            prefix="PCI_CAP",
         )
 
         return capabilities
@@ -408,9 +457,24 @@ class BaseFunctionAnalyzer(ABC):
                     device_id=self.device_id,
                     warning=warning,
                 ),
+                prefix="PCI_CAP",
             )
 
         is_valid = len(errors) == 0
+        
+        if not is_valid:
+            # Log detailed validation failures
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "MSI-X validation failed for {vendor_id:04x}:{device_id:04x}: {count} errors found",
+                    vendor_id=self.vendor_id,
+                    device_id=self.device_id,
+                    count=len(errors),
+                ),
+                prefix="PCI_CAP",
+            )
+        
         return is_valid, errors
 
     def _validate_msix_memory_conflicts(
@@ -522,6 +586,7 @@ class BaseFunctionAnalyzer(ABC):
                     "Auto-fixed MSI-X table offset alignment: 0x{offset:x}",
                     offset=new_table_offset,
                 ),
+                prefix="PCI_CAP",
             )
 
         if msix_cap.get("pba_offset", 0) % 0x1000 != 0:
@@ -536,6 +601,7 @@ class BaseFunctionAnalyzer(ABC):
                     "Auto-fixed MSI-X PBA offset alignment: 0x{offset:x}",
                     offset=new_pba_offset,
                 ),
+                prefix="PCI_CAP",
             )
 
         # Fix 2: Ensure adequate BAR sizes
@@ -558,6 +624,7 @@ class BaseFunctionAnalyzer(ABC):
                             bar=bar_index,
                             size=required_size,
                         ),
+                        prefix="PCI_CAP",
                     )
 
             if bar_index == pba_bar:
@@ -575,6 +642,7 @@ class BaseFunctionAnalyzer(ABC):
                             bar=bar_index,
                             size=required_size,
                         ),
+                        prefix="PCI_CAP",
                     )
 
         # Fix 3: Resolve table/PBA overlap in same BAR
@@ -594,6 +662,7 @@ class BaseFunctionAnalyzer(ABC):
                         "Auto-fixed MSI-X table/PBA overlap: moved PBA to 0x{offset:x}",
                         offset=new_pba_offset,
                     ),
+                    prefix="PCI_CAP",
                 )
 
                 # Update BAR size if necessary
@@ -621,6 +690,7 @@ class BaseFunctionAnalyzer(ABC):
                     "Auto-fixed MSI-X table to avoid reserved region: 0x{offset:x}",
                     offset=new_table_offset,
                 ),
+                prefix="PCI_CAP",
             )
 
         if pba_offset < reserved_end:
@@ -636,6 +706,7 @@ class BaseFunctionAnalyzer(ABC):
                     "Auto-fixed MSI-X PBA to avoid reserved region: 0x{offset:x}",
                     offset=new_pba_offset,
                 ),
+                prefix="PCI_CAP",
             )
 
         # Update the capability in the list
@@ -647,7 +718,13 @@ class BaseFunctionAnalyzer(ABC):
     def generate_bar_configuration(self) -> List[Dict[str, Any]]:
         """Generate BAR configuration for this device type."""
         raise NotImplementedError(
-            "Subclasses must implement " "generate_bar_configuration"
+            safe_format(
+                "{analyzer_type} analyzer must implement generate_bar_configuration(). "
+                "This is a required method for device {vendor_id:04x}:{device_id:04x}.",
+                analyzer_type=self.analyzer_type,
+                vendor_id=self.vendor_id,
+                device_id=self.device_id,
+            )
         )
 
 
@@ -712,11 +789,12 @@ def create_function_capabilities(
             log_warning_safe(
                 logger,
                 safe_format(
-                    "MSI-X/BAR validation failed for {vendor_id:04x}:{device_id:04x}: {errors}",
+                    "MSI-X/BAR validation failed for {vendor_id:04x}:{device_id:04x}: {count} errors",
                     vendor_id=vendor_id,
                     device_id=device_id,
-                    errors="; ".join(validation_errors),
+                    count=len(validation_errors),
                 ),
+                prefix="PCI_CAP",
             )
 
             # Attempt to auto-fix common issues
@@ -734,17 +812,25 @@ def create_function_capabilities(
                         vendor_id=vendor_id,
                         device_id=device_id,
                     ),
+                    prefix="PCI_CAP",
                 )
             else:
+                # Auto-fix failed - log errors but continue with validation_status tracking
                 log_error_safe(
                     logger,
                     safe_format(
-                        "Failed to auto-fix MSI-X/BAR configuration for {vendor_id:04x}:{device_id:04x}: {errors}",
+                        "Failed to auto-fix MSI-X/BAR configuration for {vendor_id:04x}:{device_id:04x}",
                         vendor_id=vendor_id,
                         device_id=device_id,
-                        errors="; ".join(remaining_errors),
                     ),
+                    prefix="PCI_CAP",
                 )
+                for error in remaining_errors:
+                    log_error_safe(
+                        logger,
+                        safe_format("  - {error}", error=error),
+                        prefix="PCI_CAP",
+                    )
         else:
             is_valid_after_fix = True
             remaining_errors = []
@@ -772,19 +858,98 @@ def create_function_capabilities(
                 vendor_id=vendor_id,
                 device_id=device_id,
             ),
+            prefix="PCI_CAP",
         )
 
         return config
 
-    except Exception as e:
+    except NotImplementedError as e:
+        # Subclass failed to implement required abstract method
         log_error_safe(
             logger,
             safe_format(
-                "Failed to generate {analyzer_type} function capabilities for {vendor_id:04x}:{device_id:04x}: {error}",
-                analyzer_type=analyzer_name,
+                "Analyzer implementation error for {vendor_id:04x}:{device_id:04x}: {error}",
                 vendor_id=vendor_id,
                 device_id=device_id,
                 error=str(e),
             ),
+            prefix="PCI_CAP",
         )
         raise
+    except MSIXConfigurationError as e:
+        # MSI-X validation failed and couldn't be auto-fixed
+        log_error_safe(
+            logger,
+            safe_format(
+                "MSI-X configuration error for {vendor_id:04x}:{device_id:04x}: {error}",
+                vendor_id=vendor_id,
+                device_id=device_id,
+                error=str(e),
+            ),
+            prefix="PCI_CAP",
+        )
+        if e.validation_errors:
+            for validation_error in e.validation_errors:
+                log_error_safe(
+                    logger,
+                    safe_format("  - {error}", error=validation_error),
+                    prefix="PCI_CAP",
+                )
+        raise
+    except (ValueError, TypeError, KeyError) as e:
+        # Configuration or data validation error
+        root_cause = extract_root_cause(e)
+        log_error_safe(
+            logger,
+            safe_format(
+                "Invalid configuration for {analyzer_type} device {vendor_id:04x}:{device_id:04x}: {error}",
+                analyzer_type=analyzer_name,
+                vendor_id=vendor_id,
+                device_id=device_id,
+                error=root_cause,
+            ),
+            prefix="PCI_CAP",
+        )
+        raise ValueError(
+            safe_format(
+                "Failed to generate {analyzer_type} capabilities for {vendor_id:04x}:{device_id:04x}: {error}",
+                analyzer_type=analyzer_name,
+                vendor_id=vendor_id,
+                device_id=device_id,
+                error=root_cause,
+            )
+        ) from e
+    except Exception as e:
+        # Unexpected error - log detailed info and provide user-friendly message
+        root_cause = extract_root_cause(e)
+        log_error_safe(
+            logger,
+            safe_format(
+                "Unexpected error generating {analyzer_type} capabilities for {vendor_id:04x}:{device_id:04x}: {error}",
+                analyzer_type=analyzer_name,
+                vendor_id=vendor_id,
+                device_id=device_id,
+                error=root_cause,
+            ),
+            prefix="PCI_CAP",
+        )
+        log_debug_safe(
+            logger,
+            safe_format(
+                "Full error details: {details}",
+                details=format_user_friendly_error(
+                    e, context=f"Generating {analyzer_name} capabilities"
+                ),
+            ),
+            prefix="PCI_CAP",
+        )
+        raise RuntimeError(
+            safe_format(
+                "Failed to generate {analyzer_type} function capabilities for {vendor_id:04x}:{device_id:04x}. "
+                "Root cause: {error}. Check logs for details.",
+                analyzer_type=analyzer_name,
+                vendor_id=vendor_id,
+                device_id=device_id,
+                error=root_cause,
+            )
+        ) from e

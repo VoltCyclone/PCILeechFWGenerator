@@ -19,36 +19,48 @@ fast if required data is not available.
 """
 
 import logging
-import traceback
+
 from dataclasses import dataclass, field
+
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, TypedDict
+
+from typing import Any, Dict, Generator, List, Optional
 
 # Import existing infrastructure components
 from src.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
+
 from src.device_clone.config_space_manager import ConfigSpaceManager
+
 from src.device_clone.constants import DEFAULT_FPGA_PART
+
 from src.device_clone.device_info_lookup import lookup_device_info
+
 from src.device_clone.msix_capability import (
     parse_msix_capability,
     validate_msix_configuration,
 )
+
 from src.device_clone.pcileech_context import PCILeechContextBuilder, VFIODeviceManager
+
 from src.device_clone.writemask_generator import WritemaskGenerator
+
 from src.error_utils import extract_root_cause
+
 from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
+
 from src.pci_capability.msix_bar_validator import validate_msix_bar_configuration
 
 # Import from centralized locations
 from src.string_utils import (
-    generate_tcl_header_comment,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
     utc_timestamp,
 )
+
 from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
+
 from src.templating.tcl_builder import format_hex_id
 
 logger = logging.getLogger(__name__)
@@ -976,9 +988,8 @@ class PCILeechGenerator:
             output_dir = Path(
                 template_context.get("output_dir", self.config.output_dir)
             )
-            repo_manager = RepoManager()
             
-            # Get XDC files from submodule
+            # Get XDC files from submodule (RepoManager uses class methods only)
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -988,8 +999,8 @@ class PCILeechGenerator:
                 prefix="PCIL"
             )
             
-            repo_path = repo_manager.ensure_repo()
-            xdc_files = repo_manager.get_xdc_files(board, repo_root=repo_path)
+            repo_path = RepoManager.ensure_repo()
+            xdc_files = RepoManager.get_xdc_files(board, repo_root=repo_path)
             
             # Copy XDC files to output directory
             constraints_dir = output_dir / "constraints"
@@ -1066,8 +1077,7 @@ class PCILeechGenerator:
             
             # Initialize FileManager with output directory
             output_dir = Path(template_context.get("output_dir", self.config.output_dir))
-            repo_manager = RepoManager()
-            fm = FileManager(repo_manager=repo_manager, output_dir=output_dir)
+            fm = FileManager(output_dir=output_dir)
             
             # Copy TCL scripts from submodule
             log_info_safe(
