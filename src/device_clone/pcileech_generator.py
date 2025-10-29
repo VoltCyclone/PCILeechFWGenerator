@@ -1219,7 +1219,7 @@ class PCILeechGenerator:
         """
         try:
             from src.file_management.file_manager import FileManager
-            from src.repo_management.repo_manager import RepoManager
+            from src.file_management.repo_manager import RepoManager
             
             # Get board name from context
             board = template_context.get("board_name") or template_context.get("board")
@@ -1309,7 +1309,7 @@ class PCILeechGenerator:
         """
         try:
             from src.file_management.file_manager import FileManager
-            from src.repo_management.repo_manager import RepoManager
+            from src.file_management.repo_manager import RepoManager
             
             # Get board name from context
             board = template_context.get("board_name") or template_context.get("board")
