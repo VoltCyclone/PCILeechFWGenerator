@@ -786,10 +786,6 @@ class PCILeechGenerator:
                 donor_template=self.config.donor_template,
             )
 
-            # Validate context completeness
-            context_dict = dict(template_context)
-            self._validate_template_context(context_dict)
-
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -799,192 +795,13 @@ class PCILeechGenerator:
                 prefix="PCIL",
             )
 
-            return context_dict
+            return dict(template_context)
 
         except Exception as e:
             root_cause = extract_root_cause(e)
             raise PCILeechGenerationError(
                 "Template context building failed", root_cause=root_cause
             )
-
-    def _validate_template_context(self, context: Dict[str, Any]) -> None:
-        """
-        Validate template context using the centralized TemplateContextValidator.
-
-        This method ensures all required template variables are present and properly
-        initialized before template rendering.
-
-        Args:
-            context: Template context to validate
-
-        Raises:
-            PCILeechGenerationError: If context validation fails
-        """
-        try:
-            # Import the centralized validator
-            from src.templating.template_context_validator import (
-                validate_template_context,
-            )
-
-            # Derive template name dynamically.
-            # Priority order:
-            #  1. config.firmware_template (explicit override)
-            #  2. donor_template['template'] or ['name']
-            #  3. default constant below
-            DEFAULT_PCILEECH_TEMPLATE = "pcileech_firmware.j2"
-
-            template_name: Optional[str] = None
-            explicit: Optional[str] = None
-
-            # 1. Explicit attribute on config (highest priority)
-            if hasattr(self.config, "firmware_template"):
-                explicit = getattr(self.config, "firmware_template") or None
-                if explicit:
-                    template_name = explicit
-
-            # 2. Donor template dict key(s)
-            if not template_name and isinstance(self.config.donor_template, dict):
-                donor_name = self.config.donor_template.get(
-                    "template"
-                ) or self.config.donor_template.get("name")
-                if donor_name:
-                    template_name = donor_name
-
-            # 3. Auto-detect if still unset (scan template dir)
-            if not template_name:
-                try:
-                    renderer = getattr(
-                        self, "template_renderer", None
-                    ) or TemplateRenderer(getattr(self.config, "template_dir", None))
-                    # Candidate patterns (basename match)
-                    all_templates = renderer.list_templates("*.j2")
-                    candidates = []
-                    for t in all_templates:
-                        base = Path(t).name.lower()
-                        if base.startswith("pcileech") and "firmware" in base:
-                            candidates.append(t)
-                    # Fallback: any pcileech*.j2 if firmware-specific not found
-                    if not candidates:
-                        for t in all_templates:
-                            base = Path(t).name.lower()
-                            if base.startswith("pcileech"):
-                                candidates.append(t)
-                    if len(candidates) == 1:
-                        template_name = candidates[0]
-                        log_info_safe(
-                            self.logger,
-                            "Auto-detected firmware template: {tpl}",
-                            tpl=template_name,
-                            prefix="PCIL",
-                        )
-                    elif len(candidates) > 1:
-                        # Try to pick canonical: exact default name first
-                        for c in candidates:
-                            if Path(c).name == DEFAULT_PCILEECH_TEMPLATE:
-                                template_name = c
-                                break
-                        if not template_name:
-                            # Choose the shortest path (likely top-level canonical)
-                            template_name = min(candidates, key=len)
-                        log_warning_safe(
-                            self.logger,
-                            safe_format(
-                                "Multiple candidate templates found; selected: {sel}, all={all}",  # noqa: E501
-                                sel=template_name,
-                                all=",".join(candidates),
-                            ),
-                            prefix="PCIL",
-                        )
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Template auto-detection failed: {err}",
-                            err=str(e),
-                        ),
-                        prefix="PCIL",
-                    )
-
-            # 4. Fallback to default constant
-            if not template_name:
-                template_name = DEFAULT_PCILEECH_TEMPLATE
-
-            # Normalize: enforce .j2 suffix
-            if not template_name.endswith(".j2"):
-                template_name = f"{template_name}.j2"
-
-            # Final sanity check
-            if not template_name:
-                raise PCILeechGenerationError(
-                    "Unable to resolve firmware template name for validation"
-                )
-
-            # Use strict validation mode based on config
-            strict_mode = self.config.strict_validation
-
-            # Validate the context
-            validated_context = validate_template_context(
-                template_name, context, strict=strict_mode
-            )
-            log_info_safe(
-                self.logger,
-                "Template context validation successful",
-                prefix="PCIL",
-            )
-
-        except ValueError as e:
-            # Convert ValueError from validator to PCILeechGenerationError
-            if self.config.fail_on_missing_data:
-                raise PCILeechGenerationError(
-                    safe_format("Template context validation failed: {err}", err=e)
-                ) from e
-            else:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Template context validation warning: {error}",
-                        error=str(e),
-                    ),
-                    prefix="PCIL",
-                )
-        except ImportError:
-            # Fallback to basic validation if validator not available
-            log_warning_safe(
-                self.logger,
-                "TemplateContextValidator not available, using basic validation",
-                prefix="PCIL",
-            )
-
-            # Basic validation for backward compatibility
-            required_keys = [
-                "device_config",
-                "config_space",
-                "msix_config",
-                "bar_config",
-                "timing_config",
-                "pcileech_config",
-                "device_signature",
-            ]
-
-            missing_keys = [key for key in required_keys if key not in context]
-
-            if missing_keys and self.config.fail_on_missing_data:
-                raise PCILeechGenerationError(
-                    safe_format(
-                        "Template context missing required keys: {keys}",
-                        keys=missing_keys,
-                    )
-                )
-
-            if missing_keys:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Template context missing optional keys: {keys}",
-                        keys=missing_keys,
-                    ),
-                    prefix="PCIL",
-                )
 
     def _generate_systemverilog_modules(
         self, template_context: Dict[str, Any]
@@ -1222,14 +1039,18 @@ class PCILeechGenerator:
             from src.file_management.repo_manager import RepoManager
             
             # Get board name from context
-            board = template_context.get("board_name") or template_context.get("board")
+            board = template_context.get(
+                "board_name"
+            ) or template_context.get("board")
             if not board:
                 raise PCILeechGenerationError(
                     "Cannot copy constraint files: board name not specified"
                 )
             
             # Initialize FileManager with output directory
-            output_dir = Path(template_context.get("output_dir", self.config.output_dir))
+            output_dir = Path(
+                template_context.get("output_dir", self.config.output_dir)
+            )
             repo_manager = RepoManager()
             
             # Get XDC files from submodule
