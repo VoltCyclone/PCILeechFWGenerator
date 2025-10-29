@@ -8,8 +8,6 @@ updates:
       day: "monday"
       time: "06:00"
     open-pull-requests-limit: 10
-    reviewers:
-      - "ramseymcgrath"
     assignees:
       - "ramseymcgrath"
     commit-message:
@@ -36,8 +34,6 @@ updates:
       day: "monday"
       time: "06:00"
     open-pull-requests-limit: 5
-    reviewers:
-      - "ramseymcgrath"
     assignees:
       - "ramseymcgrath"
     commit-message:
@@ -46,22 +42,3 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
-
-  # Docker dependencies (if using containers)
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "ramseymcgrath"
-    assignees:
-      - "ramseymcgrath"
-    commit-message:
-      prefix: "⬆️"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "docker"

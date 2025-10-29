@@ -75,11 +75,11 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Python setup base
-        uses: ./.github/actions/python-setup
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          editable: 'false'
+          cache: 'pip'
 
       - name: Install system dependencies
         run: |
@@ -99,23 +99,23 @@ jobs:
           sudo apt-get install -y podman
           podman --version
 
+      - name: Upgrade pip and install build tools
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
       - name: Install minimal dependencies
         if: matrix.test-mode == 'minimal'
-        uses: ./.github/actions/python-setup
-        with:
-          python-version: ${{ matrix.python-version }}
-          requirements-files: 'requirements.txt'
-          editable: 'true'
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
 
       - name: Install full dependencies
         if: matrix.test-mode == 'full' || matrix.test-mode == ''
-        uses: ./.github/actions/python-setup
-        with:
-          python-version: ${{ matrix.python-version }}
-          requirements-files: 'requirements.txt,requirements-test.txt,requirements-tui.txt'
-          editable: 'true'
-          skip-missing: 'true'
-          extras: ''
+        run: |
+          pip install -r requirements.txt
+          if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
+          if [ -f requirements-tui.txt ]; then pip install -r requirements-tui.txt; fi
+          pip install -e .
 
       - name: Build VFIO constants
         run: |
@@ -141,13 +141,13 @@ jobs:
       - name: Run E2E tests (all)
         if: github.event.inputs.test_type == '' || github.event.inputs.test_type == 'all'
         run: |
-          python scripts/e2e_test_github_actions.py \
+          python3 scripts/e2e_test_github_actions.py \
             ${{ github.event.inputs.no_cleanup == 'true' && '--no-cleanup' || '' }}
 
       - name: Run E2E tests (specific)
         if: github.event.inputs.test_type != '' && github.event.inputs.test_type != 'all'
         run: |
-          python scripts/e2e_test_github_actions.py \
+          python3 scripts/e2e_test_github_actions.py \
             --test ${{ github.event.inputs.test_type }} \
             ${{ github.event.inputs.no_cleanup == 'true' && '--no-cleanup' || '' }}
 
@@ -202,12 +202,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Python setup & deps
-        uses: ./.github/actions/python-setup
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-          extra-packages: 'bandit safety'
-          editable: 'false'
+          cache: 'pip'
+      
+      - name: Install security scanning tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
 
       - name: Run Bandit security scan
         run: |
@@ -239,17 +243,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Python setup & deps
-        uses: ./.github/actions/python-setup
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-          requirements-files: 'requirements.txt'
-          extra-packages: 'psutil memory-profiler pytest-benchmark'
-          editable: 'false'
+          cache: 'pip'
+      
+      - name: Install dependencies and performance tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install psutil memory-profiler pytest-benchmark
 
       - name: Run performance tests
         run: |
-          PCILEECH_ALLOW_MOCK_DATA=true python scripts/e2e_test_github_actions.py --test performance --verbose
+          PCILEECH_ALLOW_MOCK_DATA=true python3 scripts/e2e_test_github_actions.py --test performance --verbose
 
       - name: Generate performance report
         run: |
