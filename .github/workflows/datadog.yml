@@ -11,6 +11,8 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v5
+      with:
+        submodules: recursive
     - name: Check imported libraries are secure and compliant
       id: datadog-software-composition-analysis
       uses: DataDog/datadog-sca-github-action@main
@@ -25,6 +27,8 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v5
+      with:
+        submodules: recursive
     - name: Check code meets quality and security standards
       id: datadog-static-analysis
       uses: DataDog/datadog-static-analyzer-github-action@v2
