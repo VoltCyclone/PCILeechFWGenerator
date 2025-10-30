@@ -7,8 +7,10 @@ Read more about conftest.py under:
 - https://docs.pytest.org/en/stable/writing_plugins.html
 """
 
+import logging
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -94,3 +96,102 @@ def explicit_config_dir():
 
     # Restore previous manager
     dc._config_manager = prev
+
+
+# Common test fixtures to reduce duplication across test files
+@pytest.fixture
+def mock_logger():
+    """Create a mock logger for testing."""
+    return MagicMock(spec=logging.Logger)
+
+
+@pytest.fixture
+def temp_dir():
+    """Create a temporary directory for testing."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        yield Path(tmp_dir)
+
+
+@pytest.fixture
+def valid_bdf():
+    """Provide a valid BDF string for testing."""
+    return "0000:03:00.0"
+
+
+@pytest.fixture
+def invalid_bdf():
+    """Provide an invalid BDF string for testing."""
+    return "invalid_bdf"
+
+
+@pytest.fixture
+def valid_board():
+    """Provide a valid board name for testing."""
+    return "pcileech_35t325_x1"
+
+
+@pytest.fixture
+def mock_subprocess():
+    """Mock subprocess module for testing."""
+    import subprocess
+    from unittest.mock import patch
+    
+    with patch("subprocess.run", autospec=True) as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="",
+            stderr=""
+        )
+        yield mock_run
+
+
+@pytest.fixture
+def mock_open_file():
+    """Mock open() for file operations."""
+    from unittest.mock import mock_open, patch
+    
+    m = mock_open()
+    with patch("builtins.open", m):
+        yield m
+
+
+@pytest.fixture
+def sample_config_space():
+    """Provide sample PCI configuration space data."""
+    return "86801533020000000300020800000000040000f400000000000000000000000000000000000000000000000000000000"
+
+
+@pytest.fixture
+def sample_device_info():
+    """Provide sample device information dictionary."""
+    return {
+        "vendor_id": "8086",
+        "device_id": "1533",
+        "class_code": "020000",
+        "revision_id": "03",
+        "subsystem_vendor_id": "8086",
+        "subsystem_device_id": "0000",
+        "bar0_size": "0x20000",
+    }
+
+
+@pytest.fixture
+def mock_path_exists():
+    """Mock Path.exists for testing."""
+    from unittest.mock import patch
+    
+    with patch("pathlib.Path.exists") as mock_exists:
+        mock_exists.return_value = True
+        yield mock_exists
+
+
+@pytest.fixture
+def mock_file_manager():
+    """Create a mock FileManager for testing."""
+    manager = MagicMock()
+    manager.output_dir = Path("/tmp/output")
+    manager.tcl_dir = Path("/tmp/output/tcl")
+    manager.sv_dir = Path("/tmp/output/sv")
+    manager.write_file = MagicMock()
+    manager.create_directories = MagicMock()
+    return manager

@@ -76,12 +76,7 @@ def test_generator_invokes_device_info_lookup():
         patch.object(
             PCILeechGenerator,
             "_generate_firmware_components",
-            return_value={},
-        ),
-        patch.object(
-            PCILeechGenerator,
-            "_generate_default_tcl_scripts",
-            return_value={},
+            return_value={"tcl_scripts": {}},
         ),
         patch.object(
             PCILeechGenerator,

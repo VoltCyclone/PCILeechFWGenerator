@@ -10,13 +10,20 @@ Integrates BehaviorProfiler, ConfigSpaceManager, and MSIXCapability data.
 """
 
 import ctypes
+
 import fcntl
+
 import logging
+
 import os
+
 from dataclasses import asdict, dataclass, field, fields
+
 from enum import Enum
+
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, TypedDict, Union, cast
+
+from typing import Any, Dict, Optional, Tuple, TypedDict, Union, cast
 
 from src.cli.vfio_constants import (
     VFIO_DEVICE_GET_REGION_INFO,
@@ -25,11 +32,17 @@ from src.cli.vfio_constants import (
     VFIO_REGION_INFO_FLAG_WRITE,
     VfioRegionInfo,
 )
+
 from src.device_clone.bar_content_generator import BarContentGenerator
+
 from src.device_clone.bar_size_converter import extract_bar_size
+
 from src.device_clone.behavior_profiler import BehaviorProfile
+
 from src.device_clone.board_config import get_pcileech_board_config
+
 from src.device_clone.config_space_manager import BarInfo, ConfigSpaceConstants
+
 from src.device_clone.constants import (
     BAR_SIZE_CONSTANTS,
     BAR_TYPE_MEMORY_64BIT,
@@ -45,19 +58,27 @@ from src.device_clone.constants import (
     POWER_STATE_D0,
 )
 from src.device_clone.device_config import get_device_config
+
 from src.device_clone.fallback_manager import (
     FallbackManager,
     get_global_fallback_manager,
 )
+
 from src.device_clone.identifier_normalizer import IdentifierNormalizer
+
 from src.device_clone.overlay_mapper import OverlayMapper
+
 from src.device_clone.overlay_utils import (
     compute_sparse_hash_table_size,
     normalize_overlay_entry_count,
 )
+
 from src.error_utils import extract_root_cause
+
 from src.exceptions import ContextError
+
 from src.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
+
 from src.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -71,12 +92,6 @@ from ..utils.validation_constants import (
     CORE_DEVICE_IDS,
     REQUIRED_CONTEXT_SECTIONS,
 )
-
-# NOTE: Don't import VFIO helper callables at module import time. Tests
-# commonly patch the functions on the `src.cli.vfio_helpers` module. To
-# ensure those patches are observed we perform late imports inside methods
-# that call into VFIO helpers.
-
 
 def require(condition: bool, message: str, **context) -> None:
     """Validate condition or exit with error."""
@@ -95,14 +110,9 @@ from src.utils.unified_context import (
     UnifiedContextBuilder,
     ensure_template_compatibility,
 )
+
 from src.utils.validation_constants import SV_FILE_HEADER
 
-# ---------------------------------------------------------------------------
-# Shared MSI-X runtime flag defaults
-# Centralizes previously duplicated dict literals between disabled/enabled
-# msix_context construction to maintain DRY semantics. Any invariant field
-# changes (e.g. entry sizing, staging support) now require edits in one spot.
-# ---------------------------------------------------------------------------
 _MSIX_BASE_RUNTIME_FLAGS: Dict[str, Any] = {
     # Clear table & PBA memories on reset
     "reset_clear": True,

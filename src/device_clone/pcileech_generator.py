@@ -313,12 +313,11 @@ class PCILeechGenerator:
 
             # 7. Additional firmware components (constraints, COE, writemask,
             #    integration)
-            firmware_components = self._generate_firmware_components(template_context)
+            firmware_components = self._generate_firmware_components(
+                template_context
+            )
 
-            # 8. Enforced-template TCL scripts (no fallback inline generation)
-            tcl_scripts = self._generate_default_tcl_scripts(template_context)
-
-            # 9. Validate generated firmware artifacts
+            # 8. Validate generated firmware artifacts
             self._validate_generated_firmware(
                 systemverilog_modules, firmware_components
             )
@@ -330,7 +329,7 @@ class PCILeechGenerator:
                 template_context,
                 systemverilog_modules,
                 firmware_components,
-                tcl_scripts,
+                firmware_components.get("tcl_scripts", {}),
             )
 
             log_info_safe(
@@ -400,7 +399,9 @@ class PCILeechGenerator:
             yield
             log_info_safe(self.logger, "Completed {step}", step=step, prefix="PCIL")
         except Exception as e:  # pragma: no cover (control flow wrapper)
-            if allow_fallback and self.fallback_manager.confirm_fallback(step, str(e)):
+            if allow_fallback and self.fallback_manager.confirm_fallback(
+                step, str(e)
+            ):
                 log_warning_safe(
                     self.logger,
                     safe_format(
@@ -446,7 +447,9 @@ class PCILeechGenerator:
             )
 
             # Analyze patterns for enhanced context
-            pattern_analysis = self.behavior_profiler.analyze_patterns(behavior_profile)
+            pattern_analysis = self.behavior_profiler.analyze_patterns(
+                behavior_profile
+            )
 
             # Store analysis results in profile for later use
             behavior_profile.pattern_analysis = pattern_analysis
@@ -1122,215 +1125,6 @@ class PCILeechGenerator:
                     err=e
                 )
             ) from e
-
-    def _generate_default_tcl_scripts(self, context: Dict[str, Any]) -> Dict[str, str]:
-        from src.string_utils import get_project_name
-
-        project_name = context.get("project_name", get_project_name())
-        fpga_part = context.get("fpga_part", "xc7a35t-csg324-1")
-        # Enforce template-only generation (no inline fallback permitted).
-        # This aligns with donor uniqueness & central templating policy.
-        try:
-            from src.templating.template_renderer import TemplateRenderer
-        except ImportError as e:  # pragma: no cover - treated as fatal
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Template renderer unavailable: {err} (no fallback permitted)",
-                    err=e,
-                )
-            ) from e
-
-        renderer = TemplateRenderer(getattr(self.config, "template_dir", None))
-
-        try:
-            from src.string_utils import generate_tcl_header_comment
-
-            unified_header = generate_tcl_header_comment(
-                "PCILeech Build Scripts",
-                vendor_id=str(context.get("vendor_id", "")),
-                device_id=str(context.get("device_id", "")),
-                board=context.get("board_name") or context.get("board", ""),
-            )
-        except Exception:
-            unified_header = "# Generated PCILeech TCL Script"
-
-        vid = context.get("vendor_id")
-        did = context.get("device_id")
-        if not vid or not did:  # Strict: cannot proceed without both
-            raise PCILeechGenerationError(
-                safe_format(
-                    (
-                        "Fallback TCL generation aborted: missing vendor_id/"
-                        "device_id (vid={vid} did={did})"
-                    ),
-                    vid=vid,
-                    did=did,
-                )
-            )
-
-        subsys_vid = context.get("subsystem_vendor_id") or vid
-        subsys_did = context.get("subsystem_device_id") or did
-        # Some tests stub only vendor_id/device_id; tolerate missing revision_id/class_code
-        revision_id = context.get("revision_id") or context.get("revision")
-        class_code = context.get("class_code")
-
-        device_block = {
-            "vendor_id": format_hex_id(vid, 4),
-            "device_id": format_hex_id(did, 4),
-            # Only include fields when provided to avoid raising on None in tests
-            **(
-                {"revision_id": format_hex_id(revision_id, 2)}
-                if revision_id is not None
-                else {}
-            ),
-            **(
-                {"class_code": format_hex_id(class_code, 6)}
-                if class_code is not None
-                else {}
-            ),
-            "subsys_vendor_id": format_hex_id(subsys_vid, 4),
-            "subsys_device_id": format_hex_id(subsys_did, 4),
-        }
-
-        # Build device signature; if revision is missing in permissive tests, omit it
-        if "revision_id" in device_block:
-            device_signature = safe_format(
-                "{vid}:{did}:{rid}",
-                vid=device_block["vendor_id"],
-                did=device_block["device_id"],
-                rid=device_block["revision_id"],
-            )
-        else:
-            device_signature = safe_format(
-                "{vid}:{did}",
-                vid=device_block["vendor_id"],
-                did=device_block["device_id"],
-            )
-
-        # Provide structured configs mirroring normal builder output so that
-        # any template expecting device_config/board_config remains satisfied.
-        device_config = {
-            **device_block,
-            "identification": {
-                "vendor_id": device_block["vendor_id"],
-                "device_id": device_block["device_id"],
-                **(
-                    {"class_code": device_block["class_code"]}
-                    if "class_code" in device_block
-                    else {}
-                ),
-                "subsystem_vendor_id": device_block["subsys_vendor_id"],
-                "subsystem_device_id": device_block["subsys_device_id"],
-            },
-            "registers": (
-                {"revision_id": device_block["revision_id"]}
-                if "revision_id" in device_block
-                else {}
-            ),
-        }
-
-        board_block = {
-            "name": context.get("board_name", context.get("board", "unknown")),
-            "fpga_part": fpga_part,
-            "fpga_family": context.get("fpga_family", "7series"),
-            "pcie_ip_type": context.get("pcie_ip_type", "7x"),
-            "supports_msi": bool(context.get("supports_msi", False)),
-            "supports_msix": bool(context.get("supports_msix", False)),
-            "max_lanes": context.get("max_lanes", 1),
-        }
-
-        msix_cfg = context.get("msix_config") or {
-            "enabled": False,
-            "table_size": 0,
-            "vectors": 0,
-            "table_bir": 0,
-            "table_offset": 0x0,
-            "pba_bir": 0,
-            "pba_offset": 0x0,
-            "is_supported": False,
-        }
-
-        tpl_context: Dict[str, Any] = {
-            # Provide both legacy 'header_comment' and internal 'header'.
-            "header_comment": unified_header,
-            "header": unified_header,
-            "project": project_name,
-            "project_dir": safe_format("./{p}", p=project_name),
-            # Some TCL templates reference fpga_family at the top-level; expose
-            # it directly in addition to nested under board for backward
-            # compatibility with existing templates.
-            "fpga_family": context.get("fpga_family", "7series"),
-            "board": board_block,
-            "board_config": board_block,
-            "device": device_block,
-            "device_config": device_config,
-            "device_signature": device_signature,
-            "msix_config": msix_cfg,
-            "constraint_files": [],
-            "build": {"jobs": 4, "batch_mode": True, "timeout": 3600},
-            "batch_mode": True,
-            "synthesis_strategy": "Flow_PerfOptimized_high",
-            "implementation_strategy": "Performance_Explore",
-        }
-
-        # Resolve required templates.
-        build_tpl_candidates = ["tcl/pcileech_build.j2", "tcl/build.j2"]
-        build_template_name: Optional[str] = None
-        for cand in build_tpl_candidates:
-            if renderer.template_exists(cand):
-                build_template_name = cand
-                break
-        if not build_template_name:
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Missing required build TCL template(s): {cands} (no fallback)",
-                    cands=build_tpl_candidates,
-                )
-            )
-
-        if not renderer.template_exists("tcl/synthesis.j2"):
-            raise PCILeechGenerationError(
-                "synthesis template missing: tcl/synthesis.j2 (no fallback)"
-            )
-
-        try:
-            rendered_build = renderer.render_template(build_template_name, tpl_context)
-        except Exception as e:
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Failed rendering build template {tpl}: {err}",
-                    tpl=build_template_name,
-                    err=e,
-                )
-            ) from e
-
-        try:
-            rendered_synth = renderer.render_template("tcl/synthesis.j2", tpl_context)
-        except Exception as e:
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Failed rendering synthesis template tcl/synthesis.j2: {err}",
-                    err=e,
-                )
-            ) from e
-
-        log_info_safe(
-            self.logger,
-            safe_format(
-                "Generated TCL scripts using enforced templates: build={build_tpl}",
-                build_tpl=build_template_name,
-            ),
-            prefix="PCIL",
-        )
-
-        # Provide both legacy internal keys and user-facing filenames expected
-        # by tests (build.tcl / synthesis.tcl) for maximum compatibility.
-        return {
-            "build_script": rendered_build,
-            "synthesis_script": rendered_synth,
-            "build.tcl": rendered_build,
-            "synthesis.tcl": rendered_synth,
-        }
 
     def _generate_writemask_coe(
         self, template_context: Dict[str, Any]

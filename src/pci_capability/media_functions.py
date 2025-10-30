@@ -11,12 +11,15 @@ to provide production-ready dynamic capability generation.
 """
 
 import logging
+
 from typing import Any, Dict, List, Optional, Set
 
 from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
                             log_warning_safe, safe_format)
+
 from .base_function_analyzer import (BaseFunctionAnalyzer,
                                      create_function_capabilities)
+
 from .constants import (  # Common PCI Capability IDs; Media class codes; Common device ID masks; Media-specific device ranges; Media device thresholds; Media BAR sizes; Media power management; Media queue counts; Audio specifications; Video specifications; PCIe defaults; Additional vendor IDs
     AMD_AUDIO_RANGES, BAR_SIZE_AUDIO_REGISTERS, BAR_SIZE_HDAUDIO_REGISTERS,
     BAR_SIZE_MSIX_TABLE, BAR_SIZE_VIDEO_FRAMEBUFFER, BAR_SIZE_VIDEO_REGISTERS,

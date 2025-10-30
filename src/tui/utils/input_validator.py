@@ -1,23 +1,23 @@
-"""
-Input validation utilities for PCILeech TUI application.
+"""Input validation utilities for TUI."""
 
-This module provides comprehensive validation for various user inputs,
-including file paths, PCI BDF identifiers, and configuration values.
-"""
-
-import os
-import re
+from typing import Tuple, List, Optional, Dict, Any
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import re
+
+from src.utils.validators import (
+    get_bdf_validator, 
+    RangeValidator,
+    ValidationResult
+)
 
 
 class InputValidator:
-    """Provides comprehensive input validation for the PCILeech TUI application."""
+    """Validation utilities for user input in TUI."""
 
     @staticmethod
     def validate_file_path(path: str) -> Tuple[bool, str]:
         """
-        Validate file path input.
+        Validate that a file path exists and is readable.
 
         Args:
             path: The file path to validate.
@@ -27,19 +27,21 @@ class InputValidator:
             If valid, error_message will be empty.
         """
         try:
-            p = Path(path)
-            if not p.exists():
+            path_obj = Path(path)
+            if not path_obj.exists():
                 return False, f"File does not exist: {path}"
-            if not p.is_file():
+            if not path_obj.is_file():
                 return False, f"Path is not a file: {path}"
+            if not path_obj.stat().st_size > 0:
+                return False, f"File is empty: {path}"
             return True, ""
         except Exception as e:
-            return False, f"Invalid path: {e}"
+            return False, f"Invalid path: {str(e)}"
 
     @staticmethod
     def validate_directory_path(path: str) -> Tuple[bool, str]:
         """
-        Validate directory path input.
+        Validate that a directory path exists and is writable.
 
         Args:
             path: The directory path to validate.
@@ -49,16 +51,19 @@ class InputValidator:
             If valid, error_message will be empty.
         """
         try:
-            p = Path(path)
-            if not p.exists():
-                return False, f"Directory does not exist: {path}"
-            if not p.is_dir():
+            path_obj = Path(path)
+            if not path_obj.exists():
+                # Try to create it
+                try:
+                    path_obj.mkdir(parents=True, exist_ok=True)
+                    return True, ""
+                except Exception as e:
+                    return False, f"Cannot create directory: {str(e)}"
+            elif not path_obj.is_dir():
                 return False, f"Path is not a directory: {path}"
-            if not os.access(p, os.W_OK):
-                return False, f"Directory is not writable: {path}"
             return True, ""
         except Exception as e:
-            return False, f"Invalid directory path: {e}"
+            return False, f"Invalid path: {str(e)}"
 
     @staticmethod
     def validate_bdf(bdf: str) -> Tuple[bool, str]:
@@ -72,12 +77,13 @@ class InputValidator:
             A tuple containing (is_valid, error_message).
             If valid, error_message will be empty.
         """
-        import re
-
-        pattern = r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$"
-        if re.match(pattern, bdf):
+        validator = get_bdf_validator()
+        result = validator.validate(bdf)
+        if result.valid:
             return True, ""
-        return False, "Invalid BDF format (expected: XXXX:XX:XX.X)"
+        else:
+            # Return the first error message
+            return False, result.errors[0] if result.errors else "Invalid BDF format"
 
     @staticmethod
     def validate_non_empty(value: str, field_name: str = "Value") -> Tuple[bool, str]:
@@ -86,24 +92,24 @@ class InputValidator:
 
         Args:
             value: The string to validate.
-            field_name: Name of the field being validated (for error message).
+            field_name: The name of the field being validated for error messages.
 
         Returns:
             A tuple containing (is_valid, error_message).
             If valid, error_message will be empty.
         """
-        if not value or value.strip() == "":
+        if not value or not value.strip():
             return False, f"{field_name} cannot be empty"
         return True, ""
 
     @staticmethod
     def validate_numeric(value: str, field_name: str = "Value") -> Tuple[bool, str]:
         """
-        Validate that a string can be converted to a number.
+        Validate that a string represents a numeric value.
 
         Args:
             value: The string to validate.
-            field_name: Name of the field being validated (for error message).
+            field_name: The name of the field being validated for error messages.
 
         Returns:
             A tuple containing (is_valid, error_message).
@@ -113,16 +119,16 @@ class InputValidator:
             float(value)
             return True, ""
         except ValueError:
-            return False, f"{field_name} must be a number"
+            return False, f"{field_name} must be a numeric value"
 
     @staticmethod
     def validate_integer(value: str, field_name: str = "Value") -> Tuple[bool, str]:
         """
-        Validate that a string can be converted to an integer.
+        Validate that a string represents an integer value.
 
         Args:
             value: The string to validate.
-            field_name: Name of the field being validated (for error message).
+            field_name: The name of the field being validated for error messages.
 
         Returns:
             A tuple containing (is_valid, error_message).
@@ -132,45 +138,51 @@ class InputValidator:
             int(value)
             return True, ""
         except ValueError:
-            return False, f"{field_name} must be an integer"
+            return False, f"{field_name} must be an integer value"
 
     @staticmethod
     def validate_in_range(
         value: str, min_val: float, max_val: float, field_name: str = "Value"
     ) -> Tuple[bool, str]:
         """
-        Validate that a numeric string is within a specified range.
+        Validate that a numeric value is within a specified range.
 
         Args:
-            value: The string to validate.
-            min_val: Minimum allowed value.
-            max_val: Maximum allowed value.
-            field_name: Name of the field being validated (for error message).
+            value: The string value to validate.
+            min_val: Minimum allowed value (inclusive).
+            max_val: Maximum allowed value (inclusive).
+            field_name: The name of the field being validated for error messages.
 
         Returns:
             A tuple containing (is_valid, error_message).
             If valid, error_message will be empty.
         """
-        is_valid, error = InputValidator.validate_numeric(value, field_name)
-        if not is_valid:
-            return is_valid, error
-
-        num_val = float(value)
-        if num_val < min_val or num_val > max_val:
-            return False, f"{field_name} must be between {min_val} and {max_val}"
-        return True, ""
+        # Use the RangeValidator from our framework
+        validator = RangeValidator(min_value=min_val, max_value=max_val, field_name=field_name)
+        
+        # First check if it's numeric
+        try:
+            num_value = float(value)
+        except ValueError:
+            return False, f"{field_name} must be a numeric value"
+        
+        result = validator.validate(num_value)
+        if result.valid:
+            return True, ""
+        else:
+            return False, result.errors[0] if result.errors else f"{field_name} out of range"
 
     @staticmethod
     def validate_in_choices(
         value: str, choices: List[str], field_name: str = "Value"
     ) -> Tuple[bool, str]:
         """
-        Validate that a string is one of the specified choices.
+        Validate that a value is one of the allowed choices.
 
         Args:
-            value: The string to validate.
-            choices: List of valid choices.
-            field_name: Name of the field being validated (for error message).
+            value: The value to validate.
+            choices: List of allowed values.
+            field_name: The name of the field being validated for error messages.
 
         Returns:
             A tuple containing (is_valid, error_message).
@@ -192,17 +204,112 @@ class InputValidator:
             A tuple containing (is_valid, error_message).
             If valid, error_message will be empty.
         """
-        required_fields = ["device_id", "board_type", "output_directory"]
+        from src.utils.validators import validate_device_config
+        
+        result = validate_device_config(config)
+        if result.valid:
+            return True, ""
+        else:
+            # Combine all errors into a single message
+            error_msg = "; ".join(result.errors)
+            return False, error_msg
 
-        for field in required_fields:
-            if field not in config or not config[field]:
-                return False, f"Missing required field: {field}"
+    @staticmethod
+    def validate_hex(value: str, length: Optional[int] = None, field_name: str = "Value") -> Tuple[bool, str]:
+        """
+        Validate that a string is a valid hexadecimal value.
 
-        # Validate output directory if provided
-        if "output_directory" in config and config["output_directory"]:
-            output_dir = config["output_directory"]
-            is_valid, error = InputValidator.validate_directory_path(output_dir)
-            if not is_valid:
-                return is_valid, error
+        Args:
+            value: The string to validate.
+            length: Expected length of hex string (excluding 0x prefix).
+            field_name: The name of the field being validated.
 
-        return True, ""
+        Returns:
+            A tuple containing (is_valid, error_message).
+            If valid, error_message will be empty.
+        """
+        from src.utils.validators import HexValidator
+        
+        validator = HexValidator(length=length, field_name=field_name)
+        result = validator.validate(value)
+        
+        if result.valid:
+            return True, ""
+        else:
+            return False, result.errors[0] if result.errors else f"Invalid hex value"
+
+    @staticmethod
+    def validate_email(value: str) -> Tuple[bool, str]:
+        """
+        Validate email address format.
+
+        Args:
+            value: The email address to validate.
+
+        Returns:
+            A tuple containing (is_valid, error_message).
+            If valid, error_message will be empty.
+        """
+        # Basic email regex pattern
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if re.match(pattern, value):
+            return True, ""
+        return False, "Invalid email format"
+
+    @staticmethod
+    def validate_url(value: str) -> Tuple[bool, str]:
+        """
+        Validate URL format.
+
+        Args:
+            value: The URL to validate.
+
+        Returns:
+            A tuple containing (is_valid, error_message).
+            If valid, error_message will be empty.
+        """
+        # Basic URL regex pattern
+        pattern = r'^https?://[^\s/$.?#].[^\s]*$'
+        if re.match(pattern, value, re.IGNORECASE):
+            return True, ""
+        return False, "Invalid URL format (must start with http:// or https://)"
+
+    @staticmethod
+    def validate_positive_integer(value: str, field_name: str = "Value") -> Tuple[bool, str]:
+        """
+        Validate that a string represents a positive integer.
+
+        Args:
+            value: The string to validate.
+            field_name: The name of the field being validated.
+
+        Returns:
+            A tuple containing (is_valid, error_message).
+            If valid, error_message will be empty.
+        """
+        try:
+            num = int(value)
+            if num > 0:
+                return True, ""
+            return False, f"{field_name} must be a positive integer"
+        except ValueError:
+            return False, f"{field_name} must be an integer value"
+
+    @staticmethod
+    def validate_percentage(value: str, field_name: str = "Value") -> Tuple[bool, str]:
+        """
+        Validate that a value represents a percentage (0-100).
+
+        Args:
+            value: The string to validate.
+            field_name: The name of the field being validated.
+
+        Returns:
+            A tuple containing (is_valid, error_message).
+            If valid, error_message will be empty.
+        """
+        return InputValidator.validate_in_range(value, 0, 100, field_name)
+
+
+# Import required for type hints
+from typing import Dict, Any

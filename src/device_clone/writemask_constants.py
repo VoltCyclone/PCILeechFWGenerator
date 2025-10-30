@@ -6,7 +6,7 @@ modules remain focused and DRY.
 """
 
 # Write-protected bits for standard PCI configuration space
-WRITE_PROTECTED_BITS_PCIE = (
+WRITE_PROTECTED_BITS_PCIE = ( #pragma: no cover
     "00000000",  # 0x00-0x03: Vendor ID, Device ID (read-only)
     "00000000",  # 0x04-0x07: Command, Status
     "ffff0000",  # 0x08-0x0B: Revision ID, Class Code (read-only upper)
@@ -23,7 +23,7 @@ WRITE_PROTECTED_BITS_PCIE = (
 )
 
 # Write-protected bits for Power Management capability
-WRITE_PROTECTED_BITS_PM = (
+WRITE_PROTECTED_BITS_PM = ( #pragma: no cover
     "00000000",  # PM Cap ID, Next Ptr, PM Capabilities
     "031F0000",  # PMCSR, PMCSR_BSE
 )
@@ -31,20 +31,20 @@ WRITE_PROTECTED_BITS_PM = (
 # Write-protected bits for MSI capability variations
 WRITE_PROTECTED_BITS_MSI_ENABLED_0 = ("00007104",)  # MSI Control (enable bit writable)
 
-WRITE_PROTECTED_BITS_MSI_64_BIT_1 = (
+WRITE_PROTECTED_BITS_MSI_64_BIT_1 = ( #pragma: no cover
     "00007104",  # MSI Control
     "03000000",  # Message Address Low
     "00000000",  # Message Address High
     "ffff0000",  # Message Data
 )
 
-WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1 = (
+WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1 = ( #pragma: no cover
     "00007104",  # MSI Control
     "03000000",  # Message Address Low
     "00000000",  # Message Data
 )
 
-WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1 = (
+WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1 = ( #pragma: no cover
     "00007104",  # MSI Control
     "03000000",  # Message Address Low
     "00000000",  # Message Data
@@ -54,20 +54,20 @@ WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1 = (
 )
 
 # Write-protected bits for MSI-X capability variations
-WRITE_PROTECTED_BITS_MSIX_3 = (
+WRITE_PROTECTED_BITS_MSIX_3 = ( #pragma: no cover
     "000000c0",  # MSI-X Control
     "00000000",  # Table Offset/BIR
     "00000000",  # PBA Offset/BIR
 )
 
-WRITE_PROTECTED_BITS_MSIX_4 = (
+WRITE_PROTECTED_BITS_MSIX_4 = ( #pragma: no cover
     "000000c0",  # MSI-X Control
     "00000000",  # Table Offset/BIR
     "00000000",  # PBA Offset/BIR
     "00000000",  # Reserved
 )
 
-WRITE_PROTECTED_BITS_MSIX_5 = (
+WRITE_PROTECTED_BITS_MSIX_5 = ( #pragma: no cover
     "000000c0",  # MSI-X Control
     "00000000",  # Table Offset/BIR
     "00000000",  # PBA Offset/BIR
@@ -75,26 +75,26 @@ WRITE_PROTECTED_BITS_MSIX_5 = (
     "00000000",  # Reserved
 )
 
-WRITE_PROTECTED_BITS_MSIX_6 = (
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_MSIX_7 = (
+WRITE_PROTECTED_BITS_MSIX_6 = ( #pragma: no cover
     "000000c0",  # MSI-X Control
     "00000000",  # Table Offset/BIR
     "00000000",  # PBA Offset/BIR
     "00000000",  # Reserved
     "00000000",  # Reserved
     "00000000",  # Reserved
+)
+
+WRITE_PROTECTED_BITS_MSIX_7 = ( #pragma: no cover
+    "000000c0",  # MSI-X Control
+    "00000000",  # Table Offset/BIR
+    "00000000",  # PBA Offset/BIR
+    "00000000",  # Reserved
+    "00000000",  # Reserved
+    "00000000",  # Reserved
     "00000000",  # Reserved
 )
 
-WRITE_PROTECTED_BITS_MSIX_8 = (
+WRITE_PROTECTED_BITS_MSIX_8 = ( #pragma: no cover
     "000000c0",  # MSI-X Control
     "00000000",  # Table Offset/BIR
     "00000000",  # PBA Offset/BIR
@@ -106,30 +106,30 @@ WRITE_PROTECTED_BITS_MSIX_8 = (
 )
 
 # Write-protected bits for other capabilities
-WRITE_PROTECTED_BITS_VPD = (
+WRITE_PROTECTED_BITS_VPD = ( #pragma: no cover
     "0000ffff",  # VPD Address
     "ffffffff",  # VPD Data
 )
 
-WRITE_PROTECTED_BITS_VSC = (
+WRITE_PROTECTED_BITS_VSC = ( #pragma: no cover
     "000000ff",  # Vendor Specific Cap ID
     "ffffffff",  # Vendor Specific Data
 )
 
-WRITE_PROTECTED_BITS_TPH = (
+WRITE_PROTECTED_BITS_TPH = ( #pragma: no cover
     "00000000",  # TPH Requester Cap
     "00000000",  # TPH Requester Control
     "070c0000",  # ST Table
 )
 
-WRITE_PROTECTED_BITS_VSEC = (
+WRITE_PROTECTED_BITS_VSEC = ( #pragma: no cover
     "00000000",  # VSEC Cap
     "00000000",  # VSEC Header
     "ffffffff",  # Vendor Specific
     "ffffffff",  # Vendor Specific
 )
 
-WRITE_PROTECTED_BITS_AER = (
+WRITE_PROTECTED_BITS_AER = ( #pragma: no cover
     "00000000",  # AER Cap
     "00000000",  # Uncorrectable Error Status
     "30F0FF07",  # Uncorrectable Error Mask
@@ -143,32 +143,32 @@ WRITE_PROTECTED_BITS_AER = (
     "00000000",  # Header Log 4
 )
 
-WRITE_PROTECTED_BITS_DSN = (
+WRITE_PROTECTED_BITS_DSN = ( #pragma: no cover
     "00000000",  # DSN Cap
     "00000000",  # Serial Number Low
     "00000000",  # Serial Number High
 )
 
-WRITE_PROTECTED_BITS_LTR = (
+WRITE_PROTECTED_BITS_LTR = ( #pragma: no cover
     "00000000",  # LTR Cap
     "00000000",  # Max Snoop/No-Snoop Latency
 )
 
-WRITE_PROTECTED_BITS_L1PM = (
+WRITE_PROTECTED_BITS_L1PM = ( #pragma: no cover
     "00000000",  # L1 PM Substates Cap
     "00000000",  # L1 PM Substates Control 1
     "3f00ffe3",  # L1 PM Substates Control 2
     "fb000000",  # Reserved
 )
 
-WRITE_PROTECTED_BITS_PTM = (
+WRITE_PROTECTED_BITS_PTM = ( #pragma: no cover
     "00000000",  # PTM Cap
     "00000000",  # PTM Control
     "00000000",  # PTM Effective Granularity
     "03ff0000",  # Reserved
 )
 
-WRITE_PROTECTED_BITS_VC = (
+WRITE_PROTECTED_BITS_VC = ( #pragma: no cover
     "00000000",  # VC Cap
     "00000000",  # Port VC Cap 1
     "00000000",  # Port VC Cap 2
@@ -179,7 +179,7 @@ WRITE_PROTECTED_BITS_VC = (
 )
 
 # Capability ID mappings
-CAPABILITY_NAMES = {
+CAPABILITY_NAMES = { #pragma: no cover
     0x01: "power management",
     0x02: "AGP",
     0x03: "VPD",
@@ -203,7 +203,7 @@ CAPABILITY_NAMES = {
     0x15: "flattening portal bridge",
 }
 
-EXTENDED_CAPABILITY_NAMES = {
+EXTENDED_CAPABILITY_NAMES = { #pragma: no cover
     0x0001: "advanced error reporting",
     0x0002: "virtual channel",
     0x0003: "device serial number",
@@ -251,7 +251,7 @@ EXTENDED_CAPABILITY_NAMES = {
 }
 
 # Fixed configuration space protection section
-FIXED_SECTION = (
+FIXED_SECTION = ( #pragma: no cover
     "00000000",  # 0x00: Vendor/Device ID (read-only)
     "470500f9",  # 0x04: Command/Status (partially writable)
     "00000000",  # 0x08: Rev/Class (read-only)
@@ -271,7 +271,7 @@ FIXED_SECTION = (
 )
 
 # Writemask dictionary mapping capability IDs to their write-protected bits
-WRITEMASK_DICT = {
+WRITEMASK_DICT = { #pragma: no cover
     "0x10": WRITE_PROTECTED_BITS_PCIE,
     "0x03": WRITE_PROTECTED_BITS_VPD,
     "0x01": WRITE_PROTECTED_BITS_PM,

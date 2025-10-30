@@ -17,6 +17,7 @@ from typing import List, Optional, Sequence
 from ..device_clone.constants import (
     PRODUCTION_DEFAULTS,
 )  # Central production feature toggles
+
 from ..exceptions import (
     BuildError,
     ConfigurationError,
@@ -24,7 +25,9 @@ from ..exceptions import (
     VFIOBindError,
     is_platform_error,
 )
+
 from ..log_config import get_logger
+
 from ..shell import Shell
 
 # Import safe logging functions
@@ -35,6 +38,7 @@ from ..string_utils import (
     log_warning_safe,
     safe_format,
 )
+
 from .build_constants import (
     DEFAULT_ACTIVE_INTERRUPT_MODE,
     DEFAULT_ACTIVE_INTERRUPT_VECTOR,
@@ -42,7 +46,9 @@ from .build_constants import (
     DEFAULT_ACTIVE_TIMER_PERIOD,
     DEFAULT_BEHAVIOR_PROFILE_DURATION,
 )
+
 from .vfio import VFIOBinder  # auto‑fix & diagnostics baked in
+
 from .vfio import get_current_driver, restore_driver
 
 logger = get_logger(__name__)

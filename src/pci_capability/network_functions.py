@@ -13,10 +13,10 @@ provide production-ready dynamic capability generation.
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+
 from .base_function_analyzer import (BaseFunctionAnalyzer,
                                      create_function_capabilities)
+
 from .constants import (  # Common PCI Capability IDs; Extended PCI Capability IDs; Network class codes; Network device ID thresholds; Network device patterns; Enterprise patterns; BAR configuration constants; Queue count constants; VF constants; Latency constants; SR-IOV constants; MSI-X BAR allocation patterns; Additional vendor IDs; Common device ID masks; Entropy and variation constants
     BASE_QUEUE_COUNT, BASE_REGISTER_SIZE_ADVANCED, BASE_REGISTER_SIZE_BASIC,
     BASE_VF_COUNT, BROADCOM_ENTERPRISE_MASK, BROADCOM_ENTERPRISE_THRESHOLD,

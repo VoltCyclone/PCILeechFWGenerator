@@ -20,7 +20,9 @@ from .constants import (ACS_CONTROL_REGISTER_OFFSET,
                         RBAR_CAPABILITY_REGISTER_OFFSET,
                         RBAR_SIZE_MASK_ABOVE_128MB,
                         TWO_BYTE_HEADER_CAPABILITIES)
+
 from .core import CapabilityWalker, ConfigSpace
+
 from .types import (CapabilityInfo, CapabilityType, PatchInfo, PCICapabilityID,
                     PCIExtCapabilityID, PruningAction)
 
@@ -72,7 +74,6 @@ def _apply_standard_capability_actions(
         cap = std_caps[offset]
 
         if action == PruningAction.REMOVE:
-            # Remove the capability by updating the previous capability's next pointer
             if i > 0:
                 prev_offset = std_cap_offsets[i - 1]
                 next_ptr = cap.next_ptr

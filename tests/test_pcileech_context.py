@@ -634,7 +634,7 @@ class TestDeviceIdentifiers:
         assert valid.vendor_id == "10ee"
 
         # Invalid hex format
-        with pytest.raises(ContextError, match="Invalid hex"):
+        with pytest.raises(ContextError, match="invalid hex characters"):
             DeviceIdentifiers(
                 vendor_id="XXXX",
                 device_id="7024",
@@ -791,8 +791,10 @@ class TestTimingConfiguration:
 
         builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
 
-        # _build_timing_config is the new method that handles timing
-        timing = builder._build_timing_config(None, identifiers)
+        # Mock get_device_config to return None so we fall through to class-specific logic
+        with patch("src.device_clone.pcileech_context.get_device_config", return_value=None):
+            # _build_timing_config is the new method that handles timing
+            timing = builder._build_timing_config(None, identifiers)
 
         assert timing.clock_frequency_mhz == expected_freq
 
@@ -1146,9 +1148,9 @@ class TestEdgeCases:
         [
             ("", "7024", "cannot be empty"),
             ("10ee", "", "cannot be empty"),
-            ("XXXX", "7024", "Invalid hex format"),
-            ("10ee", "YYYY", "Invalid hex format"),
-            ("12345", "7024", "Invalid hex format"),  # Too long
+            ("XXXX", "7024", "invalid hex characters"),
+            ("10ee", "YYYY", "invalid hex characters"),
+            ("12345", "7024", "must be 4 hex digits"),  # Too long
         ],
     )
     def test_invalid_device_identifiers(self, vendor_id, device_id, expected_error):

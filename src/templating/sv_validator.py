@@ -5,7 +5,9 @@ subsystem IDs, class code, revision, and donor artifacts (VPD/Option ROM).
 """
 
 import hashlib
+
 import logging
+
 from typing import Any, Dict, List, Optional, Union
 
 from src.string_utils import (
@@ -14,17 +16,20 @@ from src.string_utils import (
     log_warning_safe,
     safe_format,
 )
+
 from src.utils.context_error_messages import (
     OPTION_ROM_MISSING_SIZE,
     ROM_SIZE_MISMATCH,
     VPD_REQUIRED_MISSING,
 )
+
 from src.utils.validation_constants import (
     DEVICE_ID_FIELD_WIDTHS,
     DEVICE_IDENTIFICATION_FIELDS,
 )
 
 from .sv_constants import SV_CONSTANTS, SV_VALIDATION
+
 from .template_renderer import TemplateRenderError
 
 

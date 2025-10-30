@@ -50,7 +50,6 @@ TEMPLATE_PATH_MAPPING = {
     "tcl/ip_config_ultrascale.j2": "tcl/ip_config_ultrascale.j2",
     "tcl/ip_config.j2": "tcl/ip_config.j2",
     "tcl/master_build.j2": "tcl/master_build.j2",
-    "tcl/pcileech_build.j2": "tcl/pcileech_build.j2",
     "tcl/pcileech_constraints.j2": "tcl/pcileech_constraints.j2",
     "tcl/pcileech_generate_project.j2": "tcl/pcileech_generate_project.j2",
     "tcl/pcileech_implementation.j2": "tcl/pcileech_implementation.j2",

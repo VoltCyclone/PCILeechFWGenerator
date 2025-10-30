@@ -26,6 +26,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
+      with:
+        submodules: recursive
     
     - name: Dependency Review
       uses: actions/dependency-review-action@v4
@@ -39,6 +41,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v5
+      with:
+        submodules: recursive
     
     - name: Set up Python
       uses: actions/setup-python@v6
