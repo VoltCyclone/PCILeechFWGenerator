@@ -40,12 +40,11 @@ from ..utils.unified_context import (
     UnifiedContextBuilder,
 )
 
-from .advanced_sv_features import (
+from .sv_config import (
     ErrorHandlingConfig,
     PerformanceConfig,
+    PowerManagementConfig,
 )
-
-from .advanced_sv_power import PowerManagementConfig
 
 from .sv_context_builder import SVContextBuilder
 

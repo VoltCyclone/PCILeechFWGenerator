@@ -112,6 +112,7 @@ def main():
                 logger,
                 "TCL script not found: {tcl_script}",
                 tcl_script=str(args.tcl_script),
+                prefix="BUILD",
             )
             return 1
 
@@ -135,7 +136,9 @@ def main():
         if not args.vivado_exe:
             vivado_info = find_vivado_installation()
             if not vivado_info:
-                log_error_safe(logger, "Vivado installation not found", prefix="BUILD")
+                log_error_safe(
+                    logger, "Vivado installation not found", prefix="BUILD"
+                )
                 log_error_safe(
                     logger,
                     "Please ensure Vivado is in PATH or use --vivado-exe",

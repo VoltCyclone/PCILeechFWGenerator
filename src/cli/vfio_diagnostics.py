@@ -30,6 +30,7 @@ from ..string_utils import (
     safe_format,
     safe_print_format,
 )
+from .vfio_handler import VFIOPathManager
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Pretty terminal helpers
@@ -588,27 +589,39 @@ class Diagnostics:
 
     # Device‑specific ---------------------------------------------------------
     def _device_exists(self):
-        device_path = Path(
-            safe_format("/sys/bus/pci/devices/{bdf}", bdf=self.device_bdf)
-        )
-        if device_path.exists():
-            vendor = (device_path / "vendor").read_text().strip()
-            device = (device_path / "device").read_text().strip()
-            self._append(
-                name="Device",
-                status=Status.OK,
-                message=safe_format(
-                    "{bdf} ({vendor}:{device}) present",
-                    bdf=self.device_bdf,
-                    vendor=vendor,
-                    device=device,
-                ),
-            )
-        else:
+        try:
+            path_manager = VFIOPathManager(self.device_bdf)
+            if path_manager.device_path.exists():
+                vendor_id, device_id = path_manager.get_vendor_device_id()
+                # Add 0x prefix for display consistency with existing behavior
+                vendor = f"0x{vendor_id}"
+                device = f"0x{device_id}"
+                self._append(
+                    name="Device",
+                    status=Status.OK,
+                    message=safe_format(
+                        "{bdf} ({vendor}:{device}) present",
+                        bdf=self.device_bdf,
+                        vendor=vendor,
+                        device=device,
+                    ),
+                )
+            else:
+                self._append(
+                    name="Device",
+                    status=Status.ERROR,
+                    message=safe_format("PCI device {bdf} not found", bdf=self.device_bdf),
+                    remediation="Check BDF with lspci ‑D",
+                )
+        except Exception as e:
             self._append(
                 name="Device",
                 status=Status.ERROR,
-                message=safe_format("PCI device {bdf} not found", bdf=self.device_bdf),
+                message=safe_format(
+                    "Failed to read device information for {bdf}: {err}",
+                    bdf=self.device_bdf,
+                    err=e
+                ),
                 remediation="Check BDF with lspci ‑D",
             )
 

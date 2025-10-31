@@ -1008,18 +1008,42 @@ class FirmwareBuilder:
             PCILeechBuildError: If build fails
         """
         try:
-            # Step 1: Load donor template if provided
+            # Step 1: Check for host-collected complete device context
+            host_context = self._check_host_collected_context()
+            
+            # Step 2: Load donor template if provided  
             donor_template = self._load_donor_template()
 
-            # Step 2: Preload MSI-X data if requested
-            msix_data = self._preload_msix()
-
-            self._phase("Generating PCILeech firmware …")
             # Step 3: Generate PCILeech firmware
-            generation_result = self._generate_firmware(donor_template)
-
-            # Step 3: Inject preloaded MSI-X data if available
-            self._inject_msix(generation_result, msix_data)
+            if host_context:
+                self._phase("Using host-collected device context …")
+                # Use prefilled context from host, avoiding VFIO operations
+                generation_result = {
+                    "template_context": host_context,
+                    "systemverilog_modules": {},
+                    "config_space_data": {
+                        "raw_config_space": bytes.fromhex(
+                            host_context.get("config_space_hex", "")
+                        ) if host_context.get("config_space_hex") else b"",
+                        "config_space_hex": host_context.get("config_space_hex", ""),
+                    },
+                    "msix_data": host_context.get("msix_data"),
+                }
+                log_info_safe(
+                    self.logger,
+                    "Complete device context loaded from host - "
+                    "skipping container VFIO operations",
+                    prefix="BUILD"
+                )
+            else:
+                # Fallback to container-based generation with MSI-X preloading
+                msix_data = self._preload_msix()
+                
+                self._phase("Generating PCILeech firmware …")
+                generation_result = self._generate_firmware(donor_template)
+                
+                # Inject preloaded MSI-X data if available
+                self._inject_msix(generation_result, msix_data)
 
             self._phase("Writing SystemVerilog modules …")
             # Step 4: Write SystemVerilog modules
@@ -1074,7 +1098,9 @@ class FirmwareBuilder:
         try:
             from .vivado_handling import VivadoRunner, find_vivado_installation
         except ImportError as e:
-            raise VivadoIntegrationError("Vivado handling modules not available") from e
+            raise VivadoIntegrationError(
+                "Vivado handling modules not available"
+            ) from e
 
         # Determine Vivado path
         if self.config.vivado_path:
@@ -1136,7 +1162,9 @@ class FirmwareBuilder:
     def _init_components(self) -> None:
         """Initialize PCILeech generator and other components."""
         from .device_clone.behavior_profiler import BehaviorProfiler
+        
         from .device_clone.board_config import get_pcileech_board_config
+        
         from .device_clone.pcileech_generator import (
             PCILeechGenerationConfig,
             PCILeechGenerator,
@@ -1191,6 +1219,47 @@ class FirmwareBuilder:
                 raise PCILeechBuildError(
                     safe_format("Failed to load donor template: {err}", err=str(e))
                 ) from e
+        return None
+
+    def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
+        """
+        Check for complete device context collected on host.
+        
+        Returns:
+            Complete device context if available, None otherwise
+        """
+        try:
+            # Check for complete device context first
+            context_path = os.environ.get(
+                "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
+            )
+            if context_path and os.path.exists(context_path):
+                with open(context_path, "r") as f:
+                    payload = json.load(f)
+                
+                template_context = payload.get("template_context")
+                if template_context:
+                    log_info_safe(
+                        self.logger,
+                        safe_format(
+                            "Loaded complete device context from host: "
+                            "{keys} keys available",
+                            keys=len(template_context.keys())
+                        ),
+                        prefix="HOST_CTX"
+                    )
+                    return template_context
+                    
+        except Exception as e:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Host context check failed: {err}",
+                    err=str(e)
+                ),
+                prefix="HOST_CTX"
+            )
+        
         return None
 
     def _preload_msix(self) -> MSIXData:
@@ -1335,7 +1404,9 @@ class FirmwareBuilder:
             )
             return
 
-        sv_files, special_files = self.file_manager.write_systemverilog_modules(modules)
+        sv_files, special_files = self.file_manager.write_systemverilog_modules(
+            modules
+        )
 
         log_info_safe(
             self.logger,
@@ -1473,7 +1544,9 @@ class FirmwareBuilder:
 
         # Pass the boolean indicator for MSIX presence instead of the data itself
         has_msix = "msix_data" in result and result["msix_data"] is not None
-        self._device_config = self.config_manager.extract_device_config(ctx, has_msix)
+        self._device_config = self.config_manager.extract_device_config(
+            ctx, has_msix
+        )
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
@@ -1791,14 +1864,19 @@ def _display_summary(
         output_dir: Output directory path
     """
     log_info_safe(
-        logger, "\nGenerated artifacts in {dir}", dir=str(output_dir), prefix="SUMMARY"
+        logger,
+        "\nGenerated artifacts in {dir}",
+        dir=str(output_dir),
+        prefix="SUMMARY"
     )
 
     # Group artifacts by type
     sv_files = [a for a in artifacts if a.endswith(".sv")]
     tcl_files = [a for a in artifacts if a.endswith(".tcl")]
     json_files = [a for a in artifacts if a.endswith(".json")]
-    other_files = [a for a in artifacts if a not in sv_files + tcl_files + json_files]
+    other_files = [
+        a for a in artifacts if a not in sv_files + tcl_files + json_files
+    ]
 
     if sv_files:
         log_info_safe(
@@ -1812,14 +1890,20 @@ def _display_summary(
 
     if tcl_files:
         log_info_safe(
-            logger, "\n  TCL scripts ({count}):", count=len(tcl_files), prefix="SUMMARY"
+            logger,
+            "\n  TCL scripts ({count}):",
+            count=len(tcl_files),
+            prefix="SUMMARY"
         )
         for f in sorted(tcl_files):
             log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")
 
     if json_files:
         log_info_safe(
-            logger, "\n  JSON files ({count}):", count=len(json_files), prefix="SUMMARY"
+            logger,
+            "\n  JSON files ({count}):",
+            count=len(json_files),
+            prefix="SUMMARY"
         )
         for f in sorted(json_files):
             log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")

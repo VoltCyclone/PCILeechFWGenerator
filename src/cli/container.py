@@ -301,6 +301,11 @@ def _build_podman_command(
     ]
     # Mount output dir
     cmd.extend(["-v", f"{output_dir}:/app/output"])
+    
+    # Set environment variables for prefilled data paths
+    cmd.extend(["-e", "DEVICE_CONTEXT_PATH=/app/output/device_context.json"])
+    cmd.extend(["-e", "MSIX_DATA_PATH=/app/output/msix_data.json"])
+    
     # Mount kernel headers if present (Linux). On macOS this path won't exist.
     if kernel_headers and Path(kernel_headers).exists():
         cmd.extend(["-v", f"{kernel_headers}:/kernel-headers:ro"])
@@ -443,13 +448,17 @@ def run_local_build(cfg: BuildConfig) -> None:
         result = build_main(build_args)
         if result != 0:
             raise BuildError(
-                safe_format("Local build failed with exit code {result}", result=result)
+                safe_format(
+                    "Local build failed with exit code {result}", result=result
+                )
             )
 
         elapsed = time.time() - start
         log_info_safe(
             logger,
-            safe_format("Local build completed in {elapsed:.1f}s ✓", elapsed=elapsed),
+            safe_format(
+                "Local build completed in {elapsed:.1f}s ✓", elapsed=elapsed
+            ),
             prefix="LOCAL",
         )
     except Exception as e:
@@ -495,7 +504,9 @@ def run_build(cfg: BuildConfig) -> None:
             prefix="BUILD",
         )
 
-        non_interactive = bool(os.environ.get("NO_INTERACTIVE") or os.environ.get("CI"))
+        non_interactive = bool(
+            os.environ.get("NO_INTERACTIVE") or os.environ.get("CI")
+        )
         if non_interactive:
             log_error_safe(
                 logger,
@@ -560,50 +571,30 @@ def run_build(cfg: BuildConfig) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Preload MSI-X data on host before any VFIO binding to avoid access issues
+        # Collect complete device context on host using single VFIO binding
+        from .host_device_collector import HostDeviceCollector
+        
+        collector = HostDeviceCollector(cfg.bdf, logger)
         try:
-            from ..build import MSIXManager
-
-            host_msix = MSIXManager(cfg.bdf, logger=logger).preload_data()
-            if host_msix.preloaded and host_msix.msix_info:
-                msix_json_path = output_dir / "msix_data.json"
-                payload = {
-                    "bdf": cfg.bdf,
-                    "msix_info": host_msix.msix_info,
-                    # Only store hex; bytes aren't JSON-serializable
-                    "config_space_hex": host_msix.config_space_hex,
-                }
-                with open(msix_json_path, "w") as f:
-                    json.dump(payload, f, indent=2)
-                log_info_safe(
-                    logger,
-                    safe_format(
-                        "Host MSI-X preloaded → {path}",
-                        path=str(msix_json_path),
-                    ),
-                    prefix="HOST",
-                )
-            else:
-                log_info_safe(
-                    logger,
-                    "Host MSI-X preload skipped or not found",
-                    prefix="HOST",
-                )
-        except Exception as e:
-            # Non-fatal: continue with container fallback path
-            log_warning_safe(
+            # Collect all device info (MSI-X, config space, BARs, etc.) in one go
+            template_context = collector.collect_device_context(output_dir)
+            
+            log_info_safe(
                 logger,
-                "Host MSI-X preload failed: {error}",
-                error=str(e),
+                "Complete device context collected on host - "
+                "container will use prefilled data",
                 prefix="HOST",
             )
-
-        # Bind without keeping the FD (call the context manager only long
-        # enough to flip the drivers)
-        binder = VFIOBinder(cfg.bdf, attach=False)
-        with binder:
-            # enter/exit immediately → binds device
-            pass
+        except BuildError as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Host device collection failed: {error}",
+                    error=str(e)
+                ),
+                prefix="HOST",
+            )
+            raise
 
         # Get the group device path as a string (safe, just a string)
         group_id = _get_iommu_group(cfg.bdf)
