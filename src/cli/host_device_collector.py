@@ -95,7 +95,11 @@ class HostDeviceCollector:
                 extracted_info = config_manager.extract_device_info(
                     config_space_bytes
                 )
-                device_info = device_lookup.get_device_info(extracted_info)
+                # Complete device information using the unified lookup API
+                # Pass from_config_manager=True to avoid redundant extraction loops
+                device_info = device_lookup.get_complete_device_info(
+                    extracted_info, from_config_manager=True
+                )
                 
                 # 3. Use existing MSIXManager for MSI-X data collection
                 msix_manager = MSIXManager(self.bdf, self.logger)
