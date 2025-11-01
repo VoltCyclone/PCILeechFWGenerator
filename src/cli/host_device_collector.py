@@ -8,7 +8,6 @@ for VFIO operations inside the container.
 
 import json
 import logging
-import os
 import time
 
 from pathlib import Path
