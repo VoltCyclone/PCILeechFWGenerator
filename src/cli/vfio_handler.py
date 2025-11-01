@@ -778,7 +778,7 @@ class VFIOBinder:
         self.bind()
         return self
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         if self._bound:
             try:
