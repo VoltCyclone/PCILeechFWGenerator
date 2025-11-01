@@ -44,6 +44,11 @@ jobs:
       run: |
         twine check dist/*
     
+    - name: Attest build provenance
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-path: "dist/*"
+    
     - name: Get version and changelog
       id: version
       run: |

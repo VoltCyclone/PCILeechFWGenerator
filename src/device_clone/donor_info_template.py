@@ -667,6 +667,13 @@ class DonorInfoTemplateGenerator:
                 bdf=bdf,
             )
 
+        except FileNotFoundError as e:
+            error_msg = safe_format(
+                "lspci command not found. Please install pciutils package", 
+                bdf=bdf
+            )
+            log_error_safe(logger, error_msg, prefix="DONOR")
+            raise DeviceConfigError(error_msg) from e
         except subprocess.CalledProcessError as e:
             error_msg = safe_format(
                 "Failed to run lspci for device {bdf}: {error}", bdf=bdf, error=str(e)

@@ -8,6 +8,8 @@ jobs:
   software-composition-analysis:
     runs-on: ubuntu-latest
     name: Datadog SBOM Generation and Upload
+    # Skip on forks without Datadog secrets
+    if: github.repository == 'VoltCyclone/PCILeechFWGenerator'
     steps:
     - name: Checkout
       uses: actions/checkout@v5
@@ -24,6 +26,8 @@ jobs:
   static-analysis:
     runs-on: ubuntu-latest
     name: Datadog Static Analyzer
+    # Skip on forks without Datadog secrets
+    if: github.repository == 'VoltCyclone/PCILeechFWGenerator'
     steps:
     - name: Checkout
       uses: actions/checkout@v5

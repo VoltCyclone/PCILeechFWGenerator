@@ -64,13 +64,31 @@ jobs:
     - name: Run Bandit (code security issues)
       run: |
         bandit -r src/ -f json -o bandit-report.json || true
+        bandit -r src/ -f sarif -o bandit-report.sarif || true
         bandit -r src/ || echo "Bandit found security issues - check report"
+      continue-on-error: true
+    
+    - name: Upload Bandit SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: bandit-report.sarif
+        category: bandit
       continue-on-error: true
     
     - name: Run Semgrep (SAST)
       run: |
         semgrep --config=auto src/ --json --output=semgrep-report.json || true
+        semgrep --config=auto src/ --sarif --output=semgrep-report.sarif || true
         semgrep --config=auto src/ || echo "Semgrep found issues - check report"
+      continue-on-error: true
+    
+    - name: Upload Semgrep SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: semgrep-report.sarif
+        category: semgrep
       continue-on-error: true
     
     - name: Upload security reports
@@ -81,5 +99,7 @@ jobs:
         path: |
           safety-report.json
           bandit-report.json
+          bandit-report.sarif
           semgrep-report.json
+          semgrep-report.sarif
         retention-days: 30

@@ -170,6 +170,7 @@ def test_prompt_user_for_local_build_non_interactive(monkeypatch):
 
 def test_prompt_user_for_local_build_yes(monkeypatch):
     monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("NO_INTERACTIVE", raising=False)
     inputs = iter(["y"])  # immediate yes
     monkeypatch.setattr("builtins.input", lambda _: next(inputs))
     assert prompt_user_for_local_build() is True

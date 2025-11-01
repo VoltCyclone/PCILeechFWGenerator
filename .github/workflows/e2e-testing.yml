@@ -40,7 +40,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: e2e-${{ github.ref }}
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:

@@ -162,6 +162,7 @@ class TestUpdateChecking:
             assert result is None
 
     @patch("src.cli.version_checker.get_cached_check")
+    @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_check_for_updates_from_cache(self, mock_cache):
         """Test getting update info from cache."""
         mock_cache.return_value = {"latest_version": "0.6.0", "update_available": True}
@@ -174,6 +175,7 @@ class TestUpdateChecking:
     @patch("src.cli.version_checker.fetch_latest_version")
     @patch("src.cli.version_checker.save_cache")
     @patch("src.cli.version_checker.get_cached_check")
+    @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_check_for_updates_fresh_check(self, mock_cache, mock_save, mock_fetch):
         """Test fresh update check."""
         mock_cache.return_value = None
@@ -186,6 +188,7 @@ class TestUpdateChecking:
 
     @patch("src.cli.version_checker.fetch_latest_version")
     @patch("src.cli.version_checker.save_cache")
+    @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_check_for_updates_no_update_needed(self, mock_save, mock_fetch):
         """Test when no update is needed."""
         mock_fetch.return_value = "0.5.8"
