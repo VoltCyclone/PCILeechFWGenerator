@@ -229,6 +229,7 @@ def test_run_build_non_interactive_no_podman(monkeypatch):
 def test_run_build_interactive_local_yes(monkeypatch):
     calls = {"local": 0}
     monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("NO_INTERACTIVE", raising=False)
     monkeypatch.setattr(container, "check_podman_available", lambda: False)
     monkeypatch.setattr(container, "prompt_user_for_local_build", lambda: True)
 
