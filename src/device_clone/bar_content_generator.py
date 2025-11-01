@@ -2,8 +2,27 @@ import hashlib
 import math
 import secrets
 import struct
+import logging
+from collections import Counter
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
+
+from src.string_utils import log_info_safe, safe_format
+from src.exceptions import ConfigSpaceError
+
+from src.log_config import get_logger
+
+logger = get_logger(__name__)
+
+# Optional Rich support for visualization
+_HAVE_RICH = True
+try:
+    from rich.console import Console
+    from rich.text import Text
+except ImportError:
+    _HAVE_RICH = False
+    Console = None
+    Text = None
 
 
 class BarContentType(Enum):
@@ -23,41 +42,58 @@ class BarContentGenerator:
         Initialize with a device signature for deterministic but unique content
         Args:
             device_signature: Unique identifier for this device instance.
-                            If None, generates a random one.
+                If None, generates a random one.
         """
         self.device_signature = device_signature or secrets.token_hex(16)
         self.device_seed = self._generate_device_seed()
 
     def _generate_device_seed(self) -> bytes:
-        """Generate cryptographically secure seed unique to this device"""
+        """Generate deterministic seed unique to this device.
+
+        Determinism note:
+        - Same device_signature => stable content across runs; do not add
+          non-deterministic entropy here.
+        - If device_signature isn't provided, __init__ creates a random one,
+          ensuring uniqueness without breaking determinism when provided.
+        """
         hasher = hashlib.sha256()
         hasher.update(self.device_signature.encode())
-        hasher.update(secrets.token_bytes(32))  # Additional entropy
         return hasher.digest()
 
     def _get_seeded_bytes(self, size: int, context: str = "") -> bytes:
-        """Generate deterministic high-entropy bytes for this device (optimized)"""
+        """Generate deterministic high-entropy bytes for this device (fast path).
+
+        Uses SHAKE-256 (XOF) to stream exactly `size` bytes in one call
+        instead of per-block SHA-256 hashing. This substantially reduces Python
+        overhead for large BARs and is implemented in C.
+        """
         if size <= 0:
             raise ValueError("Size must be positive")
-        block_size = 32  # SHA-256 digest size
-        num_blocks = (size + block_size - 1) // block_size
-        out = bytearray(size)
-        for block_num in range(num_blocks):
-            hasher = hashlib.sha256()
-            hasher.update(self.device_seed)
-            hasher.update(context.encode())
-            hasher.update(struct.pack("<Q", block_num))
-            digest = hasher.digest()
-            start = block_num * block_size
-            end = min(start + block_size, size)
-            out[start:end] = digest[: end - start]
-        return bytes(out)
+
+        # One-shot XOF generation
+        shake = hashlib.shake_256()
+        shake.update(self.device_seed)
+        if context:
+            shake.update(context.encode())
+        out = shake.digest(size)
+
+        # Log once per generation (debug-gated to avoid noisy logs at scale)
+        if logger.isEnabledFor(logging.DEBUG):
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Generated {size} bytes for {context}",
+                    size=size,
+                    context=context or "<none>",
+                ),
+                prefix="BARS",
+            )
+        return out
 
     def _generate_register_content(self, size: int, bar_index: int) -> bytes:
         """Generate realistic register space content"""
-        content = bytearray(size)
         base_data = self._get_seeded_bytes(size, f"reg_bar{bar_index}")
-        content[:] = base_data
+        content = bytearray(base_data)
         # Overlay realistic register patterns
         for offset in range(0, size, 4):
             if offset + 4 <= size:
@@ -78,6 +114,18 @@ class BarContentGenerator:
                 else:  # Data/general purpose registers
                     val = raw_val
                 struct.pack_into("<I", content, offset, val)
+                if logger.isEnabledFor(logging.DEBUG):
+                    log_info_safe(
+                        logger,
+                        safe_format(
+                            "Reg BAR{bar} 0x{off:04X}: R=0x{raw:08X} V=0x{val:08X}",
+                            bar=bar_index,
+                            off=offset,
+                            raw=raw_val,
+                            val=val,
+                        ),
+                        prefix="BARS",
+                    )
         return bytes(content)
 
     def _generate_buffer_content(self, size: int, bar_index: int) -> bytes:
@@ -86,9 +134,8 @@ class BarContentGenerator:
 
     def _generate_firmware_content(self, size: int, bar_index: int) -> bytes:
         """Generate firmware-like content with headers and realistic structure"""
-        content = bytearray(size)
         base_data = self._get_seeded_bytes(size, f"fw_bar{bar_index}")
-        content[:] = base_data
+        content = bytearray(base_data)
         # Add firmware header if space allows
         if size >= 32:
             content[0:4] = b"FWIM"
@@ -106,6 +153,16 @@ class BarContentGenerator:
                 content[i + 8 : i + 12] = struct.pack(
                     "<I", min(section_interval, size - i)
                 )
+        if logger.isEnabledFor(logging.DEBUG):
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Generated firmware content for BAR{bar} with size {size}",
+                    bar=bar_index,
+                    size=size,
+                ),
+                prefix="BARS",
+            )
         return bytes(content)
 
     def _generate_mixed_content(self, size: int, bar_index: int) -> bytes:
@@ -126,6 +183,16 @@ class BarContentGenerator:
         if buf_size > 0:
             buf_content = self._generate_buffer_content(buf_size, bar_index)
             content[offset : offset + buf_size] = buf_content
+        if logger.isEnabledFor(logging.DEBUG):
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Generated mixed content for BAR{bar} with size {size}",
+                    bar=bar_index,
+                    size=size,
+                ),
+                prefix="BARS",
+            )
         return bytes(content)
 
     def generate_bar_content(
@@ -160,13 +227,20 @@ class BarContentGenerator:
         elif content_type == BarContentType.MIXED:
             return self._generate_mixed_content(size, bar_index)
         else:
-            raise ValueError(f"Unknown content type: {content_type}")
+            raise ConfigSpaceError(
+                safe_format(
+                    "Unknown content type: {content_type}", content_type=content_type
+                ), root_cause="Invalid BAR content type"
+            )
 
-    def generate_all_bars(self, bar_sizes: Dict[int, int]) -> Dict[int, bytes]:
+    def generate_all_bars(
+        self, bar_sizes: Dict[int, int], visualize: bool = True
+    ) -> Dict[int, bytes]:
         """
         Generate content for multiple BARs
         Args:
             bar_sizes: Dict mapping BAR index to size in bytes
+            visualize: If True, log entropy visualizations (default: True)
         Returns:
             Dict mapping BAR index to content bytes
         """
@@ -178,23 +252,43 @@ class BarContentGenerator:
                 content_type = BarContentType.MIXED
             else:
                 content_type = BarContentType.BUFFER
-            result[bar_index] = self.generate_bar_content(size, bar_index, content_type)
+            
+            content = self.generate_bar_content(size, bar_index, content_type)
+            result[bar_index] = content
+            
+            # Log generation info
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Generated BAR{bar} size {size} as {type}",
+                    bar=bar_index,
+                    size=size,
+                    type=content_type.value,
+                ),
+                prefix="BARS",
+            )
+            
+            # Visualize if requested
+            if visualize and logger.isEnabledFor(logging.INFO):
+                self._visualize_bar_content(content, bar_index)
+        
         return result
 
     def get_entropy_stats(self, data: bytes) -> Dict[str, float]:
-        """Calculate entropy statistics for generated content"""
+        """Calculate entropy statistics for generated content (optimized)."""
         if not data:
             return {"entropy": 0.0, "uniqueness": 0.0}
-        byte_counts = [0] * 256
-        for byte in data:
-            byte_counts[byte] += 1
-        entropy = 0.0
+
+        # collections.Counter executes the counting loop in C, faster than Python
+        # loops. Avoid building a separate set by deriving unique count from keys.
+        counts = Counter(data)
         total = len(data)
-        for count in byte_counts:
-            if count > 0:
-                prob = count / total
-                entropy -= prob * math.log2(prob)
-        unique_bytes = len(set(data))
+        entropy = 0.0
+        for count in counts.values():
+            prob = count / total
+            entropy -= prob * math.log2(prob)
+
+        unique_bytes = len(counts)
         uniqueness = unique_bytes / 256.0
         return {
             "entropy": entropy,
@@ -203,8 +297,144 @@ class BarContentGenerator:
             "unique_bytes": unique_bytes,
         }
 
+    def _visualize_bar_content(
+        self, data: bytes, bar_index: int, max_samples: int = 4
+    ) -> None:
+        """Visualize BAR content with entropy mini-bars (info logging).
+        
+        Args:
+            data: BAR content bytes
+            bar_index: BAR index for labeling
+            max_samples: Maximum number of entropy samples to show
+        """
+        if not data:
+            return
 
-def create_bar_generator(device_signature: Optional[str] = None) -> BarContentGenerator:
+        # Calculate overall stats
+        stats = self.get_entropy_stats(data)
+        size = len(data)
+        
+        # Log overall stats
+        log_info_safe(
+            logger,
+            safe_format(
+                "BAR{bar} ({size} bytes): entropy={entropy:.2f} bits/byte, "
+                "unique={uniq}/{total} byte values",
+                bar=bar_index,
+                size=size,
+                entropy=stats["entropy"],
+                uniq=stats["unique_bytes"],
+                total=256,
+            ),
+            prefix="BAR_VIZ",
+        )
+
+        # Skip detailed visualization for very small BARs
+        if size < 1024:
+            return
+
+        # Sample entropy at regular intervals
+        window_size = min(4096, size // 4)
+        step = max(window_size, size // max_samples)
+        
+        samples = []
+        offset = 0
+        while offset < size and len(samples) < max_samples:
+            end = min(offset + window_size, size)
+            chunk = data[offset:end]
+            if len(chunk) > 0:
+                chunk_entropy = self._calculate_entropy(chunk)
+                samples.append((offset, chunk_entropy))
+            offset += step
+
+        # Render entropy bars
+        if _HAVE_RICH:
+            self._render_rich_entropy(samples, bar_index)
+        else:
+            self._render_ascii_entropy(samples, bar_index)
+
+    def _calculate_entropy(self, data: bytes) -> float:
+        """Calculate Shannon entropy for a byte sequence."""
+        if not data:
+            return 0.0
+        counts = Counter(data)
+        total = len(data)
+        entropy = 0.0
+        for count in counts.values():
+            prob = count / total
+            entropy -= prob * math.log2(prob)
+        return entropy
+
+    def _render_rich_entropy(
+        self, samples: list, bar_index: int, width: int = 40
+    ) -> None:
+        """Render entropy visualization using Rich."""
+        console = Console()
+        for offset, entropy in samples:
+            # Color by entropy level
+            if entropy >= 7.5:
+                style = "bold green"
+                prefix = "✓"
+            elif entropy >= 6.0:
+                style = "bold yellow"
+                prefix = "~"
+            else:
+                style = "bold red"
+                prefix = "!"
+            
+            bar_len = int((entropy / 8.0) * width)
+            
+            # Use different characters for visual distinction
+            if entropy >= 7.5:
+                bar_char = "█" * bar_len
+            elif entropy >= 6.0:
+                bar_char = "▓" * bar_len
+            else:
+                bar_char = "▒" * bar_len
+            
+            # Direct console output for color support
+            console.print(
+                f"  {prefix} 0x{offset:08X}: ",
+                style=style,
+                end="",
+            )
+            console.print(bar_char, style=style, end="")
+            console.print(f" {entropy:.2f}")
+
+    def _render_ascii_entropy(
+        self, samples: list, bar_index: int, width: int = 40
+    ) -> None:
+        """Render entropy visualization using ASCII with intensity variation."""
+        for offset, entropy in samples:
+            bar_len = int((entropy / 8.0) * width)
+            
+            # Use different characters based on entropy level
+            if entropy >= 7.5:
+                bar_char = "█" * bar_len  # Solid block - high entropy
+                prefix = "✓"
+            elif entropy >= 6.0:
+                bar_char = "▓" * bar_len  # Medium shade - medium entropy
+                prefix = "~"
+            else:
+                bar_char = "░" * bar_len  # Light shade - low entropy
+                prefix = "!"
+            
+            log_info_safe(
+                logger,
+                safe_format(
+                    "  {prefix} 0x{offset:08X}: {bar} {entropy:.2f}",
+                    prefix=prefix,
+                    offset=offset,
+                    bar=bar_char,
+                    entropy=entropy,
+                ),
+                prefix="BAR_VIZ",
+            )
+
+
+def create_BARSerator(
+    device_signature: Optional[str] = None,
+) -> BarContentGenerator:
     """Factory function to create a BAR content generator
 
     Args:

@@ -52,35 +52,6 @@ class _FakeDeviceInfoLookup:
         return dict(extracted_info)
 
 
-class _FakeContextBuilder:
-    def __init__(
-        self,
-        device_bdf: str,
-        validation_level: Any,
-        logger: Optional[logging.Logger] = None,
-    ):
-        self.bdf = device_bdf
-        self.validation_level = validation_level
-        self.logger = logger or logging.getLogger(__name__)
-
-    def build_context(self, **kwargs) -> Dict[str, Any]:
-        # Return a minimal, deterministic context
-        cfg_hex = (
-            kwargs.get('config_space_data', {}).get('config_space_hex', '')
-        )
-        return {
-            'device_config': {
-                'vendor_id': '10de',
-                'device_id': '1ad7',
-                'class_code': '030200',
-                'revision_id': 'a1',
-            },
-            'msix_config': {'is_supported': False, 'num_vectors': 0},
-            # Include hex to mimic what build paths expect sometimes
-            'config_space_hex': cfg_hex,
-        }
-
-
 @pytest.fixture
 def logger():
     return logging.getLogger('HostDeviceCollectorTests')
@@ -93,7 +64,6 @@ def test_collect_device_context_success(monkeypatch, tmp_path: Path, logger, cap
     monkeypatch.setattr(hdc, 'VFIOBinder', _DummyBinder)
     monkeypatch.setattr(hdc, 'ConfigSpaceManager', _FakeConfigSpaceManager)
     monkeypatch.setattr(hdc, 'DeviceInfoLookup', _FakeDeviceInfoLookup)
-    monkeypatch.setattr(hdc, 'PCILeechContextBuilder', _FakeContextBuilder)
 
     # Avoid exercising MSI-X path complexity here
     monkeypatch.setattr(
@@ -105,26 +75,29 @@ def test_collect_device_context_success(monkeypatch, tmp_path: Path, logger, cap
     collector = HostDeviceCollector('0000:03:00.0', logger=logger)
 
     with caplog.at_level(logging.INFO):
-        ctx = collector.collect_device_context(tmp_path)
+        collected_data = collector.collect_device_context(tmp_path)
 
-    # Validate returned context shape
-    assert isinstance(ctx, dict)
-    assert ctx.get('device_config', {}).get('vendor_id') == '10de'
+    # Validate returned collected_data shape
+    assert isinstance(collected_data, dict)
+    assert collected_data.get('bdf') == '0000:03:00.0'
+    assert 'device_info' in collected_data
+    assert 'collection_metadata' in collected_data
 
     # Validate files written
     context_file = tmp_path / 'device_context.json'
     assert context_file.exists()
     payload = json.loads(context_file.read_text())
     assert payload.get('bdf') == '0000:03:00.0'
-    assert 'template_context' in payload
     # msix_data should be None since preloaded False
     assert payload.get('msix_data') is None
+    assert payload.get('device_info', {}).get('vendor_id') == 0x10DE
 
 
 def test_collect_device_context_failure_raises_build_error(
     monkeypatch, tmp_path: Path, logger, caplog
 ):
     import src.cli.host_device_collector as hdc
+
 
     class _BoomConfigManager(_FakeConfigSpaceManager):
         def read_vfio_config_space(self) -> bytes:
@@ -227,7 +200,6 @@ def test_save_collected_data_writes_both_files(tmp_path: Path, logger):
                 'function_mask': 0,
             }
         },
-        'template_context': {'device_config': {'vendor_id': '10de'}},
         'collection_metadata': {
             'collected_at': 123.0,
             'config_space_size': 256,

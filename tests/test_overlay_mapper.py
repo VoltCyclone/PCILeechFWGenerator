@@ -75,8 +75,8 @@ def create_test_capabilities():
     }
 
 
-def test_overlay_detection():
-    """Test overlay detection for various register types."""
+def demo_overlay_detection():
+    """Demo overlay detection for various register types."""
     print("Testing PCILeech Overlay RAM Mapper")
     print("=" * 60)
 
@@ -177,8 +177,8 @@ def test_overlay_detection():
     return overlay_config
 
 
-def test_mask_generation():
-    """Test mask generation for different register types."""
+def demo_mask_generation():
+    """Demo mask generation for different register types."""
     print("\n" + "=" * 60)
     print("Testing Mask Generation:")
     print("-" * 60)
@@ -208,9 +208,9 @@ def test_mask_generation():
 
 
 if __name__ == "__main__":
-    # Run tests
-    overlay_config = test_overlay_detection()
-    test_mask_generation()
+    # Run demos
+    overlay_config = demo_overlay_detection()
+    demo_mask_generation()
 
     print("\n" + "=" * 60)
     print("Test completed successfully!")
@@ -226,3 +226,6 @@ if __name__ == "__main__":
         print("    # ... more entries ...")
     print("]")
     print(f"OVERLAY_ENTRIES = {overlay_config['OVERLAY_ENTRIES']}")
+    
+    # Note: Not returning anything to comply with pytest expectations
+

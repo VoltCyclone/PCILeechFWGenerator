@@ -25,11 +25,6 @@ from src.device_clone.config_space_manager import ConfigSpaceManager
 
 from src.device_clone.device_info_lookup import DeviceInfoLookup
 
-from src.device_clone.pcileech_context import (
-    PCILeechContextBuilder,
-    ValidationLevel,
-)
-
 from src.build import MSIXManager, MSIXData
 
 from src.cli.vfio_handler import VFIOBinder
@@ -56,8 +51,10 @@ class HostDeviceCollector:
         This method orchestrates the existing collection components:
         - ConfigSpaceManager for VFIO config space reading
         - DeviceInfoLookup for device information extraction  
-        - PCILeechContextBuilder for comprehensive context building
         - MSIXManager for MSI-X capability data
+        
+        Template context building is deferred to the container to avoid
+        duplicating PCILeechContextBuilder instantiation logic.
         
         Args:
             output_dir: Directory to save collected data
@@ -107,35 +104,9 @@ class HostDeviceCollector:
                     msix_manager, config_space_bytes
                 )
                 
-                # 4. Use existing PCILeechContextBuilder for comprehensive context
-                context_builder = PCILeechContextBuilder(
-                    device_bdf=self.bdf,
-                    validation_level=ValidationLevel.PERMISSIVE,
-                    logger=self.logger
-                )
-                
-                # Build comprehensive context using existing infrastructure
-                config_space_data = {
-                    "raw_config_space": config_space_bytes,
-                    "config_space_hex": config_space_bytes.hex(),
-                    "device_info": device_info,
-                    "vendor_id": format(device_info.get("vendor_id", 0), "04x"),
-                    "device_id": format(device_info.get("device_id", 0), "04x"),
-                    "class_code": format(device_info.get("class_code", 0), "06x"),
-                    "revision_id": format(device_info.get("revision_id", 0), "02x"),
-                    "bars": device_info.get("bars", []),
-                    "config_space_size": len(config_space_bytes),
-                }
-                
-                # Build full template context
-                template_context = context_builder.build_context(
-                    config_space_data=config_space_data,
-                    behavior_profile=None,  # Collected in container if needed
-                    msix_data=msix_data,
-                    timing_params=None
-                )
-                
-                # 5. Save collected data for container consumption
+                # 4. Save collected data for container consumption
+                # Note: Template context building is deferred to the container
+                # to avoid duplicating PCILeechContextBuilder instantiation
                 collected_data = {
                     "bdf": self.bdf,
                     "config_space_hex": config_space_bytes.hex(),
@@ -143,7 +114,6 @@ class HostDeviceCollector:
                     "msix_data": (
                         msix_data._asdict() if msix_data.preloaded else None
                     ),
-                    "template_context": template_context,
                     "collection_metadata": {
                         "collected_at": time.time(),
                         "config_space_size": len(config_space_bytes),
@@ -162,7 +132,8 @@ class HostDeviceCollector:
                     prefix="HOST"
                 )
                 
-                return template_context
+                # Return the raw collected data for caller to process
+                return collected_data
                 
             except Exception as e:
                 log_error_safe(

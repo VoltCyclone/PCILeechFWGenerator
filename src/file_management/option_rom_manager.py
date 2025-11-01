@@ -8,11 +8,18 @@ and prepare it for inclusion in the FPGA firmware.
 
 import logging
 import os
-import shlex
 import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+
+from string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,38 +62,10 @@ class OptionROMError(Exception):
 class OptionROMExtractionError(OptionROMError):
     """Raised when Option-ROM extraction fails"""
 
-    def __init__(
-        self,
-        message: str,
-        rom_path: Optional[str] = None,
-        device_bdf: Optional[str] = None,
-        extraction_method: Optional[str] = None,
-        stderr_output: Optional[str] = None,
-    ):
-        """
-        Initialize Option-ROM extraction error
-
-        Args:
-            message: Error message
-            rom_path: Path where ROM extraction was attempted
-            device_bdf: PCI Bus:Device.Function of the device
-            extraction_method: Method used for extraction (e.g., 'sysfs', 'dd')
-            stderr_output: Standard error output from extraction command
-        """
-        super().__init__(message, rom_path, device_bdf)
-        self.extraction_method = extraction_method
-        self.stderr_output = stderr_output
-
-    def __str__(self) -> str:
-        base_msg = super().__str__()
-        if self.extraction_method:
-            base_msg = f"{base_msg} (method: {self.extraction_method})"
-        if self.stderr_output:
-            base_msg = f"{base_msg} (stderr: {self.stderr_output})"
-        return base_msg
+    pass
 
 
-class OptionROMSizes:
+class OptionROMManager:
     """Constants and utilities for Option-ROM size management"""
 
     # Standard Option-ROM sizes (in bytes)
@@ -202,15 +181,12 @@ class OptionROMManager:
             output_dir: Path to directory for storing extracted ROM
             rom_file_path: Path to an existing ROM file to use instead of extraction
         """
-        if output_dir is None:
-            # Default to output directory in project root
-            self.output_dir = Path(__file__).parent.parent / "output"
-        else:
-            self.output_dir = Path(output_dir)
-
+        self.output_dir = (
+            Path(output_dir) if output_dir else Path(__file__).parent.parent / "output"
+        )
         self.rom_file_path = rom_file_path
         self.rom_size = 0
-        self.rom_data = None
+        self.rom_data: Optional[bytes] = None
 
     def extract_rom_linux(self, bdf: str) -> Tuple[bool, str]:
         """
@@ -222,15 +198,18 @@ class OptionROMManager:
         Returns:
             Tuple of (success, rom_path)
         """
-        try:
-            # Validate BDF format
-            import re
+        import re
 
-            bdf_pattern = re.compile(
-                r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"
+        # Validate BDF format
+        bdf_pattern = re.compile(
+            r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"
+        )
+        if not bdf_pattern.match(bdf):
+            raise OptionROMExtractionError(
+                f"Invalid BDF format: {bdf}", device_bdf=bdf
             )
-            if not bdf_pattern.match(bdf):
-                raise OptionROMExtractionError(f"Invalid BDF format: {bdf}")
+
+        try:
 
             # Create output directory if it doesn't exist
             self.output_dir.mkdir(exist_ok=True, parents=True)
@@ -239,46 +218,41 @@ class OptionROMManager:
             # Check if device exists
             device_path = f"/sys/bus/pci/devices/{bdf}"
             if not os.path.exists(device_path):
-                # For testing purposes, if the output file already exists, skip
-                # this check
-                rom_path = self.output_dir / "donor.rom"
-                if not rom_path.exists():
-                    raise OptionROMExtractionError(f"PCI device not found: {bdf}")
+                raise OptionROMExtractionError(
+                    f"PCI device not found: {bdf}", device_bdf=bdf
+                )
 
             # Check if ROM file exists
             rom_sysfs_path = f"{device_path}/rom"
             if not os.path.exists(rom_sysfs_path):
-                # For testing purposes, if the output file already exists, skip
-                # this check
-                rom_path = self.output_dir / "donor.rom"
-                if not rom_path.exists():
-                    raise OptionROMExtractionError(
-                        f"ROM file not available for device: {bdf}"
-                    )
+                raise OptionROMExtractionError(
+                    f"ROM file not available for device: {bdf}", device_bdf=bdf
+                )
 
             # Enable ROM access
-            logger.info(f"Enabling ROM access for {bdf}")
+            log_info_safe(
+                logger,
+                safe_format("Enabling ROM access for {bdf}", bdf=bdf),
+                prefix="ROM",
+            )
             try:
-                # More secure approach: write directly to the sysfs file
                 with open(rom_sysfs_path, "w") as f:
                     f.write("1")
             except (OSError, IOError) as e:
-                # Fallback to subprocess with proper shell escaping
-                try:
-                    subprocess.run(
-                        ["sh", "-c", f"echo 1 > {shlex.quote(str(rom_sysfs_path))}"],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                except subprocess.CalledProcessError as subprocess_e:
-                    raise OptionROMExtractionError(
-                        f"Subprocess fallback failed to enable ROM access: {subprocess_e}"
-                    )
+                raise OptionROMExtractionError(
+                    safe_format("Failed to enable ROM access: {err}", err=e),
+                    device_bdf=bdf,
+                )
 
             # Extract ROM content
             try:
-                logger.info(f"Extracting ROM from {bdf} to {rom_path}")
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Extracting ROM from {bdf} to {path}", bdf=bdf, path=rom_path
+                    ),
+                    prefix="ROM",
+                )
                 subprocess.run(
                     ["dd", f"if={rom_sysfs_path}", f"of={rom_path}", "bs=4K"],
                     check=True,
@@ -286,39 +260,32 @@ class OptionROMManager:
                     text=True,
                 )
             except subprocess.CalledProcessError as e:
-                raise OptionROMExtractionError(f"Failed to extract ROM: {e}")
+                raise OptionROMExtractionError(
+                    safe_format("Failed to extract ROM: {err}", err=e), device_bdf=bdf
+                )
             finally:
                 # Disable ROM access
                 try:
-                    # More secure approach: write directly to the sysfs file
                     with open(rom_sysfs_path, "w") as f:
                         f.write("0")
-                except (OSError, IOError):
-                    # Fallback to subprocess with proper shell escaping
-                    try:
-                        subprocess.run(
-                            [
-                                "sh",
-                                "-c",
-                                f"echo 0 > {shlex.quote(str(rom_sysfs_path))}",
-                            ],
-                            check=True,
-                            capture_output=True,
-                            text=True,
-                        )
-                    except subprocess.CalledProcessError as e:
-                        logger.warning(f"Failed to disable ROM access: {e}")
+                except (OSError, IOError) as e:
+                    log_warning_safe(
+                        logger,
+                        safe_format("Failed to disable ROM access: {err}", err=e),
+                        prefix="ROM",
+                    )
 
             # Verify ROM file was created and has content
             if not rom_path.exists():
                 raise OptionROMExtractionError(
-                    "ROM extraction failed: file not created"
+                    "ROM extraction failed: file not created", device_bdf=bdf
                 )
 
-            # Get the file size and verify it's not empty
             file_size = rom_path.stat().st_size
             if file_size == 0:
-                raise OptionROMExtractionError("ROM extraction failed: file is empty")
+                raise OptionROMExtractionError(
+                    "ROM extraction failed: file is empty", device_bdf=bdf
+                )
 
             # Load the ROM data
             with open(rom_path, "rb") as f:
@@ -326,12 +293,20 @@ class OptionROMManager:
 
             self.rom_file_path = str(rom_path)
             self.rom_size = file_size
-            logger.info(f"Successfully extracted ROM ({self.rom_size} bytes)")
+            log_info_safe(
+                logger,
+                safe_format("Successfully extracted ROM ({size} bytes)", size=file_size),
+                prefix="ROM",
+            )
 
             return True, str(rom_path)
 
         except Exception as e:
-            logger.error(f"ROM extraction failed: {e}")
+            log_error_safe(
+                logger,
+                safe_format("ROM extraction failed: {err}", err=e),
+                prefix="ROM",
+            )
             return False, ""
 
     def load_rom_file(self, file_path: Optional[str] = None) -> bool:
@@ -343,26 +318,41 @@ class OptionROMManager:
 
         Returns:
             True if ROM was loaded successfully
+
+        Raises:
+            OptionROMError: If path not specified or file not found
         """
+        path = file_path or self.rom_file_path
+        if not path:
+            raise OptionROMError("No ROM file path specified")
+
+        rom_path = Path(path)
+        if not rom_path.exists():
+            raise OptionROMError(f"ROM file not found: {rom_path}")
+
         try:
-            path = file_path or self.rom_file_path
-            if not path:
-                raise OptionROMError("No ROM file path specified")
-
-            rom_path = Path(path)
-            if not rom_path.exists():
-                raise OptionROMError(f"ROM file not found: {rom_path}")
-
             # Read ROM data
             with open(rom_path, "rb") as f:
                 self.rom_data = f.read()
 
             self.rom_size = len(self.rom_data)
-            logger.info(f"Loaded ROM file: {rom_path} ({self.rom_size} bytes)")
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Loaded ROM file: {path} ({size} bytes)",
+                    path=rom_path,
+                    size=self.rom_size,
+                ),
+                prefix="ROM",
+            )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to load ROM file: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Failed to load ROM file: {err}", err=e),
+                prefix="ROM",
+            )
             return False
 
     def save_rom_hex(self, output_path: Optional[str] = None) -> bool:
@@ -375,38 +365,36 @@ class OptionROMManager:
         Returns:
             True if data was saved successfully
         """
+        if self.rom_data is None:
+            if not self.load_rom_file():
+                raise OptionROMError("No ROM data available")
+
+        output_path = output_path or str(self.output_dir / "rom_init.hex")
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
         try:
-            if self.rom_data is None:
-                if not self.load_rom_file():
-                    raise OptionROMError("No ROM data available")
-
-            # Default output path
-            if not output_path:
-                output_path = str(self.output_dir / "rom_init.hex")
-
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-
-            # Format the hex data for $readmemh (32-bit words, one per line)
             with open(output_path, "w") as f:
-                # Process 4 bytes at a time to create 32-bit words
-                for i in range(0, len(self.rom_data or b""), 4):
-                    # Extract 4 bytes, pad with zeros if needed
-                    chunk = (self.rom_data or b"")[i : i + 4]
-                    while len(chunk) < 4:
-                        chunk += b"\x00"
-
-                    # Convert to little-endian format (reverse byte order)
-                    le_word = (
-                        f"{chunk[3]:02x}{chunk[2]:02x}{chunk[1]:02x}{chunk[0]:02x}"
-                    )
+                # Process 4 bytes at a time to create 32-bit little-endian words
+                for i in range(0, len(self.rom_data), 4):
+                    chunk = self.rom_data[i : i + 4]
+                    # Pad with zeros if needed
+                    chunk = chunk + b"\x00" * (4 - len(chunk))
+                    # Convert to little-endian hex format
+                    le_word = f"{chunk[3]:02x}{chunk[2]:02x}{chunk[1]:02x}{chunk[0]:02x}"
                     f.write(f"{le_word}\n")
 
-            logger.info(f"Saved ROM hex data to {output_path}")
+            log_info_safe(
+                logger,
+                safe_format("Saved ROM hex data to {path}", path=output_path),
+                prefix="ROM",
+            )
             return True
-
         except Exception as e:
-            logger.error(f"Failed to save ROM hex data: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Failed to save ROM hex data: {err}", err=e),
+                prefix="ROM",
+            )
             return False
 
     def get_rom_info(self) -> Dict[str, str]:
@@ -421,25 +409,17 @@ class OptionROMManager:
 
         info = {
             "rom_size": str(self.rom_size),
-            "rom_file": self.rom_file_path,
+            "rom_file": str(self.rom_file_path) if self.rom_file_path else "",
         }
 
-        if self.rom_data is not None:
-            # Extract ROM signature (should be 0x55AA at offset 0)
-            if (
-                len(self.rom_data) >= 2
-                and self.rom_data[0] == 0x55
-                and self.rom_data[1] == 0xAA
-            ):
-                info["valid_signature"] = "True"
-            else:
-                info["valid_signature"] = "False"
+        if self.rom_data and len(self.rom_data) >= 2:
+            # Check for valid Option ROM signature (0x55AA)
+            has_valid_sig = self.rom_data[0] == 0x55 and self.rom_data[1] == 0xAA
+            info["valid_signature"] = str(has_valid_sig)
 
-            # Extract ROM size from header if available (at offset 2)
+            # Extract ROM size from header (offset 2, in 512-byte blocks)
             if len(self.rom_data) >= 3:
-                rom_size_blocks = self.rom_data[2]
-                rom_size_bytes = rom_size_blocks * 512
-                info["rom_size_from_header"] = str(rom_size_bytes)
+                info["rom_size_from_header"] = str(self.rom_data[2] * 512)
 
         return info
 
@@ -456,32 +436,32 @@ class OptionROMManager:
         Returns:
             Dictionary with ROM information
         """
-        try:
-            # Check if we should use an existing ROM file
-            if (
-                use_existing_rom
-                and self.rom_file_path
-                and os.path.exists(self.rom_file_path)
-            ):
-                logger.info(f"Using existing ROM file: {self.rom_file_path}")
-                self.load_rom_file()
-            else:
-                # Extract ROM from device
-                success, rom_path = self.extract_rom_linux(bdf)
-                if not success:
-                    raise OptionROMError(f"Failed to extract ROM from {bdf}")
+        # Check if we should use an existing ROM file
+        if (
+            use_existing_rom
+            and self.rom_file_path
+            and os.path.exists(self.rom_file_path)
+        ):
+            log_info_safe(
+                logger,
+                safe_format("Using existing ROM file: {path}", path=self.rom_file_path),
+                prefix="ROM",
+            )
+            self.load_rom_file()
+        else:
+            # Extract ROM from device
+            success, rom_path = self.extract_rom_linux(bdf)
+            if not success:
+                raise OptionROMError(
+                    f"Failed to extract ROM from {bdf}", device_bdf=bdf
+                )
 
-            # Save ROM in hex format for SystemVerilog
-            hex_path = str(self.output_dir / "rom_init.hex")
-            if not self.save_rom_hex(hex_path):
-                raise OptionROMError("Failed to save ROM hex file")
+        # Save ROM in hex format for SystemVerilog
+        hex_path = str(self.output_dir / "rom_init.hex")
+        if not self.save_rom_hex(hex_path):
+            raise OptionROMError("Failed to save ROM hex file")
 
-            # Return ROM information
-            return self.get_rom_info()
-
-        except Exception as e:
-            logger.error(f"Failed to setup Option-ROM: {e}")
-            raise OptionROMError(f"Option-ROM setup failed: {e}")
+        return self.get_rom_info()
 
 
 def main():

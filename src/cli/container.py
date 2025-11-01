@@ -577,7 +577,8 @@ def run_build(cfg: BuildConfig) -> None:
         collector = HostDeviceCollector(cfg.bdf, logger)
         try:
             # Collect all device info (MSI-X, config space, BARs, etc.) in one go
-            template_context = collector.collect_device_context(output_dir)
+            # Returns collected_data dict saved to output_dir for container use
+            collected_data = collector.collect_device_context(output_dir)
             
             log_info_safe(
                 logger,

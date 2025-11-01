@@ -265,58 +265,63 @@ class TestPrivilegeManager(unittest.TestCase):
         """Test sudo not installed."""
         self.assertFalse(self.privilege_manager._check_sudo())
 
-    @patch("asyncio.create_subprocess_exec")
-    async def test_run_with_privileges(self, mock_exec):
+    def test_run_with_privileges(self):
         """Test running commands with elevated privileges."""
-        # Mock process result
-        mock_process = AsyncMock()
-        mock_process.returncode = 0
-        mock_process.communicate.return_value = (b"stdout", b"stderr")
-        mock_exec.return_value = mock_process
+        # Use asyncio.run() to properly execute the async test
+        asyncio.run(self._async_test_run_with_privileges())
 
-        # Test as root
-        self.mock_geteuid.return_value = 0
-        self.privilege_manager.has_root = True
+    async def _async_test_run_with_privileges(self):
+        """Async implementation of test_run_with_privileges."""
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            # Mock process result
+            mock_process = AsyncMock()
+            mock_process.returncode = 0
+            mock_process.communicate.return_value = (b"stdout", b"stderr")
+            mock_exec.return_value = mock_process
 
-        result, stdout, stderr = await self.privilege_manager.run_with_privileges(
-            ["test", "command"], "test_operation"
-        )
+            # Test as root
+            self.mock_geteuid.return_value = 0
+            self.privilege_manager.has_root = True
 
-        self.assertTrue(result)
-        self.assertEqual(stdout, "stdout")
-        self.assertEqual(stderr, "stderr")
-
-        # Verify command was executed directly, not with sudo
-        mock_exec.assert_called_with(
-            "test",
-            "command",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        # Test as non-root with sudo
-        self.mock_geteuid.return_value = 1000
-        self.privilege_manager.has_root = False
-        self.privilege_manager.can_sudo = True
-
-        # Mock successful privilege request
-        with patch.object(
-            self.privilege_manager, "request_privileges", return_value=True
-        ):
             result, stdout, stderr = await self.privilege_manager.run_with_privileges(
                 ["test", "command"], "test_operation"
             )
 
             self.assertTrue(result)
+            self.assertEqual(stdout, "stdout")
+            self.assertEqual(stderr, "stderr")
 
-            # Verify command was executed with sudo
+            # Verify command was executed directly, not with sudo
             mock_exec.assert_called_with(
-                "sudo",
                 "test",
                 "command",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+
+            # Test as non-root with sudo
+            self.mock_geteuid.return_value = 1000
+            self.privilege_manager.has_root = False
+            self.privilege_manager.can_sudo = True
+
+            # Mock successful privilege request
+            with patch.object(
+                self.privilege_manager, "request_privileges", return_value=True
+            ):
+                result, stdout, stderr = await self.privilege_manager.run_with_privileges(
+                    ["test", "command"], "test_operation"
+                )
+
+                self.assertTrue(result)
+
+                # Verify command was executed with sudo
+                mock_exec.assert_called_with(
+                    "sudo",
+                    "test",
+                    "command",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
 
 
 if __name__ == "__main__":

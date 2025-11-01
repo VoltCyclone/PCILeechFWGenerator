@@ -63,6 +63,9 @@ def restore_driver(bdf: str, original: Optional[str]):
                 ),
                 prefix="VFIO",
             )
+            raise VFIOBindError(
+                safe_format("Could not restore driver for {bdf}: {e}", bdf=bdf, e=e)
+            ) from e
 
 
 # Export the main symbols
