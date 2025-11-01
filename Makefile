@@ -42,6 +42,7 @@ help:
 	@echo "  security        - Run security scans"
 	@echo "  vfio-constants  - Build and patch VFIO ioctl constants"
 	@echo "  vfio-constants-clean - Clean VFIO build artifacts"
+	@echo "  bar-viz         - Show BAR visualization tool usage"
 	@echo ""
 	@echo "Version Management:"
 	@echo "  set-version VERSION=X.Y.Z     - Set explicit version"
@@ -93,6 +94,14 @@ check-templates-errors:
 sv-lint:
 	@echo "Running SystemVerilog declaration-order linter..."
 	python3 scripts/lint_sv_block_decls.py --strict
+
+# BAR visualization tool
+bar-viz:
+	@echo "BAR Visualization Tool"
+	@echo "Usage: python3 scripts/barviz.py -f <file> [options]"
+	@echo ""
+	@echo "Example: python3 scripts/barviz.py -f bar0.bin -m entropy"
+	@echo "See scripts/barviz.py --help for more options"
 
 lint:
 	flake8 src/ tests/

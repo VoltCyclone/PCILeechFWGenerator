@@ -71,3 +71,42 @@ def test_invalid_params():
         gen.generate_bar_content(128, 6)
     with pytest.raises(ValueError):
         gen.generate_bar_content(-10, 0)
+
+
+def test_determinism_across_instances_same_signature():
+    """Outputs must be identical across separate instances when using
+    the same device_signature and inputs."""
+    sig = "determinism-sig-001"
+    gen1 = BarContentGenerator(device_signature=sig)
+    gen2 = BarContentGenerator(device_signature=sig)
+
+    cases = [
+        (0, 256, BarContentType.BUFFER),
+        (1, 4096, BarContentType.REGISTERS),
+        (2, 8192, BarContentType.FIRMWARE),
+        (3, 16384, BarContentType.MIXED),
+    ]
+    for idx, size, ctype in cases:
+        a = gen1.generate_bar_content(size, idx, ctype)
+        b = gen2.generate_bar_content(size, idx, ctype)
+        assert a == b, (
+            f"Mismatch across instances for idx={idx} size={size} type={ctype}"
+        )
+
+
+def test_buffer_prefix_property_for_shake256():
+    """Given same seed/context, longer BUFFER output should prefix-extend
+    shorter output (property of SHAKE-256 XOF)."""
+    sig = "shake-prefix-sig-002"
+    gen = BarContentGenerator(device_signature=sig)
+
+    idx = 1
+    small = 4096
+    big = 16384
+
+    data_small = gen.generate_bar_content(small, idx, BarContentType.BUFFER)
+    data_big = gen.generate_bar_content(big, idx, BarContentType.BUFFER)
+
+    assert len(data_small) == small
+    assert len(data_big) == big
+    assert data_big[:small] == data_small

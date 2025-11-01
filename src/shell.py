@@ -2,9 +2,9 @@
 """Shell command execution utilities with dry-run support."""
 
 import logging
-import shlex
+
 import subprocess
-from pathlib import Path
+
 from typing import Optional
 
 logger = logging.getLogger(__name__)

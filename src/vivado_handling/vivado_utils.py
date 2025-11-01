@@ -1,5 +1,5 @@
 """
-Light‑weight helpers for locating and invoking Xilinx Vivado
+Light‑weight helpers for locating and invoking Xilinx Vivado
 
 """
 
@@ -15,45 +15,17 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+from string_utils import (
+    safe_format,
+    log_info_safe,
+    log_warning_safe,
+    log_debug_safe,
+)
+
 LOG = logging.getLogger(__name__)
-if not LOG.handlers:
-
-    class ColoredFormatter(logging.Formatter):
-        """A logging formatter that adds ANSI color codes to log messages."""
-
-        # ANSI color codes
-        COLORS = {"RED": "\033[91m", "YELLOW": "\033[93m", "RESET": "\033[0m"}
-
-        def __init__(self, fmt=None, datefmt=None):
-            super().__init__(fmt, datefmt)
-            # Only use colors for TTY outputs
-            import sys
-
-            self.use_colors = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-
-        def format(self, record):
-            formatted = super().format(record)
-            if self.use_colors:
-                if record.levelno >= logging.ERROR:
-                    return f"{self.COLORS['RED']}{formatted}{self.COLORS['RESET']}"
-                elif record.levelno >= logging.WARNING:
-                    return f"{self.COLORS['YELLOW']}{formatted}{self.COLORS['RESET']}"
-            return formatted
-
-    colored_formatter = ColoredFormatter(
-        "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(colored_formatter)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[console_handler],
-    )
 
 # ───────────────────────── Constants ──────────────────────────
 IS_LINUX = platform.system().lower() == "linux"
-IS_MAC = platform.system().lower() == "darwin"
 
 DEFAULT_BASES: List[Path] = []
 if IS_LINUX:
@@ -63,19 +35,21 @@ if IS_LINUX:
         Path("/usr/local/Xilinx/Vivado"),
         Path.home() / "Xilinx" / "Vivado",
     ]
-elif IS_MAC:
+    ## OSX isnt really supported this is for unit tests
+elif platform.system().lower() == "darwin":
     DEFAULT_BASES = [
         Path("/Applications/Xilinx/Vivado"),
+        Path("/tools/Xilinx/Vivado"),
+        Path("/usr/local/Xilinx/Vivado"),
         Path.home() / "Xilinx" / "Vivado",
     ]
 else:
-    # Windows deliberately unsupported (keep interface minimal)
-    pass
+    raise RuntimeError("Vivado utilities are only supported on Linux.")
+
 
 TOOLS_ROOT = Path("/tools/Xilinx")  # pattern: /tools/Xilinx/<version>/Vivado
 
 # ───────────────────────── Internals ──────────────────────────
-
 
 def _iter_candidate_dirs():
     """Yield all plausible Vivado install roots.*Not* the *bin* dir."""
@@ -104,7 +78,7 @@ def _vivado_executable(dir_: Path) -> Optional[Path]:
     return exe if exe.is_file() else None
 
 
-def _detect_version(dir_: Path) -> str:
+def _VIVADOct_version(dir_: Path) -> str:
     """Infer version string from directory name (fallback to runtime query)."""
     for part in dir_.parts:
         if part[0].isdigit() and "." in part:
@@ -130,10 +104,14 @@ def find_vivado_installation(
         if manual_path_obj.exists() and manual_path_obj.is_dir():
             exe = _vivado_executable(manual_path_obj)
             if exe:
-                version = get_vivado_version(str(exe)) or _detect_version(
+                version = get_vivado_version(str(exe)) or _VIVADOct_version(
                     manual_path_obj
                 )
-                LOG.info("Using manually specified Vivado installation")
+                log_info_safe(
+                    LOG,
+                    safe_format("Using manually specified Vivado installation"),
+                    prefix="VIVADO",
+                )
                 return {
                     "path": str(manual_path_obj),
                     "bin_path": str(manual_path_obj / "bin"),
@@ -141,23 +119,37 @@ def find_vivado_installation(
                     "version": version,
                 }
             else:
-                LOG.warning(
-                    "Manual Vivado path specified but vivado executable not found: %s",
-                    manual_path,
+                log_warning_safe(
+                    LOG,
+                    safe_format(
+                        "Manual Vivado path specified but vivado executable not found: {path}",
+                        path=manual_path,
+                    ),
+                    prefix="VIVADO",
                 )
         else:
-            LOG.warning(
-                "Manual Vivado path specified but directory doesn't exist: %s",
-                manual_path,
+            log_warning_safe(
+                LOG,
+                safe_format(
+                    "Manual Vivado path specified but directory doesn't exist: {path}",
+                    path=manual_path,
+                ),
+                prefix="VIVADO",
             )
 
-    # Fallback to automatic detection
+    # Fallback to automatic VIVADOction
     for root in _iter_candidate_dirs():
         exe = _vivado_executable(root)
         if not exe:
             continue
-        version = get_vivado_version(str(exe)) or _detect_version(root)
-        LOG.debug("Vivado candidate: %s (v%s)", exe, version)
+        version = get_vivado_version(str(exe)) or _VIVADOct_version(root)
+        log_debug_safe(
+            LOG,
+            safe_format(
+                "Vivado candidate: {exe} (v{version})", exe=exe, version=version
+                ),
+            prefix="VIVADO",
+        )
         return {
             "path": str(root),
             "bin_path": str(root / "bin"),
@@ -165,8 +157,12 @@ def find_vivado_installation(
             "version": version,
         }
 
-    LOG.warning(
-        "Vivado installation not found. Use --vivado-path to specify manual installation path."
+    log_warning_safe(
+        LOG,
+        safe_format(
+            "Vivado installation not found. Use --vivado-path to specify manual installation path."
+        ),
+        prefix="VIVADO",
     )
     return None
 
@@ -229,7 +225,11 @@ def run_vivado_command(
     if tcl_file:
         cmd.extend(["-source", str(tcl_file)])
 
-    LOG.info("Running: %s", " ".join(cmd))
+    log_info_safe(
+        LOG,
+        safe_format("Running: {cmd}", cmd=" ".join(cmd)),
+        prefix="RUN"
+    )
 
     if enable_error_reporting:
         try:
@@ -281,8 +281,12 @@ def run_vivado_command(
             return result
 
         except ImportError:
-            LOG.warning(
-                "Error reporter not available, falling back to standard execution"
+            log_warning_safe(
+                LOG,
+                safe_format(
+                    "Error reporter not available"
+                ),
+                prefix="RUN"
             )
 
     # Fallback to standard execution
@@ -307,8 +311,8 @@ def get_vivado_executable() -> Optional[str]:
 
 
 def debug_vivado_search() -> None:
-    """Pretty print search logic and detection results (stdout‑only)."""
-    print("# Vivado detection report ({}):".format(time.strftime("%F %T")))
+    """Pretty print search logic and VIVADOction results (stdout‑only)."""
+    print("# Vivado VIVADOction report ({}):".format(time.strftime("%F %T")))
     print("Search order:")
     for p in get_vivado_search_paths():
         print("  •", p)

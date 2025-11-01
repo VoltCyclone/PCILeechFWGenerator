@@ -5,7 +5,9 @@ subsystem IDs, class code, revision, and donor artifacts (VPD/Option ROM).
 """
 
 import hashlib
+
 import logging
+
 from typing import Any, Dict, List, Optional, Union
 
 from src.string_utils import (
@@ -14,17 +16,20 @@ from src.string_utils import (
     log_warning_safe,
     safe_format,
 )
+
 from src.utils.context_error_messages import (
     OPTION_ROM_MISSING_SIZE,
     ROM_SIZE_MISMATCH,
     VPD_REQUIRED_MISSING,
 )
+
 from src.utils.validation_constants import (
     DEVICE_ID_FIELD_WIDTHS,
     DEVICE_IDENTIFICATION_FIELDS,
 )
 
 from .sv_constants import SV_CONSTANTS, SV_VALIDATION
+
 from .template_renderer import TemplateRenderError
 
 
@@ -262,7 +267,7 @@ class SVValidator:
             return hashlib.sha256(bytes.fromhex(rom_data)).hexdigest()
         return None
 
-    def validate_numeric_range(
+    def _validate_numeric_range(
         self,
         param_name: str,
         value: Union[int, float],
@@ -270,7 +275,7 @@ class SVValidator:
         max_value: Union[int, float],
     ) -> Optional[str]:
         """
-        Validate a numeric parameter against a range.
+        Validate a numeric parameter against a range (internal helper).
 
         Args:
             param_name: Name of the parameter
@@ -337,7 +342,7 @@ class SVValidator:
         ]
 
         for param_name, value, min_val, max_val in validations:
-            error = self.validate_numeric_range(param_name, value, min_val, max_val)
+            error = self._validate_numeric_range(param_name, value, min_val, max_val)
             if error:
                 raise ValueError(error)
 
@@ -364,62 +369,3 @@ class SVValidator:
 
         if not context["device_signature"]:
             raise TemplateRenderError(self.messages["empty_device_signature"])
-
-    def validate_template_requirements(
-        self,
-        device_config: Any,
-        power_config: Any,
-        error_config: Any,
-        perf_config: Any,
-    ) -> None:
-        """
-        Comprehensive validation of all template requirements.
-
-        Args:
-            device_config: Device configuration
-            power_config: Power management configuration
-            error_config: Error handling configuration
-            perf_config: Performance configuration
-
-        Raises:
-            TemplateRenderError: If validation fails
-        """
-        errors = []
-        warnings = []
-
-        # Validate device config
-        if not device_config:
-            errors.append("device_config is None or missing")
-        else:
-            # Validate required attributes
-            required_attrs = [
-                "device_type",
-                "device_class",
-                "max_payload_size",
-                "max_read_request_size",
-                "tx_queue_depth",
-                "rx_queue_depth",
-            ]
-
-            for attr in required_attrs:
-                if not hasattr(device_config, attr):
-                    errors.append(
-                        safe_format("device_config.{attr} is missing", attr=attr)
-                    )
-
-        # Log warnings
-        for warning in warnings:
-            log_warning_safe(
-                self.logger,
-                safe_format("Template validation warning: {warning}", warning=warning),
-                prefix="VALID",
-            )
-
-        # Raise error if any critical issues found
-        if errors:
-            error_msg = self.messages["validation_failed"].format(
-                count=len(errors),
-                errors="\n".join(f"  - {error}" for error in errors),
-            )
-            log_error_safe(self.logger, error_msg, prefix="VALID")
-            raise TemplateRenderError(error_msg)

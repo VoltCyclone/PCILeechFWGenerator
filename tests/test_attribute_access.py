@@ -8,8 +8,8 @@ from src.utils.attribute_access import (copy_attrs, get_attr_or_raise,
                                         safe_get_nested)
 
 
-class TestObject:
-    """Test object with attributes for testing."""
+class MockObject:
+    """Mock object with attributes for testing."""
 
     def __init__(self):
         self.foo = "bar"
@@ -38,7 +38,7 @@ class TestSafeGetAttr:
 
     def test_object_access(self):
         """Test accessing attributes from an object."""
-        obj = TestObject()
+        obj = MockObject()
         assert safe_get_attr(obj, "foo") == "bar"
         assert safe_get_attr(obj, "num") == 42
         assert safe_get_attr(obj, "missing") is None
@@ -67,7 +67,7 @@ class TestHasAttr:
 
     def test_object_has_attr(self):
         """Test checking attributes in an object."""
-        obj = TestObject()
+        obj = MockObject()
         assert has_attr(obj, "foo") is True
         assert has_attr(obj, "num") is True
         assert has_attr(obj, "nested") is True
@@ -90,14 +90,14 @@ class TestGetAttrOrRaise:
 
     def test_object_get_or_raise(self):
         """Test getting attributes from object with error on missing."""
-        obj = TestObject()
+        obj = MockObject()
         assert get_attr_or_raise(obj, "foo") == "bar"
         assert get_attr_or_raise(obj, "num") == 42
 
         with pytest.raises(AttributeError) as exc_info:
             get_attr_or_raise(obj, "missing")
         assert "missing" in str(exc_info.value)
-        assert "TestObject" in str(exc_info.value)
+        assert "MockObject" in str(exc_info.value)
 
     def test_custom_error_message(self):
         """Test with custom error message."""
@@ -123,7 +123,7 @@ class TestSafeGetNested:
 
     def test_nested_object_access(self):
         """Test accessing nested attributes in objects."""
-        obj = TestObject()
+        obj = MockObject()
         assert safe_get_nested(obj, "nested", "value") == "nested_value"
         assert safe_get_nested(obj, "nested", "deep", "level") == 3
         assert safe_get_nested(obj, "nested", "missing") is None
@@ -131,11 +131,11 @@ class TestSafeGetNested:
 
     def test_mixed_nested_access(self):
         """Test accessing nested attributes in mixed dict/object structures."""
-        d = {"obj": TestObject()}
+        d = {"obj": MockObject()}
         assert safe_get_nested(d, "obj", "foo") == "bar"
         assert safe_get_nested(d, "obj", "nested", "value") == "nested_value"
 
-        obj = TestObject()
+        obj = MockObject()
         obj.data = {"key": "value"}
         assert safe_get_nested(obj, "data", "key") == "value"
 
@@ -151,7 +151,7 @@ class TestGetMultipleAttrs:
 
     def test_get_multiple_from_object(self):
         """Test getting multiple attributes from an object."""
-        obj = TestObject()
+        obj = MockObject()
         result = get_multiple_attrs(obj, "foo", "num", "missing")
         assert result == {"foo": "bar", "num": 42, "missing": None}
 
@@ -172,7 +172,7 @@ class TestRequireAttrs:
         result = require_attrs(d, "foo", "num")
         assert result == {"foo": "bar", "num": 42}
 
-        obj = TestObject()
+        obj = MockObject()
         result = require_attrs(obj, "foo", "num")
         assert result == {"foo": "bar", "num": 42}
 
@@ -222,7 +222,7 @@ class TestCopyAttrs:
 
     def test_copy_from_object(self):
         """Test copying attributes from an object."""
-        source = TestObject()
+        source = MockObject()
         target = {}
         copy_attrs(source, target, "foo", "num")
         assert target == {"foo": "bar", "num": 42}

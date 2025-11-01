@@ -293,6 +293,16 @@ class ConfigSpaceError(PCILeechError):
     reading/writing PCI configuration space, distinct from VFIO binding
     operations (which use VFIOBindError).
     """
+    
+    def __init__(self, message: Optional[str] = None, root_cause: Optional[str] = None):
+        super().__init__(message or "PCI config space error", root_cause)
+        self.root_cause = root_cause
+
+    def __str__(self):
+        base_msg = super().__str__()
+        if self.root_cause and self.root_cause != base_msg:
+            return f"{base_msg} | Root cause: {self.root_cause}"
+        return base_msg
 
     pass
 

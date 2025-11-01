@@ -6,6 +6,7 @@ Unit tests for the donor info template generator.
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -332,11 +333,13 @@ class TestDonorInfoTemplateGenerator:
         """Test generating template from device when lspci is not available."""
         generator = DonorInfoTemplateGenerator()
 
-        # This should raise DeviceConfigError when lspci is not found
-        with pytest.raises(DeviceConfigError) as exc_info:
-            generator.generate_template_from_device("0000:00:00.0")
+        # Mock subprocess.run to raise FileNotFoundError (lspci not found)
+        with patch('subprocess.run', side_effect=FileNotFoundError("lspci not found")):
+            # This should raise DeviceConfigError when lspci is not found
+            with pytest.raises(DeviceConfigError) as exc_info:
+                generator.generate_template_from_device("0000:00:00.0")
 
-        assert "lspci" in str(exc_info.value)
+            assert "lspci" in str(exc_info.value)
 
     def test_save_template_dict(self):
         """Test saving a template dictionary."""

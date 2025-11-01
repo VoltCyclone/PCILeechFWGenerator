@@ -55,55 +55,77 @@ class TestGetPackageVersion:
 
     def test_get_version_setuptools_scm_fallback(self):
         """Test fallback to setuptools_scm."""
-        with patch("src.utils.version_resolver.Path") as mock_path:
-            mock_path.return_value.parent.parent.__truediv__.return_value.exists.return_value = (
-                False
-            )
-
-            # Mock the setuptools_scm import and usage
+        # Force version file miss and hit setuptools_scm fallback
+        # without requiring the external package.
+        with patch(
+            "src.utils.version_resolver._try_version_file",
+            return_value=None,
+        ):
             with patch(
-                "setuptools_scm.get_version", return_value="1.2.3"
-            ) as mock_get_version:
+                "src.utils.version_resolver._try_setuptools_scm",
+                return_value="1.2.3",
+            ):
                 version = get_package_version()
                 assert version == "1.2.3"
 
     def test_get_version_importlib_fallback(self):
         """Test fallback to importlib.metadata."""
-        with patch("src.utils.version_resolver.Path") as mock_path:
-            mock_path.return_value.parent.parent.__truediv__.return_value.exists.return_value = (
-                False
-            )
-
-            # Mock setuptools_scm import failure
-            with patch("setuptools_scm.get_version", side_effect=ImportError):
+        with patch(
+            "src.utils.version_resolver._try_version_file",
+            return_value=None,
+        ):
+            with patch(
+                "src.utils.version_resolver._try_setuptools_scm",
+                return_value=None,
+            ):
                 with patch(
-                    "importlib.metadata.version", return_value="3.4.5"
-                ) as mock_version:
+                    "src.utils.version_resolver._try_importlib_metadata",
+                    return_value="3.4.5",
+                ):
                     version = get_package_version()
                     assert version == "3.4.5"
 
     def test_get_version_final_fallback(self):
         """Test final fallback to default version."""
-        with patch("src.utils.version_resolver.Path") as mock_path:
-            mock_path.return_value.parent.parent.__truediv__.return_value.exists.return_value = (
-                False
-            )
-
-            # Mock all import failures
-            with patch("setuptools_scm.get_version", side_effect=ImportError):
-                with patch("importlib.metadata.version", side_effect=ImportError):
-                    with patch("subprocess.run", side_effect=Exception("No git")):
+        with patch(
+            "src.utils.version_resolver._try_version_file",
+            return_value=None,
+        ):
+            with patch(
+                "src.utils.version_resolver._try_setuptools_scm",
+                return_value=None,
+            ):
+                with patch(
+                    "src.utils.version_resolver._try_importlib_metadata",
+                    return_value=None,
+                ):
+                    with patch(
+                        "src.utils.version_resolver._try_git_describe",
+                        return_value=None,
+                    ):
                         version = get_package_version()
                         assert version == "unknown"
 
     def test_get_version_exception_handling(self):
         """Test exception handling returns default version."""
+        # Force exceptions inside helpers (caught internally) and ensure
+        # we return the safe fallback without requiring external packages.
         with patch(
-            "src.utils.version_resolver.Path", side_effect=Exception("Test error")
+            "src.utils.version_resolver.Path",
+            side_effect=Exception("Test error"),
         ):
-            with patch("setuptools_scm.get_version", side_effect=ImportError):
-                with patch("importlib.metadata.version", side_effect=ImportError):
-                    with patch("subprocess.run", side_effect=Exception("No git")):
+            with patch(
+                "src.utils.version_resolver._try_setuptools_scm",
+                return_value=None,
+            ):
+                with patch(
+                    "src.utils.version_resolver._try_importlib_metadata",
+                    return_value=None,
+                ):
+                    with patch(
+                        "src.utils.version_resolver._try_git_describe",
+                        return_value=None,
+                    ):
                         version = get_package_version()
                         assert version == "unknown"
 

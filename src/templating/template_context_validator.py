@@ -32,7 +32,6 @@ class TemplateVariableRequirements:
     optional_vars: Set[str] = field(default_factory=set)
     default_values: Dict[str, Any] = field(default_factory=dict)
 
-
 class TemplateContextValidator:
     """
     Validates and ensures all template variables are properly defined.

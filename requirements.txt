@@ -13,6 +13,9 @@ aiofiles>=23.0.0
 # Template rendering for TCL generation
 jinja2>=3.1.0
 
+# YAML configuration parsing
+PyYAML>=6.0.0
+
 
 
 # Colored logging output

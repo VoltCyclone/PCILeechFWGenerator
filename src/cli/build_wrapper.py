@@ -14,7 +14,8 @@ if Path("/app").exists():
     app_dir = Path("/app")
     src_dir = app_dir / "src"
 else:
-    # Local environment - we're in src/cli, so go up two levels to get to project root
+    # Local environment - we're in src/cli,
+    # so go up two levels to get to project root
     app_dir = Path(__file__).parent.parent.parent.absolute()
     src_dir = app_dir / "src"
 

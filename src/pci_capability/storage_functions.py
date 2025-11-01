@@ -11,12 +11,12 @@ to provide production-ready dynamic capability generation.
 """
 
 import logging
+
 from typing import Any, Dict, List, Optional, Set
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
 from .base_function_analyzer import (BaseFunctionAnalyzer,
                                      create_function_capabilities)
+
 from .constants import (  # Common PCI Capability IDs; Storage class codes; Storage vendor IDs; Storage device ID ranges; Storage device ID thresholds; Storage MSI messages; Storage max payload sizes; Storage base queue counts; Storage BAR sizes; Storage power constants; Storage feature thresholds; Storage device limits; Storage bit manipulation; AER capability values
     AER_CAPABILITY_VALUES, CAP_ID_MSI, CAP_ID_MSIX, CAP_ID_PCIE, CAP_ID_PM,
     EXT_CAP_ID_AER, STORAGE_BAR_SIZES, STORAGE_BASE_QUEUE_COUNTS,

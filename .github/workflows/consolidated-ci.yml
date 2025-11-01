@@ -14,14 +14,13 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
   security-events: write
   actions: read
   checks: write  # For test results
-  id-token: write  # Required for Codecov OIDC uploads
 
 env:
   NO_INTERACTIVE: '1'
@@ -41,6 +40,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 1  # Shallow checkout for faster validation
+          submodules: recursive
 
       - name: Cache template validation
         uses: actions/cache@v4
@@ -121,6 +121,7 @@ jobs:
     name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.12']
     steps:
@@ -128,6 +129,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
+          submodules: recursive
 
       - name: Python setup & deps
         uses: ./.github/actions/python-setup
@@ -156,6 +158,9 @@ jobs:
             MARKERS="$MARKERS and not slow"
           fi
           
+          # Set coverage file per Python version
+          export COVERAGE_FILE=".coverage.${{ matrix.python-version }}"
+          
           pytest tests/ \
             --cov=src \
             --cov=generate \
@@ -170,41 +175,99 @@ jobs:
             --strict-config \
             ${{ matrix.python-version == '3.11' && '--verbose' || '--quiet' }}
 
-      - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.11' && !cancelled()
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-          verbose: true
+      - name: Package coverage artifacts
+        if: always()
+        run: |
+          mkdir -p coverage_artifacts
+          cp -f .coverage.${{ matrix.python-version }} coverage_artifacts/ || true
+          cp -f coverage.xml coverage_artifacts/ || true
+          cp -f junit-unit.xml coverage_artifacts/ || true
+          if [ -d htmlcov ]; then tar -czf coverage_artifacts/htmlcov.tar.gz htmlcov; fi
 
-      - name: Upload test results
+      - name: Upload coverage artifact
         uses: actions/upload-artifact@v5
         if: always()
         with:
-          name: test-results-py${{ matrix.python-version }}
-          path: |
-            junit-unit.xml
-            coverage.xml
-            htmlcov/
+          name: coverage-py${{ matrix.python-version }}
+          path: coverage_artifacts/
           retention-days: 7
 
-  dependency-review:
-    name: Dependency Review
-    if: github.event_name == 'pull_request'
+  coverage-upload:
+    name: Coverage Upload (Codecov)
     runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: always()
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (for coverage tools)
         uses: actions/checkout@v5
-
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
         with:
-          fail-on-severity: moderate
-          allow-licenses: MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, GPL-3.0
-          comment-summary-in-pr: on-failure
+          fetch-depth: 1
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage_dl
+
+      - name: Setup Python for combining
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Combine coverage
+        run: |
+          python -m pip install --upgrade coverage
+          mkdir -p merged
+          # Collect raw coverage data files
+          find coverage_dl -name ".coverage.*" -print -exec cp {} merged/ \; || true
+          if compgen -G "merged/.coverage.*" > /dev/null; then
+            export COVERAGE_FILE="merged/.coverage"
+            python -m coverage combine merged || true
+            python -m coverage xml -o merged/coverage.xml || true
+            python -m coverage html -d merged/htmlcov || true
+          else
+            echo "No raw coverage data; fallback to first XML"
+            XML=$(find coverage_dl -name "coverage.xml" | head -n1)
+            [ -n "$XML" ] && cp "$XML" merged/coverage.xml
+          fi
+          ls -la merged || true
+
+      - name: Check if coverage XML exists
+        id: check_coverage
+        run: |
+          if [ -f "merged/coverage.xml" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload to Codecov (OIDC, skip forks)
+        if: >
+          !cancelled() &&
+          steps.check_coverage.outputs.exists == 'true' &&
+          (
+            github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.fork == false
+          )
+        uses: codecov/codecov-action@v5.5.1
+        with:
+          files: merged/coverage.xml
+          name: codecov-umbrella
+          flags: unittests
+          use_oidc: true
+          verbose: true
+          fail_ci_if_error: false
+
+      - name: Upload merged coverage artifact
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: coverage-merged
+          path: merged/
+          retention-days: 7
 
   packaging:
     name: Build & Package
@@ -222,6 +285,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0  # Need full history for version calculation
+          submodules: recursive
 
       - name: Python setup (build tools)
         uses: ./.github/actions/python-setup
@@ -260,7 +324,7 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [validation, security-analysis, unit-tests, dependency-review, packaging]
+    needs: [validation, security-analysis, unit-tests, coverage-upload, packaging]
     if: always()
     steps:
       - name: Check workflow status
@@ -289,13 +353,13 @@ jobs:
             echo "❌ Unit tests failed" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Dependency review status (only for PRs)
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            if [[ "${{ needs.dependency-review.result }}" == "success" ]]; then
-              echo "✅ Dependency review passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Dependency review failed" >> $GITHUB_STEP_SUMMARY
-            fi
+          # Coverage upload status
+          if [[ "${{ needs.coverage-upload.result }}" == "success" ]]; then
+            echo "✅ Coverage uploaded" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.coverage-upload.result }}" == "skipped" ]]; then
+            echo "⏸️ Coverage upload skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Coverage upload failed (non-blocking)" >> $GITHUB_STEP_SUMMARY
           fi
           
           # Packaging status

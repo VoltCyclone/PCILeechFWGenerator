@@ -12,15 +12,18 @@ Overlay RAM is used for registers that have special write behavior:
 """
 
 import logging
+
 from dataclasses import dataclass
+
 from enum import IntEnum
-from typing import Any, Dict, List, Optional, Set, Tuple
+
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.device_clone.bar_size_converter import BarSizeConverter
-from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
-from src.string_utils import log_debug_safe, safe_format
 
-# Module-level logger is intentionally omitted; use instance-level loggers only.
+from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+
+from src.string_utils import log_debug_safe, safe_format
 
 
 class RegisterType(IntEnum):
@@ -47,7 +50,7 @@ class PCIeRegisterDefinitions:
     """PCIe register definitions based on PCIe specifications."""
 
     # Standard PCI Configuration Space Registers (0x00-0x3F)
-    STANDARD_REGISTERS = {
+    STANDARD_REGISTERS = { #pragma: no cover
         0x00: OverlayEntry(
             0x00, 0x00000000, "Vendor ID / Device ID", RegisterType.READ_ONLY
         ),
@@ -94,7 +97,7 @@ class PCIeRegisterDefinitions:
     }
 
     # Command Register (0x04) bit definitions
-    COMMAND_REGISTER_BITS = {
+    COMMAND_REGISTER_BITS = { #pragma: no cover
         0: ("IO Space Enable", True),
         1: ("Memory Space Enable", True),
         2: ("Bus Master Enable", True),
@@ -110,7 +113,7 @@ class PCIeRegisterDefinitions:
     }
 
     # Status Register (0x06) bit definitions - many are RW1C
-    STATUS_REGISTER_BITS = {
+    STATUS_REGISTER_BITS = { #pragma: no cover
         0: ("Reserved", False, False),
         1: ("Reserved", False, False),
         2: ("Reserved", False, False),
@@ -139,7 +142,7 @@ class PCIeRegisterDefinitions:
         return mask
 
     # Power Management Capability Registers
-    PM_CAPABILITY_REGISTERS = {
+    PM_CAPABILITY_REGISTERS = { #pragma: no cover
         0x00: OverlayEntry(
             0x00,
             0x00000000,
@@ -152,7 +155,7 @@ class PCIeRegisterDefinitions:
     }
 
     # MSI Capability Registers
-    MSI_CAPABILITY_REGISTERS = {
+    MSI_CAPABILITY_REGISTERS = { #pragma: no cover
         0x00: OverlayEntry(
             0x00,
             0x00710000,
@@ -170,7 +173,7 @@ class PCIeRegisterDefinitions:
     }
 
     # MSI-X Capability Registers
-    MSIX_CAPABILITY_REGISTERS = {
+    MSIX_CAPABILITY_REGISTERS = { #pragma: no cover
         0x00: OverlayEntry(
             0x00,
             0xC0000000,
@@ -186,7 +189,7 @@ class PCIeRegisterDefinitions:
     }
 
     # PCIe Capability Registers (partial list of key registers)
-    PCIE_CAPABILITY_REGISTERS = {
+    PCIE_CAPABILITY_REGISTERS = { #pragma: no cover
         0x00: OverlayEntry(
             0x00,
             0x00000000,
@@ -229,7 +232,7 @@ class PCIeRegisterDefinitions:
     }
 
     # AER Extended Capability Registers
-    AER_CAPABILITY_REGISTERS = {
+    AER_CAPABILITY_REGISTERS = { #pragma: no cover
         0x00: OverlayEntry(0x00, 0x00000000, "AER Cap Header", RegisterType.READ_ONLY),
         0x04: OverlayEntry(
             0x04, 0xFFFFFFFF, "Uncorrectable Error Status", RegisterType.RW1C
@@ -333,7 +336,9 @@ class OverlayMapper:
 
         # Process capability-specific registers
         for cap_id, cap_offset in capabilities.items():
-            overlay_entries = self._get_capability_overlay_entries(cap_id, cap_offset)
+            overlay_entries = self._get_capability_overlay_entries(
+                cap_id, cap_offset
+            )
             for offset, mask, description, reg_type in overlay_entries:
                 is_partial = mask not in (0x00000000, 0xFFFFFFFF)
                 should_include = reg_type == RegisterType.RW1C or is_partial
@@ -530,6 +535,15 @@ class OverlayMapper:
             # Template expects offset as register number (offset / 4)
             reg_num = offset // 4
             template_overlay_map.append((reg_num, mask))
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Final overlay entry: reg_num=0x{reg_num:02X}, mask=0x{mask:08X}",
+                    reg_num=reg_num,
+                    mask=mask,
+                ),
+                prefix="OVERLAY"
+            )
 
         return {
             "OVERLAY_MAP": template_overlay_map,

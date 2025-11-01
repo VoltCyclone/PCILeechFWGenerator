@@ -14,14 +14,20 @@ capability simulation.
 """
 
 import logging
-from enum import Enum
-from typing import Any, Dict, Optional, Set, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+from enum import Enum
+
+from typing import Any, Dict, Optional
+
+from ..string_utils import (log_debug_safe, log_error_safe,
                             log_warning_safe, safe_format)
+
 from .media_functions import create_media_function_capabilities
+
 from .network_functions import create_network_function_capabilities
+
 from .storage_functions import create_storage_function_capabilities
+
 from .usb_functions import create_usb_function_capabilities
 
 logger = logging.getLogger(__name__)
@@ -107,6 +113,27 @@ VENDOR_SPECIALIZATIONS = {
     DeviceType.USB: {VendorID.NEC, VendorID.RENESAS, VendorID.ETRON},
 }
 
+# Pre-computed int conversions for performance (avoid repeated enum conversion)
+_VENDOR_SPECIALIZATIONS_INT = {
+    device_type: {int(v) for v in vendor_set}
+    for device_type, vendor_set in VENDOR_SPECIALIZATIONS.items()
+}
+
+_VENDOR_DEVICE_MAPPINGS_INT = {
+    int(k): v for k, v in VENDOR_DEVICE_MAPPINGS.items()
+}
+
+_VENDOR_CLASSIFIERS = {
+    int(VendorID.INTEL): "_classify_intel_device",
+    int(VendorID.REALTEK): "_classify_realtek_device",
+    int(VendorID.NVIDIA): "_classify_nvidia_device",
+    int(VendorID.AMD_ATI): "_classify_amd_device",
+    int(VendorID.VIA_TECH): "_classify_via_device",
+}
+
+# Valid device function type strings
+_VALID_FUNCTION_TYPES = {dt.value for dt in DeviceType if dt != DeviceType.UNKNOWN}
+
 
 def _classify_by_class_code(class_code: int) -> Optional[DeviceType]:
     """
@@ -138,13 +165,8 @@ def _classify_by_class_code(class_code: int) -> Optional[DeviceType]:
 
 def _classify_intel_device(device_upper: int, device_lower: int) -> DeviceType:
     """Classify Intel devices based on device ID patterns."""
-    # Check against known Intel device ranges
-    intel_mappings = VENDOR_DEVICE_MAPPINGS.get(VendorID.INTEL, {})
-    for device_type, device_set in intel_mappings.items():
-        if device_upper in device_set:
-            return device_type
-
     # Intel-specific heuristics for unknown devices
+    # (Known device ranges are checked by _classify_by_vendor_patterns)
     if device_upper >= 0x50:
         return DeviceType.STORAGE
     if device_upper >= 0x20:
@@ -200,32 +222,24 @@ def _classify_by_vendor_patterns(
     Returns:
         Device type or None if vendor not recognized
     """
-    # Check vendor specializations first
-    for device_type, vendor_set in VENDOR_SPECIALIZATIONS.items():
-        # Convert vendor_set values to int for comparison
-        if vendor_id in {int(v) for v in vendor_set}:
+    # Check vendor specializations first (pre-computed int conversions)
+    for device_type, vendor_set in _VENDOR_SPECIALIZATIONS_INT.items():
+        if vendor_id in vendor_set:
             return device_type
 
-    # Vendor-specific classification
-    vendor_classifiers = {
-        int(VendorID.INTEL): _classify_intel_device,
-        int(VendorID.REALTEK): _classify_realtek_device,
-        int(VendorID.NVIDIA): _classify_nvidia_device,
-        int(VendorID.AMD_ATI): _classify_amd_device,
-        int(VendorID.VIA_TECH): _classify_via_device,
-    }
-
-    classifier = vendor_classifiers.get(vendor_id)
-    if classifier:
-        return classifier(device_upper, device_lower)
-
-    # Check mapped vendors
-    # Convert enum keys to int for lookup
-    vendor_mappings_int = {int(k): v for k, v in VENDOR_DEVICE_MAPPINGS.items()}
-    if vendor_id in vendor_mappings_int:
-        for device_type, device_set in vendor_mappings_int[vendor_id].items():
+    # Check mapped vendors BEFORE vendor-specific classifiers
+    # (Explicit mappings are more reliable than heuristics)
+    if vendor_id in _VENDOR_DEVICE_MAPPINGS_INT:
+        for device_type, device_set in _VENDOR_DEVICE_MAPPINGS_INT[vendor_id].items():
             if device_upper in device_set:
                 return device_type
+
+    # Vendor-specific classification functions (fallback heuristics)
+    classifier_name = _VENDOR_CLASSIFIERS.get(vendor_id)
+    if classifier_name:
+        # Get the classifier function from globals
+        classifier = globals()[classifier_name]
+        return classifier(device_upper, device_lower)
 
     return None
 
@@ -299,7 +313,7 @@ def analyze_device_function_type(
                     device_type=device_type,
                     class_code=class_code,
                 ),
-                prefix="DEVICE_CLASSIFY",
+                prefix="CLASS",
             )
             return device_type.value
 
@@ -318,7 +332,7 @@ def analyze_device_function_type(
                 device_id=device_id,
                 device_type=device_type,
             ),
-            prefix="DEVICE_CLASSIFY",
+            prefix="CLASS",
         )
         return device_type.value
 
@@ -333,7 +347,7 @@ def analyze_device_function_type(
                 vendor_id=vendor_id,
                 device_id=device_id,
             ),
-            prefix="DEVICE_CLASSIFY",
+            prefix="CLASS",
         )
     else:
         log_debug_safe(
@@ -344,7 +358,7 @@ def analyze_device_function_type(
                 device_id=device_id,
                 device_type=device_type,
             ),
-            prefix="DEVICE_CLASSIFY",
+            prefix="CLASS",
         )
 
     return device_type.value
@@ -378,17 +392,18 @@ def create_simulated_device_capabilities(
     """
     try:
         # Determine function type
-        if function_hint and function_hint in ["network", "media", "storage", "usb"]:
+        if function_hint and function_hint in _VALID_FUNCTION_TYPES:
             function_type = function_hint
             log_debug_safe(
                 logger,
                 safe_format(
-                    "Using provided function hint: {hint} for device {vendor_id:04x}:{device_id:04x}",
+                    "Using provided function hint: {hint} for device "
+                    "{vendor_id:04x}:{device_id:04x}",
                     hint=function_hint,
                     vendor_id=vendor_id,
                     device_id=device_id,
                 ),
-                prefix="DEVICE_CLASSIFY",
+                prefix="CLASS",
             )
         else:
             function_type = analyze_device_function_type(
@@ -402,7 +417,7 @@ def create_simulated_device_capabilities(
                     device_id=device_id,
                     function_type=function_type,
                 ),
-                prefix="DEVICE_CLASSIFY",
+                prefix="CLASS",
             )
 
         # Generate capabilities based on function type
@@ -426,7 +441,7 @@ def create_simulated_device_capabilities(
                     vendor_id=vendor_id,
                     device_id=device_id,
                 ),
-                prefix="DEVICE_CLASSIFY",
+                prefix="CLASS",
             )
 
         # Add metadata

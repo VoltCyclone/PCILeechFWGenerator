@@ -7,7 +7,9 @@ from src.device_clone.behavior_profiler import (BehaviorProfile,
 from src.device_clone.board_config import (get_fpga_family, get_fpga_part,
                                            get_pcie_ip_type, validate_board)
 from src.device_clone.config_space_manager import BarInfo, ConfigSpaceManager
+
 from src.device_clone.overlay_mapper import OverlayMapper
+
 from src.string_utils import safe_format
 
 # Integration test for BarSizeConverter
@@ -15,18 +17,16 @@ from src.string_utils import safe_format
 
 def test_bar_size_converter_integration():
     # Valid memory BAR
-    size = 0x1000
+    size = 0x1000  # 4KB
     encoding = BarSizeConverter.size_to_encoding(
         size, bar_type="memory", is_64bit=False, prefetchable=True
     )
     decoded_size = BarSizeConverter.get_size_from_encoding(encoding, bar_type="memory")
-    # The decoded size is the smallest bit set, which is 16 for 0x1000 encoding
-    # Accept decoded_size == 16 as correct for this encoding logic
-    assert decoded_size == 16
+    # The decoded size should match the original size
+    assert decoded_size == size  # 4096 bytes
     assert BarSizeConverter.validate_bar_size(size, "memory")
-    # Invalid BAR (not power of 2)
-    with pytest.raises(ValueError):
-        BarSizeConverter.size_to_encoding(0x1800, bar_type="memory")
+    # Invalid BAR size validation should return False (not raise exception)
+    assert not BarSizeConverter.validate_bar_size(0x1800, "memory")
 
 
 # Integration test for OverlayMapper

@@ -825,7 +825,6 @@ class TCLScriptBuilder:
             TCLScriptType.VALIDATE_PROJECT: "tcl/validate_project.j2",
             # PCILeech templates
             TCLScriptType.PCILEECH_PROJECT: "tcl/pcileech_generate_project.j2",
-            TCLScriptType.PCILEECH_BUILD: "tcl/pcileech_build.j2",
         }
 
         # PCILeech-specific template mapping for enhanced integration
@@ -1010,9 +1009,9 @@ class TCLBuilder:
 
             self.BOARD_PARTS = constants.BOARD_PARTS
             self.DEFAULT_FPGA_PART = constants.DEFAULT_FPGA_PART
-            self.TCL_SCRIPT_FILES = constants.TCL_SCRIPT_FILES
-            self.MASTER_BUILD_SCRIPT = constants.MASTER_BUILD_SCRIPT
-            self.SYNTHESIS_STRATEGY = constants.SYNTHESIS_STRATEGY
+            self.TCL_SCRIPT_FILES = constants.PCILEECH_TCL_SCRIPT_FILES
+            self.MASTER_BUILD_SCRIPT = constants.PCILEECH_BUILD_SCRIPT
+            self.SYNTHESIS_STRATEGY = getattr(constants, 'SYNTHESIS_STRATEGY', 'Vivado Synthesis Defaults')
             self.IMPLEMENTATION_STRATEGY = constants.IMPLEMENTATION_STRATEGY
             self.FPGA_FAMILIES = constants.FPGA_FAMILIES
         except ImportError as e:
@@ -1044,7 +1043,7 @@ class TCLBuilder:
                 "06_implementation.tcl",
                 "07_bitstream.tcl",
             ]
-            MASTER_BUILD_SCRIPT = "build_all.tcl"
+            MASTER_BUILD_SCRIPT = "vivado_build.tcl"
             SYNTHESIS_STRATEGY = "Vivado Synthesis Defaults"
             IMPLEMENTATION_STRATEGY = "Performance_Explore"
             FPGA_FAMILIES = {

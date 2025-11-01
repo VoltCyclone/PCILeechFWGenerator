@@ -5,6 +5,12 @@ Centralized normalization and validation utilities for PCILeech identifiers and 
 from typing import Any, Optional
 
 from src.string_utils import safe_format
+from src.utils.validators import (
+    HexValidator,
+    get_class_code_validator,
+    get_device_id_validator,
+    get_vendor_id_validator,
+)
 
 
 class IdentifierNormalizer:
@@ -38,29 +44,18 @@ class IdentifierNormalizer:
                     field_name=field_name,
                 )
             )
-        norm = IdentifierNormalizer.normalize_hex(value, length)
-        # Check for invalid hex format
-        try:
-            int(str(value).lower().replace("0x", ""), 16)
-        except Exception:
-            raise ContextError(
-                safe_format(
-                    "Invalid hex format for {field_name}: '{value}'",
-                    field_name=field_name,
-                    value=value,
-                )
-            )
-        if len(norm) != length:
-            raise ContextError(
-                safe_format(
-                    "Invalid hex format for {field_name}: '{value}' (length {len(norm)} != {length})",
-                    field_name=field_name,
-                    value=value,
-                    len=len(norm),
-                    length=length,
-                )
-            )
-        return norm
+        
+        # Use HexValidator for validation
+        validator = HexValidator(expected_length=length, field_name=field_name)
+        result = validator.validate(str(value))
+        
+        if not result.is_valid:
+            # Combine all errors into one message
+            error_msg = "; ".join(result.errors)
+            raise ContextError(error_msg)
+        
+        # Return normalized value
+        return IdentifierNormalizer.normalize_hex(value, length)
 
     @staticmethod
     def normalize_subsystem(
@@ -74,17 +69,34 @@ class IdentifierNormalizer:
     @staticmethod
     def validate_all_identifiers(identifiers: dict) -> dict:
         """Validate and normalize all required identifiers in a dict."""
-        specs = [
-            ("vendor_id", 4),
-            ("device_id", 4),
-            ("class_code", 6),
-            ("revision_id", 2),
-        ]
+        from src.exceptions import ContextError
+        
         result = {}
-        for field, length in specs:
-            result[field] = IdentifierNormalizer.validate_identifier(
-                identifiers.get(field), length, field
-            )
+        
+        # Use specific validators for known fields
+        validators = {
+            "vendor_id": get_vendor_id_validator(),
+            "device_id": get_device_id_validator(),
+            "class_code": get_class_code_validator(),
+            "revision_id": HexValidator(length=2, field_name="revision_id"),
+        }
+        
+        for field, validator in validators.items():
+            value = identifiers.get(field)
+            if not value:
+                raise ContextError(
+                    safe_format("Missing {field}: {field} cannot be empty", field=field)
+                )
+            
+            validation_result = validator.validate(str(value))
+            if not validation_result.is_valid:
+                error_msg = "; ".join(validation_result.errors)
+                raise ContextError(error_msg)
+            
+            # Get the expected length from the validator
+            expected_length = validator.length if hasattr(validator, 'length') else 4
+            result[field] = IdentifierNormalizer.normalize_hex(value, expected_length)
+        
         # Subsystem IDs
         result["subsystem_vendor_id"] = IdentifierNormalizer.normalize_subsystem(
             identifiers.get("subsystem_vendor_id"), result["vendor_id"], 4

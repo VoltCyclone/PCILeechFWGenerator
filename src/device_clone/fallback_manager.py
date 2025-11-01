@@ -271,11 +271,13 @@ class FallbackManager:
             self._variables[key] = metadata
             self._default_registered_keys.add(key)
 
-            log_info_safe(
+            log_debug_safe(
                 logger,
-                "Registered default fallback for {var_name}",
+                safe_format(
+                    "Registered default fallback for {var_name}",
+                    var_name=key,
+                ),
                 prefix="FALLBACK",
-                var_name=key,
             )
 
         self._register_default_critical_variables()
@@ -1172,7 +1174,9 @@ def get_global_fallback_manager(
         # Double-check after acquiring lock in case another thread initialized it
         if _GLOBAL_FALLBACK_MANAGER is None:
             _GLOBAL_FALLBACK_MANAGER = FallbackManager(
-                config_path=config_path, mode=mode, allowed_fallbacks=allowed_fallbacks
+                config_path=config_path,
+                mode=mode,
+                allowed_fallbacks=allowed_fallbacks
             )
 
     return _GLOBAL_FALLBACK_MANAGER

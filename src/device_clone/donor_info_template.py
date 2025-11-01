@@ -12,7 +12,7 @@ import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from src.exceptions import DeviceConfigError, ValidationError
 from src.string_utils import (log_error_safe, log_info_safe, safe_format,
@@ -667,6 +667,13 @@ class DonorInfoTemplateGenerator:
                 bdf=bdf,
             )
 
+        except FileNotFoundError as e:
+            error_msg = safe_format(
+                "lspci command not found. Please install pciutils package", 
+                bdf=bdf
+            )
+            log_error_safe(logger, error_msg, prefix="DONOR")
+            raise DeviceConfigError(error_msg) from e
         except subprocess.CalledProcessError as e:
             error_msg = safe_format(
                 "Failed to run lspci for device {bdf}: {error}", bdf=bdf, error=str(e)

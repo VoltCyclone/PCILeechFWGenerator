@@ -7,54 +7,37 @@ PCI configuration space and generate SystemVerilog code for MSI-X table replicat
 """
 
 import struct
+
 from typing import Any, Dict, List, Optional, Tuple
 
 # Import project logging and string utilities
+
 from src.log_config import get_logger
+
 from src.string_utils import (format_kv_table, format_raw_bar_table,
                               log_debug_safe, log_error_safe, log_info_safe,
                               log_warning_safe, safe_format, safe_print_format)
 
 # Import PCI capability infrastructure for extended capabilities support
-try:
-    from src.pci_capability.compat import find_cap as pci_find_cap
-    from src.pci_capability.compat import find_ext_cap
-    from src.pci_capability.types import CapabilityType
-except ImportError:
-    # Fallback for different import paths
-    try:
-        from pci_capability.compat import find_cap as pci_find_cap
-        from pci_capability.compat import find_ext_cap
-        from pci_capability.types import CapabilityType
-    except ImportError:
-        # Use None to indicate unavailable - will fall back to local implementation
-        pci_find_cap = None
-        find_ext_cap = None
-        CapabilityType = None
+from src.pci_capability.compat import find_cap as pci_find_cap
+
+from src.pci_capability.compat import find_ext_cap
+
+from src.pci_capability.types import CapabilityType
 
 # Import template renderer
-try:
-    from src.templating.template_renderer import TemplateRenderer
-except ImportError:
-    try:
-        from templating.template_renderer import TemplateRenderer
-    except ImportError:
-        from src.templating.template_renderer import TemplateRenderer
+from src.templating.template_renderer import TemplateRenderer
 
 # Import BAR size constants
-try:
-    from src.device_clone.constants import BAR_SIZE_CONSTANTS
-except ImportError:
-    try:
-        from constants import BAR_SIZE_CONSTANTS
-    except ImportError:
-        from src.device_clone.constants import BAR_SIZE_CONSTANTS
+from src.device_clone.constants import BAR_SIZE_CONSTANTS
 
 logger = get_logger(__name__)
 
 # Define commonly used BAR size constants
-BAR_MEM_MIN_SIZE = BAR_SIZE_CONSTANTS["SIZE_4KB"]  # 4KB minimum for memory BARs
-BAR_MEM_DEFAULT_SIZE = BAR_SIZE_CONSTANTS["SIZE_64KB"]  # 64KB default for memory BARs
+BAR_MEM_MIN_SIZE = BAR_SIZE_CONSTANTS["SIZE_4KB"]  
+
+BAR_MEM_DEFAULT_SIZE = BAR_SIZE_CONSTANTS["SIZE_64KB"] 
+
 BAR_IO_DEFAULT_SIZE = BAR_SIZE_CONSTANTS[
     "MAX_IO_SIZE"
 ]  # 256 bytes default for I/O BARs
@@ -159,70 +142,67 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
             cap_id=cap_id,
             length=len(cfg),
         ),
-        prefix="PCI_CAP",
+        prefix="PCICAP",
     )
 
-    # Try to use the advanced PCI capability infrastructure first
-    if pci_find_cap is not None:
-        try:
-            # First try standard capabilities
-            standard_offset = pci_find_cap(cfg, cap_id)
-            if standard_offset is not None:
-                log_debug_safe(
-                    logger,
-                    safe_format(
-                        "Found capability ID 0x{cap_id:02x} at standard offset 0x{offset:02x}",
-                        cap_id=cap_id,
-                        offset=standard_offset,
-                    ),
-                    prefix="PCI_CAP",
-                )
-                return standard_offset
-
-            # If not found in standard space and extended
-            # capability support is available,
-            # try extended capabilities
-            if find_ext_cap is not None:
-                extended_offset = find_ext_cap(cfg, cap_id)
-                if extended_offset is not None:
-                    log_debug_safe(
-                        logger,
-                        safe_format(
-                            "Found capability ID 0x{cap_id:02x} at "
-                            "extended offset 0x{offset:03x}",
-                            cap_id=cap_id,
-                            offset=extended_offset,
-                        ),
-                        prefix="PCI_CAP",
-                    )
-                    return extended_offset
-
-            # Not found in either space
+    # Try to use the PCI capability infrastructure first
+    try:
+        # First try standard capabilities
+        standard_offset = pci_find_cap(cfg, cap_id)
+        if standard_offset is not None:
             log_debug_safe(
                 logger,
-                safe_format("Capability ID 0x{cap_id:02x} not found", cap_id=cap_id),
-                prefix="PCI_CAP",
+                safe_format(
+                    "Found capability ID 0x{cap_id:02x} at "
+                    "standard offset 0x{offset:02x}",
+                    cap_id=cap_id,
+                    offset=standard_offset,
+                ),
+                prefix="PCICAP",
             )
-            return None
+            return standard_offset
 
-        except Exception as e:
-            log_warning_safe(
+        # If not found in standard space, try extended capabilities
+        extended_offset = find_ext_cap(cfg, cap_id)
+        if extended_offset is not None:
+            log_debug_safe(
                 logger,
                 safe_format(
-                    "Error using advanced PCI capability infrastructure: {error}, "
-                    "falling back to local implementation",
-                    error=e,
+                    "Found capability ID 0x{cap_id:02x} at "
+                    "extended offset 0x{offset:03x}",
+                    cap_id=cap_id,
+                    offset=extended_offset,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
-            # Fall through to local implementation
+            return extended_offset
+
+        # Not found in either space
+        log_debug_safe(
+            logger,
+            safe_format("Capability ID 0x{cap_id:02x} not found", cap_id=cap_id),
+            prefix="PCICAP",
+        )
+        return None
+
+    except Exception as e:
+        log_warning_safe(
+            logger,
+            safe_format(
+                "Error using PCI capability infrastructure: {error}, "
+                "falling back to local implementation",
+                error=e,
+            ),
+            prefix="PCICAP",
+        )
+        # Fall through to local implementation
 
     # Fallback to local implementation for standard capabilities only
     if not cfg or len(cfg) < 512:  # 256 bytes = 512 hex chars
         log_warning_safe(
             logger,
             safe_format("Configuration space is too small (need ≥256 bytes)"),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return None
 
@@ -233,7 +213,7 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         log_error_safe(
             logger,
             safe_format("Invalid hex string in configuration space: {error}", error=e),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return None
 
@@ -243,7 +223,7 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         log_warning_safe(
             logger,
             safe_format("Status register not found in configuration space"),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return None
 
@@ -253,14 +233,14 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
             log_debug_safe(
                 logger,
                 safe_format("Device does not support capabilities"),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
             return None
     except struct.error:
         log_warning_safe(
             logger,
             safe_format("Failed to read status register"),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return None
 
@@ -270,18 +250,18 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         log_warning_safe(
             logger,
             "Capabilities pointer not found in configuration space",
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return None
 
     try:
         cap_ptr = read_u8(cfg_bytes, cap_ptr_offset)
         if cap_ptr == 0:
-            log_debug_safe(logger, "No capabilities present", prefix="PCI_CAP")
+            log_debug_safe(logger, "No capabilities present", prefix="PCICAP")
             return None
     except IndexError:
         log_warning_safe(
-            logger, "Failed to read capabilities pointer", prefix="PCI_CAP"
+            logger, "Failed to read capabilities pointer", prefix="PCICAP"
         )
         return None
 
@@ -300,7 +280,7 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
                     "Capability pointer 0x{current_ptr:02x} is out of bounds",
                     current_ptr=current_ptr,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
             return None
 
@@ -320,7 +300,7 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
                     "Invalid capability data at offset 0x{current_ptr:02x}",
                     current_ptr=current_ptr,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
             return None
 
@@ -341,7 +321,7 @@ def msix_size(cfg: str) -> int:
     # Find MSI-X capability (ID 0x11)
     cap = find_cap(cfg, 0x11)
     if cap is None:
-        log_info_safe(logger, "MSI-X capability not found", prefix="PCI_CAP")
+        log_info_safe(logger, "MSI-X capability not found", prefix="PCICAP")
         return 0
 
     try:
@@ -351,7 +331,7 @@ def msix_size(cfg: str) -> int:
         log_error_safe(
             logger,
             safe_format("Invalid hex string in configuration space: {error}", error=e),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return 0
 
@@ -359,7 +339,7 @@ def msix_size(cfg: str) -> int:
     msg_ctrl_offset = cap + 2
     if not is_valid_offset(cfg_bytes, msg_ctrl_offset, 2):
         log_warning_safe(
-            logger, "MSI-X Message Control register is out of bounds", prefix="PCI_CAP"
+            logger, "MSI-X Message Control register is out of bounds", prefix="PCICAP"
         )
         return 0
 
@@ -377,12 +357,12 @@ def msix_size(cfg: str) -> int:
                 table_size=table_size,
                 msg_ctrl=msg_ctrl,
             ),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return table_size
     except struct.error:
         log_warning_safe(
-            logger, "Failed to read MSI-X Message Control register", prefix="PCI_CAP"
+            logger, "Failed to read MSI-X Message Control register", prefix="PCICAP"
         )
         return 0
 
@@ -419,13 +399,13 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         log_info_safe(
             logger,
             "MSI-X capability not found",
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return result
     log_debug_safe(
         logger,
         safe_format("MSI-X capability found at offset 0x{cap:02x}", cap=cap),
-        prefix="PCI_CAP",
+        prefix="PCICAP",
     )
     try:
         # Convert hex string to bytes for efficient processing
@@ -434,7 +414,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         log_error_safe(
             logger,
             safe_format("Invalid hex string in configuration space: {error}", error=e),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return result
 
@@ -442,7 +422,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
     msg_ctrl_offset = cap + 2
     if not is_valid_offset(cfg_bytes, msg_ctrl_offset, 2):
         log_warning_safe(
-            logger, "MSI-X Message Control register is out of bounds", prefix="PCI_CAP"
+            logger, "MSI-X Message Control register is out of bounds", prefix="PCICAP"
         )
         return result
 
@@ -461,7 +441,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
             log_warning_safe(
                 logger,
                 "MSI-X Table Offset/BIR register is out of bounds",
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
             return result
 
@@ -480,7 +460,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
                     "MSI-X PBA Offset/BIR register at 0x{offset:02x} is out of bounds",
                     offset=pba_offset_bir_offset,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
             return result
 
@@ -526,7 +506,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
                     table_offset=table_offset,
                     aligned=table_offset & 0xFFFFFFF8,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
 
         return result
@@ -535,7 +515,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         log_warning_safe(
             logger,
             safe_format("Error reading MSI-X capability registers: {error}", error=e),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         return result
 
@@ -646,7 +626,7 @@ def validate_msix_configuration_enhanced(
                     "Could not find BAR {bir} information for overlap validation",
                     bir=table_bir,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
             # Fall back to basic overlap detection
             table_end = table_offset + (table_size * 16)  # 16 bytes per entry
@@ -671,7 +651,7 @@ def validate_msix_configuration_enhanced(
                     size=bar_size,
                     is_64bit=bar_is_64bit,
                 ),
-                prefix="PCI_CAP",
+                prefix="PCICAP",
             )
 
             # Calculate table and PBA regions with proper 64-bit support
@@ -751,7 +731,7 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
                 "CRITICAL: Missing required MSI-X fields: {fields}",
                 fields=missing_fields,
             ),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
 
         raise ValueError(
@@ -768,7 +748,7 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
         log_debug_safe(
             logger,
             safe_format("MSI-X: Table size is 0, generating disabled MSI-X module"),
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         # Generate a proper disabled module instead of returning a comment
         table_size = 1  # Minimum size for valid SystemVerilog
@@ -780,7 +760,7 @@ def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
         log_debug_safe(
             logger,
             "MSI-X: Found, generating SystemVerilog code for MSI-X table",
-            prefix="PCI_CAP",
+            prefix="PCICAP",
         )
         table_size = msix_info["table_size"]
         pba_size = (table_size + 31) // 32  # Number of 32-bit words needed for PBA
@@ -963,7 +943,7 @@ if __name__ == "__main__":
     is_valid, errors = validate_msix_configuration(msix_info, config_space)
     safe_print_format(
         template="Validation Result: {status}",
-        prefix="PCI_CAP",
+        prefix="PCICAP",
         status=("VALID" if is_valid else "INVALID"),
     )
     if errors:
@@ -976,11 +956,11 @@ if __name__ == "__main__":
     if bars:
         safe_print_format(
             template="Parsed BARs ({count} active):",
-            prefix="PCI_CAP",
+            prefix="PCICAP",
             count=len(bars),
         )
         print(format_raw_bar_table(bars, device_bdf="N/A"))
 
     sv_code = generate_msix_table_sv(msix_info)
-    safe_print_format(template="SystemVerilog Code:", prefix="PCI_CAP")
+    safe_print_format(template="SystemVerilog Code:", prefix="PCICAP")
     print(sv_code)

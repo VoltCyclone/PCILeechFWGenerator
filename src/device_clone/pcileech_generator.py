@@ -19,36 +19,48 @@ fast if required data is not available.
 """
 
 import logging
-import traceback
+
 from dataclasses import dataclass, field
+
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, TypedDict
+
+from typing import Any, Dict, Generator, List, Optional
 
 # Import existing infrastructure components
 from src.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
+
 from src.device_clone.config_space_manager import ConfigSpaceManager
+
 from src.device_clone.constants import DEFAULT_FPGA_PART
+
 from src.device_clone.device_info_lookup import lookup_device_info
+
 from src.device_clone.msix_capability import (
     parse_msix_capability,
     validate_msix_configuration,
 )
+
 from src.device_clone.pcileech_context import PCILeechContextBuilder, VFIODeviceManager
+
 from src.device_clone.writemask_generator import WritemaskGenerator
+
 from src.error_utils import extract_root_cause
+
 from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
+
 from src.pci_capability.msix_bar_validator import validate_msix_bar_configuration
 
 # Import from centralized locations
 from src.string_utils import (
-    generate_tcl_header_comment,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
     utc_timestamp,
 )
+
 from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
+
 from src.templating.tcl_builder import format_hex_id
 
 logger = logging.getLogger(__name__)
@@ -301,12 +313,11 @@ class PCILeechGenerator:
 
             # 7. Additional firmware components (constraints, COE, writemask,
             #    integration)
-            firmware_components = self._generate_firmware_components(template_context)
+            firmware_components = self._generate_firmware_components(
+                template_context
+            )
 
-            # 8. Enforced-template TCL scripts (no fallback inline generation)
-            tcl_scripts = self._generate_default_tcl_scripts(template_context)
-
-            # 9. Validate generated firmware artifacts
+            # 8. Validate generated firmware artifacts
             self._validate_generated_firmware(
                 systemverilog_modules, firmware_components
             )
@@ -318,7 +329,7 @@ class PCILeechGenerator:
                 template_context,
                 systemverilog_modules,
                 firmware_components,
-                tcl_scripts,
+                firmware_components.get("tcl_scripts", {}),
             )
 
             log_info_safe(
@@ -388,7 +399,9 @@ class PCILeechGenerator:
             yield
             log_info_safe(self.logger, "Completed {step}", step=step, prefix="PCIL")
         except Exception as e:  # pragma: no cover (control flow wrapper)
-            if allow_fallback and self.fallback_manager.confirm_fallback(step, str(e)):
+            if allow_fallback and self.fallback_manager.confirm_fallback(
+                step, str(e)
+            ):
                 log_warning_safe(
                     self.logger,
                     safe_format(
@@ -434,7 +447,9 @@ class PCILeechGenerator:
             )
 
             # Analyze patterns for enhanced context
-            pattern_analysis = self.behavior_profiler.analyze_patterns(behavior_profile)
+            pattern_analysis = self.behavior_profiler.analyze_patterns(
+                behavior_profile
+            )
 
             # Store analysis results in profile for later use
             behavior_profile.pattern_analysis = pattern_analysis
@@ -786,10 +801,6 @@ class PCILeechGenerator:
                 donor_template=self.config.donor_template,
             )
 
-            # Validate context completeness
-            context_dict = dict(template_context)
-            self._validate_template_context(context_dict)
-
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -799,192 +810,13 @@ class PCILeechGenerator:
                 prefix="PCIL",
             )
 
-            return context_dict
+            return dict(template_context)
 
         except Exception as e:
             root_cause = extract_root_cause(e)
             raise PCILeechGenerationError(
                 "Template context building failed", root_cause=root_cause
             )
-
-    def _validate_template_context(self, context: Dict[str, Any]) -> None:
-        """
-        Validate template context using the centralized TemplateContextValidator.
-
-        This method ensures all required template variables are present and properly
-        initialized before template rendering.
-
-        Args:
-            context: Template context to validate
-
-        Raises:
-            PCILeechGenerationError: If context validation fails
-        """
-        try:
-            # Import the centralized validator
-            from src.templating.template_context_validator import (
-                validate_template_context,
-            )
-
-            # Derive template name dynamically.
-            # Priority order:
-            #  1. config.firmware_template (explicit override)
-            #  2. donor_template['template'] or ['name']
-            #  3. default constant below
-            DEFAULT_PCILEECH_TEMPLATE = "pcileech_firmware.j2"
-
-            template_name: Optional[str] = None
-            explicit: Optional[str] = None
-
-            # 1. Explicit attribute on config (highest priority)
-            if hasattr(self.config, "firmware_template"):
-                explicit = getattr(self.config, "firmware_template") or None
-                if explicit:
-                    template_name = explicit
-
-            # 2. Donor template dict key(s)
-            if not template_name and isinstance(self.config.donor_template, dict):
-                donor_name = self.config.donor_template.get(
-                    "template"
-                ) or self.config.donor_template.get("name")
-                if donor_name:
-                    template_name = donor_name
-
-            # 3. Auto-detect if still unset (scan template dir)
-            if not template_name:
-                try:
-                    renderer = getattr(
-                        self, "template_renderer", None
-                    ) or TemplateRenderer(getattr(self.config, "template_dir", None))
-                    # Candidate patterns (basename match)
-                    all_templates = renderer.list_templates("*.j2")
-                    candidates = []
-                    for t in all_templates:
-                        base = Path(t).name.lower()
-                        if base.startswith("pcileech") and "firmware" in base:
-                            candidates.append(t)
-                    # Fallback: any pcileech*.j2 if firmware-specific not found
-                    if not candidates:
-                        for t in all_templates:
-                            base = Path(t).name.lower()
-                            if base.startswith("pcileech"):
-                                candidates.append(t)
-                    if len(candidates) == 1:
-                        template_name = candidates[0]
-                        log_info_safe(
-                            self.logger,
-                            "Auto-detected firmware template: {tpl}",
-                            tpl=template_name,
-                            prefix="PCIL",
-                        )
-                    elif len(candidates) > 1:
-                        # Try to pick canonical: exact default name first
-                        for c in candidates:
-                            if Path(c).name == DEFAULT_PCILEECH_TEMPLATE:
-                                template_name = c
-                                break
-                        if not template_name:
-                            # Choose the shortest path (likely top-level canonical)
-                            template_name = min(candidates, key=len)
-                        log_warning_safe(
-                            self.logger,
-                            safe_format(
-                                "Multiple candidate templates found; selected: {sel}, all={all}",  # noqa: E501
-                                sel=template_name,
-                                all=",".join(candidates),
-                            ),
-                            prefix="PCIL",
-                        )
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Template auto-detection failed: {err}",
-                            err=str(e),
-                        ),
-                        prefix="PCIL",
-                    )
-
-            # 4. Fallback to default constant
-            if not template_name:
-                template_name = DEFAULT_PCILEECH_TEMPLATE
-
-            # Normalize: enforce .j2 suffix
-            if not template_name.endswith(".j2"):
-                template_name = f"{template_name}.j2"
-
-            # Final sanity check
-            if not template_name:
-                raise PCILeechGenerationError(
-                    "Unable to resolve firmware template name for validation"
-                )
-
-            # Use strict validation mode based on config
-            strict_mode = self.config.strict_validation
-
-            # Validate the context
-            validated_context = validate_template_context(
-                template_name, context, strict=strict_mode
-            )
-            log_info_safe(
-                self.logger,
-                "Template context validation successful",
-                prefix="PCIL",
-            )
-
-        except ValueError as e:
-            # Convert ValueError from validator to PCILeechGenerationError
-            if self.config.fail_on_missing_data:
-                raise PCILeechGenerationError(
-                    safe_format("Template context validation failed: {err}", err=e)
-                ) from e
-            else:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Template context validation warning: {error}",
-                        error=str(e),
-                    ),
-                    prefix="PCIL",
-                )
-        except ImportError:
-            # Fallback to basic validation if validator not available
-            log_warning_safe(
-                self.logger,
-                "TemplateContextValidator not available, using basic validation",
-                prefix="PCIL",
-            )
-
-            # Basic validation for backward compatibility
-            required_keys = [
-                "device_config",
-                "config_space",
-                "msix_config",
-                "bar_config",
-                "timing_config",
-                "pcileech_config",
-                "device_signature",
-            ]
-
-            missing_keys = [key for key in required_keys if key not in context]
-
-            if missing_keys and self.config.fail_on_missing_data:
-                raise PCILeechGenerationError(
-                    safe_format(
-                        "Template context missing required keys: {keys}",
-                        keys=missing_keys,
-                    )
-                )
-
-            if missing_keys:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Template context missing optional keys: {keys}",
-                        keys=missing_keys,
-                    ),
-                    prefix="PCIL",
-                )
 
     def _generate_systemverilog_modules(
         self, template_context: Dict[str, Any]
@@ -1037,81 +869,6 @@ class PCILeechGenerator:
             raise PCILeechGenerationError(
                 safe_format("SystemVerilog generation failed: {err}", err=e)
             ) from e
-
-    def _generate_advanced_modules(
-        self, template_context: Dict[str, Any]
-    ) -> Dict[str, str]:
-        """Generate advanced SystemVerilog modules."""
-        advanced_modules = {}
-
-        try:
-            # Generate advanced controller if behavior profile is available
-            if template_context.get("device_config", {}).get("behavior_profile"):
-                log_info_safe(
-                    self.logger,
-                    "Generating advanced modules with behavior profile",
-                    prefix="PCIL",
-                )
-                registers = self._extract_register_definitions(template_context)
-                variance_model = template_context.get("device_config", {}).get(
-                    "variance_model"
-                )
-
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "Calling generate_advanced_systemverilog with {reg_count} "
-                        "registers",
-                        reg_count=len(registers),
-                    ),
-                    prefix="PCIL",
-                )
-                advanced_modules["advanced_controller"] = (
-                    self.sv_generator.generate_advanced_systemverilog(
-                        regs=registers, variance_model=variance_model
-                    )
-                )
-                log_info_safe(
-                    self.logger,
-                    "Successfully generated advanced_controller module",
-                    prefix="PCIL",
-                )
-
-        except Exception as e:
-            log_error_safe(
-                self.logger,
-                safe_format(
-                    "Advanced module generation failed: {error}\nTraceback: {tb}",
-                    error=str(e),
-                    tb=traceback.format_exc(),
-                ),
-                prefix="PCIL",
-            )
-
-        return advanced_modules
-
-    def _extract_register_definitions(
-        self, template_context: Dict[str, Any]
-    ) -> List[Dict]:
-        """Extract register definitions from template context."""
-        registers = []
-
-        # Extract from behavior profile if available
-        behavior_profile = template_context.get("device_config", {}).get(
-            "behavior_profile"
-        )
-        if behavior_profile:
-            for access in behavior_profile.get("register_accesses", []):
-                registers.append(
-                    {
-                        "name": access.get("register", "UNKNOWN"),
-                        "offset": access.get("offset", 0),
-                        "size": 32,  # Default to 32-bit registers
-                        "access_type": access.get("operation", "rw"),
-                    }
-                )
-
-        return registers
 
     def _generate_firmware_components(
         self, template_context: Dict[str, Any]
@@ -1219,20 +976,23 @@ class PCILeechGenerator:
         """
         try:
             from src.file_management.file_manager import FileManager
-            from src.repo_management.repo_manager import RepoManager
+            from src.file_management.repo_manager import RepoManager
             
             # Get board name from context
-            board = template_context.get("board_name") or template_context.get("board")
+            board = template_context.get(
+                "board_name"
+            ) or template_context.get("board")
             if not board:
                 raise PCILeechGenerationError(
                     "Cannot copy constraint files: board name not specified"
                 )
             
             # Initialize FileManager with output directory
-            output_dir = Path(template_context.get("output_dir", self.config.output_dir))
-            repo_manager = RepoManager()
+            output_dir = Path(
+                template_context.get("output_dir", self.config.output_dir)
+            )
             
-            # Get XDC files from submodule
+            # Get XDC files from submodule (RepoManager uses class methods only)
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1242,8 +1002,8 @@ class PCILeechGenerator:
                 prefix="PCIL"
             )
             
-            repo_path = repo_manager.ensure_repo()
-            xdc_files = repo_manager.get_xdc_files(board, repo_root=repo_path)
+            repo_path = RepoManager.ensure_repo()
+            xdc_files = RepoManager.get_xdc_files(board, repo_root=repo_path)
             
             # Copy XDC files to output directory
             constraints_dir = output_dir / "constraints"
@@ -1309,7 +1069,7 @@ class PCILeechGenerator:
         """
         try:
             from src.file_management.file_manager import FileManager
-            from src.repo_management.repo_manager import RepoManager
+            from src.file_management.repo_manager import RepoManager
             
             # Get board name from context
             board = template_context.get("board_name") or template_context.get("board")
@@ -1320,8 +1080,7 @@ class PCILeechGenerator:
             
             # Initialize FileManager with output directory
             output_dir = Path(template_context.get("output_dir", self.config.output_dir))
-            repo_manager = RepoManager()
-            fm = FileManager(repo_manager=repo_manager, output_dir=output_dir)
+            fm = FileManager(output_dir=output_dir)
             
             # Copy TCL scripts from submodule
             log_info_safe(
@@ -1366,215 +1125,6 @@ class PCILeechGenerator:
                     err=e
                 )
             ) from e
-
-    def _generate_default_tcl_scripts(self, context: Dict[str, Any]) -> Dict[str, str]:
-        from src.string_utils import get_project_name
-
-        project_name = context.get("project_name", get_project_name())
-        fpga_part = context.get("fpga_part", "xc7a35t-csg324-1")
-        # Enforce template-only generation (no inline fallback permitted).
-        # This aligns with donor uniqueness & central templating policy.
-        try:
-            from src.templating.template_renderer import TemplateRenderer
-        except ImportError as e:  # pragma: no cover - treated as fatal
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Template renderer unavailable: {err} (no fallback permitted)",
-                    err=e,
-                )
-            ) from e
-
-        renderer = TemplateRenderer(getattr(self.config, "template_dir", None))
-
-        try:
-            from src.string_utils import generate_tcl_header_comment
-
-            unified_header = generate_tcl_header_comment(
-                "PCILeech Build Scripts",
-                vendor_id=str(context.get("vendor_id", "")),
-                device_id=str(context.get("device_id", "")),
-                board=context.get("board_name") or context.get("board", ""),
-            )
-        except Exception:
-            unified_header = "# Generated PCILeech TCL Script"
-
-        vid = context.get("vendor_id")
-        did = context.get("device_id")
-        if not vid or not did:  # Strict: cannot proceed without both
-            raise PCILeechGenerationError(
-                safe_format(
-                    (
-                        "Fallback TCL generation aborted: missing vendor_id/"
-                        "device_id (vid={vid} did={did})"
-                    ),
-                    vid=vid,
-                    did=did,
-                )
-            )
-
-        subsys_vid = context.get("subsystem_vendor_id") or vid
-        subsys_did = context.get("subsystem_device_id") or did
-        # Some tests stub only vendor_id/device_id; tolerate missing revision_id/class_code
-        revision_id = context.get("revision_id") or context.get("revision")
-        class_code = context.get("class_code")
-
-        device_block = {
-            "vendor_id": format_hex_id(vid, 4),
-            "device_id": format_hex_id(did, 4),
-            # Only include fields when provided to avoid raising on None in tests
-            **(
-                {"revision_id": format_hex_id(revision_id, 2)}
-                if revision_id is not None
-                else {}
-            ),
-            **(
-                {"class_code": format_hex_id(class_code, 6)}
-                if class_code is not None
-                else {}
-            ),
-            "subsys_vendor_id": format_hex_id(subsys_vid, 4),
-            "subsys_device_id": format_hex_id(subsys_did, 4),
-        }
-
-        # Build device signature; if revision is missing in permissive tests, omit it
-        if "revision_id" in device_block:
-            device_signature = safe_format(
-                "{vid}:{did}:{rid}",
-                vid=device_block["vendor_id"],
-                did=device_block["device_id"],
-                rid=device_block["revision_id"],
-            )
-        else:
-            device_signature = safe_format(
-                "{vid}:{did}",
-                vid=device_block["vendor_id"],
-                did=device_block["device_id"],
-            )
-
-        # Provide structured configs mirroring normal builder output so that
-        # any template expecting device_config/board_config remains satisfied.
-        device_config = {
-            **device_block,
-            "identification": {
-                "vendor_id": device_block["vendor_id"],
-                "device_id": device_block["device_id"],
-                **(
-                    {"class_code": device_block["class_code"]}
-                    if "class_code" in device_block
-                    else {}
-                ),
-                "subsystem_vendor_id": device_block["subsys_vendor_id"],
-                "subsystem_device_id": device_block["subsys_device_id"],
-            },
-            "registers": (
-                {"revision_id": device_block["revision_id"]}
-                if "revision_id" in device_block
-                else {}
-            ),
-        }
-
-        board_block = {
-            "name": context.get("board_name", context.get("board", "unknown")),
-            "fpga_part": fpga_part,
-            "fpga_family": context.get("fpga_family", "7series"),
-            "pcie_ip_type": context.get("pcie_ip_type", "7x"),
-            "supports_msi": bool(context.get("supports_msi", False)),
-            "supports_msix": bool(context.get("supports_msix", False)),
-            "max_lanes": context.get("max_lanes", 1),
-        }
-
-        msix_cfg = context.get("msix_config") or {
-            "enabled": False,
-            "table_size": 0,
-            "vectors": 0,
-            "table_bir": 0,
-            "table_offset": 0x0,
-            "pba_bir": 0,
-            "pba_offset": 0x0,
-            "is_supported": False,
-        }
-
-        tpl_context: Dict[str, Any] = {
-            # Provide both legacy 'header_comment' and internal 'header'.
-            "header_comment": unified_header,
-            "header": unified_header,
-            "project": project_name,
-            "project_dir": safe_format("./{p}", p=project_name),
-            # Some TCL templates reference fpga_family at the top-level; expose
-            # it directly in addition to nested under board for backward
-            # compatibility with existing templates.
-            "fpga_family": context.get("fpga_family", "7series"),
-            "board": board_block,
-            "board_config": board_block,
-            "device": device_block,
-            "device_config": device_config,
-            "device_signature": device_signature,
-            "msix_config": msix_cfg,
-            "constraint_files": [],
-            "build": {"jobs": 4, "batch_mode": True, "timeout": 3600},
-            "batch_mode": True,
-            "synthesis_strategy": "Flow_PerfOptimized_high",
-            "implementation_strategy": "Performance_Explore",
-        }
-
-        # Resolve required templates.
-        build_tpl_candidates = ["tcl/pcileech_build.j2", "tcl/build.j2"]
-        build_template_name: Optional[str] = None
-        for cand in build_tpl_candidates:
-            if renderer.template_exists(cand):
-                build_template_name = cand
-                break
-        if not build_template_name:
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Missing required build TCL template(s): {cands} (no fallback)",
-                    cands=build_tpl_candidates,
-                )
-            )
-
-        if not renderer.template_exists("tcl/synthesis.j2"):
-            raise PCILeechGenerationError(
-                "synthesis template missing: tcl/synthesis.j2 (no fallback)"
-            )
-
-        try:
-            rendered_build = renderer.render_template(build_template_name, tpl_context)
-        except Exception as e:
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Failed rendering build template {tpl}: {err}",
-                    tpl=build_template_name,
-                    err=e,
-                )
-            ) from e
-
-        try:
-            rendered_synth = renderer.render_template("tcl/synthesis.j2", tpl_context)
-        except Exception as e:
-            raise PCILeechGenerationError(
-                safe_format(
-                    "Failed rendering synthesis template tcl/synthesis.j2: {err}",
-                    err=e,
-                )
-            ) from e
-
-        log_info_safe(
-            self.logger,
-            safe_format(
-                "Generated TCL scripts using enforced templates: build={build_tpl}",
-                build_tpl=build_template_name,
-            ),
-            prefix="PCIL",
-        )
-
-        # Provide both legacy internal keys and user-facing filenames expected
-        # by tests (build.tcl / synthesis.tcl) for maximum compatibility.
-        return {
-            "build_script": rendered_build,
-            "synthesis_script": rendered_synth,
-            "build.tcl": rendered_build,
-            "synthesis.tcl": rendered_synth,
-        }
 
     def _generate_writemask_coe(
         self, template_context: Dict[str, Any]

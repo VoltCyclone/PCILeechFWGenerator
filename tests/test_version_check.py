@@ -1,5 +1,6 @@
 """Test script to verify version checking functionality."""
 
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -121,6 +122,7 @@ class TestIntegration:
     """Integration tests for version checking."""
 
     @patch("src.cli.version_checker.fetch_latest_version")
+    @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_update_available_flow(self, mock_fetch):
         """Test the flow when an update is available."""
         mock_fetch.return_value = "99.0.0"  # Much newer version
@@ -132,6 +134,7 @@ class TestIntegration:
         assert update_available is True
 
     @patch("src.cli.version_checker.fetch_latest_version")
+    @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_no_update_needed_flow(self, mock_fetch):
         """Test the flow when no update is needed."""
         mock_fetch.return_value = __version__  # Same version

@@ -35,16 +35,17 @@ Generate authentic PCIe DMA firmware from real donor hardware with a single comm
 ## Key Features
 
 - **Donor Hardware Analysis**: Extract real PCIe device configurations and register maps from live hardware via VFIO
+- **Overlay-Only Architecture**: Generate device-specific `.coe` configuration files that integrate with upstream `pcileech-fpga` HDL modules
 - **Dynamic Device Capabilities**: Generate realistic network, storage, media, and USB controller capabilities with pattern-based analysis
 - **Full 4KB Config-Space Shadow**: Complete configuration space emulation with BRAM-based overlay memory
 - **MSI-X Table Replication**: Exact replication of MSI-X tables from donor devices with interrupt delivery logic
-- **Advanced SystemVerilog Generation**: Comprehensive PCIe device controller with modular template architecture
+- **Unified Context Building**: Centralized template context generation ensuring consistency across all output files
 - **Active Device Interrupts**: MSI-X interrupt controller with timer-based and event-driven interrupt generation
 - **Interactive TUI**: Modern Textual-based interface with real-time device monitoring and guided workflows
 - **Containerized Build Pipeline**: Podman-based synthesis environment with automated VFIO setup
 - **USB-JTAG Flashing**: Direct firmware deployment to DMA boards via integrated flash utilities
 
- **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
+ **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Overlay Architecture](https://pcileechfwgenerator.voltcyclone.info/overlay-architecture)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
 
 ## Quick Start
 

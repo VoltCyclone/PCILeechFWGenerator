@@ -273,10 +273,97 @@ class Jinja2TemplateValidator(TemplateValidator):
         if not HAS_JINJA2:
             raise RuntimeError("Jinja2 is not installed")
 
+        # Import ErrorTagExtension if available
+        try:
+            from jinja2.ext import Extension
+            from jinja2 import nodes, TemplateRuntimeError
+            
+            class ErrorTagExtension(Extension):
+                """Custom Jinja2 extension to handle {% error %} tags."""
+                tags = {"error"}
+                
+                def parse(self, parser):
+                    lineno = next(parser.stream).lineno
+                    args = [parser.parse_expression()]
+                    return nodes.CallBlock(
+                        self.call_method("_raise_error", args), [], [], []
+                    ).set_lineno(lineno)
+                
+                def _raise_error(self, message, caller):
+                    raise TemplateRuntimeError(message)
+            
+            extensions = [ErrorTagExtension, "jinja2.ext.do"]
+        except Exception:
+            extensions = ["jinja2.ext.do"]
+
         self.env = Environment(
             loader=FileSystemLoader(str(config.base_path)),
             cache_size=1000 if config.cache_templates else 0,
+            extensions=extensions,
         )
+        
+        # Register custom filters used in templates
+        self._register_custom_filters()
+
+    def _register_custom_filters(self):
+        """Register custom filters needed by templates."""
+        import math
+        
+        def safe_int(value, default=0):
+            """Convert value to int with fallback."""
+            if value is None:
+                return default
+            if isinstance(value, int):
+                return value
+            if isinstance(value, (float, complex)):
+                return int(value)
+            # Handle hex strings
+            try:
+                if isinstance(value, str):
+                    value = value.strip()
+                    if value.startswith('0x') or value.startswith('0X'):
+                        return int(value, 16)
+                    return int(value, 0)  # Auto-detect base
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+        
+        def python_list(value):
+            """Format value as Python list literal."""
+            if isinstance(value, list):
+                formatted_items = []
+                for item in value:
+                    if isinstance(item, (int, float)):
+                        formatted_items.append(str(item))
+                    else:
+                        formatted_items.append(repr(str(item)))
+                return "[" + ", ".join(formatted_items) + "]"
+            elif isinstance(value, (str, int, float)):
+                return repr([value])
+            else:
+                return "[]"
+        
+        def hex_format(value, width=4):
+            """Format integer as hex string."""
+            try:
+                if isinstance(value, str):
+                    value = int(value, 0)
+                return f"{int(value):0{width}x}"
+            except (ValueError, TypeError):
+                return "0" * width
+        
+        def clog2(v):
+            """Calculate ceiling of log2."""
+            if v <= 0:
+                return 0
+            return int(math.ceil(math.log2(v)))
+        
+        # Register all custom filters
+        self.env.filters["safe_int"] = safe_int
+        self.env.filters["python_list"] = python_list
+        self.env.filters["hex"] = hex_format
+        self.env.filters["clog2"] = clog2
+        self.env.filters["log2"] = clog2
 
     def validate_template(self, template_path: Path) -> ValidationResult:
         """Validate a template using standard Jinja2."""

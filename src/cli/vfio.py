@@ -2,15 +2,19 @@
 """VFIO module - re-exports the correct implementation from vfio_handler."""
 
 import logging
+
 import os
+
 from pathlib import Path
+
 from typing import Optional
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+from ..string_utils import (log_debug_safe, log_info_safe,
                             log_warning_safe, safe_format)
+
 # Re-export the correct, complete VFIO implementation
-from .vfio_handler import (VFIOBinder, VFIOBindError, render_pretty,
-                           run_diagnostics)
+from .vfio_handler import VFIOBinder, VFIOBindError
+
 from .vfio_helpers import get_device_fd
 
 logger = logging.getLogger(__name__)
@@ -59,6 +63,9 @@ def restore_driver(bdf: str, original: Optional[str]):
                 ),
                 prefix="VFIO",
             )
+            raise VFIOBindError(
+                safe_format("Could not restore driver for {bdf}: {e}", bdf=bdf, e=e)
+            ) from e
 
 
 # Export the main symbols
@@ -68,6 +75,4 @@ __all__ = [
     "get_device_fd",
     "get_current_driver",
     "restore_driver",
-    "run_diagnostics",
-    "render_pretty",
 ]
