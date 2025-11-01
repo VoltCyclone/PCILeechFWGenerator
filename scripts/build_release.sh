@@ -67,8 +67,8 @@ clean_build() {
 # Install dependencies
 install_dependencies() {
     log_info "Installing dependencies..."
-    python3 -m pip install --upgrade pip setuptools wheel
-    pip install -r requirements-dev.txt
+    python3 -m pip install -q --upgrade pip setuptools wheel
+    pip install -q -r requirements-dev.txt
     log_success "Dependencies installed"
 }
 
@@ -153,7 +153,7 @@ test_installation() {
     source "$TEMP_VENV/bin/activate"
     
     # Install the built package
-    pip install dist/*.whl
+    pip install -q dist/*.whl
     
     # Test imports
     python3 -c "import src; print(f'Package version: {src.__version__}')"

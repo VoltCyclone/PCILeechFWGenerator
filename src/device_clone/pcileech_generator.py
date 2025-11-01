@@ -74,7 +74,7 @@ DWORDS_PER_MSIX_ENTRY = MSIX_ENTRY_SIZE // DWORD_SIZE
 # (Removed MSIXData TypedDict to avoid typing friction with dynamic dict usage)
 
 
-@dataclass
+@dataclass(slots=True)
 class PCILeechGenerationConfig:
     """Configuration for PCILeech firmware generation."""
 

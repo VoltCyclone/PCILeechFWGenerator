@@ -3,15 +3,12 @@ Build Manager for PCILeech TUI application.
 
 This module provides services for validating and building firmware for devices.
 """
-
-import asyncio
 import os
-import time
-import uuid
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+
+from typing import Dict, List, Tuple, Union
 
 from ..models.device import PCIDevice
+
 from ..models.progress import BuildProgress, BuildStage
 
 

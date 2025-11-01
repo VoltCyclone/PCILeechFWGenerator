@@ -30,7 +30,6 @@ def patch_sys(monkeypatch):
 
 
 @pytest.mark.parametrize('container_exists', [True, False])
-
 def test_path_setup(monkeypatch, container_exists):
     # Patch Path.exists to simulate environment
     monkeypatch.setattr(

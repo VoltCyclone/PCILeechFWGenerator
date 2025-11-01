@@ -13,19 +13,19 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Tuple
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 try:
     from ..__version__ import __url__, __version__
     from ..log_config import get_logger
-    from ..string_utils import log_info_safe, log_warning_safe
+    from ..string_utils import log_warning_safe
 except ImportError:
     # Fallback for direct execution
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from __version__ import __url__, __version__
     from log_config import get_logger
-    from src.string_utils import log_info_safe, log_warning_safe
+    from src.string_utils import log_warning_safe
 
 logger = get_logger(__name__)
 

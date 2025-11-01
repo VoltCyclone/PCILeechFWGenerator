@@ -25,9 +25,6 @@ if str(project_root) not in sys.path:
 
 from src.file_management.donor_dump_manager import (DonorDumpError,
                                                     DonorDumpManager,
-                                                    DonorDumpModuleError,
-                                                    DonorDumpPermissionError,
-                                                    DonorDumpTimeoutError,
                                                     KernelHeadersNotFoundError,
                                                     ModuleBuildError,
                                                     ModuleLoadError)
@@ -159,58 +156,6 @@ def test_module_load_error():
     assert error.module_path == "/path/to/module.ko"
     assert error.bdf == "0000:03:00.0"
     assert error.stderr_output == "error output"
-
-
-def test_donor_dump_timeout_error():
-    """Test DonorDumpTimeoutError exception."""
-    error = DonorDumpTimeoutError("Operation timed out")
-    assert "Operation timed out" in str(error)
-    assert isinstance(error, DonorDumpError)
-
-    # Test with timeout and operation
-    error = DonorDumpTimeoutError(
-        "Operation timed out", timeout_seconds=30.0, operation="module_load"
-    )
-    assert error.timeout_seconds == 30.0
-    assert error.operation == "module_load"
-    assert "30.0s" in str(error)
-    assert "module_load" in str(error)
-
-
-def test_donor_dump_permission_error():
-    """Test DonorDumpPermissionError exception."""
-    error = DonorDumpPermissionError("Permission denied")
-    assert "Permission denied" in str(error)
-    assert isinstance(error, DonorDumpError)
-
-    # Test with required permission and file path
-    error = DonorDumpPermissionError(
-        "Permission denied", required_permission="root", file_path="/dev/device"
-    )
-    assert error.required_permission == "root"
-    assert error.file_path == "/dev/device"
-    assert "root" in str(error)
-    assert "/dev/device" in str(error)
-
-
-def test_donor_dump_module_error():
-    """Test DonorDumpModuleError exception."""
-    error = DonorDumpModuleError("Module error")
-    assert "Module error" in str(error)
-    assert isinstance(error, DonorDumpError)
-
-    # Test with context
-    error = DonorDumpModuleError(
-        "Module error",
-        module_name="donor_dump",
-        error_code=1,
-        stderr_output="error output",
-    )
-    assert error.module_name == "donor_dump"
-    assert error.error_code == 1
-    assert error.stderr_output == "error output"
-    assert "donor_dump" in str(error)
-    assert "exit_code: 1" in str(error)
 
 
 # ============================================================================

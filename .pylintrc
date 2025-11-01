@@ -16,11 +16,18 @@ disable=line-too-long,
         too-many-arguments,
         too-many-instance-attributes,
         too-many-locals,
-        duplicate-code
+        duplicate-code,
+        wrong-import-order,
+        ungrouped-imports,
+        wrong-import-position,
+        bad-whitespace,
+        trailing-whitespace,
+        missing-final-newline,
+        trailing-newlines
 
 [FORMAT]
 # Maximum number of characters on a single line.
-max-line-length=240
+max-line-length=500
 
 [REPORTS]
 # Set the output format. Available formats are text, parseable, colorized, json

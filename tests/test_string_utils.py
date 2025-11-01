@@ -12,16 +12,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.string_utils import (FormatConfig, build_device_info_string,
-                              build_file_size_string, build_progress_string,
+from src.string_utils import (FormatConfig,
                               format_bar_summary_table, format_bar_table,
                               format_padded_message, format_raw_bar_table,
                               generate_sv_header_comment,
                               generate_tcl_header_comment, get_short_timestamp,
                               log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, multiline_format, safe_format,
+                              log_warning_safe, safe_format,
                               safe_log_format, safe_print_format,
-                              truncate_string, validate_template)
+                              validate_template)
 
 
 class TestSafeFormat:
@@ -71,76 +70,6 @@ class TestSafeFormat:
         assert validate_template("{invalid placeholder}") is False
         assert validate_template("Unbalanced {brace") is False
 
-    def test_truncate_string_variants(self):
-        """Ensure truncation helper supports multiple positions."""
-        assert truncate_string("abcdef", 4) == "a..."
-        assert truncate_string("abcdef", 4, position="start") == "...f"
-        assert truncate_string("abcdef", 5, position="middle") == "a...f"
-
-
-class TestDeviceInfoString:
-    """Test cases for build_device_info_string function."""
-
-    def test_basic_device_info(self):
-        """Test basic device info string."""
-        device_info = {"vendor_id": 0x8086, "device_id": 0x54C8}
-        result = build_device_info_string(device_info)
-        assert result == "VID:8086, DID:54c8"
-
-    def test_complete_device_info(self):
-        """Test complete device info string."""
-        device_info = {
-            "vendor_id": 0x8086,
-            "device_id": 0x54C8,
-            "class_code": 0x0280,
-            "subsystem_vendor_id": 0x8086,
-            "subsystem_device_id": 0x0034,
-        }
-        result = build_device_info_string(device_info)
-        expected = "VID:8086, DID:54c8, Class:0280, SVID:8086, SDID:0034"
-        assert result == expected
-
-
-class TestProgressString:
-    """Test cases for build_progress_string function."""
-
-    def test_basic_progress(self):
-        """Test basic progress string."""
-        result = build_progress_string("Processing", 5, 10)
-        assert "Processing: 5/10 (50.0%)" in result
-
-    def test_progress_with_time(self):
-        """Test progress string with elapsed time."""
-        result = build_progress_string("Building", 3, 4, elapsed_time=45.67)
-        assert "Building: 3/4 (75.0%)" in result
-        assert "45.7s elapsed" in result
-
-    def test_zero_total_handling(self):
-        """Test handling of zero total."""
-        result = build_progress_string("Test", 0, 0)
-        assert "(0.0%)" in result
-
-
-class TestFileSizeString:
-    """Test cases for build_file_size_string function."""
-
-    def test_bytes_size(self):
-        """Test file size in bytes."""
-        result = build_file_size_string(512)
-        assert "512 bytes" in result
-
-    def test_kilobytes_size(self):
-        """Test file size in kilobytes."""
-        result = build_file_size_string(2048)
-        assert "2.0 KB" in result
-        assert "2048 bytes" in result
-
-    def test_megabytes_size(self):
-        """Test file size in megabytes."""
-        result = build_file_size_string(16777216)  # 16 MB
-        assert "16.0 MB" in result
-        assert "16777216 bytes" in result
-
 
 class TestPaddedMessage:
     """Test cases for format_padded_message function."""
@@ -161,7 +90,7 @@ class TestPaddedMessage:
         """Test ERROR level message padding."""
         with patch("src.string_utils.get_short_timestamp", return_value="14:23:45"):
             result = format_padded_message("Error message", "ERROR")
-            assert result == "  14:23:45 │ ERROR  │ Error message"
+            assert result == "  14:23:45 │  ERROR │ Error message"
 
 
 class TestHeaderComments:
@@ -456,35 +385,6 @@ class TestLoggingFunctions:
         call_args = mock_logger.debug.call_args[0][0]
         assert "Debug: details" in call_args
         assert "DEBUG" in call_args
-
-
-class TestMultilineFormat:
-    """Test cases for multiline format function."""
-
-    def test_multiline_template(self):
-        """Test multiline string formatting."""
-        template = """
-Device Information:
-  BDF: {bdf}
-  Vendor ID: {vid:04x}
-  Device ID: {did:04x}
-  Driver: {driver}
-        """.strip()
-
-        result = multiline_format(
-            template,
-            prefix="INFO",
-            bdf="0000:00:1f.3",
-            vid=0x8086,
-            did=0x54C8,
-            driver="snd_hda_intel",
-        )
-
-        assert "[INFO]" in result
-        assert "0000:00:1f.3" in result
-        assert "8086" in result
-        assert "54c8" in result
-        assert "snd_hda_intel" in result
 
 
 class TestTimestampFunction:

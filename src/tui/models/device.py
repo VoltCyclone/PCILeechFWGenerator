@@ -140,32 +140,6 @@ class PCIDevice:
             # Handle case where suitability_score is not a valid float
             return "Score: 0.00 ✗"
 
-    @property
-    def validity_indicator(self) -> str:
-        """Return indicator for device validity."""
-        return "✓" if self.is_valid else "✗"
-
-    @property
-    def driver_indicator(self) -> str:
-        """Return indicator for driver status."""
-        if not self.has_driver:
-            return "✓"  # No driver is good for our purposes
-        return "⚠" if self.is_detached else "✗"
-
-    @property
-    def vfio_indicator(self) -> str:
-        """Return indicator for VFIO compatibility."""
-        return "✓" if self.vfio_compatible else "✗"
-
-    @property
-    def iommu_indicator(self) -> str:
-        """Return indicator for IOMMU status."""
-        return "✓" if self.iommu_enabled else "✗"
-
-    @property
-    def ready_indicator(self) -> str:
-        """Return indicator for overall readiness."""
-        return "✓" if self.is_suitable else "✗"
 
     @property
     def class_name(self) -> str:

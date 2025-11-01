@@ -8,16 +8,19 @@ avoiding the dict vs attribute access issues.
 """
 
 import logging
+
 import secrets
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
+
+from dataclasses import asdict, dataclass
+
 from enum import Enum
-from functools import lru_cache
-from pathlib import Path
+
 from types import SimpleNamespace
-from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
+
+from typing import Any, Dict,  List, Mapping, Optional, Set
 
 from src.error_utils import extract_root_cause
+
 from src.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -47,7 +50,6 @@ from .validation_constants import (
 
 # Type aliases for clarity
 HexString = str
-ConfigDict = Dict[str, Any]
 logger = logging.getLogger(__name__)
 
 # Constants (initial placeholders; some will be resolved dynamically below)
@@ -116,14 +118,6 @@ DEFAULT_VARIANCE_MODEL = {
 }
 
 
-class InterruptStrategy(Enum):
-    """Supported interrupt strategies."""
-
-    INTX = "intx"
-    MSI = "msi"
-    MSIX = "msix"
-
-
 # Resolve package version at import time so templates and builders can access it
 try:
     PACKAGE_VERSION = get_package_version()
@@ -137,11 +131,6 @@ except Exception as exc:
         ),
     )
     PACKAGE_VERSION = "unknown"
-
-
-def _random_hex_byte() -> str:
-    """Return a secure, two-character lowercase hex string (00..ff)."""
-    return f"{secrets.randbelow(256):02x}"
 
 
 # Use a randomized revision id to avoid static fingerprints in generated templates
@@ -375,17 +364,6 @@ class TemplateObject:
         return True
 
 
-
-
-class SafeDefaults:
-    """Safe default values for template variables."""
-
-    counter_width = DEFAULT_COUNTER_WIDTH
-    process_variation = DEFAULT_PROCESS_VARIATION
-    temperature_coefficient = DEFAULT_TEMPERATURE_COEFFICIENT
-    voltage_variation = DEFAULT_VOLTAGE_VARIATION
-
-
 @dataclass(slots=True)
 class UnifiedDeviceConfig:
     """Unified device configuration with all fields needed by templates."""
@@ -559,7 +537,6 @@ class UnifiedContextBuilder:
         """
         self.logger = custom_logger or logger
         self.config = ContextBuilderConfig()
-        self._version_cache: Optional[str] = None
         self.strict_identity = strict_identity
 
     def validate_hex_value(

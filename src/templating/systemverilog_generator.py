@@ -93,10 +93,6 @@ class SystemVerilogGenerator:
             self.renderer, self.logger, prefix=prefix
         )
         self.prefix = prefix
-        
-        # module_generator is not available in overlay-only architecture
-        # Legacy methods that reference it will raise clear errors
-        self.module_generator = None
 
         # Validate device configuration
         self.validator.validate_device_config(self.device_config)
@@ -620,52 +616,6 @@ class SystemVerilogGenerator:
 
         log_info_safe(
             self.logger, "Cleared SystemVerilog generator cache", prefix=self.prefix
-        )
-
-    # Deprecated methods that raise errors in overlay-only mode
-    # Kept for test compatibility
-
-    def generate_advanced_systemverilog(
-        self, regs: List[Dict], variance_model: Optional[Any] = None
-    ) -> str:
-        """
-        DEPRECATED: Legacy method blocked in overlay-only mode.
-
-        The overlay-only architecture only generates .coe configuration files
-        that are consumed by the upstream pcileech-fpga repository.
-
-        Raises:
-            TemplateRenderError: Always, as this functionality is not supported
-        """
-        raise TemplateRenderError(
-            "generate_advanced_systemverilog is not supported in overlay-only mode. "
-            "The new architecture generates .coe configuration files for pcileech-fpga."
-        )
-
-    def _extract_pcileech_registers(self, behavior_profile: Any) -> List[Dict]:
-        """
-        DEPRECATED: Legacy method blocked in overlay-only mode.
-
-        Raises:
-            TemplateRenderError: Always, as this functionality is not supported
-        """
-        raise TemplateRenderError(
-            "_extract_pcileech_registers is not supported in overlay-only mode."
-        )
-
-    def _generate_pcileech_advanced_modules(
-        self,
-        template_context: Dict[str, Any],
-        behavior_profile: Optional[Any] = None,
-    ) -> Dict[str, str]:
-        """
-        DEPRECATED: Legacy method blocked in overlay-only mode.
-
-        Raises:
-            TemplateRenderError: Always, as this functionality is not supported
-        """
-        raise TemplateRenderError(
-            "_generate_pcileech_advanced_modules is not supported in overlay-only mode."
         )
 
     def generate_pcileech_integration_code(

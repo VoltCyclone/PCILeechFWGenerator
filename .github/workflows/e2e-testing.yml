@@ -101,21 +101,21 @@ jobs:
 
       - name: Upgrade pip and install build tools
         run: |
-          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -q --upgrade pip setuptools wheel
 
       - name: Install minimal dependencies
         if: matrix.test-mode == 'minimal'
         run: |
-          pip install -r requirements.txt
-          pip install -e .
+          pip install -q -r requirements.txt
+          pip install -q -e .
 
       - name: Install full dependencies
         if: matrix.test-mode == 'full' || matrix.test-mode == ''
         run: |
-          pip install -r requirements.txt
-          if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
-          if [ -f requirements-tui.txt ]; then pip install -r requirements-tui.txt; fi
-          pip install -e .
+          pip install -q -r requirements.txt
+          if [ -f requirements-test.txt ]; then pip install -q -r requirements-test.txt; fi
+          if [ -f requirements-tui.txt ]; then pip install -q -r requirements-tui.txt; fi
+          pip install -q -e .
 
       - name: Build VFIO constants
         run: |
@@ -210,8 +210,8 @@ jobs:
       
       - name: Install security scanning tools
         run: |
-          python -m pip install --upgrade pip
-          pip install bandit safety
+          python -m pip install -q --upgrade pip
+          pip install -q bandit safety
 
       - name: Run Bandit security scan
         run: |
@@ -251,9 +251,9 @@ jobs:
       
       - name: Install dependencies and performance tools
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install psutil memory-profiler pytest-benchmark
+          python -m pip install -q --upgrade pip
+          pip install -q -r requirements.txt
+          pip install -q psutil memory-profiler pytest-benchmark
 
       - name: Run performance tests
         run: |

@@ -6,35 +6,33 @@ information in a single VFIO binding session on the host, eliminating the need
 for VFIO operations inside the container.
 """
 
+import dataclasses
 import json
 import logging
 import time
-
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
+from src.build import MSIXData, MSIXManager
+from src.cli.vfio_handler import VFIOBinder
+from src.device_clone.config_space_manager import ConfigSpaceManager
+from src.device_clone.device_info_lookup import DeviceInfoLookup
+from src.exceptions import BuildError
 from src.string_utils import (
-    safe_format,
+    log_error_safe,
     log_info_safe,
     log_warning_safe,
-    log_error_safe,
+    safe_format,
 )
-
-from src.device_clone.config_space_manager import ConfigSpaceManager
-
-from src.device_clone.device_info_lookup import DeviceInfoLookup
-
-from src.build import MSIXManager, MSIXData
-
-from src.cli.vfio_handler import VFIOBinder
-
-from src.exceptions import BuildError
 
 
 class HostDeviceCollector:
     """Collects all device information on the host before container launch."""
     
-    def __init__(self, bdf: str, logger: Optional[logging.Logger] = None):
+    bdf: str
+    logger: logging.Logger
+    
+    def __init__(self, bdf: str, logger: Optional[logging.Logger] = None) -> None:
         """Initialize the collector.
         
         Args:
@@ -91,6 +89,15 @@ class HostDeviceCollector:
                 extracted_info = config_manager.extract_device_info(
                     config_space_bytes
                 )
+                
+                # Validate critical fields were extracted
+                required_fields = ["vendor_id", "device_id"]
+                missing = [f for f in required_fields if f not in extracted_info]
+                if missing:
+                    raise BuildError(
+                        f"Failed to extract required device info fields: {missing}"
+                    )
+                
                 # Complete device information using the unified lookup API
                 # Pass from_config_manager=True to avoid redundant extraction loops
                 device_info = device_lookup.get_complete_device_info(
@@ -106,13 +113,18 @@ class HostDeviceCollector:
                 # 4. Save collected data for container consumption
                 # Note: Template context building is deferred to the container
                 # to avoid duplicating PCILeechContextBuilder instantiation
-                collected_data = {
+                # Convert MSI-X data to dict if preloaded
+                msix_dict: Optional[Dict[str, Any]] = (
+                    dataclasses.asdict(msix_data)
+                    if msix_data.preloaded
+                    else None
+                )
+                
+                collected_data: Dict[str, Any] = {
                     "bdf": self.bdf,
                     "config_space_hex": config_space_bytes.hex(),
                     "device_info": device_info,
-                    "msix_data": (
-                        msix_data._asdict() if msix_data.preloaded else None
-                    ),
+                    "msix_data": msix_dict,
                     "collection_metadata": {
                         "collected_at": time.time(),
                         "config_space_size": len(config_space_bytes),

@@ -18,7 +18,7 @@ import psutil
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class MemoryStats:
     """Memory usage statistics."""
 

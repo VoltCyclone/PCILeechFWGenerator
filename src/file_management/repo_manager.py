@@ -104,17 +104,11 @@ def _git_available() -> bool:
 
 class RepoManager:
     """Utility class - no instantiation necessary."""
-
-    def __new__(cls, *args, **kwargs):  # pragma: no cover - prevent misuse
-        raise TypeError(
-            "RepoManager may not be instantiated; call class methods only"
-        )
-
+    
     # ---------------------------------------------------------------------
     # Entry points
     # ---------------------------------------------------------------------
-
-
+    
     @classmethod
     def ensure_repo(cls) -> Path:
         """Ensure voltcyclone-fpga assets exist and return their path.

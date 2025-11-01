@@ -23,37 +23,11 @@ from src.string_utils import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Path helpers
-# ---------------------------------------------------------------------------
-
-
-def add_src_to_path() -> None:
-    """Ensure `<project‑root>/src` appears exactly once in sys.path at front.
-
-    Removes any pre-existing duplicates (including symlink/relative variants)
-    before inserting the canonical resolved path at position 0.
-    """
-    src = (Path(__file__).resolve().parent.parent / "src").resolve()
-    if not src.exists():
-        raise RuntimeError(f"Expected src directory not found: {src}")
-
-    # Drop all entries resolving to the same path to guarantee idempotency
-    normalized = src
-    sys.path[:] = [p for p in sys.path if Path(p).resolve() != normalized]
-
-    # Prepend canonical path
-    sys.path.insert(0, str(src))
-    log_debug_safe(
-        logger, "Ensured {src} is first on PYTHONPATH", prefix="BUILD", src=src
-    )
-
-
-# ---------------------------------------------------------------------------
 # PCIe IP core selection + FPGA strategy
 # ---------------------------------------------------------------------------
 
 
-def select_pcie_ip_core(fpga_part: str) -> str:
+def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
     """Return the canonical Xilinx IP core name for *fpga_part*."""
     part = fpga_part.lower()
     if part.startswith("xc7a35t"):

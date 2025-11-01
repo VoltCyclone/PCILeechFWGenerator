@@ -6,22 +6,6 @@ from src.templating.template_renderer import (TemplateRenderer,
                                               TemplateRenderError)
 
 
-def test_render_string_basic():
-    renderer = TemplateRenderer()
-    template = "Hello, {{ name }}!"
-    context = {"name": "World"}
-    result = renderer.render_string(template, context)
-    assert result == "Hello, World!"
-
-
-def test_render_string_missing_variable_strict():
-    renderer = TemplateRenderer(strict=True)
-    template = "Hello, {{ name }}!"
-    context = {}
-    with pytest.raises(TemplateRenderError):
-        renderer.render_string(template, context)
-
-
 def test_template_exists(tmp_path):
     renderer = TemplateRenderer(template_dir=tmp_path)
     template_file = tmp_path / "test.j2"
@@ -120,19 +104,6 @@ def test_context_validation_none_value():
             return context
 
         build_context_or_die("0x1234", context)
-
-
-def test_template_renderer_critical_path_failure():
-    from src.templating.template_renderer import (TemplateRenderer,
-                                                  TemplateRenderError)
-
-    renderer = TemplateRenderer(strict=True)
-    # Template expects 'name', but context is missing it
-    template = "Hello, {{ name }}!"
-    context = {}
-    with pytest.raises(TemplateRenderError):
-        renderer.render_string(template, context)
-
 
 def test_enforce_donor_uniqueness_missing_signature():
     from src.string_utils import safe_format

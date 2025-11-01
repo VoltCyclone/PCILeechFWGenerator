@@ -52,8 +52,8 @@ jobs:
     
     - name: Install security tools
       run: |
-        python -m pip install --upgrade pip
-        pip install safety bandit semgrep
+        python -m pip install -q --upgrade pip
+        pip install -q safety bandit semgrep
     
     - name: Run Safety (dependency vulnerabilities)
       run: |

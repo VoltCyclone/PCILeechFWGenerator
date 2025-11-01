@@ -28,13 +28,6 @@ def get_project_name() -> str:
     """
     return VIVADO_PROJECT_NAME
 
-
-# Short constants to keep lines within linter limits while reusing the same banner
-# Note: dynamic borders are constructed in helpers to satisfy line-length rules.
-SV_HEADER_BAR = "//=="
-TCL_HEADER_BAR = "#=="
-
-
 @dataclass
 class FormatConfig:
     """Runtime configuration controlling formatting behavior."""
@@ -137,11 +130,8 @@ def _build_cache_key(template: str, kwargs: Dict[str, Any]) -> Optional[Tuple[Tu
 
 
 @lru_cache(maxsize=128)
-
-
 def _cached_format(template: str, frozen_items: Tuple[Tuple[str, Any], ...]) -> str:
     """Cache formatted strings for repeated template/kwargs pairs."""
-
     return template.format(**dict(frozen_items))
 
 
@@ -303,120 +293,6 @@ def safe_print_format(template: str, prefix: str, **kwargs: Any) -> None:
         print(padded_fallback)
 
 
-def multiline_format(template: str, prefix: str, **kwargs: Any) -> str:
-    """
-    Format a multi-line string template safely.
-
-    This is particularly useful for complex multi-line strings that
-    would be difficult to handle with f-strings.
-
-    Args:
-        template: Multi-line string template with {variable} placeholders
-        **kwargs: Keyword arguments to substitute in the template
-
-    Returns:
-        The formatted multi-line string
-
-    Example:
-        >>> template = '''
-        ... Device Information:
-        ...   BDF: {bdf}
-        ...   Vendor ID: {vid:04x}
-        ...   Device ID: {did:04x}
-        ...   Driver: {driver}
-        ... '''
-        >>> result = multiline_format(template.strip(),
-        ...                          bdf="0000:00:1f.3", vid=0x8086,
-        ...                          did=0x54c8, driver="snd_hda_intel")
-    """
-    return safe_format(template, prefix=prefix, **kwargs)
-
-
-def build_device_info_string(device_info: Dict[str, Any]) -> str:
-    """
-    Build a standardized device information string.
-
-    Args:
-        device_info: Dictionary containing device information
-
-    Returns:
-        Formatted device information string
-    """
-    template = "VID:{vendor_id:04x}, DID:{device_id:04x}"
-
-    # Add optional fields if present
-    if "class_code" in device_info:
-        template += ", Class:{class_code:04x}"
-    if "subsystem_vendor_id" in device_info:
-        template += ", SVID:{subsystem_vendor_id:04x}"
-    if "subsystem_device_id" in device_info:
-        template += ", SDID:{subsystem_device_id:04x}"
-
-    return safe_format(template, **device_info)
-
-
-def build_progress_string(
-    operation: str, current: int, total: int, elapsed_time: Optional[float] = None
-) -> str:
-    """
-    Build a standardized progress string.
-
-    Args:
-        operation: Description of the current operation
-        current: Current progress value
-        total: Total expected value
-        elapsed_time: Optional elapsed time in seconds
-
-    Returns:
-        Formatted progress string
-    """
-    percentage = (current / total * 100) if total > 0 else 0
-    template = "{operation}: {current}/{total} ({percentage:.1f}%)"
-
-    if elapsed_time is not None:
-        template += " - {elapsed_time:.1f}s elapsed"
-
-    return safe_format(
-        template,
-        prefix="Progress",
-        operation=operation,
-        current=current,
-        total=total,
-        percentage=percentage,
-        elapsed_time=elapsed_time,
-    )
-
-
-def build_file_size_string(size_bytes: int) -> str:
-    """
-    Build a human-readable file size string.
-
-    Args:
-        size_bytes: Size in bytes
-
-    Returns:
-        Formatted size string (e.g., "1.5 MB", "256 KB")
-    """
-    if size_bytes < 1024:
-        return safe_format("{size} bytes", prefix="File Size", size=size_bytes)
-    elif size_bytes < 1024 * 1024:
-        size_kb = size_bytes / 1024
-        return safe_format(
-            "{size:.1f} KB ({bytes} bytes)",
-            prefix="File Size",
-            size=size_kb,
-            bytes=size_bytes,
-        )
-    else:
-        size_mb = size_bytes / (1024 * 1024)
-        return safe_format(
-            "{size:.1f} MB ({bytes} bytes)",
-            prefix="File Size",
-            size=size_mb,
-            bytes=size_bytes,
-        )
-
-
 def format_size_short(size_bytes: int) -> str:
     """
     Return a short human-readable size string using binary units.
@@ -455,6 +331,8 @@ def get_short_timestamp() -> str:
         '14:23:45'
     """
     fmt = FormatConfig.get_instance().timestamp_format
+    if os.getenv("LOG_USE_UTC", "0") in ("1", "true", "TRUE"):
+        return datetime.now(timezone.utc).strftime(fmt)
     return datetime.now().strftime(fmt)
 
 
@@ -471,8 +349,7 @@ def utc_timestamp(
         fallback: Fallback timestamp if generation fails
 
     Behavior:
-        - If the environment variable exists, it's validated (appends 'Z' if
-          missing and contains no timezone). Returned as-is otherwise.
+        - If the environment variable exists, it's validated and normalized.
         - Uses timezone-aware UTC datetime; strips microseconds unless
           precise=True.
         - Always normalizes '+00:00' suffix to 'Z'.
@@ -480,12 +357,13 @@ def utc_timestamp(
     try:
         override = os.getenv(env_var)
         if override:
-            # Basic normalization: ensure trailing Z if no timezone specified
-            if override.endswith("Z") or override.endswith("z"):
-                return override.rstrip("zZ") + "Z"
-            if "+" in override or override.endswith("Z"):
-                return override.replace("+00:00", "Z")
-            return override + "Z"
+            # Normalize UTC timestamps to use 'Z' suffix
+            if override.endswith(("Z", "z")):
+                return override[:-1] + "Z"
+            if override.endswith("+00:00"):
+                return override[:-6] + "Z"
+            # Non-UTC timezone supplied: return as-is
+            return override
 
         dt = datetime.now(timezone.utc)
         if not precise:
@@ -519,8 +397,8 @@ def format_padded_message(message: str, log_level: str) -> str:
         "INFO": " INFO  ",
         "WARNING": "WARNING",
         "DEBUG": " DEBUG ",
-        "ERROR": "ERROR  ",
-        "CRITICAL": "CRITCL",
+        "ERROR": " ERROR ",
+        "CRITICAL": " CRIT ",
     }
 
     level_segment = level_defaults.get(log_level, log_level)
@@ -980,35 +858,6 @@ def format_kv_table(rows: List[Tuple[str, str]], title: str) -> str:
     title_bar = f"── {title} "
     banner = "┌" + title_bar + "─" * max(0, sum(col_widths) + 5 - len(title_bar)) + "┐"
     return "\n".join([banner] + lines)
-
-
-def truncate_string(
-    text: str,
-    max_length: int,
-    suffix: str = "...",
-    position: str = "end",
-) -> str:
-    """Truncate text with optional suffix placement."""
-
-    if max_length <= 0:
-        return ""
-
-    if len(text) <= max_length:
-        return text
-
-    if len(suffix) >= max_length:
-        return suffix[:max_length]
-
-    remaining = max_length - len(suffix)
-    position_lower = position.lower()
-
-    if position_lower == "start":
-        return suffix + text[-remaining:]
-    if position_lower == "middle":
-        left = remaining // 2
-        right = remaining - left
-        return text[:left] + suffix + text[-right:]
-    return text[:remaining] + suffix
 
 
 def validate_template(template: str) -> bool:

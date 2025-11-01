@@ -5,22 +5,30 @@ The main entry point for the PCILeech Firmware Generator TUI.
 """
 
 import asyncio
+
 import json
+
 import subprocess
+
 import warnings
+
 import webbrowser
+
 from pathlib import Path
+
 from typing import Any, Dict, List, Optional
 
 from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.reactive import reactive
-from textual.screen import ModalScreen
-from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
-                             ProgressBar, RichLog, Select, Static, Switch)
 
-from src.device_clone.board_config import list_supported_boards
+from textual.binding import Binding
+
+from textual.containers import Container, Horizontal, Vertical
+
+from textual.reactive import reactive
+
+from textual.widgets import (Button, DataTable, Footer, Header, Input,
+                             ProgressBar, RichLog, Static)
+
 
 from .core.app_state import AppState
 from .core.background_monitor import BackgroundMonitor
@@ -34,7 +42,6 @@ from .dialogs.build_log import BuildLogDialog
 from .dialogs.configuration import ConfigurationDialog
 from .dialogs.confirmation import ConfirmationDialog
 from .dialogs.device_details import DeviceDetailsDialog
-from .dialogs.file_path_input import FilePathInputDialog
 from .dialogs.help_dialog import HelpDialog
 from .dialogs.profile_manager import ProfileManagerDialog
 from .dialogs.search_filter import SearchFilterDialog

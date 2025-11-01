@@ -17,8 +17,8 @@ source .venv/bin/activate
 
 # Install dependencies
 echo "📦 Installing dependencies..."
-pip install --upgrade pip
-pip install -r requirements-dev.txt
+pip install -q --upgrade pip
+pip install -q -r requirements-dev.txt
 
 # Run TUI tests specifically
 echo "🎯 Running TUI integration tests..."

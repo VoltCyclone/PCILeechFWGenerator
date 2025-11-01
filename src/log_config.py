@@ -2,35 +2,68 @@
 """Centralized logging setup with color support."""
 
 import logging
+import os
+import re
 import sys
+
 from typing import Optional
 
-try:
-    from colorlog import ColoredFormatter
 
-    HAS_COLORLOG = True
-except ImportError:
-    HAS_COLORLOG = False
+# ANSI escape sequence pattern for stripping color codes from file logs
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class _StripAnsiFilter(logging.Filter):
+    """Filter that strips ANSI color codes from log messages for file output."""
+    
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = _ANSI_RE.sub("", record.msg)
+        return True
 
 
 def setup_logging(
-    level: int = logging.INFO, log_file: Optional[str] = "generate.log"
+    level: int = logging.INFO,
+    log_file: Optional[str] = "generate.log",
+    *,
+    force: bool = False,
 ) -> None:
     """Setup logging with color support using colorlog.
 
     Args:
         level: Logging level (default: INFO)
         log_file: Optional log file path (default: generate.log)
+        force: If True, reconfigure even if already set up (default: False)
     
     Note:
         Console output uses a minimal formatter since string_utils.py handles
         timestamp/level formatting. File output includes full context.
+        
+        Environment variables:
+        - LOG_LEVEL: Override the level parameter (accepts int or name like "DEBUG")
+        - LOG_FILE: Override the log_file parameter
     """
-    # Clear any existing handlers to avoid conflicts
+    # Respect prior setup unless force=True
     root_logger = logging.getLogger()
+    if getattr(root_logger, "_myapp_logging_configured", False) and not force:
+        # Allow runtime level bumps without rebuilding handlers
+        root_logger.setLevel(level)
+        return
+    
+    # Clear any existing handlers to avoid conflicts
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
+    # Env overrides
+    env_level = os.getenv("LOG_LEVEL")
+    if env_level:
+        if env_level.isdigit():
+            level = int(env_level)
+        else:
+            level = getattr(logging, env_level.upper(), level)
+    
+    log_file = os.getenv("LOG_FILE", log_file)
+    
     handlers = []
 
     # Console handler with minimal formatting
@@ -46,11 +79,14 @@ def setup_logging(
 
     # File handler (if specified)
     if log_file:
-        file_handler = logging.FileHandler(log_file, mode="w")
+        file_handler = logging.FileHandler(
+            log_file, mode="a", encoding="utf-8", delay=True
+        )
         file_formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
         file_handler.setFormatter(file_formatter)
+        file_handler.addFilter(_StripAnsiFilter())
         handlers.append(file_handler)
 
     # Configure root logger
@@ -59,39 +95,10 @@ def setup_logging(
         root_logger.addHandler(handler)
 
     # Suppress noisy loggers
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("requests").setLevel(logging.WARNING)
-
-
-class FallbackColoredFormatter(logging.Formatter):
-    """Fallback formatter - now deprecated since string_utils handles formatting.
+    for noisy in ("urllib3", "requests", "botocore", "boto3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     
-    Kept for backwards compatibility but not used by default setup_logging().
-    Color formatting is now handled by string_utils.format_padded_message().
-    """
-
-    COLORS = {
-        "DEBUG": "\033[36m",  # Cyan
-        "INFO": "\033[32m",  # Green
-        "WARNING": "\033[33m",  # Yellow
-        "ERROR": "\033[31m",  # Red
-        "CRITICAL": "\033[31;1m",  # Bright Red
-    }
-    RESET = "\033[0m"
-
-    def format(self, record):
-        # Only colorize if outputting to a terminal
-        levelname = record.levelname
-        if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-            if levelname in self.COLORS:
-                record.levelname = f"{self.COLORS[levelname]}{levelname}{self.RESET}"
-                record.msg = f"{self.COLORS[levelname]}{record.msg}{self.RESET}"
-
-        result = super().format(record)
-
-        # Reset the record to avoid affecting other handlers
-        record.levelname = levelname
-        return result
+    root_logger._myapp_logging_configured = True
 
 
 def get_logger(name: str) -> logging.Logger:

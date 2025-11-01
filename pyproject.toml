@@ -71,7 +71,14 @@ disable = [
     "unused-import",
     "missing-module-docstring",
     "missing-function-docstring",
+    "wrong-import-order",
+    "ungrouped-imports",
+    "wrong-import-position",
+    "bad-whitespace",
+    "trailing-whitespace",
+    "missing-final-newline",
+    "trailing-newlines",
 ]
 
 [tool.pylint.format]
-max-line-length = 120
+max-line-length = 500

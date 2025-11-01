@@ -25,7 +25,6 @@ class VivadoErrorType(Enum):
     RESOURCE_ERROR = "resource"
     CONSTRAINT_ERROR = "constraint"
     IP_ERROR = "ip"
-    SIMULATION_ERROR = "simulation"
     IMPLEMENTATION_ERROR = "implementation"
     BITSTREAM_ERROR = "bitstream"
     LICENSING_ERROR = "licensing"
@@ -132,10 +131,6 @@ class ColorFormatter:
     def bold(self, text: str) -> str:
         """Format bold text."""
         return self.colorize(text, "BOLD")
-
-    def underline(self, text: str) -> str:
-        """Format underlined text."""
-        return self.colorize(text, "UNDERLINE")
 
 
 class VivadoErrorParser:

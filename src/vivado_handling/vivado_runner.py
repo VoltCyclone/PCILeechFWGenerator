@@ -59,10 +59,8 @@ class VivadoRunner:
 
         # Derive paths from vivado_path
         self.vivado_executable: str = f"{self.vivado_path}/bin/vivado"
-        self.vivado_bin_dir: str = f"{self.vivado_path}/bin"
 
         # Extract version from path (simple heuristic)
-        self.vivado_version: str = self._extract_version_from_path(vivado_path)
         self.prefix: str = prefix
 
     def _extract_version_from_path(self, path: str) -> str:
@@ -269,20 +267,6 @@ echo "Vivado synthesis completed on host"
             "Vivado implementation finished successfully ✓",
             prefix=self.prefix,
         )
-
-    def get_vivado_info(self) -> Dict[str, str]:
-        """Get information about the Vivado installation.
-
-        Returns:
-            Dictionary with Vivado installation details
-        """
-        return {
-            "executable": self.vivado_executable,
-            "bin_dir": self.vivado_bin_dir,
-            "version": self.vivado_version,
-            "installation_path": self.vivado_path,
-        }
-
 
 def create_vivado_runner(
     board: str,

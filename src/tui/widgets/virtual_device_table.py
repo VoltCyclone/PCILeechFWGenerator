@@ -23,15 +23,6 @@ class VirtualDeviceTable(DataTable):
     to only those that are currently visible in the viewport.
     """
 
-    BINDINGS = [
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
-        Binding("home", "cursor_home", "Home", show=False),
-        Binding("end", "cursor_end", "End", show=False),
-        Binding("pageup", "cursor_page_up", "Page Up", show=False),
-        Binding("pagedown", "cursor_page_down", "Page Down", show=False),
-    ]
-
     def __init__(self, *args, **kwargs):
         """Initialize the virtual device table."""
         super().__init__(*args, **kwargs)

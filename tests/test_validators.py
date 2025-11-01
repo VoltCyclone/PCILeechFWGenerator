@@ -5,10 +5,8 @@ Unit tests for the generic validation framework.
 import pytest
 from src.utils.validators import (
     BaseValidator,
-    CompositeValidator,
     HexValidator,
     RangeValidator,
-    RequiredFieldsValidator,
     ValidationResult,
     get_bar_size_validator,
     get_bdf_validator,
@@ -16,8 +14,6 @@ from src.utils.validators import (
     get_device_id_validator,
     get_vendor_id_validator,
     validate_device_config,
-    validate_input,
-    validate_return,
 )
 
 
@@ -165,86 +161,9 @@ class TestHexValidator:
         """Test validation with non-string values."""
         validator = HexValidator()
         
-        result = validator.validate(1234)
+        result = validator.validate(123)
         assert not result.is_valid
         assert "must be a string" in result.errors[0]
-
-
-class TestRequiredFieldsValidator:
-    """Test the RequiredFieldsValidator class."""
-
-    def test_valid_fields(self):
-        """Test validation with all required fields present."""
-        validator = RequiredFieldsValidator(["name", "age", "email"])
-        
-        data = {"name": "John", "age": 30, "email": "john@example.com"}
-        result = validator.validate(data)
-        assert result.is_valid
-
-    def test_missing_fields(self):
-        """Test validation with missing fields."""
-        validator = RequiredFieldsValidator(["name", "age", "email"])
-        
-        data = {"name": "John", "age": 30}
-        result = validator.validate(data)
-        assert not result.is_valid
-        assert "Missing required fields: email" in result.errors[0]
-
-    def test_none_fields(self):
-        """Test validation with None values."""
-        validator = RequiredFieldsValidator(["name", "age"])
-        
-        data = {"name": "John", "age": None}
-        result = validator.validate(data)
-        assert not result.is_valid
-        assert "Required fields cannot be None: age" in result.errors[0]
-
-    def test_non_dict(self):
-        """Test validation with non-dict values."""
-        validator = RequiredFieldsValidator(["name"])
-        
-        result = validator.validate("not a dict")
-        assert not result.is_valid
-        assert "data must be a dictionary" in result.errors[0]
-
-
-class TestCompositeValidator:
-    """Test the CompositeValidator class."""
-
-    def test_all_pass(self):
-        """Test when all validators pass."""
-        validators = [
-            RangeValidator(min_value=0, max_value=100, field_name="value"),
-            RangeValidator(min_value=10, max_value=90, field_name="value"),
-        ]
-        composite = CompositeValidator(validators)
-        
-        result = composite.validate(50)
-        assert result.is_valid
-
-    def test_one_fails(self):
-        """Test when one validator fails."""
-        validators = [
-            RangeValidator(min_value=0, max_value=100, field_name="value"),
-            RangeValidator(min_value=60, max_value=90, field_name="value"),
-        ]
-        composite = CompositeValidator(validators)
-        
-        result = composite.validate(50)
-        assert not result.is_valid
-        assert len(result.errors) == 1
-
-    def test_multiple_failures(self):
-        """Test when multiple validators fail."""
-        validators = [
-            RangeValidator(min_value=60, max_value=100, field_name="value"),
-            RangeValidator(min_value=70, max_value=90, field_name="value"),
-        ]
-        composite = CompositeValidator(validators)
-        
-        result = composite.validate(50)
-        assert not result.is_valid
-        assert len(result.errors) == 2
 
 
 class TestSpecificValidators:
@@ -311,51 +230,6 @@ class TestSpecificValidators:
         
         result = validator.validate("not:a:bdf")
         assert not result.is_valid
-
-
-class TestValidationDecorators:
-    """Test the validation decorators."""
-
-    def test_validate_input_success(self):
-        """Test input validation decorator with valid inputs."""
-        @validate_input(
-            size=RangeValidator(min_value=0, max_value=1000),
-            name=RequiredFieldsValidator(["first", "last"])
-        )
-        def process(size: int, name: dict):
-            return size * 2
-        
-        result = process(100, {"first": "John", "last": "Doe"})
-        assert result == 200
-
-    def test_validate_input_failure(self):
-        """Test input validation decorator with invalid inputs."""
-        @validate_input(
-            size=RangeValidator(min_value=0, max_value=1000)
-        )
-        def process(size: int):
-            return size * 2
-        
-        with pytest.raises(ValueError, match="Validation errors"):
-            process(-1)
-
-    def test_validate_return_success(self):
-        """Test return validation decorator with valid return."""
-        @validate_return(RangeValidator(min_value=0))
-        def calculate():
-            return 100
-        
-        result = calculate()
-        assert result == 100
-
-    def test_validate_return_failure(self):
-        """Test return validation decorator with invalid return."""
-        @validate_return(RangeValidator(min_value=0))
-        def calculate():
-            return -1
-        
-        with pytest.raises(ValueError, match="Return value validation failed"):
-            calculate()
 
 
 class TestDeviceConfigValidation:

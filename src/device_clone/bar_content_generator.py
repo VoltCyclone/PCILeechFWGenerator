@@ -18,7 +18,6 @@ logger = get_logger(__name__)
 _HAVE_RICH = True
 try:
     from rich.console import Console
-    from rich.text import Text
 except ImportError:
     _HAVE_RICH = False
     Console = None

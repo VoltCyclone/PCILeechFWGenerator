@@ -6,15 +6,18 @@ This module provides a centralized template rendering system to replace
 the string formatting and concatenation currently used in build.py.
 """
 
-import builtins
 import logging
+
 import math
-import sys
+
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
+
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.__version__ import __version__
+
 from src.exceptions import TemplateRenderError
+
 from src.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
@@ -24,22 +27,20 @@ from src.string_utils import (
     safe_format,
 )
 from src.templates.template_mapping import update_template_path
+
 from src.utils.unified_context import ensure_template_compatibility
 
 from .sv_constants import SV_CONSTANTS
 
 try:
     from jinja2 import (
-        BaseLoader,
         Environment,
         FileSystemLoader,
         StrictUndefined,
-        Template,
         TemplateError,
         TemplateNotFound,
         TemplateRuntimeError,
         Undefined,
-        meta,
         nodes,
     )
     from jinja2.bccache import FileSystemBytecodeCache
@@ -525,37 +526,6 @@ class TemplateRenderer:
             log_error_safe(logger, error_msg, prefix=self.prefix)
             raise TemplateRenderError(error_msg) from e
 
-    def render_string(self, template_string: str, context: Dict[str, Any]) -> str:
-        """
-        Render a template from a string with the given context.
-
-        Args:
-            template_string: Template content as string
-            context: Dictionary of variables to pass to the template
-
-        Returns:
-            Rendered template content as string
-
-        Raises:
-            TemplateRenderError: If template rendering fails
-        """
-        try:
-            # Reuse the same validation path for consistency
-            validated = self._validate_template_context(context, "<inline>")
-            template = self.env.from_string(template_string)
-            return template.render(**validated)
-
-        except TemplateError as e:
-            raise TemplateRenderError(
-                safe_format("Failed to render string template: {error}", error=e)
-            ) from e
-        except Exception as e:
-            raise TemplateRenderError(
-                safe_format(
-                    "Unexpected error rendering string template: {error}", error=e
-                )
-            ) from e
-
     def template_exists(self, template_name: str) -> bool:
         """
         Check if a template file exists.
@@ -655,8 +625,6 @@ class TemplateRenderer:
         self,
         context: Dict[str, Any],
         template_name: Optional[str] = None,
-        required_fields: Optional[list] = None,
-        optional_fields: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
         Validate and prepare template context with permissive validation.

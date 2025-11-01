@@ -7,34 +7,6 @@ import pytest
 from src import build_helpers as bh
 
 
-def test_add_src_to_path_idempotent():
-    # ensure call doesn't raise and adds src once
-    before = list(sys.path)
-    bh.add_src_to_path()
-    # Compute expected src path
-    expected_src = (Path(__file__).resolve().parent.parent / "src").resolve()
-    # calling again should not duplicate
-    bh.add_src_to_path()
-    count = sum(1 for p in sys.path if Path(p) == expected_src)
-    assert count == 1
-
-
-@pytest.mark.parametrize(
-    "part,expected",
-    [
-        ("xc7a35t-foo", "axi_pcie"),
-        ("xc7a75t-foo", "pcie_7x"),
-        ("xc7k325t", "pcie_7x"),
-        ("xczu3eg", "pcie_ultrascale"),
-        ("unknown", "pcie_7x"),
-    ],
-)
-def test_select_pcie_ip_core(part, expected, caplog):
-    caplog.set_level(logging.INFO)
-    core = bh.select_pcie_ip_core(part)
-    assert core == expected
-
-
 def test_create_fpga_strategy_selector_basic():
     select = bh.create_fpga_strategy_selector()
     artix = select("xc7a35t-foo")

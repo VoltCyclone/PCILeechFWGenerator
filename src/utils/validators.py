@@ -1,7 +1,6 @@
 """Generic validation framework for PCILeech."""
 from abc import ABC, abstractmethod
-from functools import wraps
-from typing import Any, Callable, List, Optional, Tuple, Union, Dict
+from typing import Any, Dict, List, Optional
 import re
 from dataclasses import dataclass
 
@@ -143,149 +142,6 @@ class HexValidator(BaseValidator):
         return ValidationResult(len(errors) == 0, errors, warnings)
 
 
-class RequiredFieldsValidator(BaseValidator):
-    """Validate that required fields are present in a dictionary."""
-    
-    def __init__(self, required_fields: List[str], field_name: str = "data"):
-        """Initialize required fields validator.
-        
-        Args:
-            required_fields: List of field names that must be present
-            field_name: Field name for error messages
-        """
-        super().__init__(field_name)
-        self.required_fields = required_fields
-    
-    def validate(self, value: Any) -> ValidationResult:
-        """Validate required fields are present."""
-        errors = []
-        warnings = []
-        
-        if not isinstance(value, dict):
-            errors.append(f"{self.field_name} must be a dictionary")
-            return ValidationResult(False, errors, warnings)
-        
-        missing_fields = []
-        none_fields = []
-        
-        for field in self.required_fields:
-            if field not in value:
-                missing_fields.append(field)
-            elif value[field] is None:
-                none_fields.append(field)
-        
-        if missing_fields:
-            errors.append(f"Missing required fields: {', '.join(missing_fields)}")
-        
-        if none_fields:
-            errors.append(f"Required fields cannot be None: {', '.join(none_fields)}")
-        
-        return ValidationResult(len(errors) == 0, errors, warnings)
-
-
-class RegexValidator(BaseValidator):
-    """Validate values match a regex pattern."""
-    
-    def __init__(self, pattern: str, 
-                 error_message: Optional[str] = None,
-                 field_name: str = "value"):
-        """Initialize regex validator."""
-        super().__init__(field_name)
-        self.pattern = re.compile(pattern)
-        self.error_message = error_message
-    
-    def validate(self, value: Any) -> ValidationResult:
-        """Validate value matches pattern."""
-        errors = []
-        warnings = []
-        
-        if not isinstance(value, str):
-            value = str(value)
-        
-        if not self.pattern.match(value):
-            msg = self.error_message or f"{self.field_name} does not match required pattern"
-            errors.append(msg)
-        
-        return ValidationResult(len(errors) == 0, errors, warnings)
-
-
-class CompositeValidator(BaseValidator):
-    """Combine multiple validators."""
-    
-    def __init__(self, validators: List[BaseValidator], field_name: str = "value"):
-        """Initialize with list of validators."""
-        super().__init__(field_name)
-        self.validators = validators
-    
-    def validate(self, value: Any) -> ValidationResult:
-        """Run all validators and merge results."""
-        result = ValidationResult(True, [], [])
-        for validator in self.validators:
-            result.merge(validator.validate(value))
-        return result
-
-
-# Validation decorators
-def validate_input(**validators: BaseValidator) -> Callable:
-    """
-    Decorator to validate function inputs.
-    
-    Example:
-        @validate_input(
-            vendor_id=HexValidator(4, field_name="vendor_id"),
-            bar_size=RangeValidator(min_value=0, field_name="bar_size")
-        )
-        def configure_device(vendor_id: str, bar_size: int):
-            pass
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Get function signature
-            import inspect
-            sig = inspect.signature(func)
-            bound = sig.bind(*args, **kwargs)
-            bound.apply_defaults()
-            
-            # Validate each parameter
-            all_errors = []
-            for param_name, validator in validators.items():
-                if param_name in bound.arguments:
-                    result = validator.validate(bound.arguments[param_name])
-                    if not result.valid:
-                        all_errors.extend(result.errors)
-            
-            if all_errors:
-                raise ValueError(f"Validation errors: {'; '.join(all_errors)}")
-            
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def validate_return(validator: BaseValidator) -> Callable:
-    """
-    Decorator to validate function return value.
-    
-    Example:
-        @validate_return(HexValidator(4))
-        def get_device_id() -> str:
-            return "10de"
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            validation = validator.validate(result)
-            if not validation.valid:
-                raise ValueError(f"Return value validation failed: {'; '.join(validation.errors)}")
-            return result
-        return wrapper
-    return decorator
-
-
-# Specialized validators
-
 class BDFValidator(BaseValidator):
     """Validate PCI Bus:Device.Function identifiers.
     
@@ -384,7 +240,6 @@ class PowerOfTwoValidator(BaseValidator):
 class BARSizeValidator(BaseValidator):
     """Validate BAR (Base Address Register) sizes according to PCIe spec."""
     
-    # Import constants - we'll need to handle this differently to avoid circular imports
     MIN_MEMORY_SIZE = 16  # 16 bytes minimum for memory BARs
     MIN_IO_SIZE = 4       # 4 bytes minimum for I/O BARs
     MAX_IO_SIZE = 256     # 256 bytes maximum for I/O BARs
@@ -437,12 +292,14 @@ class BARSizeValidator(BaseValidator):
             if self.bar_type == "io":
                 if size < self.MIN_IO_SIZE:
                     errors.append(
-                        f"I/O {self.field_name} must be at least {self.MIN_IO_SIZE} bytes"
+                        f"I/O {self.field_name} must be at least "
+                        f"{self.MIN_IO_SIZE} bytes"
                     )
             else:  # memory
                 if size < self.MIN_MEMORY_SIZE:
                     errors.append(
-                        f"Memory {self.field_name} must be at least {self.MIN_MEMORY_SIZE} bytes"
+                        f"Memory {self.field_name} must be at least "
+                        f"{self.MIN_MEMORY_SIZE} bytes"
                     )
         
         result.errors.extend(errors)
@@ -452,11 +309,6 @@ class BARSizeValidator(BaseValidator):
 
 
 # Factory functions for common validators
-
-def get_hex_validator(length: int, field_name: str = "hex value") -> HexValidator:
-    """Get a hex validator for the specified length."""
-    return HexValidator(length=length, field_name=field_name)
-
 
 def get_vendor_id_validator() -> HexValidator:
     """Get validator for vendor IDs."""
@@ -483,7 +335,6 @@ def get_bar_size_validator(bar_type: str = "memory") -> BARSizeValidator:
     return BARSizeValidator(bar_type=bar_type)
 
 
-# Helper function to validate common device configuration
 def validate_device_config(config: Dict[str, Any]) -> ValidationResult:
     """Validate a device configuration dictionary."""
     result = ValidationResult(True, [], [])

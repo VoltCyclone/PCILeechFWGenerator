@@ -16,7 +16,7 @@ STRICT_MODE_MISSING = (
 TEMPLATE_CONTEXT_VALIDATION_FAILED = "Template context validation failed: {rc}"
 
 # Donor artifacts
-VPD_REQUIRED_MISSING = "VPD required but missing (requires_vpd=True and no vpd_data)."
+VPD_REQUIRED_MISSING = "VPD missing (requires_vpd=True and no vpd_data)."
 OPTION_ROM_MISSING_SIZE = "Option ROM indicated but ROM_SIZE missing or invalid"
 ROM_SIZE_MISMATCH = "ROM size/data mismatch: ROM_SIZE={size} rom_data_len={dlen}"
 
@@ -73,7 +73,9 @@ TEMPLATE_NOT_FOUND = (
 MISSING_BEHAVIOR_PROFILE = "Behavior profile is required for register extraction"
 
 META_ERR_READ_VERSION_FILE: Final[str] = "Error reading __version__.py: {err}"
-META_ERR_SETTOOLS_SCM: Final[str] = "Error getting version from setuptools_scm: {err}"
+META_ERR_SETTOOLS_SCM: Final[str] = (
+    "Error getting version from setuptools_scm: {err}"
+)
 META_ERR_IMPORTLIB_METADATA: Final[str] = (
     "Error getting version from importlib.metadata: {err}"
 )

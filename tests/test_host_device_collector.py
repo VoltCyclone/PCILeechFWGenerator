@@ -219,3 +219,96 @@ def test_save_collected_data_writes_both_files(tmp_path: Path, logger):
     msix_payload = json.loads(msix_path.read_text())
     assert msix_payload['bdf'] == '0000:03:00.0'
     assert msix_payload['msix_info']['table_size'] == 4
+
+
+def test_msix_data_serialization_with_dataclass(monkeypatch, tmp_path: Path, logger):
+    """Test MSIXData (dataclass) serialization with dataclasses.asdict().
+    
+    This test catches the bug where _asdict() was called on a dataclass
+    instead of using dataclasses.asdict(). Dataclasses don't have the
+    _asdict() method (that's only for NamedTuples).
+    """
+    import dataclasses
+
+    import src.cli.host_device_collector as hdc
+
+    monkeypatch.setattr(hdc, 'VFIOBinder', _DummyBinder)
+    monkeypatch.setattr(hdc, 'ConfigSpaceManager', _FakeConfigSpaceManager)
+    monkeypatch.setattr(hdc, 'DeviceInfoLookup', _FakeDeviceInfoLookup)
+
+    # Create a real MSIXData dataclass instance with preloaded=True
+    msix_instance = MSIXData(
+        preloaded=True,
+        msix_info={
+            'table_size': 16,
+            'table_bir': 0,
+            'table_offset': 0x3000,
+            'pba_bir': 0,
+            'pba_offset': 0x4000,
+            'enabled': True,
+            'function_mask': 0,
+        },
+        config_space_hex='aabbccdd',
+        config_space_bytes=b'\xaa\xbb\xcc\xdd',
+    )
+    
+    # Verify MSIXData is actually a dataclass
+    assert dataclasses.is_dataclass(msix_instance)
+    # Verify it does NOT have _asdict() method (that's NamedTuple only)
+    assert not hasattr(msix_instance, '_asdict')
+    # Verify dataclasses.asdict() works correctly
+    msix_dict = dataclasses.asdict(msix_instance)
+    assert isinstance(msix_dict, dict)
+    assert msix_dict['preloaded'] is True
+    assert msix_dict['msix_info']['table_size'] == 16
+
+    # Mock the MSIX collection to return our dataclass instance
+    monkeypatch.setattr(
+        HostDeviceCollector,
+        '_collect_msix_data_vfio',
+        lambda self, mgr, cfg: msix_instance,
+    )
+
+    collector = HostDeviceCollector('0000:03:00.0', logger=logger)
+    collected_data = collector.collect_device_context(tmp_path)
+
+    # Verify the collected data properly serialized the MSIXData
+    assert collected_data['msix_data'] is not None
+    assert isinstance(collected_data['msix_data'], dict)
+    assert collected_data['msix_data']['preloaded'] is True
+    assert collected_data['msix_data']['msix_info']['table_size'] == 16
+    
+    # Verify JSON serialization works (would fail if bytes weren't converted)
+    context_file = tmp_path / 'device_context.json'
+    assert context_file.exists()
+    payload = json.loads(context_file.read_text())
+    assert payload['msix_data']['preloaded'] is True
+
+
+def test_msix_data_not_preloaded_returns_none(monkeypatch, tmp_path: Path, logger):
+    """Test that MSIXData with preloaded=False results in None for msix_data."""
+    import src.cli.host_device_collector as hdc
+
+    monkeypatch.setattr(hdc, 'VFIOBinder', _DummyBinder)
+    monkeypatch.setattr(hdc, 'ConfigSpaceManager', _FakeConfigSpaceManager)
+    monkeypatch.setattr(hdc, 'DeviceInfoLookup', _FakeDeviceInfoLookup)
+
+    # MSIXData with preloaded=False (no MSI-X capability found)
+    msix_instance = MSIXData(preloaded=False)
+    
+    monkeypatch.setattr(
+        HostDeviceCollector,
+        '_collect_msix_data_vfio',
+        lambda self, mgr, cfg: msix_instance,
+    )
+
+    collector = HostDeviceCollector('0000:03:00.0', logger=logger)
+    collected_data = collector.collect_device_context(tmp_path)
+
+    # When preloaded=False, msix_data should be None
+    assert collected_data['msix_data'] is None
+    assert collected_data['collection_metadata']['has_msix'] is False
+    
+    # Verify no msix_data.json file is created
+    msix_file = tmp_path / 'msix_data.json'
+    assert not msix_file.exists()

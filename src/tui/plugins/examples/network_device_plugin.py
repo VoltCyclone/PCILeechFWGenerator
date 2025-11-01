@@ -7,7 +7,7 @@ Demonstrates plugin capabilities for network device analysis and optimization.
 import logging
 from typing import Any, Dict, List, Optional
 
-from ..plugin_base import BuildHook, ConfigValidator, DeviceAnalyzer, PCILeechPlugin
+from ..plugin_base import PCILeechPlugin
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -168,18 +168,6 @@ class NetworkDevicePlugin(PCILeechPlugin):
     def get_description(self) -> str:
         """Get the plugin description."""
         return "Provides specialized support for network device emulation"
-
-    def get_device_analyzer(self) -> Optional[DeviceAnalyzer]:
-        """Get the network device analyzer component."""
-        return self._analyzer
-
-    def get_build_hook(self) -> Optional[BuildHook]:
-        """Get the network build hook component."""
-        return self._build_hook
-
-    def get_config_validator(self) -> Optional[ConfigValidator]:
-        """Get the network configuration validator component."""
-        return self._config_validator
 
     def initialize(self, app_context: Dict[str, Any]) -> bool:
         """Initialize the plugin with application context."""

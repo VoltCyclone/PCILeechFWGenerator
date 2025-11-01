@@ -78,21 +78,13 @@ def _get_iommu_group(bdf: str) -> int:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-@dataclass
+@dataclass(slots=True)
 class BuildConfig:
     bdf: str
     board: str
     # feature toggles (defaults from PRODUCTION_DEFAULTS)
     advanced_sv: bool = PRODUCTION_DEFAULTS.get("ADVANCED_SV", False)
     enable_variance: bool = PRODUCTION_DEFAULTS.get("MANUFACTURING_VARIANCE", False)
-    # disable_* flags are inverse of production defaults
-    disable_power_management: bool = not PRODUCTION_DEFAULTS.get(
-        "POWER_MANAGEMENT", False
-    )
-    disable_error_handling: bool = not PRODUCTION_DEFAULTS.get("ERROR_HANDLING", False)
-    disable_performance_counters: bool = not PRODUCTION_DEFAULTS.get(
-        "PERFORMANCE_COUNTERS", False
-    )
     behavior_profile_duration: int = DEFAULT_BEHAVIOR_PROFILE_DURATION
     # runtime toggles
     auto_fix: bool = True  # hand to VFIOBinder
@@ -158,7 +150,6 @@ class BuildConfig:
 
         version = self._get_project_version()
         # Sanitize version/tag components to allowed chars [A-Za-z0-9_.-]
-        import re as _re
 
         def _sanitize(component: str) -> str:
             return "".join(c for c in component if c.isalnum() or c in "._-") or "x"

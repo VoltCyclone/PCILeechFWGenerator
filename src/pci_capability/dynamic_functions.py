@@ -163,51 +163,6 @@ def _classify_by_class_code(class_code: int) -> Optional[DeviceType]:
     return None
 
 
-def _classify_intel_device(device_upper: int, device_lower: int) -> DeviceType:
-    """Classify Intel devices based on device ID patterns."""
-    # Intel-specific heuristics for unknown devices
-    # (Known device ranges are checked by _classify_by_vendor_patterns)
-    if device_upper >= 0x50:
-        return DeviceType.STORAGE
-    if device_upper >= 0x20:
-        return DeviceType.NETWORK
-
-    return DeviceType.UNKNOWN
-
-
-def _classify_realtek_device(device_upper: int, device_lower: int) -> DeviceType:
-    """Classify Realtek devices based on device ID patterns."""
-    if device_upper == 0x81:
-        return DeviceType.NETWORK
-    if device_upper == 0x52:
-        return DeviceType.STORAGE
-    if device_lower < 0x80:
-        return DeviceType.MEDIA
-
-    return DeviceType.UNKNOWN
-
-
-def _classify_nvidia_device(device_upper: int, device_lower: int) -> DeviceType:
-    """Classify NVIDIA devices based on device ID patterns."""
-    if device_upper >= 0x0A:
-        return DeviceType.MEDIA if device_upper >= 0x40 else DeviceType.USB
-    return DeviceType.MEDIA
-
-
-def _classify_amd_device(device_upper: int, device_lower: int) -> DeviceType:
-    """Classify AMD/ATI devices based on device ID patterns."""
-    if device_upper >= 0x43:
-        return DeviceType.USB if device_lower < 0x50 else DeviceType.MEDIA
-    return DeviceType.MEDIA
-
-
-def _classify_via_device(device_upper: int, device_lower: int) -> DeviceType:
-    """Classify VIA devices based on device ID patterns."""
-    if device_upper >= 0x31:
-        return DeviceType.USB
-    return DeviceType.STORAGE
-
-
 def _classify_by_vendor_patterns(
     vendor_id: int, device_upper: int, device_lower: int
 ) -> Optional[DeviceType]:

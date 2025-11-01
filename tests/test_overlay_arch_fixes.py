@@ -13,8 +13,6 @@ Validates:
 import pytest
 from src.templating.systemverilog_generator import (
     SystemVerilogGenerator,
-    SVConstants,
-    SVTemplates,
     SVValidation,
     TemplateRenderError,
 )
@@ -54,41 +52,6 @@ class TestImportConsistency:
         """Ensure SVValidation is accessible and has expected attributes."""
         assert hasattr(SVValidation, "NO_DONOR_DEVICE_IDS_ERROR")
         assert isinstance(SVValidation.NO_DONOR_DEVICE_IDS_ERROR, str)
-
-
-class TestLegacyMethodBlockers:
-    """Verify legacy methods raise clear errors in overlay-only mode."""
-
-    @pytest.fixture
-    def generator(self):
-        """Create generator instance."""
-        return SystemVerilogGenerator(use_pcileech_primary=True)
-
-    def test_generate_advanced_systemverilog_blocked(self, generator):
-        """Legacy generate_advanced_systemverilog raises clear error."""
-        with pytest.raises(TemplateRenderError) as exc_info:
-            generator.generate_advanced_systemverilog([], None)
-
-        error_msg = str(exc_info.value)
-        assert "overlay-only mode" in error_msg.lower()
-        assert ".coe" in error_msg.lower()
-        assert "pcileech-fpga" in error_msg.lower()
-
-    def test_extract_registers_blocked(self, generator):
-        """Legacy _extract_pcileech_registers raises clear error."""
-        with pytest.raises(TemplateRenderError) as exc_info:
-            generator._extract_pcileech_registers(None)
-
-        error_msg = str(exc_info.value)
-        assert "overlay-only mode" in error_msg.lower()
-
-    def test_generate_advanced_modules_blocked(self, generator):
-        """Legacy _generate_pcileech_advanced_modules raises clear error."""
-        with pytest.raises(TemplateRenderError) as exc_info:
-            generator._generate_pcileech_advanced_modules({}, None)
-
-        error_msg = str(exc_info.value)
-        assert "overlay-only mode" in error_msg.lower()
 
 
 class TestVFIOErrorMessages:

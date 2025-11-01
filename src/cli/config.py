@@ -25,19 +25,8 @@ class BuildConfig:
     auto_install_headers: bool = True
     strict_vfio: bool = True  # Fail hard if VFIO is not available
 
-    # Feature toggles
-    disable_power_management: bool = False
-    disable_error_handling: bool = False
-    disable_performance_counters: bool = False
-
-    flash: bool = True
-
     # Timing configuration
     behavior_profile_duration: int = 45
-
-    # Mode configuration
-    tui: bool = False
-    interactive: bool = False
 
     # Runtime state
     original_driver: Optional[str] = None

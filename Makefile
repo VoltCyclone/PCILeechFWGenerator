@@ -53,10 +53,10 @@ help:
 
 # Development targets
 install:
-	python3 -m pip install -e .
+	python3 -m pip install -q -e .
 
 install-dev:
-	python3 -m pip install -e ".[dev,test,tui]"
+	python3 -m pip install -q -e ".[dev,test,tui]"
 
 test:
 	pytest tests/ --cov=src --cov-report=term-missing

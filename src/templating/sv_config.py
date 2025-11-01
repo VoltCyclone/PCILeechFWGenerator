@@ -25,20 +25,15 @@ class PowerState(Enum):
     """PCIe power states."""
 
     D0 = "D0"  # Fully operational
-    D1 = "D1"  # Light sleep
-    D2 = "D2"  # Deep sleep
     D3_HOT = "D3_HOT"  # Deep sleep with aux power
-    D3_COLD = "D3_COLD"  # No power
 
 
 class LinkState(Enum):
     """PCIe link power states."""
-
-    L0 = "L0"  # Active state
-    L0S = "L0s"  # Standby state
-    L1 = "L1"  # Low power standby
-    L2 = "L2"  # Auxiliary power
-    L3 = "L3"  # Off state
+    L0 = "L0"  # Active
+    L1 = "L1"  # Low power
+    L2 = "L2"  # Standby
+    L3 = "L3"  # Off
 
 
 class ErrorType(Enum):
@@ -48,16 +43,9 @@ class ErrorType(Enum):
     PARITY = "parity"
     CRC = "crc"
     TIMEOUT = "timeout"
-    OVERFLOW = "overflow"
-    UNDERFLOW = "underflow"
     PROTOCOL = "protocol"
-    ALIGNMENT = "alignment"
     INVALID_TLP = "invalid_tlp"
     UNSUPPORTED = "unsupported"
-    # PCIe-specific error types
-    CORRECTABLE = "correctable"
-    UNCORRECTABLE_NON_FATAL = "uncorrectable_non_fatal"
-    UNCORRECTABLE_FATAL = "uncorrectable_fatal"
 
 
 class PerformanceMetric(Enum):
@@ -66,9 +54,6 @@ class PerformanceMetric(Enum):
     TLP_COUNT = "tlp_count"
     COMPLETION_LATENCY = "completion_latency"
     BANDWIDTH_UTILIZATION = "bandwidth_utilization"
-    ERROR_RATE = "error_rate"
-    POWER_TRANSITIONS = "power_transitions"
-    INTERRUPT_LATENCY = "interrupt_latency"
 
 
 # ============================================================================
@@ -98,14 +83,12 @@ class TransitionCycles:
     )
 
 
-@dataclass
+@dataclass(slots=True)
 class ErrorHandlingConfig:
     """Configuration for error detection and handling."""
 
     # Error detection features
     enable_error_detection: bool = True
-    enable_ecc: bool = True
-    enable_parity_check: bool = True
     enable_crc_check: bool = True
     enable_timeout_detection: bool = True
 
@@ -117,20 +100,9 @@ class ErrorHandlingConfig:
 
     # Error storage and thresholds
     error_log_depth: int = 256
-    correctable_error_threshold: int = 100
-    uncorrectable_error_threshold: int = 10
 
-    # Recovery timing (in clock cycles)
-    retry_delay_cycles: int = 100
     timeout_cycles: int = 1048576  # ~10ms at 100MHz
 
-    # Error classification
-    supported_error_types: list = field(
-        default_factory=lambda: [
-            ErrorType.CORRECTABLE,
-            ErrorType.UNCORRECTABLE_NON_FATAL,
-        ]
-    )
     recoverable_errors: Set[ErrorType] = field(
         default_factory=lambda: {ErrorType.PARITY, ErrorType.CRC, ErrorType.TIMEOUT}
     )
@@ -160,31 +132,10 @@ class PerformanceConfig:
     enable_error_rate_tracking: bool = True
     enable_performance_grading: bool = True
     enable_perf_outputs: bool = True
-    enable_histograms: bool = False
-
-    # Counter configuration
     counter_width: int = VC.DEFAULT_COUNTER_WIDTH
-    histogram_bins: int = 16
 
     # Timing configuration
     sampling_period: int = 1000  # Clock cycles
-    bandwidth_sample_period: int = 100000  # Clock cycles for bandwidth sampling
-
-    # Bandwidth calculation
-    transfer_width: int = 4  # Transfer width in bytes
-    bandwidth_shift: int = 10  # Shift for bandwidth calculation
-    avg_packet_size: int = 1500  # For network devices
-
-    # Thresholds
-    min_operations_for_error_rate: int = 100
-    high_performance_threshold: int = 1000
-    medium_performance_threshold: int = 100
-    high_bandwidth_threshold: int = 100
-    medium_bandwidth_threshold: int = 50
-    low_latency_threshold: int = 10
-    medium_latency_threshold: int = 50
-    low_error_threshold: int = 1
-    medium_error_threshold: int = 5
 
     # Metrics to monitor
     metrics_to_monitor: Set[PerformanceMetric] = field(
@@ -246,9 +197,5 @@ class AdvancedFeatureConfig:
         default_factory=PowerManagementConfig
     )
 
-    # Global settings
-    enable_debug_ports: bool = True
-    enable_assertions: bool = True
-    enable_coverage: bool = False
     clock_frequency_mhz: int = 250
     prefix: str = "ADV_SV_FEATURES"

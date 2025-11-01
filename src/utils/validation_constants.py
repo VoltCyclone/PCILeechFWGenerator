@@ -74,21 +74,6 @@ DEVICE_ID_FIELD_WIDTHS: Final[Dict[str, int]] = {
     "revision_id": 2,
 }
 
-# Board configuration fields that are essential for FPGA targeting
-ESSENTIAL_BOARD_CONFIG_FIELDS: Final[List[str]] = [
-    "name",
-    "fpga_part",
-    "fpga_family",
-    "pcie_ip_type",
-]
-
-# Generation metadata fields required for firmware provenance
-REQUIRED_METADATA_FIELDS: Final[List[str]] = [
-    "generated_at",
-    "generator_version",
-    "device_signature",
-    "build_timestamp",
-]
 
 # Known device types supported by the firmware generator
 KNOWN_DEVICE_TYPES: Final[List[str]] = [

@@ -215,34 +215,6 @@ class TemplateDiagnostics:
             "unique_templates": len(by_template),
         }
 
-    def print_performance_report(self) -> None:
-        """Print a formatted performance report."""
-        summary = self.get_performance_summary()
-
-        if "message" in summary:
-            print(summary["message"])
-            return
-
-        print("\n=== Template Performance Report ===")
-        print(f"Total Renders: {summary['total_renders']}")
-        print(f"Success Rate: {summary['success_rate']:.1%}")
-        print(f"Average Duration: {summary['avg_duration_ms']:.2f}ms")
-        print(
-            f"Range: {summary['min_duration_ms']:.2f}ms - "
-            f"{summary['max_duration_ms']:.2f}ms"
-        )
-        print(f"Unique Templates: {summary['unique_templates']}")
-
-        if summary["slowest_templates"]:
-            print("\nSlowest Templates:")
-            for template, duration in summary["slowest_templates"]:
-                print(f"  {template}: {duration:.2f}ms")
-        print()
-
-    def clear_stats(self) -> None:
-        """Clear collected performance statistics."""
-        self._render_stats.clear()
-
     def _detect_missing_variables(self, error_message: str) -> List[str]:
         """
         Detect likely missing variables from error message.

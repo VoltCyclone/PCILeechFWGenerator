@@ -36,7 +36,7 @@ class RegisterType(IntEnum):
     SPECIAL = 4  # Special handling required
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class OverlayEntry:
     """Represents an overlay RAM entry."""
 

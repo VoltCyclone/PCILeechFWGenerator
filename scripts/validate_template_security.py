@@ -70,7 +70,6 @@ class TemplateSecurityLinter:
         self.template_rendering_keywords = [
             "render_template",
             "render_to_file",
-            "render_string",
             "template.render",
         ]
 

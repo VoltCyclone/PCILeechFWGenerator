@@ -32,7 +32,7 @@ class ErrorCategory(Enum):
     FATAL = "fatal"  # Unrecoverable errors
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class RetryConfig:
     """Configuration for retry behavior."""
 

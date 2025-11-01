@@ -43,31 +43,6 @@ class TestInputValidator(unittest.TestCase):
         if self.test_dir.exists():
             self.test_dir.rmdir()
 
-    def test_validate_file_path(self):
-        """Test file path validation."""
-        # Test valid file path
-        is_valid, error = InputValidator.validate_file_path(str(self.test_file))
-        self.assertTrue(is_valid)
-        self.assertEqual(error, "")
-
-        # Test non-existent file
-        is_valid, error = InputValidator.validate_file_path("nonexistent_file.txt")
-        self.assertFalse(is_valid)
-        self.assertIn("File does not exist", error)
-
-        # Test directory as file
-        is_valid, error = InputValidator.validate_file_path(str(self.test_dir))
-        self.assertFalse(is_valid)
-        self.assertIn("Path is not a file", error)
-
-        # Test empty file
-        empty_file = self.test_dir / "empty.txt"
-        empty_file.touch()
-        is_valid, error = InputValidator.validate_file_path(str(empty_file))
-        self.assertFalse(is_valid)
-        self.assertIn("File is empty", error)
-        empty_file.unlink()
-
     def test_validate_directory_path(self):
         """Test directory path validation."""
         # Test valid directory path
@@ -127,18 +102,6 @@ class TestInputValidator(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertIn("cannot be empty", error)
 
-    def test_validate_numeric(self):
-        """Test numeric validation."""
-        # Test valid numeric string
-        is_valid, error = InputValidator.validate_numeric("123.45", "Field")
-        self.assertTrue(is_valid)
-        self.assertEqual(error, "")
-
-        # Test invalid numeric string
-        is_valid, error = InputValidator.validate_numeric("abc", "Field")
-        self.assertFalse(is_valid)
-        self.assertIn("must be a numeric value", error)  # Changed to match actual error message
-
     def test_validate_in_range(self):
         """Test range validation."""
         # Test in range
@@ -160,24 +123,6 @@ class TestInputValidator(unittest.TestCase):
         is_valid, error = InputValidator.validate_in_range("abc", 0, 10, "Field")
         self.assertFalse(is_valid)
         self.assertIn("must be a numeric value", error)  # Changed to match actual error message
-
-    def test_validate_in_choices(self):
-        """Test choices validation."""
-        choices = ["option1", "option2", "option3"]
-
-        # Test valid choice
-        is_valid, error = InputValidator.validate_in_choices(
-            "option2", choices, "Field"
-        )
-        self.assertTrue(is_valid)
-        self.assertEqual(error, "")
-
-        # Test invalid choice
-        is_valid, error = InputValidator.validate_in_choices(
-            "option4", choices, "Field"
-        )
-        self.assertFalse(is_valid)
-        self.assertIn("must be one of", error)
 
     def test_validate_config(self):
         """Test configuration validation."""

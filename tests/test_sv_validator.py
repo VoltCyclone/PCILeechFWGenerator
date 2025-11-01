@@ -303,7 +303,7 @@ class TestSVValidatorDonorArtifacts:
             "requires_vpd": True,
         }
 
-        with pytest.raises(TemplateRenderError, match="VPD.*required"):
+        with pytest.raises(TemplateRenderError, match="VPD missing"):
             validator.validate_template_context(context)
 
     def test_validate_donor_artifacts_vpd_required_empty(self):
@@ -316,7 +316,7 @@ class TestSVValidatorDonorArtifacts:
             "vpd_data": b"",
         }
 
-        with pytest.raises(TemplateRenderError, match="VPD.*required"):
+        with pytest.raises(TemplateRenderError, match="VPD missing"):
             validator.validate_template_context(context)
 
     def test_validate_donor_artifacts_vpd_required_present(self):

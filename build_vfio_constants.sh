@@ -27,8 +27,27 @@ log_error() {
 }
 
 # Check if we're in a container
+# Uses multiple detection methods to be reliable across different container runtimes
 is_container() {
-    [ -f /.dockerenv ] || [ -f /run/.containerenv ] || grep -q 'container=podman' /proc/1/environ 2>/dev/null
+    # Method 1: Docker/Podman marker files
+    [ -f /.dockerenv ] && return 0
+    [ -f /run/.containerenv ] && return 0
+    
+    # Method 2: Check for container environment variable
+    grep -q 'container=' /proc/1/environ 2>/dev/null && return 0
+    
+    # Method 3: Check if systemd is init (containers often use it differently)
+    if [ -f /proc/1/cgroup ]; then
+        grep -qE '(docker|lxc|kubepods)' /proc/1/cgroup 2>/dev/null && return 0
+    fi
+    
+    # Method 4: Check if we're in a namespace different from init namespace
+    if [ -e /proc/1/ns/pid ] && [ -e /proc/self/ns/pid ]; then
+        [ "$(readlink /proc/1/ns/pid)" != "$(readlink /proc/self/ns/pid)" ] && return 0
+    fi
+    
+    # Not in container
+    return 1
 }
 
 # Check if we're running as privileged (needed for VFIO access)
@@ -41,8 +60,26 @@ install_kernel_headers() {
     local kernel_version=$(uname -r)
     log_info "Installing kernel headers for kernel version: $kernel_version"
     
+    # First, check if headers already exist (works in all environments)
+    local header_paths=(
+        "/usr/src/kernels/${kernel_version}"
+        "/lib/modules/${kernel_version}/build"
+        "/usr/src/linux-headers-${kernel_version}"
+    )
+    
+    for path in "${header_paths[@]}"; do
+        if [ -d "$path" ]; then
+            log_success "Found existing kernel headers at: $path"
+            return 0
+        fi
+    done
+    
+    # Headers not found - need to install
+    log_info "Kernel headers not found, attempting installation..."
+    
+    # Try to install via package manager (works in containers and on host with sudo)
     if is_container; then
-        log_info "Running in container - installing headers via package manager"
+        log_info "Detected container environment - using package manager"
         
         # Detect package manager and install headers
         if command -v dnf >/dev/null 2>&1; then
@@ -65,11 +102,15 @@ install_kernel_headers() {
             # Debian/Ubuntu
             log_info "Using apt-get to install kernel headers"
             apt-get update
-            apt-get install -y "linux-headers-${kernel_version}" || \
-            apt-get install -y linux-headers-generic || {
-                log_error "Failed to install kernel headers via apt-get"
-                return 1
-            }
+            # Try exact kernel version first, fall back to generic
+            if ! apt-get install -y "linux-headers-${kernel_version}" 2>/dev/null; then
+                log_info "Exact kernel headers (${kernel_version}) not available"
+                log_info "Installing generic kernel headers (compatible fallback)"
+                apt-get install -y linux-headers-generic || {
+                    log_error "Failed to install kernel headers via apt-get"
+                    return 1
+                }
+            fi
         elif command -v pacman >/dev/null 2>&1; then
             # Arch Linux
             log_info "Using pacman to install kernel headers"
@@ -89,35 +130,28 @@ install_kernel_headers() {
             return 1
         fi
     else
-        log_info "Running on host - checking for existing headers"
-        
-        # On host, headers should already be installed
-        local header_paths=(
-            "/usr/src/kernels/${kernel_version}"
-            "/lib/modules/${kernel_version}/build"
-            "/usr/src/linux-headers-${kernel_version}"
-        )
-        
-        local found_headers=false
-        for path in "${header_paths[@]}"; do
-            if [ -d "$path" ]; then
-                log_success "Found kernel headers at: $path"
-                found_headers=true
-                break
-            fi
-        done
-        
-        if [ "$found_headers" = false ]; then
-            log_error "Kernel headers not found. Please install them:"
-            log_error "  Fedora/RHEL: sudo dnf install kernel-headers-\$(uname -r)"
-            log_error "  Ubuntu/Debian: sudo apt-get install linux-headers-\$(uname -r)"
-            log_error "  Arch Linux: sudo pacman -S linux-headers"
-            log_error "  openSUSE: sudo zypper install kernel-devel"
-            return 1
-        fi
+        # Not in container - user needs to install headers manually
+        log_error "Kernel headers not found on host. Please install them:"
+        log_error "  Fedora/RHEL: sudo dnf install kernel-headers-\$(uname -r)"
+        log_error "  Ubuntu/Debian: sudo apt-get install linux-headers-\$(uname -r)"
+        log_error "  Arch Linux: sudo pacman -S linux-headers"
+        log_error "  openSUSE: sudo zypper install kernel-devel"
+        log_error ""
+        log_error "After installing headers, run this script again."
+        return 1
     fi
     
-    log_success "Kernel headers are available"
+    # Verify headers were installed successfully
+    for path in "${header_paths[@]}"; do
+        if [ -d "$path" ]; then
+            log_success "Kernel headers successfully installed/found at: $path"
+            return 0
+        fi
+    done
+    
+    log_error "Header installation appeared to succeed but headers not found"
+    log_error "This may indicate a kernel version mismatch"
+    return 1
 }
 
 # Verify VFIO availability
@@ -125,17 +159,29 @@ check_vfio() {
     log_info "Checking VFIO availability..."
     
     if [ ! -c /dev/vfio/vfio ]; then
-        log_error "/dev/vfio/vfio device not found"
-        log_error "Make sure VFIO is loaded and container has --device=/dev/vfio/vfio"
+        # VFIO device not present - determine if this is expected
+        local in_container=false
+        is_container && in_container=true
+        
+        if [ "$in_container" = true ]; then
+            log_info "VFIO device not available in container (expected during build)"
+            log_info "VFIO is only required at runtime, not during image build"
+        else
+            log_warning "/dev/vfio/vfio device not found on host"
+            log_warning "VFIO module may need to be loaded: modprobe vfio-pci"
+        fi
+        log_info "Continuing with header-based constant extraction"
         return 1
     fi
     
     if ! is_privileged; then
-        log_warning "Cannot access /dev/vfio/vfio - may need --privileged flag"
-        log_warning "Continuing anyway - constants can still be extracted"
+        log_info "Limited VFIO access (unprivileged mode)"
+        log_info "This is fine - constants can be extracted from kernel headers"
     else
-        log_success "VFIO device accessible"
+        log_success "VFIO device accessible with full privileges"
     fi
+    
+    return 0
 }
 
 # Build the helper and patch constants
@@ -206,8 +252,8 @@ main() {
         exit 1
     fi
     
-    # Check VFIO (non-fatal)
-    check_vfio || true
+    # Check VFIO (non-fatal - only needed at runtime, not build time)
+    check_vfio || log_info "VFIO not available (this is fine during build)"
     
     # Build and patch
     if ! build_and_patch; then
@@ -216,6 +262,7 @@ main() {
     fi
     
     log_success "All done! Your vfio_constants.py now has kernel-correct ioctl numbers."
+    log_success "VFIO constants are ready for runtime use."
 }
 
 # Show usage if requested

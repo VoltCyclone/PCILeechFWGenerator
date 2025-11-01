@@ -1,11 +1,11 @@
-import pathlib
 import platform
+
 from typing import Any, Dict, List, Optional, Union
 
 from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
                               safe_format)
-from src.utils.unified_context import \
-    TemplateObject  # For context compatibility
+
+from src.utils.unified_context import TemplateObject  # For context compatibility
 
 
 def enrich_context_with_driver(

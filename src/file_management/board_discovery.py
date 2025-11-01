@@ -25,11 +25,6 @@ class BoardDiscovery:
     This class should NOT be instantiated - use class methods only.
     """
     
-    def __new__(cls, *args, **kwargs):
-        raise TypeError(
-            "BoardDiscovery may not be instantiated; call class methods only"
-        )
-
     # Board configurations - aligned with RepoManager.get_board_path()
     # These match the actual directory structure in voltcyclone-fpga submodule
     BOARD_CONFIGS = {

@@ -143,7 +143,7 @@ class UICoordinator(Protocol):
         """Refresh the UI."""
         ...
 
-    async def show_screen(self, screen_name: str, **kwargs) -> None:
+    async def show_screen(self, **kwargs) -> None:
         """
         Show a specific screen.
 

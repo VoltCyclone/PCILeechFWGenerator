@@ -121,7 +121,7 @@ class TestBuildOrchestrator(unittest.TestCase):
 
     @patch.object(BuildOrchestrator, "_update_progress")
     @patch.object(BuildOrchestrator, "_notify_progress")
-    async def test_update_resource_usage(self, mock_notify, mock_update):
+    async def test_update_resource_usage(self):
         # Setup
         self.orchestrator._current_progress = MagicMock()
 
@@ -196,7 +196,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch.object(BuildOrchestrator, "_run_stage")
     @patch.object(BuildOrchestrator, "_notify_progress")
     async def test_start_build_success(
-        self, mock_notify, mock_run_stage, mock_create_stages
+        self, mock_run_stage, mock_create_stages
     ):
         # Setup
         callback_mock = MagicMock()
@@ -281,7 +281,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch.object(BuildOrchestrator, "_validate_environment")
     @patch.object(BuildOrchestrator, "_validate_pci_config")
     async def test_create_build_stages_basic(
-        self, mock_validate_pci, mock_validate_env
+        self
     ):
         # Setup basic config
         config = BuildConfiguration(
@@ -309,7 +309,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch.object(BuildOrchestrator, "_validate_environment")
     @patch.object(BuildOrchestrator, "_validate_pci_config")
     async def test_create_build_stages_with_behavior_profiling(
-        self, mock_validate_pci, mock_validate_env
+        self
     ):
         # Setup config with behavior profiling
         config = BuildConfiguration(
@@ -333,7 +333,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch.object(BuildOrchestrator, "_validate_environment")
     @patch.object(BuildOrchestrator, "_validate_pci_config")
     async def test_create_build_stages_with_donor_dump(
-        self, mock_validate_pci, mock_validate_env
+        self
     ):
         # Setup config with donor dump
         config = BuildConfiguration(
@@ -359,7 +359,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch.object(BuildOrchestrator, "_build_container_image")
     @patch.object(BuildOrchestrator, "_ensure_git_repo")
     async def test_validate_container_environment_success(
-        self, mock_git, mock_build_container, mock_run_shell, mock_geteuid
+        self, mock_build_container, mock_run_shell
     ):
         # Setup
         mock_run_shell.side_effect = [
@@ -377,7 +377,7 @@ class TestBuildOrchestrator(unittest.TestCase):
         mock_build_container.assert_not_called()  # Container exists, no need to build
 
     @patch("os.geteuid", return_value=1000)  # Mock as non-root
-    async def test_validate_container_environment_no_root(self, mock_geteuid):
+    async def test_validate_container_environment_no_root(self):
         # Run test and expect exception
         with self.assertRaises(RuntimeError) as context:
             await self.orchestrator._validate_container_environment()
@@ -389,7 +389,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch.object(BuildOrchestrator, "_run_shell")
     @patch.object(BuildOrchestrator, "_build_container_image")
     async def test_validate_container_environment_no_container(
-        self, mock_build_container, mock_run_shell, mock_geteuid
+        self, mock_build_container, mock_run_shell
     ):
         # Setup
         mock_run_shell.side_effect = [
@@ -442,7 +442,7 @@ class TestBuildOrchestrator(unittest.TestCase):
     @patch("builtins.open", new_callable=unittest.mock.mock_open)
     @patch("pathlib.Path.exists")
     async def test_clone_git_repo_success(
-        self, mock_exists, mock_open, mock_rmtree, mock_makedirs
+        self, mock_open,
     ):
         # Skip test if git is not available
         if not self.orchestrator.GIT_AVAILABLE:

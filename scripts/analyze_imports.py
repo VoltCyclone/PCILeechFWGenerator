@@ -31,7 +31,6 @@ class CircularImport(NamedTuple):
     cycle: List[str]  # List of module names in the cycle
     files: List[str]  # Corresponding file paths
 
-
 class ImportAnalyzer:
     def __init__(self, project_root: str):
         self.project_root = Path(project_root)

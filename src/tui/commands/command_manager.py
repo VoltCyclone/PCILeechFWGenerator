@@ -5,7 +5,7 @@ This module provides a command manager that maintains a history of executed comm
 and supports undo/redo operations.
 """
 
-from typing import List, Optional, Type
+from typing import List
 
 from .command import Command
 

@@ -334,14 +334,6 @@ class TestErrorHandling:
         with pytest.raises(TemplateRenderError):
             renderer.render_template("error_tag.j2", {})
 
-    def test_render_string_error_handling(self):
-        """Test error handling in render_string."""
-        renderer = TemplateRenderer(strict=True)
-        template = "{{ undefined }}"
-
-        with pytest.raises(TemplateRenderError):
-            renderer.render_string(template, {})
-
     def test_render_to_file_error_handling(self, tmp_path):
         """Test error handling in render_to_file."""
         renderer = TemplateRenderer(template_dir=tmp_path, strict=True)

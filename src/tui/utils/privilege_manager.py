@@ -147,27 +147,3 @@ class PrivilegeManager:
         except Exception as e:
             logger.error(f"Error running privileged command: {e}")
             return False, "", str(e)
-
-
-class PrivilegeRequest:
-    """Helper for requesting privilege elevation from the user."""
-
-    @staticmethod
-    async def request_dialog(app, operation: str, description: str) -> bool:
-        """
-        Show a dialog requesting privilege elevation.
-
-        Args:
-            app: The application instance.
-            operation: The operation requiring elevated privileges.
-            description: Human-readable description of the operation.
-
-        Returns:
-            bool: True if the user granted permission, False otherwise.
-        """
-        # This implementation will log the request but always returns True
-        # to ensure it doesn't block operation
-        logger.info(f"Privilege elevation requested for {operation}: {description}")
-
-        # Always grant permission in this implementation
-        return True

@@ -8,18 +8,10 @@ reduce import complexity.
 """
 
 import logging
-from typing import Dict, List, Optional
 
-# Centralized version import (avoid hardcoding versions)
-try:
-    from ..__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
-except Exception:  # pragma: no cover - fallback if package structure differs
-    try:
-        from src.__version__ import (
-            __version__ as PCILEECH_FWGEN_VERSION,
-        )  # type: ignore
-    except Exception:
-        PCILEECH_FWGEN_VERSION = "unknown"
+from typing import Dict, Optional
+
+from ..__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
 
 # Import standard utilities
 try:
@@ -62,7 +54,6 @@ except ImportError:
         PerformanceMetric,
         PowerManagementConfig,
         PowerState,
-        TransitionCycles,
     )
     from src.templating.template_renderer import (
         TemplateRenderer,
@@ -172,46 +163,6 @@ class AdvancedSVFeatureGenerator:
             )
             return self._generate_fallback_error_module()
 
-    def generate_performance_monitor_module(self) -> str:
-        """Generate performance monitoring module."""
-        if not self.config.performance.enable_performance_counters:
-            log_debug_safe(
-                logger,
-                "Performance monitoring disabled, returning empty module",
-                prefix=self.prefix,
-            )
-            return ""
-
-        log_info_safe(
-            logger, "Generating performance monitoring module", prefix=self.prefix
-        )
-
-        try:
-            context = {
-                "config": self.config.performance,
-                "counter_width": self.config.performance.counter_width,
-                "sampling_period": self.config.performance.sampling_period,
-                "metrics": list(self.config.performance.metrics_to_monitor),
-            }
-
-            return self._generate_module_template(
-                "performance_monitor",
-                context,
-                self._generate_counter_logic(),
-                self._generate_sampling_logic(),
-                self._generate_reporting_logic(),
-            )
-        except Exception as e:
-            log_error_safe(
-                logger,
-                safe_format(
-                    "Error generating performance monitor module: {error}",
-                    error=str(e),
-                ),
-                prefix=self.prefix,
-            )
-            return self._generate_fallback_performance_module()
-
     def generate_power_management_module(self) -> str:
         """Generate power management module."""
         if not self.config.power_management.enable_power_management:
@@ -267,23 +218,6 @@ class AdvancedSVFeatureGenerator:
             context,
             self._generate_error_recovery_logic(),
             self._generate_error_logging_logic(),
-        )
-
-    def _generate_fallback_performance_module(self) -> str:
-        """Generate a fallback performance monitor when templates fail."""
-        log_warning_safe(
-            logger,
-            "Using fallback performance monitoring module",
-            prefix=self.prefix,
-        )
-
-        context = {"config": self.config.performance}
-        return self._generate_fallback_module(
-            "performance_monitor",
-            context,
-            self._generate_counter_logic(),
-            self._generate_sampling_logic(),
-            self._generate_reporting_logic(),
         )
 
     def _generate_fallback_power_module(self) -> str:
@@ -464,17 +398,6 @@ endmodule
         context = {"config": self.config.error_handling}
         return self.renderer.render_template(
             "sv/error_handling/error_logging.sv.j2", context
-        )
-
-    def _generate_counter_logic(self) -> str:
-        """Generate performance counter logic."""
-        log_debug_safe(
-            logger, "Generating performance counter logic", prefix=self.prefix
-        )
-
-        context = {"config": self.config.performance}
-        return self.renderer.render_template(
-            "sv/performance_counters.sv.j2", context
         )
 
     def _generate_sampling_logic(self) -> str:

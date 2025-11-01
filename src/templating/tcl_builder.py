@@ -173,7 +173,7 @@ class TCLScriptType(Enum):
     PCILEECH_BUILD = "pcileech_build"
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class BuildContext:
     """Immutable build context containing all necessary build parameters."""
     

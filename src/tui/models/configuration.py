@@ -49,19 +49,8 @@ class BuildConfiguration(BaseModel):
         default=None, description="Directory to store build outputs"
     )
 
-    # Build options
-    optimization_level: str = Field(
-        default="balanced", description="Optimization level for the build"
-    )
-    debug_mode: bool = Field(
-        default=False, description="Enable debug mode with additional logging"
-    )
-    enable_logging: bool = Field(default=True, description="Enable logging features")
     enable_performance_counters: bool = Field(
         default=False, description="Enable performance counters"
-    )
-    enable_error_counters: bool = Field(
-        default=True, description="Enable error counters"
     )
 
     # Advanced options
@@ -83,10 +72,6 @@ class BuildConfiguration(BaseModel):
     error_handling: bool = Field(
         default=True, description="Enable error handling features"
     )
-    flash_after_build: bool = Field(
-        default=False, description="Automatically flash FPGA after build completes"
-    )
-
     # Legacy / compatibility options (present in the older dataclass model)
     donor_dump: bool = Field(
         default=True, description="Use donor_dump kernel module for donor info"
@@ -115,12 +100,6 @@ class BuildConfiguration(BaseModel):
     custom_parameters: Dict[str, Any] = Field(
         default_factory=dict, description="Custom build parameters"
     )
-    feature_flags: Dict[str, bool] = Field(
-        default_factory=dict, description="Feature flag overrides"
-    )
-    compatibility_overrides: List[str] = Field(
-        default_factory=list, description="Compatibility overrides"
-    )
 
     # Metadata
     created_at: Optional[str] = Field(
@@ -129,72 +108,6 @@ class BuildConfiguration(BaseModel):
     last_used: Optional[str] = Field(
         default=None, description="Last used timestamp (ISO format)"
     )
-
-    # Validators
-    @field_validator("board_type")
-    @classmethod
-    def validate_board_type(cls, v):
-        """Validate that the board type is supported."""
-        if v not in VALID_BOARD_TYPES:
-            raise ValueError(
-                f'Invalid board type: {v}. Valid types are: {", ".join(VALID_BOARD_TYPES)}'
-            )
-        return v
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, v):
-        """Validate that the name is not empty."""
-        if not v or len(v.strip()) == 0:
-            raise ValueError("Configuration name cannot be empty")
-        return v.strip()
-
-    @field_validator("device_type")
-    @classmethod
-    def validate_device_type(cls, v):
-        """Validate that the device type is supported."""
-        if v not in VALID_DEVICE_TYPES:
-            raise ValueError(
-                f'Invalid device type: {v}. Valid types are: {", ".join(VALID_DEVICE_TYPES)}'
-            )
-        return v
-
-    @field_validator("optimization_level")
-    @classmethod
-    def validate_optimization_level(cls, v):
-        """Validate that the optimization level is supported."""
-        if v not in VALID_OPTIMIZATION_LEVELS:
-            raise ValueError(
-                f'Invalid optimization level: {v}. Valid levels are: {", ".join(VALID_OPTIMIZATION_LEVELS)}'
-            )
-        return v
-
-    @field_validator("profile_duration")
-    @classmethod
-    def validate_profile_duration(cls, v):
-        """Validate that the profile duration is reasonable."""
-        if v <= 0:
-            raise ValueError(f"Profile duration must be positive, got {v}")
-        if v > 3600:
-            raise ValueError(
-                f"Profile duration too long: {v}. Maximum is 3600 seconds (1 hour)"
-            )
-        return v
-
-    @model_validator(mode="after")
-    def validate_advanced_features(self):
-        """Validate that advanced features configuration is consistent."""
-        if self.behavior_profiling and not self.advanced_sv:
-            raise ValueError(
-                "Behavior profiling requires advanced SystemVerilog features to be enabled"
-            )
-
-        if self.enable_performance_counters and not self.advanced_sv:
-            raise ValueError(
-                "Performance counters require advanced SystemVerilog features to be enabled"
-            )
-
-        return self
 
     @model_validator(mode="before")
     @classmethod
