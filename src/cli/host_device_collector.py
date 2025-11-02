@@ -9,6 +9,7 @@ for VFIO operations inside the container.
 import json
 import logging
 import time
+from dataclasses import asdict
 
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -111,7 +112,7 @@ class HostDeviceCollector:
                     "config_space_hex": config_space_bytes.hex(),
                     "device_info": device_info,
                     "msix_data": (
-                        msix_data._asdict() if msix_data.preloaded else None
+                        asdict(msix_data) if msix_data.preloaded else None
                     ),
                     "collection_metadata": {
                         "collected_at": time.time(),
