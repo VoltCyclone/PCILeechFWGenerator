@@ -1086,6 +1086,14 @@ class FirmwareBuilder:
                     "skipping container VFIO operations",
                     prefix="BUILD"
                 )
+                # CRITICAL: Disable profiling when using host context
+                # to avoid VFIO operations
+                self.config.enable_profiling = False
+                log_info_safe(
+                    self.logger,
+                    "Disabled behavior profiling for host-collected context",
+                    prefix="BUILD"
+                )
             else:
                 # Fallback to container-based generation with MSI-X preloading
                 msix_data = self._preload_msix()
