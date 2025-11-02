@@ -28,6 +28,28 @@ class MemoryStats:
     available_mb: float  # Available system memory in MB
     percent_used: float  # Percentage of system memory used
 
+    @property
+    def is_low_memory(self) -> bool:
+        """Check if system is in low memory condition (>80% used)."""
+        return self.percent_used > 80.0
+
+    @property
+    def is_critical_memory(self) -> bool:
+        """Check if system is in critical memory condition (>90% used)."""
+        return self.percent_used > 90.0
+
+    @property
+    def memory_status(self) -> str:
+        """Get human-readable memory status."""
+        if self.is_critical_memory:
+            return "CRITICAL"
+        elif self.is_low_memory:
+            return "LOW"
+        elif self.percent_used > 60.0:
+            return "MODERATE"
+        else:
+            return "NORMAL"
+
 
 class MemoryMonitor:
     """Monitor memory usage during operations."""

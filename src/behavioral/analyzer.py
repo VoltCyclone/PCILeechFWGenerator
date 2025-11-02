@@ -23,8 +23,14 @@ class BehavioralAnalyzerFactory:
         class_code = getattr(device_config, 'class_code', 0)
         device_class = (class_code >> 16) & 0xFF
         
-        log_info_safe(logger, safe_format("Creating behavioral analyzer for class=0x{cls:02X}",
-                                 cls=device_class))
+        log_info_safe(
+            logger, 
+            safe_format(
+                "Creating behavioral analyzer for class=0x{cls:02X}",
+                cls=device_class
+            ),
+            prefix="BEHA"
+        )
         
         if device_class == 0x02:  # Network controller
             return NetworkBehavioralAnalyzer(device_config)
@@ -33,15 +39,21 @@ class BehavioralAnalyzerFactory:
         elif device_class == 0x04:  # Multimedia controller
             return MediaBehavioralAnalyzer(device_config)
         else:
-            log_warning_safe(logger, safe_format("No behavioral analyzer for class=0x{cls:02X}",
-                                        cls=device_class))
+            log_warning_safe(
+                logger, 
+                safe_format(
+                    "No behavioral analyzer for class=0x{cls:02X}",
+                    cls=device_class
+                ),
+                prefix="BEHA"
+            )
             return None
             
     @staticmethod
     def generate_behavioral_spec(device_config: Any) -> Optional[BehavioralSpec]:
         """Generate behavioral specification for device."""
         if not getattr(device_config, 'enable_behavioral_simulation', False):
-            log_info_safe(logger, "Behavioral simulation disabled")
+            log_info_safe(logger, "Behavioral simulation disabled", prefix="BEHA")
             return None
             
         analyzer = BehavioralAnalyzerFactory.create_analyzer(device_config)

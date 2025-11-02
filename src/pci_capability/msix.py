@@ -601,7 +601,11 @@ class MSIXCapabilityHandler:
             required_vectors = device_context.get("required_msix_vectors", 0)
             if required_vectors > total_vectors:
                 requirements["issues"].append(
-                    f"Device requires {required_vectors} vectors but only {total_vectors} available"
+                    safe_format(
+                        "Device requires {required_vectors} vectors but only {total_vectors} available",
+                        required_vectors=required_vectors,
+                        total_vectors=total_vectors,
+                    )
                 )
 
         return requirements

@@ -257,6 +257,27 @@ class BuildContext:
                     self=self
                 )
             )
+
+    @property
+    def has_donor_values(self) -> bool:
+        """Check if all donor-derived values are present."""
+        return all([
+            self.vendor_id is not None,
+            self.device_id is not None,
+            self.revision_id is not None,
+            self.class_code is not None,
+        ])
+
+    @property
+    def missing_donor_values(self) -> List[str]:
+        """Get list of missing donor values."""
+        required_fields = {
+            'vendor_id': self.vendor_id,
+            'device_id': self.device_id,
+            'revision_id': self.revision_id,
+            'class_code': self.class_code,
+        }
+        return [name for name, value in required_fields.items() if value is None]
     
     def require_donor_values(self):
         """
@@ -265,14 +286,7 @@ class BuildContext:
         Raises:
             ValueError: If any required donor value is missing
         """
-        required_fields = {
-            'vendor_id': self.vendor_id,
-            'device_id': self.device_id,
-            'revision_id': self.revision_id,
-            'class_code': self.class_code,
-        }
-        
-        missing = [name for name, value in required_fields.items() if value is None]
+        missing = self.missing_donor_values
         if missing:
             raise ValueError(
                 f"Missing required donor-derived values: {', '.join(missing)}. "

@@ -6,7 +6,6 @@ Simple prioritization system that highlights devices likely to be successful
 for PCILeech firmware generation based on device names and types.
 """
 
-import re
 from typing import Dict, List, Tuple
 
 

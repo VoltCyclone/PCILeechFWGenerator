@@ -152,6 +152,21 @@ class BuildConfiguration:
     # Experimental / testing feature toggles
     enable_error_injection: bool = False
 
+    @property
+    def has_custom_templates(self) -> bool:
+        """Check if custom templates are configured."""
+        return self.output_template is not None or self.donor_template is not None
+
+    @property
+    def has_vivado_config(self) -> bool:
+        """Check if Vivado configuration is present."""
+        return self.vivado_path is not None
+
+    @property
+    def is_parallel_enabled(self) -> bool:
+        """Check if parallel processing is enabled with valid workers."""
+        return self.parallel_writes and self.max_workers > 1
+
 
 @dataclass(slots=True)
 class MSIXData:
@@ -161,6 +176,22 @@ class MSIXData:
     msix_info: Optional[Dict[str, Any]] = None
     config_space_hex: Optional[str] = None
     config_space_bytes: Optional[bytes] = None
+
+    @property
+    def has_msix_data(self) -> bool:
+        """Check if MSI-X data is available."""
+        return self.msix_info is not None
+
+    @property
+    def has_config_space(self) -> bool:
+        """Check if config space data is available."""
+        return (self.config_space_hex is not None or
+                self.config_space_bytes is not None)
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if all MSI-X data is complete."""
+        return self.preloaded and self.has_msix_data and self.has_config_space
 
 
 @dataclass(slots=True)
@@ -173,6 +204,26 @@ class DeviceConfiguration:
     class_code: int
     requires_msix: bool
     pcie_lanes: int
+
+    @property
+    def device_signature(self) -> str:
+        """Generate unique device signature from IDs."""
+        return f"{self.vendor_id:04x}:{self.device_id:04x}:{self.revision_id:02x}"
+
+    @property
+    def class_code_hex(self) -> str:
+        """Format class code as 6-digit hex string."""
+        return f"{self.class_code:06x}"
+
+    @property
+    def is_gen3_capable(self) -> bool:
+        """Check if device supports PCIe Gen3 (8+ lanes typical)."""
+        return self.pcie_lanes >= 8
+
+    @property
+    def has_interrupts(self) -> bool:
+        """Check if device has interrupt capability (MSI-X)."""
+        return self.requires_msix
 
 
 # ──────────────────────────────────────────────────────────────────────────────

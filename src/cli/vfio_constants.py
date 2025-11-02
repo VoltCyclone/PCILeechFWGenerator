@@ -4,13 +4,11 @@ Provides kernel-compatible VFIO constants and structures.
 """
 
 import ctypes
-import struct
 
 # VFIO IOCTL command generation (Linux kernel style)
 _IOC_NRBITS = 8
 _IOC_TYPEBITS = 8
 _IOC_SIZEBITS = 14
-_IOC_DIRBITS = 2
 
 _IOC_NRSHIFT = 0
 _IOC_TYPESHIFT = _IOC_NRSHIFT + _IOC_NRBITS
@@ -51,7 +49,7 @@ def _IOWR(type, nr, size):
 VFIO_TYPE = ord(";")
 
 # VFIO constants
-VFIO_DEVICE_NAME_MAX_LENGTH = 256  # Maximum device name length in VFIO, defined in Linux kernel headers (e.g., include/uapi/linux/vfio.h)
+VFIO_DEVICE_NAME_MAX_LENGTH = 256  # Maximum device name length in VFIO
 VFIO_TYPE1_IOMMU = 1
 
 

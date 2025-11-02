@@ -16,16 +16,9 @@ from typing import Optional, Tuple
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-try:
-    from ..__version__ import __url__, __version__
-    from ..log_config import get_logger
-    from ..string_utils import log_warning_safe
-except ImportError:
-    # Fallback for direct execution
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from __version__ import __url__, __version__
-    from log_config import get_logger
-    from src.string_utils import log_warning_safe
+from ..__version__ import __url__, __version__
+from ..log_config import get_logger
+from ..string_utils import log_warning_safe, safe_format, log_debug_safe
 
 logger = get_logger(__name__)
 
@@ -167,7 +160,11 @@ def save_cache(latest_version: str, update_available: bool):
             json.dump(data, f)
     except Exception as e:
         # Silently fail if we can't write cache
-        logger.debug(f"Failed to save cache: {e}")
+        log_debug_safe(
+            logger, 
+            safe_format("Failed to save cache, error={e}", e=str(e)),
+            prefix="VERS"
+        )
         pass
 
 
@@ -202,9 +199,19 @@ def fetch_latest_version_github() -> Optional[str]:
                 reason = e.read().decode()
             except Exception:
                 reason = str(e)
-            logger.debug(f"GitHub API HTTPError: {e.code} {reason}")
+                log_debug_safe(
+                    logger, 
+                    safe_format(
+                        "Failed to read GitHub response, error={e}", e=str(e)
+                    ),
+                    prefix="VERS"
+                )
         else:
-            logger.debug(f"Failed to fetch from GitHub: {e}")
+            log_debug_safe(
+                logger,
+                safe_format("GitHub fetch error: {e}", e=str(e)),
+                prefix="VERS"
+            )
         return None
 
 
@@ -219,7 +226,11 @@ def fetch_latest_version_pypi() -> Optional[str]:
             data = json.loads(response.read().decode())
             return data.get("info", {}).get("version")
     except Exception as e:
-        logger.debug(f"Failed to fetch from PyPI: {e}")
+        log_debug_safe(
+            logger,
+            safe_format("PyPI fetch error: {e}", e=str(e)),
+            prefix="VERS"
+        )
         return None
 
 
@@ -248,7 +259,11 @@ def fetch_latest_version() -> Optional[str]:
         # Unknown value: default to GitHub
         return fetch_latest_version_github()
     except Exception as e:
-        logger.debug(f"Failed to fetch latest version: {e}")
+        log_debug_safe(
+            logger,
+            safe_format("Failed to fetch latest version: {e}", e=str(e)),
+            prefix="VERS"
+        )
         return None
 
 
@@ -287,7 +302,11 @@ def check_for_updates(force: bool = False) -> Optional[Tuple[str, bool]]:
 
         return latest_version, update_available
     except Exception as e:
-        logger.debug(f"Error checking for updates: {e}")
+        log_debug_safe(
+            logger,
+            safe_format("Error checking for updates: {e}", e=str(e)),
+            prefix="VERS"
+        )
         return None
 
 
@@ -311,6 +330,7 @@ def prompt_for_update(latest_version: str):
         "   Update with one of these commands:\n"
         "   • pip install --upgrade pcileech-fw-generator\n"
         "   • git pull (if installed from source)\n"
+        "   If this is a pre-release version pull from git\n"
         "\n"
         f"   Release notes: {__url__}/releases\n" + "=" * 60 + "\n",
     )
@@ -329,7 +349,11 @@ def check_and_notify():
                 prompt_for_update(latest_version)
     except Exception as e:
         # Never let version checking break the main program
-        logger.debug(f"Version check failed: {e}")
+        log_debug_safe(
+            logger,
+            safe_format("Version check failed: {e}", e=str(e)),
+            prefix="VERS"
+        )
         pass
 
 

@@ -114,6 +114,27 @@ class PCILeechGenerationConfig:
     # Experimental / testing features
     enable_error_injection: bool = False
 
+    @property
+    def has_board_config(self) -> bool:
+        """Check if board configuration is present."""
+        return self.board is not None or self.fpga_part is not None
+
+    @property
+    def is_strict_mode(self) -> bool:
+        """Check if operating in strict validation mode."""
+        return self.strict_validation and self.fail_on_missing_data
+
+    @property
+    def allows_fallbacks(self) -> bool:
+        """Check if any fallbacks are allowed."""
+        return self.fallback_mode != "none" or len(self.allowed_fallbacks) > 0
+
+    @property
+    def profiling_enabled(self) -> bool:
+        """Check if behavior profiling is enabled with valid duration."""
+        return (self.enable_behavior_profiling and
+                self.behavior_capture_duration > 0)
+
 
 class PCILeechGenerator:
     """
@@ -512,6 +533,38 @@ class PCILeechGenerator:
         )
 
         try:
+            # First, check for pre-collected config space from host
+            import json
+            import os
+
+            context_path = os.environ.get(
+                "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
+            )
+            if context_path and os.path.exists(context_path):
+                try:
+                    with open(context_path, "r") as f:
+                        payload = json.load(f)
+                    
+                    config_space_hex = payload.get("config_space_hex")
+                    if config_space_hex:
+                        log_info_safe(
+                            self.logger,
+                            "Using pre-collected config space from host",
+                            prefix="MSIX",
+                        )
+                        config_space_bytes = bytes.fromhex(config_space_hex)
+                        return self._process_config_space_bytes(config_space_bytes)
+                except Exception as e:
+                    log_debug_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to load pre-collected config space: {err}",
+                            err=str(e)
+                        ),
+                        prefix="MSIX",
+                    )
+            
+            # Fallback to VFIO config space reading
             config_space_bytes = self.config_space_manager.read_vfio_config_space()
             return self._process_config_space_bytes(config_space_bytes)
         except (OSError, IOError) as e:

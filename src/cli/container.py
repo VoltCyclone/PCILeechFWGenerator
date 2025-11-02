@@ -108,6 +108,32 @@ class BuildConfig:
     # experimental/testing features
     enable_error_injection: bool = False
 
+    @property
+    def has_advanced_features(self) -> bool:
+        """Check if advanced features are enabled."""
+        return self.advanced_sv or self.enable_variance
+
+    @property
+    def has_active_device_config(self) -> bool:
+        """Check if active device is configured."""
+        return not self.disable_active_device
+
+    @property
+    def allows_fallbacks(self) -> bool:
+        """Check if any fallbacks are allowed."""
+        return (self.fallback_mode != "none" or
+                len(self.allowed_fallbacks) > 0)
+
+    @property
+    def has_custom_templates(self) -> bool:
+        """Check if custom templates are configured."""
+        return self.output_template is not None or self.donor_template is not None
+
+    @property
+    def full_image_name(self) -> str:
+        """Get full container image name with tag."""
+        return f"{self.container_image}:{self.container_tag}"
+
     # ------------------------------------------------------------------
     # Image reference helpers
     # ------------------------------------------------------------------

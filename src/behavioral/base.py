@@ -2,7 +2,7 @@
 """Base behavioral register infrastructure for device simulation."""
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -81,14 +81,26 @@ class BehavioralSpec:
         
     def add_register(self, register: BehavioralRegister) -> None:
         """Add a behavioral register."""
-        log_debug_safe(logger, safe_format("Adding behavioral register: {name} at 0x{offset:04X}",
-                                  name=register.name, offset=register.offset))
+        log_debug_safe(
+            logger, 
+            safe_format(
+                "Adding behavioral register: {name} at 0x{offset:04X}",
+                name=register.name, offset=register.offset
+            ),
+            prefix="BEHA"
+        )
         self.registers[register.name] = register
         
     def add_counter(self, counter: BehavioralCounter) -> None:
         """Add a behavioral counter."""
-        log_debug_safe(logger, safe_format("Adding counter: {name} ({width} bits)",
-                                  name=counter.name, width=counter.width))
+        log_debug_safe(
+            logger, 
+            safe_format(
+                "Adding counter: {name} ({width} bits)",
+                name=counter.name, width=counter.width
+            ),
+            prefix="BEHA"
+        )
         self.counters[counter.name] = counter
         
     def to_dict(self) -> Dict[str, Any]:
@@ -106,8 +118,14 @@ class BehavioralSpec:
         offsets = {}
         for name, reg in self.registers.items():
             if reg.offset in offsets:
-                log_error_safe(logger, safe_format("Offset conflict: {name1} and {name2} at 0x{offset:04X}",
-                                          name1=offsets[reg.offset], name2=name, offset=reg.offset))
+                log_error_safe(
+                    logger, 
+                    safe_format(
+                        "Offset conflict: {name1} and {name2} at 0x{offset:04X}",
+                        name1=offsets[reg.offset], name2=name, offset=reg.offset
+                    ),
+                    prefix="BEHA"
+                )
                 return False
             offsets[reg.offset] = name
             
@@ -117,15 +135,25 @@ class BehavioralSpec:
                 # Check if pattern references valid counters
                 for counter_name in self.counters.keys():
                     if counter_name in reg.pattern:
-                        log_debug_safe(logger, safe_format("Register {reg} uses counter {cnt}",
-                                                  reg=name, cnt=counter_name))
-                        
+                        log_debug_safe(
+                            logger, 
+                            safe_format(
+                                "Register {reg} uses counter {cnt}",
+                                reg=name, cnt=counter_name),
+                            prefix="BEHA"
+                        )     
         return True
 
 
 def require(condition: bool, message: str, **context) -> None:
     """Validate condition or exit with error."""
     if not condition:
-        log_error_safe(safe_format("Build aborted: {msg} | ctx={ctx}", 
-                                  msg=message, ctx=context))
+        log_error_safe(
+            logger,
+            safe_format(
+                "Build aborted: {msg} | ctx={ctx}", 
+                msg=message, ctx=context
+            ),
+            prefix="BEHA"
+        )
         raise SystemExit(2)
