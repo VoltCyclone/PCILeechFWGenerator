@@ -111,6 +111,10 @@ class PCILeechGenerationConfig:
 
     # Donor template
     donor_template: Optional[Dict[str, Any]] = None
+    
+    # Preloaded data (to avoid redundant VFIO operations)
+    preloaded_config_space: Optional[bytes] = None
+    
     # Experimental / testing features
     enable_error_injection: bool = False
 
@@ -232,6 +236,11 @@ class PCILeechGenerator:
         self.config_space_manager = ConfigSpaceManager(
             bdf=self.config.device_bdf,
             strict_vfio=getattr(self.config, "strict_vfio", True),
+        )
+        
+        # Store preloaded config space data if available
+        self._preloaded_config_space = getattr(
+            self.config, "preloaded_config_space", None
         )
 
         # Initialize template renderer
@@ -512,7 +521,21 @@ class PCILeechGenerator:
         )
 
         try:
-            config_space_bytes = self.config_space_manager.read_vfio_config_space()
+            # Check if we have pre-collected config space data (from host)
+            # This avoids redundant VFIO binding when host has already collected data
+            if (hasattr(self, '_preloaded_config_space') and 
+                self._preloaded_config_space):
+                log_info_safe(
+                    self.logger,
+                    "Using pre-collected configuration space data from host",
+                    prefix="MSIX",
+                )
+                config_space_bytes = self._preloaded_config_space
+            else:
+                # Fallback to VFIO reading (original behavior)
+                config_space_bytes = (
+                    self.config_space_manager.read_vfio_config_space()
+                )
             return self._process_config_space_bytes(config_space_bytes)
         except (OSError, IOError) as e:
             log_error_safe(

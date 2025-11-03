@@ -1027,6 +1027,214 @@ puts "Project created successfully"
             self.log_test_result("Integration Fallbacks", False, str(e), duration)
             return False
 
+    async def test_host_device_collector(self) -> bool:
+        """Test host device collector functionality and VFIO rebinding prevention."""
+        self.logger.info("Testing host device collector and VFIO rebinding prevention...")
+        start_time = time.time()
+
+        try:
+            # Import required modules
+            from src.host_device_collector import HostDeviceCollector
+            from src.device_clone.pcileech_generator import PCILeechGenerator, PCILeechGenerationConfig
+            from src.device_clone.config_space_manager import ConfigSpaceManager
+            from src.utils.unified_context import UnifiedContextBuilder
+            
+            # Test device
+            test_device = self.test_devices[0]
+            bdf = test_device["bdf"]
+            
+            # Create mock device context data that would be collected by host
+            mock_device_context = {
+                "vendor_id": test_device["vendor_id"],
+                "device_id": test_device["device_id"],
+                "subsystem_vendor": test_device["subsystem_vendor"],
+                "subsystem_device": test_device["subsystem_device"],
+                "class_code": test_device["class_code"],
+                "device_name": test_device["device_name"],
+                "bdf": bdf,
+                "bar_config": {
+                    "bars": [
+                        {"size": 0x1000000, "type": "memory", "address": 0xF0000000},
+                        {"size": 0x1000, "type": "memory", "address": 0xF1000000},
+                        {"size": 0x40, "type": "io", "address": 0x2000}
+                    ]
+                },
+                "capabilities": {
+                    "msi": {"supported": True, "vectors": 1},
+                    "msix": {"supported": False},
+                    "pcie": {"supported": True, "version": "2.0"}
+                },
+                "generation_metadata": {
+                    "collected_by": "host_device_collector",
+                    "collection_time": "2024-01-01T00:00:00Z",
+                    "version": "1.0"
+                }
+            }
+            
+            # Create mock MSI-X data
+            mock_msix_data = {
+                "msix_supported": False,
+                "table_offset": 0,
+                "table_size": 0,
+                "vectors": []
+            }
+            
+            # Create temporary files for host-collected data
+            temp_dir = self.test_base_dir / "host_collected_data"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            device_context_file = temp_dir / "device_context.json"
+            msix_data_file = temp_dir / "msix_data.json"
+            
+            # Write mock data to files
+            with open(device_context_file, 'w') as f:
+                json.dump(mock_device_context, f, indent=2)
+            
+            with open(msix_data_file, 'w') as f:
+                json.dump(mock_msix_data, f, indent=2)
+            
+            # Test 1: HostDeviceCollector can load pre-collected data
+            self.logger.info("Testing HostDeviceCollector data loading...")
+            
+            # Set environment variables to point to our mock files
+            os.environ["DEVICE_CONTEXT_FILE"] = str(device_context_file)
+            os.environ["MSIX_DATA_FILE"] = str(msix_data_file)
+            
+            collector = HostDeviceCollector()
+            
+            # Verify data loading
+            loaded_context = collector._load_device_context()
+            loaded_msix = collector._load_msix_data()
+            
+            if not loaded_context:
+                raise ValueError("Failed to load device context from file")
+            if not loaded_msix:
+                raise ValueError("Failed to load MSI-X data from file")
+            
+            # Verify loaded data matches expected
+            if loaded_context["vendor_id"] != test_device["vendor_id"]:
+                raise ValueError(f"Vendor ID mismatch: expected {test_device['vendor_id']}, got {loaded_context['vendor_id']}")
+            
+            self.logger.info("✓ HostDeviceCollector successfully loaded pre-collected data")
+            
+            # Test 2: PCILeechGenerator uses preloaded config space instead of VFIO
+            self.logger.info("Testing PCILeechGenerator with preloaded config space...")
+            
+            # Create realistic config space data
+            config_space_data = self._generate_realistic_config_space(test_device)
+            
+            # Create PCILeechGenerator with preloaded config space
+            config = PCILeechGenerationConfig(
+                bdf=bdf,
+                board=test_device["board"],
+                output_dir=self.build_output_dir / "host_collector_test",
+                preloaded_config_space=config_space_data  # This is the key feature
+            )
+            
+            generator = PCILeechGenerator(config)
+            
+            # Verify that the generator has the preloaded config space
+            if generator._preloaded_config_space != config_space_data:
+                raise ValueError("Generator did not properly store preloaded config space")
+            
+            # Test 3: Verify that _analyze_configuration_space uses preloaded data
+            self.logger.info("Testing configuration space analysis with preloaded data...")
+            
+            # Mock VFIO operations to detect if they're called
+            vfio_called = False
+            
+            def mock_vfio_read(*args, **kwargs):
+                nonlocal vfio_called
+                vfio_called = True
+                raise Exception("VFIO should not be called when preloaded data is available")
+            
+            # Patch VFIO operations
+            with patch("src.vfio_handler.VFIODeviceHandler.read_config_space", side_effect=mock_vfio_read):
+                with patch("src.vfio_handler.VFIODeviceHandler.__init__", side_effect=Exception("VFIO binding should not occur")):
+                    try:
+                        # This should use preloaded data and NOT call VFIO
+                        config_space_manager = generator._analyze_configuration_space()
+                        
+                        # Verify VFIO was NOT called
+                        if vfio_called:
+                            raise ValueError("VFIO was called despite preloaded config space being available")
+                        
+                        # Verify we got a valid ConfigSpaceManager
+                        if not config_space_manager:
+                            raise ValueError("Configuration space analysis returned None")
+                        
+                        # Verify the config space data is correct
+                        if config_space_manager.get_raw_config_space() != config_space_data:
+                            raise ValueError("Config space manager does not contain expected data")
+                        
+                        self.logger.info("✓ Configuration space analysis used preloaded data without VFIO calls")
+                        
+                    except Exception as e:
+                        if "VFIO binding should not occur" in str(e):
+                            raise ValueError("VFIO binding was attempted despite preloaded data being available")
+                        else:
+                            raise
+            
+            # Test 4: Test with environment variables set (container scenario)
+            self.logger.info("Testing container scenario with environment variables...")
+            
+            # Set environment variables as they would be in container
+            os.environ["PCILEECH_PRELOADED_CONFIG_SPACE"] = config_space_data.hex()
+            os.environ["PCILEECH_SKIP_VFIO"] = "true"
+            
+            # Create generator with environment-based config
+            container_config = PCILeechGenerationConfig(
+                bdf=bdf,
+                board=test_device["board"],
+                output_dir=self.build_output_dir / "container_test"
+            )
+            
+            container_generator = PCILeechGenerator(container_config)
+            
+            # Verify preloaded config space is set from environment
+            if not container_generator._preloaded_config_space:
+                raise ValueError("Container environment did not set preloaded config space")
+            
+            # Test 5: Verify MSI-X data integration
+            self.logger.info("Testing MSI-X data integration...")
+            
+            # Test that MSI-X analysis uses pre-collected data
+            msix_analysis_result = generator._analyze_msix_capabilities()
+            
+            if msix_analysis_result is None:
+                self.logger.warning("MSI-X analysis returned None, but this may be expected for mock data")
+            
+            duration = time.time() - start_time
+            
+            # Create summary of what was tested
+            test_details = [
+                "✓ HostDeviceCollector loaded pre-collected device context",
+                "✓ HostDeviceCollector loaded pre-collected MSI-X data", 
+                "✓ PCILeechGenerator accepted preloaded config space",
+                "✓ Configuration space analysis used preloaded data (no VFIO calls)",
+                "✓ Container environment variables properly configured generator",
+                "✓ MSI-X capability analysis completed"
+            ]
+            
+            self.log_test_result(
+                "Host Device Collector",
+                True,
+                " | ".join(test_details),
+                duration,
+                [str(device_context_file), str(msix_data_file)]
+            )
+            return True
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            self.log_test_result("Host Device Collector", False, str(e), duration)
+            return False
+        finally:
+            # Clean up environment variables
+            for env_var in ["DEVICE_CONTEXT_FILE", "MSIX_DATA_FILE", "PCILEECH_PRELOADED_CONFIG_SPACE", "PCILEECH_SKIP_VFIO"]:
+                if env_var in os.environ:
+                    del os.environ[env_var]
+
     def generate_test_report(self) -> Dict[str, Any]:
         """Generate comprehensive test report."""
         total_duration = time.time() - self.start_time
@@ -1104,6 +1312,7 @@ puts "Project created successfully"
             self.test_container_build,
             self.test_performance_benchmarks,
             self.test_integration_fallbacks,
+            self.test_host_device_collector,
         ]
 
         # Run tests
