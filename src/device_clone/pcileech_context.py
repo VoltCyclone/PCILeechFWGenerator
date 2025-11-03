@@ -1478,7 +1478,36 @@ class PCILeechContextBuilder:
         return config
 
     def _analyze_bars(self, bars):
+        """Analyze BARs with detailed progress output."""
         bar_configs = []
+        
+        # Technical header
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "╔═════════════════════════════════════════════════════════════╗"
+            ),
+            prefix="BAR",
+        )
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "║  BASE ADDRESS REGISTER DISCOVERY & ANALYSIS                ║"
+            ),
+            prefix="BAR",
+        )
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "╠═════════════════════════════════════════════════════════════╣"
+            ),
+            prefix="BAR",
+        )
+        
+        total_bars = len(bars)
+        discovered_count = 0
+        total_memory_mapped = 0
+        
         for i, bar_data in enumerate(bars):
             try:
                 # Use the true BAR index from config space when querying VFIO.
@@ -1494,14 +1523,75 @@ class PCILeechContextBuilder:
                 bar_info = self._get_vfio_bar_info(vfio_region_index, bar_data)
                 if bar_info:
                     bar_configs.append(bar_info)
+                    discovered_count += 1
+                    
+                    # Technical per-BAR output
+                    size_mb = bar_info.size / (1024 * 1024)
+                    size_kb = bar_info.size / 1024
+                    
+                    if bar_info.is_memory:
+                        total_memory_mapped += bar_info.size
+                        if size_mb >= 1:
+                            size_display = safe_format(
+                                "{size:.2f} MB", size=size_mb
+                            )
+                        else:
+                            size_display = safe_format(
+                                "{size:.2f} KB", size=size_kb
+                            )
+                        bar_flags = "PREFETCH" if bar_info.prefetchable else "MEM"
+                    else:
+                        size_display = safe_format(
+                            "{size} bytes", size=bar_info.size
+                        )
+                        bar_flags = "IO"
+                    
+                    width_indicator = (
+                        "64-bit" if bar_info.bar_type == 1 else "32-bit"
+                    )
+                    
+                    bar_line = safe_format(
+                        "║ BAR{idx} @ 0x{addr:08X} │ {size:>12} │ "
+                        "{width:>7} │ {flags:>8} ║",
+                        idx=vfio_region_index,
+                        addr=bar_info.base_address,
+                        size=size_display,
+                        width=width_indicator,
+                        flags=bar_flags
+                    )
+                    log_info_safe(self.logger, bar_line, prefix="BAR")
             except Exception as e:
                 log_warning_safe(
                     self.logger,
                     safe_format(
-                        "Failed to analyze BAR {index}: {error}", index=i, error=str(e)
+                        "║ BAR{index}: DISCOVERY FAILED - {error}",
+                        index=i,
+                        error=str(e)
                     ),
                     prefix="BAR",
                 )
+        
+        # Summary footer
+        separator = (
+            "╠═════════════════════════════════════════════════════════════╣"
+        )
+        log_info_safe(self.logger, safe_format(separator), prefix="BAR")
+        
+        total_memory_mb = total_memory_mapped / (1024 * 1024)
+        summary_line = safe_format(
+            "║ DISCOVERED: {discovered}/{total} BARs │ "
+            "MEMORY MAPPED: {mem:.2f} MB              ║",
+            discovered=discovered_count,
+            total=total_bars,
+            mem=total_memory_mb
+        )
+        log_info_safe(self.logger, summary_line, prefix="BAR")
+        
+        footer = (
+            "╚═════════════════════════════════════════════════════════════╝"
+        )
+        log_info_safe(self.logger, safe_format(footer), prefix="BAR")
+        
         return bar_configs
 
     def _select_primary_bar(self, bar_configs):

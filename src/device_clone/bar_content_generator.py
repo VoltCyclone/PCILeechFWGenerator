@@ -244,33 +244,97 @@ class BarContentGenerator:
         Returns:
             Dict mapping BAR index to content bytes
         """
+        if not bar_sizes:
+            return {}
+        
+        # Technical header for BAR content generation
+        log_info_safe(
+            logger,
+            safe_format(
+                "╔═════════════════════════════════════════════════════════════╗"
+            ),
+            prefix="BARS",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "║  BAR CONTENT GENERATION - HIGH ENTROPY SYNTHESIS           ║"
+            ),
+            prefix="BARS",
+        )
+        log_info_safe(
+            logger,
+            safe_format(
+                "╠═════════════════════════════════════════════════════════════╣"
+            ),
+            prefix="BARS",
+        )
+        
         result = {}
+        total_generated = 0
+        
         for bar_index, size in bar_sizes.items():
             if size <= 4096:
                 content_type = BarContentType.REGISTERS
+                type_label = "REG"
             elif size >= 1024 * 1024:
                 content_type = BarContentType.MIXED
+                type_label = "MIXED"
             else:
                 content_type = BarContentType.BUFFER
+                type_label = "BUF"
             
             content = self.generate_bar_content(size, bar_index, content_type)
             result[bar_index] = content
+            total_generated += size
             
-            # Log generation info
-            log_info_safe(
-                logger,
-                safe_format(
-                    "Generated BAR{bar} size {size} as {type}",
-                    bar=bar_index,
-                    size=size,
-                    type=content_type.value,
-                ),
-                prefix="BARS",
+            # Calculate entropy for display
+            stats = self.get_entropy_stats(content)
+            entropy_pct = (stats["entropy"] / 8.0) * 100
+            uniqueness_pct = stats["uniqueness"] * 100
+            
+            # Format size for display
+            size_mb = size / (1024 * 1024)
+            if size_mb >= 1:
+                size_display = safe_format("{size:.2f} MB", size=size_mb)
+            else:
+                size_kb = size / 1024
+                size_display = safe_format("{size:.2f} KB", size=size_kb)
+            
+            # Log detailed generation info with stats
+            bar_gen_line = safe_format(
+                "║ BAR{bar} [{type:>5}] {size:>12} │ "
+                "ENT: {ent:>5.1f}% │ UNIQ: {uniq:>5.1f}% ║",
+                bar=bar_index,
+                type=type_label,
+                size=size_display,
+                ent=entropy_pct,
+                uniq=uniqueness_pct
             )
+            log_info_safe(logger, bar_gen_line, prefix="BARS")
             
             # Visualize if requested
             if visualize and logger.isEnabledFor(logging.INFO):
                 self._visualize_bar_content(content, bar_index)
+        
+        # Summary footer
+        separator = (
+            "╠═════════════════════════════════════════════════════════════╣"
+        )
+        log_info_safe(logger, safe_format(separator), prefix="BARS")
+        
+        total_mb = total_generated / (1024 * 1024)
+        summary_line = safe_format(
+            "║ GENERATED: {count} BAR(s) │ TOTAL SIZE: {total:.2f} MB      ║",
+            count=len(result),
+            total=total_mb
+        )
+        log_info_safe(logger, summary_line, prefix="BARS")
+        
+        footer = (
+            "╚═════════════════════════════════════════════════════════════╝"
+        )
+        log_info_safe(logger, safe_format(footer), prefix="BARS")
         
         return result
 
