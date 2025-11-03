@@ -1170,6 +1170,9 @@ class FirmwareBuilder:
             PCILeechGenerator,
         )
 
+        # Check if we have preloaded config space from host collection
+        preloaded_config_space = self._load_preloaded_config_space()
+
         self.gen = PCILeechGenerator(
             PCILeechGenerationConfig(
                 device_bdf=self.config.bdf,
@@ -1180,6 +1183,7 @@ class FirmwareBuilder:
                 enable_error_injection=getattr(
                     self.config, "enable_error_injection", False
                 ),
+                preloaded_config_space=preloaded_config_space,
             )
         )
 
@@ -1220,6 +1224,100 @@ class FirmwareBuilder:
                     safe_format("Failed to load donor template: {err}", err=str(e))
                 ) from e
         return None
+
+    def _load_preloaded_config_space(self) -> Optional[bytes]:
+        """
+        Load preloaded config space from host collection.
+        
+        Returns:
+            Config space bytes if available, None otherwise
+        """
+        context_path = os.environ.get(
+            "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
+        )
+        
+        # If no path configured, silently return None
+        if not context_path:
+            return None
+            
+        # If path doesn't exist, return None (normal for non-container builds)
+        if not os.path.exists(context_path):
+            return None
+        
+        try:
+            with open(context_path, "r") as f:
+                payload = json.load(f)
+        except json.JSONDecodeError as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Device context file is not valid JSON: {path} - {err}",
+                    path=context_path,
+                    err=str(e)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        except (OSError, IOError) as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Failed to read device context file: {path} - {err}",
+                    path=context_path,
+                    err=str(e)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        # Extract config space hex
+        config_space_hex = payload.get("config_space_hex")
+        if not config_space_hex:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "No config_space_hex found in device context: {path}",
+                    path=context_path
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        # Convert hex to bytes
+        try:
+            config_space_bytes = bytes.fromhex(config_space_hex)
+        except ValueError as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Invalid hex string in config_space_hex: {err}",
+                    err=str(e)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        # Validate minimum size
+        if len(config_space_bytes) < 64:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Config space too small: {size} bytes (minimum 64 expected)",
+                    size=len(config_space_bytes)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "Loaded preloaded config space from host: {size} bytes",
+                size=len(config_space_bytes)
+            ),
+            prefix="HOST_CFG"
+        )
+        return config_space_bytes
 
     def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
         """
