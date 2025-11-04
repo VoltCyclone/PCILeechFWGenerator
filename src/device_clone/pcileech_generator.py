@@ -242,6 +242,22 @@ class PCILeechGenerator:
         self._preloaded_config_space = getattr(
             self.config, "preloaded_config_space", None
         )
+        
+        if self._preloaded_config_space:
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Generator received preloaded config space: {size} bytes",
+                    size=len(self._preloaded_config_space)
+                ),
+                prefix="PCIL"
+            )
+        else:
+            log_info_safe(
+                self.logger,
+                "Generator has no preloaded config space - will use VFIO",
+                prefix="PCIL"
+            )
 
         # Initialize template renderer
         self.template_renderer = TemplateRenderer(self.config.template_dir)

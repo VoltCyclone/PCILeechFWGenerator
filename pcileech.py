@@ -13,7 +13,9 @@ import os
 import platform
 import subprocess
 import sys
+import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 # Add project root to path for imports (use absolute path to avoid symlink issues)
 project_root = Path(__file__).resolve().parent
@@ -591,6 +593,21 @@ Environment Variables:
         default=3600,
         help="Timeout for Vivado operations in seconds (default: 3600)",
     )
+    build_parser.add_argument(
+        "--host-collect-only",
+        action="store_true",
+        help="Stage 1: collect PCIe data on host and exit (no build)",
+    )
+    build_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Run full pipeline locally instead of container",
+    )
+    build_parser.add_argument(
+        "--datastore",
+        default="pcileech_datastore",
+        help="Host dir for device_context.json and outputs",
+    )
 
     # TUI command
     tui_parser = subparsers.add_parser("tui", help="Launch interactive TUI")
@@ -762,55 +779,245 @@ def handle_build(args):
             )
             return 1
 
-        # Import and use the existing CLI build functionality
-        from src.cli.cli import main as cli_main
+        # Stage 1: host-only data collection
+        if getattr(args, "host_collect_only", False):
+            return run_host_collect(args)
 
-        log_info_safe(
-            logger,
-            "Starting build for device {bdf} on board {board}",
-            prefix="BUILD",
-            bdf=args.bdf,
-            board=args.board,
-        )
+        # If datastore exists we assume stages 1 done; otherwise run it now
+        datastore = Path(args.datastore)
+        device_ctx = datastore / "device_context.json"
+        if not device_ctx.exists():
+            log_info_safe(
+                logger,
+                "No datastore found; running host collect now",
+                prefix="BUILD",
+            )
+            rc = run_host_collect(args)
+            if rc != 0:
+                return rc
 
-        # Convert arguments to CLI format
-        cli_args = ["build", "--bdf", args.bdf, "--board", args.board]
+        # Stage 2: templating / parsing (container or local)
+        if getattr(args, "local", False):
+            rc = run_local_templating(args)
+        else:
+            rc = run_container_templating(args)
+        if rc != 0:
+            return rc
 
-        if args.advanced_sv:
-            cli_args.append("--advanced-sv")
-        if args.enable_variance:
-            cli_args.append("--enable-variance")
-        if getattr(args, "enable_error_injection", False):
-            cli_args.append("--enable-error-injection")
+        # Stage 3: host-side Vivado batch
+        return run_host_vivado(args)
 
-        if args.generate_donor_template:
-            cli_args.extend(["--output-template", args.generate_donor_template])
-
-        if args.donor_template:
-            cli_args.extend(["--donor-template", args.donor_template])
-
-        # Pass device type if specified and not the default
-        if hasattr(args, "device_type") and args.device_type != "generic":
-            cli_args.extend(["--device-type", args.device_type])
-
-        # Run the CLI
-        return cli_main(cli_args)
-
-    except ImportError as e:
-        log_error_safe(
-            logger,
-            safe_format("Failed to import CLI module: {error}", error=str(e)),
-            prefix="BUILD",
-        )
-        log_error_safe(
-            logger, "Make sure all dependencies are installed", prefix="BUILD"
-        )
-        return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
-
         log_error_with_root_cause(logger, "Build failed", e)
         return 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Orchestration helpers: host collect → templating (container/local) → Vivado
+# ──────────────────────────────────────────────────────────────────────────────
+
+def run_host_collect(args):
+    """Stage 1: probe device and write datastore on the host."""
+    logger = get_logger(__name__)
+    try:
+        from src.host_collect.collector import HostCollector
+    except Exception as e:
+        log_error_safe(
+            logger,
+            safe_format("Host collector unavailable: {err}", err=str(e)),
+            prefix="BUILD",
+        )
+        return 1
+
+    datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
+    datastore.mkdir(parents=True, exist_ok=True)
+
+    collector = HostCollector(args.bdf, datastore, logger)
+    rc = collector.run()
+    if rc == 0:
+        log_info_safe(
+            logger,
+            safe_format("Host collect complete → {path}", path=str(datastore)),
+            prefix="BUILD",
+        )
+    return rc
+
+
+def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -> bool:
+    """Ensure the container image exists; build it if missing."""
+    try:
+        inspect = subprocess.run(
+            [runtime, "image", "inspect", tag],
+            capture_output=True,
+            text=True,
+        )
+        if inspect.returncode == 0:
+            return True
+        # Build image
+        log_info_safe(
+            logger,
+            safe_format("Building container image: {tag}", tag=tag),
+            prefix="BUILD",
+        )
+        build = subprocess.run(
+            [runtime, "build", "-t", tag, "-f", "Containerfile", "."],
+            cwd=str(project_root),
+        )
+        return build.returncode == 0
+    except Exception as e:
+        log_error_safe(
+            logger,
+            safe_format("Container image check/build failed: {err}", err=str(e)),
+            prefix="BUILD",
+        )
+        return False
+
+
+def run_container_templating(args):
+    """Stage 2a: launch container with datastore mounted to run templating."""
+    logger = get_logger(__name__)
+    datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
+    output_dir = datastore / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    runtime = "podman" if shutil.which("podman") else ("docker" if shutil.which("docker") else None)
+    if not runtime:
+        log_warning_safe(logger, "No podman/docker found; using local mode", prefix="BUILD")
+        return run_local_templating(args)
+
+    if not _ensure_container_image(runtime, logger, tag="pcileech-fwgen"):
+        return 1
+
+    envs = [
+        "-e",
+        "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
+        "-e",
+        "MSIX_DATA_PATH=/datastore/msix_data.json",
+        "-e",
+        "PCILEECH_HOST_CONTEXT_ONLY=1",
+    ]
+    volume = ["-v", f"{str(datastore)}:/datastore"]
+    cmd = [
+        runtime,
+        "run",
+        "--rm",
+        "-i",
+        *envs,
+        *volume,
+        "pcileech-fwgen",
+        "python3",
+        "build.py",
+        "--bdf",
+        args.bdf,
+        "--board",
+        args.board,
+        "--output",
+        "/datastore/output",
+    ]
+    if getattr(args, "generate_donor_template", None):
+        cmd.extend(["--output-template", "/datastore/donor_info_template.json"])
+
+    log_info_safe(
+        logger,
+        safe_format("Launching container: {rt}", rt=runtime),
+        prefix="BUILD",
+    )
+    return subprocess.call(cmd)
+
+
+def run_local_templating(args):
+    """Stage 2b: run templating locally (no container)."""
+    logger = get_logger(__name__)
+    try:
+        from src.build import FirmwareBuilder, ConfigurationManager
+    except Exception as e:
+        log_error_safe(
+            logger,
+            safe_format("Local templating unavailable: {err}", err=str(e)),
+            prefix="BUILD",
+        )
+        return 1
+
+    datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
+    output_dir = datastore / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure builder uses host-only context
+    os.environ["DEVICE_CONTEXT_PATH"] = str(datastore / "device_context.json")
+    os.environ["MSIX_DATA_PATH"] = str(datastore / "msix_data.json")
+    os.environ["PCILEECH_HOST_CONTEXT_ONLY"] = "1"
+
+    # Build a minimal args namespace for ConfigurationManager
+    cfg_args = SimpleNamespace(
+        bdf=args.bdf,
+        board=args.board,
+        output=str(output_dir),
+        profile=0,
+        preload_msix=True,
+        output_template=getattr(args, "generate_donor_template", None),
+        donor_template=getattr(args, "donor_template", None),
+        vivado_path=getattr(args, "vivado_path", None),
+        vivado_jobs=getattr(args, "vivado_jobs", 4),
+        vivado_timeout=getattr(args, "vivado_timeout", 3600),
+        enable_error_injection=getattr(args, "enable_error_injection", False),
+    )
+
+    cfg = ConfigurationManager().create_from_args(cfg_args)
+    builder = FirmwareBuilder(cfg)
+    artifacts = builder.build()
+    log_info_safe(
+        logger,
+        safe_format("Templating complete; artifacts: {n}", n=len(artifacts)),
+        prefix="BUILD",
+    )
+    return 0
+
+
+def run_host_vivado(args):
+    """Stage 3: host-side Vivado batch run using generated artifacts."""
+    logger = get_logger(__name__)
+    try:
+        from src.vivado_handling import VivadoRunner, find_vivado_installation
+    except Exception as e:
+        log_error_safe(
+            logger,
+            safe_format("Vivado integration unavailable: {err}", err=str(e)),
+            prefix="VIVADO",
+        )
+        return 1
+
+    datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
+    output_dir = datastore / "output"
+    if not output_dir.exists():
+        log_error_safe(
+            logger,
+            safe_format("Output dir missing: {path}", path=str(output_dir)),
+            prefix="VIVADO",
+        )
+        return 1
+
+    vivado_path = getattr(args, "vivado_path", None)
+    if not vivado_path:
+        info = find_vivado_installation()
+        if not info:
+            log_error_safe(
+                logger,
+                "Vivado not found in PATH; specify --vivado-path",
+                prefix="VIVADO",
+            )
+            return 1
+        vivado_path = str(Path(info["executable"]).parent.parent)
+
+    runner = VivadoRunner(
+        board=args.board,
+        output_dir=output_dir,
+        vivado_path=vivado_path,
+        logger=logger,
+        device_config=None,
+    )
+    runner.run()
+    return 0
 
 
 def handle_tui(args):
@@ -1238,6 +1445,8 @@ def handle_donor_template(args):
         log_error_with_root_cause(logger, "Failed to generate donor template", e)
         return 1
 
+
+ 
 
 if __name__ == "__main__":
     sys.exit(main())
