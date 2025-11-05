@@ -5,13 +5,6 @@ import logging
 import sys
 from typing import Optional
 
-try:
-    from colorlog import ColoredFormatter
-
-    HAS_COLORLOG = True
-except ImportError:
-    HAS_COLORLOG = False
-
 
 def setup_logging(
     level: int = logging.INFO, log_file: Optional[str] = "generate.log"

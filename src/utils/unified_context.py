@@ -15,7 +15,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Generic, List, Mapping, Optional, Set, TypeVar, Union
+from typing import Any, Dict, List, Mapping, Optional, Set, TypeVar, Union
 
 from src.error_utils import extract_root_cause
 from src.string_utils import (

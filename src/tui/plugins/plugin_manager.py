@@ -11,7 +11,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from .plugin_base import (BuildHook, ConfigValidator, DeviceAnalyzer,
                           PCILeechPlugin)

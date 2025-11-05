@@ -158,7 +158,6 @@ class BuildConfig:
 
         version = self._get_project_version()
         # Sanitize version/tag components to allowed chars [A-Za-z0-9_.-]
-        import re as _re
 
         def _sanitize(component: str) -> str:
             return "".join(c for c in component if c.isalnum() or c in "._-") or "x"
@@ -212,7 +211,11 @@ class BuildConfig:
                 )
             )
         # Enhanced board validation - check for non-empty string with content
-        if not self.board or not isinstance(self.board, str) or not self.board.strip():
+        if (
+            not self.board
+            or not isinstance(self.board, str)
+            or not self.board.strip()
+        ):
             raise ConfigurationError(
                 "Board name is required and cannot be empty. "
                 "Use --board to specify a valid board configuration "

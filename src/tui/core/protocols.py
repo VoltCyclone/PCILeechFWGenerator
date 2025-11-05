@@ -151,6 +151,8 @@ class UICoordinator(Protocol):
             screen_name: Name of the screen to show.
             **kwargs: Additional arguments to pass to the screen.
         """
+        _ = screen_name
+        _ = kwargs
         ...
 
     def exit(self) -> None:

@@ -896,6 +896,8 @@ def run_container_templating(args):
         "MSIX_DATA_PATH=/datastore/msix_data.json",
         "-e",
         "PCILEECH_HOST_CONTEXT_ONLY=1",
+        "-e",
+        "PCILEECH_DISABLE_VFIO=1",
     ]
     volume = ["-v", f"{str(datastore)}:/datastore"]
     cmd = [
@@ -907,7 +909,8 @@ def run_container_templating(args):
         *volume,
         "pcileech-fwgen",
         "python3",
-        "build.py",
+        "-m",
+        "src.build",
         "--bdf",
         args.bdf,
         "--board",
