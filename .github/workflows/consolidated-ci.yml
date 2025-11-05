@@ -291,7 +291,8 @@ jobs:
         uses: ./.github/actions/python-setup
         with:
           python-version: '3.11'
-          extra-packages: 'build setuptools setuptools_scm wheel twine check-manifest'
+          requirements-files: 'requirements.txt'
+          extra-packages: 'build setuptools setuptools_scm wheel twine check-manifest jinja2 pyyaml'
           editable: 'false'
 
       - name: Get package version
