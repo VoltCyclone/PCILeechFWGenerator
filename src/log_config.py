@@ -7,24 +7,23 @@ from typing import Optional
 
 
 def setup_logging(
-    level: int = logging.INFO, log_file: Optional[str] = "generate.log"
+    level: int = logging.INFO, log_file: Optional[str] = None
 ) -> None:
-    """Setup logging with color support using colorlog.
+    """Setup console logging with color support.
 
     Args:
         level: Logging level (default: INFO)
-        log_file: Optional log file path (default: generate.log)
+        log_file: Ignored (kept for backwards compatibility)
     
     Note:
         Console output uses a minimal formatter since string_utils.py handles
-        timestamp/level formatting. File output includes full context.
+        timestamp/level formatting. File logging has been removed to avoid
+        permission issues in containerized environments.
     """
     # Clear any existing handlers to avoid conflicts
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-
-    handlers = []
 
     # Console handler with minimal formatting
     # string_utils.py safe_log_format() already adds timestamp, level, and prefix
@@ -33,23 +32,11 @@ def setup_logging(
     # Use simple formatter that just outputs the message
     # Color is handled by string_utils.py format_padded_message()
     console_formatter = logging.Formatter("%(message)s")
-
     console_handler.setFormatter(console_formatter)
-    handlers.append(console_handler)
-
-    # File handler (if specified)
-    if log_file:
-        file_handler = logging.FileHandler(log_file, mode="w")
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        file_handler.setFormatter(file_formatter)
-        handlers.append(file_handler)
 
     # Configure root logger
     root_logger.setLevel(level)
-    for handler in handlers:
-        root_logger.addHandler(handler)
+    root_logger.addHandler(console_handler)
 
     # Suppress noisy loggers
     logging.getLogger("urllib3").setLevel(logging.WARNING)
