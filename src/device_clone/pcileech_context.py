@@ -208,7 +208,6 @@ class DeviceIdentifiers:
     subsystem_device_id: Optional[str] = None
 
     def __post_init__(self):
-
         try:
             norm = IdentifierNormalizer.validate_all_identifiers(
                 {
@@ -220,8 +219,9 @@ class DeviceIdentifiers:
                     "subsystem_device_id": self.subsystem_device_id,
                 }
             )
-        except ContextError as e:
-            raise ContextError(str(e))
+        except ContextError:
+            # Preserve original validation error details without rewriting
+            raise
         self.vendor_id = norm["vendor_id"]
         self.device_id = norm["device_id"]
         self.class_code = norm["class_code"]
@@ -282,18 +282,40 @@ class BarConfiguration:
     _size_encoding: Optional[int] = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
-        """Validate BAR configuration."""
+        """Validate BAR configuration with aggregated errors and clear guidance."""
+        issues = []
         if not 0 <= self.index < ConfigSpaceConstants.MAX_BARS:
-            raise ContextError(
-                safe_format("Invalid BAR index: {index}", index=self.index)
+            issues.append(
+                safe_format(
+                    "Invalid BAR index: {index} (allowed 0..{max_idx})",
+                    index=self.index,
+                    max_idx=ConfigSpaceConstants.MAX_BARS - 1,
+                )
             )
         # BAR size must be a positive 32-bit unsigned value
         if self.size <= 0:
-            raise ContextError(safe_format("Invalid BAR size: {size}", size=self.size))
+            issues.append(
+                safe_format(
+                    "Invalid BAR size: {size} (must be > 0)", size=self.size
+                )
+            )
         if self.size > MAX_32BIT_VALUE:
+            issues.append(
+                safe_format(
+                    "Invalid BAR size: {size} (exceeds 32-bit limit {limit})",
+                    size=self.size,
+                    limit=MAX_32BIT_VALUE,
+                )
+            )
+
+        if issues:
             raise ContextError(
                 safe_format(
-                    "Invalid BAR size: {size} (exceeds 32-bit unsigned)", size=self.size
+                    "Invalid BAR configuration | index={index} size={size} | "
+                    "issues={issues}",
+                    index=self.index,
+                    size=self.size,
+                    issues=issues,
                 )
             )
 
@@ -418,6 +440,24 @@ class VFIODeviceManager:
                 self.device_bdf
             )
 
+            # Treat negative FDs as unavailable; normalize to None so callers
+            # can fall back to sysfs-based logic without crashing.
+            if (self._device_fd is not None and self._device_fd < 0) or (
+                self._container_fd is not None and self._container_fd < 0
+            ):
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "VFIO unavailable; using fallbacks "
+                        "(dev_fd={dev}, cont_fd={cont})",
+                        dev=self._device_fd,
+                        cont=self._container_fd,
+                    ),
+                    prefix="VFIO",
+                )
+                self._device_fd = None
+                self._container_fd = None
+
             # Attempt to ensure VFIO binding and prerequisites. Do not make
             # this fatal here; log a warning if the check fails so callers can
             # decide whether to treat it as an error. This preserves the
@@ -458,7 +498,7 @@ class VFIODeviceManager:
     def close(self):
         """Close VFIO file descriptors."""
         for fd in [self._device_fd, self._container_fd]:
-            if fd is not None:
+            if fd is not None and fd >= 0:
                 try:
                     os.close(fd)
                 except OSError as e:
@@ -483,6 +523,11 @@ class VFIODeviceManager:
                     safe_format("VFIO device open failed: {error}", error=e),
                     prefix="VFIO",
                 )
+                return None
+            # After attempting open, ensure the FD is valid
+            if (self._device_fd is None) or (
+                isinstance(self._device_fd, int) and self._device_fd < 0
+            ):
                 return None
 
         info = VfioRegionInfo()
@@ -1614,7 +1659,55 @@ class PCILeechContextBuilder:
         """Get BAR info via VFIO with strict size validation."""
         region_info = self._vfio_manager.get_region_info(index)
         if not region_info:
-            return None
+            # VFIO not available; construct from provided bar_data as a fallback.
+            try:
+                if isinstance(bar_data, dict):
+                    is_memory = bar_data.get("type", "memory") == "memory"
+                    is_io = not is_memory
+                    base_address = bar_data.get("address", 0)
+                    prefetchable = bar_data.get("prefetchable", False)
+                    bar_type = 1 if bar_data.get("is_64bit", False) else 0
+                    size = int(bar_data.get("size", 0) or 0)
+                elif isinstance(bar_data, BarInfo):
+                    is_memory = bar_data.bar_type == "memory"
+                    is_io = not is_memory
+                    base_address = bar_data.address
+                    prefetchable = bar_data.prefetchable
+                    bar_type = 1 if bar_data.is_64bit else 0
+                    size = int(getattr(bar_data, "size", 0) or 0)
+                elif hasattr(bar_data, "address"):
+                    is_memory = getattr(bar_data, "type", "memory") == "memory"
+                    is_io = not is_memory
+                    base_address = getattr(bar_data, "address", 0)
+                    prefetchable = getattr(bar_data, "prefetchable", False)
+                    bar_type = 1 if getattr(bar_data, "is_64bit", False) else 0
+                    size = int(getattr(bar_data, "size", 0) or 0)
+                else:
+                    return None
+
+                if is_memory and size > 0:
+                    return BarConfiguration(
+                        index=index,
+                        base_address=base_address,
+                        size=size,
+                        bar_type=bar_type,
+                        prefetchable=prefetchable,
+                        is_memory=is_memory,
+                        is_io=is_io,
+                    )
+                return None
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "BAR{index}: VFIO unavailable; sysfs fallback failed: "
+                        "{error}",
+                        index=index,
+                        error=str(e),
+                    ),
+                    prefix="BAR",
+                )
+                return None
 
         try:
             size = extract_bar_size(region_info)
