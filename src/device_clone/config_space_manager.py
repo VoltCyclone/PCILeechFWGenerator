@@ -7,6 +7,7 @@ space generation for PCILeech firmware building.
 """
 
 import importlib
+import atexit
 
 import logging
 
@@ -205,6 +206,8 @@ class ConfigSpaceManager:
         self.device_config = None  # No device profiles - use live detection
         self.strict_vfio = strict_vfio
         self._config_path = Path(f"/sys/bus/pci/devices/{self.bdf}/config")
+    # Keep a persistent VFIO binder to avoid unbinding mid-pipeline
+        self._vfio_binder = None
 
         # Extract extended configuration space pointers from device config
         if self.device_config and hasattr(self.device_config, "capabilities"):
@@ -295,29 +298,47 @@ class ConfigSpaceManager:
                 prefix="VFIO",
             )
 
-            with VFIOBinder(self.bdf) as vfio_device_path:
-                log_info_safe(
-                    logger,
-                    "Successfully bound to VFIO device {vfio_device_path}",
-                    vfio_device_path=vfio_device_path,
-                    prefix="VFIO",
-                )
+            # Default behavior: keep device bound to vfio-pci for the duration
+            # of the build so subsequent VFIO operations succeed. Cleanup is
+            # registered at process exit.
+            if not self._vfio_binder:
+                self._vfio_binder = VFIOBinder(self.bdf, attach=True)
+                self._vfio_binder.bind()
 
-                config_space = self._read_sysfs_config_space()
+                def _cleanup_bind():
+                    try:
+                        if self._vfio_binder and self._vfio_binder.is_bound:
+                            self._vfio_binder.unbind()
+                    except Exception:
+                        pass
 
-                log_info_safe(
-                    logger,
-                    "Successfully read {bytes_read} bytes via VFIO",
-                    bytes_read=len(config_space),
-                    prefix="VFIO",
-                )
-                log_debug_safe(
-                    logger,
-                    "First 64 bytes: {first_64_bytes}",
-                    first_64_bytes=config_space[:64].hex(),
-                    prefix="VFIO",
-                )
-                return config_space
+                atexit.register(_cleanup_bind)
+
+            else:
+                # Ensure still bound
+                if not self._vfio_binder.is_bound:
+                    self._vfio_binder.bind()
+
+            log_info_safe(
+                logger,
+                "Successfully bound to VFIO (kept for session)",
+                prefix="VFIO",
+            )
+            config_space = self._read_sysfs_config_space()
+
+            log_info_safe(
+                logger,
+                "Successfully read {bytes_read} bytes via VFIO",
+                bytes_read=len(config_space),
+                prefix="VFIO",
+            )
+            log_debug_safe(
+                logger,
+                "First 64 bytes: {first_64_bytes}",
+                first_64_bytes=config_space[:64].hex(),
+                prefix="VFIO",
+            )
+            return config_space
 
         except ImportError as e:
             error_msg = f"VFIO module not available: {e}"

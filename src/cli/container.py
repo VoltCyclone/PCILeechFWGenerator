@@ -576,6 +576,18 @@ def run_build(cfg: BuildConfig) -> None:
     output_dir = (Path.cwd() / "output").resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save original driver before any VFIO operations
+    original_driver = get_current_driver(cfg.bdf)
+    log_info_safe(
+        logger,
+        safe_format(
+            "Device {bdf} original driver: {driver}",
+            bdf=cfg.bdf,
+            driver=original_driver or "none",
+        ),
+        prefix="HOST",
+    )
+
     try:
         # Collect complete device context on host using single VFIO binding
         from .host_device_collector import HostDeviceCollector
@@ -880,3 +892,35 @@ def run_build(cfg: BuildConfig) -> None:
     except Exception as e:
         # Wrap unexpected errors
         raise BuildError(f"Unexpected build failure: {str(e)}") from e
+    finally:
+        # Always restore original driver after container completes or fails
+        if original_driver:
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Restoring device {bdf} to original driver {driver}",
+                    bdf=cfg.bdf,
+                    driver=original_driver,
+                ),
+                prefix="CLEA",
+            )
+            try:
+                restore_driver(cfg.bdf, original_driver)
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Successfully restored {bdf} to {driver}",
+                        bdf=cfg.bdf,
+                        driver=original_driver,
+                    ),
+                    prefix="CLEA",
+                )
+            except Exception as e:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Failed to restore driver: {error}",
+                        error=str(e),
+                    ),
+                    prefix="CLEA",
+                )
