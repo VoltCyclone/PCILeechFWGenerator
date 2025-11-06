@@ -78,6 +78,7 @@ def _get_iommu_group(bdf: str) -> int:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+
 @dataclass
 class BuildConfig:
     bdf: str
@@ -89,7 +90,9 @@ class BuildConfig:
     disable_power_management: bool = not PRODUCTION_DEFAULTS.get(
         "POWER_MANAGEMENT", False
     )
-    disable_error_handling: bool = not PRODUCTION_DEFAULTS.get("ERROR_HANDLING", False)
+    disable_error_handling: bool = not PRODUCTION_DEFAULTS.get(
+        "ERROR_HANDLING", False
+    )
     disable_performance_counters: bool = not PRODUCTION_DEFAULTS.get(
         "PERFORMANCE_COUNTERS", False
     )
@@ -604,6 +607,114 @@ def run_build(cfg: BuildConfig) -> None:
         group_id = _get_iommu_group(cfg.bdf)
         group_dev = f"/dev/vfio/{group_id}"
 
+        # Harden preflight: ensure group device exists and group is fully bound
+        try:
+            from pathlib import Path as _Path
+            
+            from ..string_utils import log_error_safe as _les
+
+            # 1) Verify VFIO container device exists on host
+            if not _Path("/dev/vfio/vfio").exists():
+                _les(
+                    logger,
+                    safe_format(
+                        "Missing host VFIO control device {path}. "
+                        "Ensure vfio is loaded (vfio, vfio_pci).",
+                        path="/dev/vfio/vfio",
+                    ),
+                    prefix="BUILD",
+                )
+                raise BuildError(
+                    "VFIO not available on host: /dev/vfio/vfio missing"
+                )
+
+            # 2) Verify group device exists on host at launch-time
+            if not _Path(group_dev).exists():
+                _les(
+                    logger,
+                    safe_format(
+                        "VFIO group device {group_dev} not found. "
+                        "Bind ALL devices in IOMMU group {group} to vfio-pci "
+                        "and retry.",
+                        group_dev=group_dev,
+                        group=group_id,
+                    ),
+                    prefix="BUILD",
+                )
+                # Provide actionable guidance
+                _les(
+                    logger,
+                    safe_format(
+                        "Hint: Check /sys/kernel/iommu_groups/{group}/devices "
+                        "and ensure each device is bound to vfio-pci.",
+                        group=group_id,
+                    ),
+                    prefix="BUILD",
+                )
+                raise BuildError(
+                    safe_format("Missing VFIO group device: {gd}", gd=group_dev)
+                )
+
+            # 3) Verify all devices in the IOMMU group are bound to vfio-pci
+            devices_dir = _Path(
+                safe_format(
+                    "/sys/kernel/iommu_groups/{group}/devices", group=group_id
+                )
+            )
+            if devices_dir.exists():
+                unbound: list[str] = []
+                wrong: list[str] = []
+                for dev in sorted(p.name for p in devices_dir.iterdir()):
+                    drv_link = _Path(f"/sys/bus/pci/devices/{dev}/driver")
+                    if drv_link.exists():
+                        try:
+                            drv = drv_link.resolve().name
+                            if drv != "vfio-pci":
+                                wrong.append(f"{dev}→{drv}")
+                        except Exception:
+                            unbound.append(dev)
+                    else:
+                        unbound.append(dev)
+                if unbound or wrong:
+                    msg_lines = [
+                        safe_format(
+                            "IOMMU group {group} not fully vfio-pci bound",
+                            group=group_id,
+                        )
+                    ]
+                    if unbound:
+                        msg_lines.append(safe_format("Unbound: {u}", u=unbound))
+                    if wrong:
+                        msg_lines.append(safe_format("Wrong driver: {w}", w=wrong))
+                    _les(
+                        logger,
+                        "\n".join(msg_lines)
+                        + "\nAll devices in a group must be bound to vfio-pci "
+                        + "before starting the container.",
+                        prefix="BUILD",
+                    )
+                    raise BuildError("IOMMU group not fully bound to vfio-pci")
+            else:
+                # If the directory is missing, keep going (some hosts differ),
+                # container will still receive the device
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "IOMMU group devices dir missing: {path}",
+                        path=str(devices_dir),
+                    ),
+                    prefix="BUILD",
+                )
+        except BuildError:
+            raise
+        except Exception as _e:
+            # Non-fatal preflight anomaly; log as warning and proceed
+            log_warning_safe(
+                logger,
+                safe_format("Preflight anomaly (non-fatal): {err}", err=str(_e)),
+                prefix="BUILD",
+            )
+
         log_info_safe(
             logger,
             safe_format(
@@ -627,6 +738,24 @@ def run_build(cfg: BuildConfig) -> None:
         try:
             subprocess.run(podman_cmd_vec, check=True)
         except subprocess.CalledProcessError as e:
+            # Enrich error when VFIO device nodes are not present inside container
+            try:
+                # Quick probe: if container failed and host devices exist,
+                # surface a helpful hint
+                if (not os.path.exists(group_dev) or
+                        not os.path.exists("/dev/vfio/vfio")):
+                    log_error_safe(
+                        logger,
+                        safe_format(
+                            "Container failed and VFIO devices were not present: "
+                            "gd={gd} vfio={vfio}",
+                            gd=group_dev,
+                            vfio="/dev/vfio/vfio",
+                        ),
+                        prefix="CONT",
+                    )
+            except Exception:
+                pass
             raise BuildError(f"Build failed (exit {e.returncode})") from e
         except KeyboardInterrupt:
             log_warning_safe(
