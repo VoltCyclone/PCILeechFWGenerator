@@ -35,7 +35,7 @@ class TestGetPackageVersion:
             version_file = tmp_path / "__version__.py"
             version_file.write_text('__version__ = "2.5.0"')
 
-            with patch("src.utils.unified_context.Path") as mock_path:
+            with patch("src.utils.version_resolver.Path") as mock_path:
                 # Mock the path resolution
                 mock_version_file = MagicMock()
                 mock_version_file.exists.return_value = True

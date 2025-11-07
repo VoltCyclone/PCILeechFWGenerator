@@ -179,7 +179,6 @@ sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
 - **Rebind donors**: Use TUI/CLI to rebind donor devices to original drivers
 - **Keep firmware private**: Generated firmware contains real device identifiers
 - **Use isolated build environments**: Never build on production systems
-- **Container cleanup** (if needed): `podman rmi pcileechfwgenerator:latest`
 
 > [!IMPORTANT]
 > This tool is intended for educational research and legitimate PCIe development purposes only. Users are responsible for ensuring compliance with all applicable laws and regulations. The authors assume no liability for misuse of this software.
@@ -208,33 +207,3 @@ This project is licensed under the Apache License - see the [LICENSE](LICENSE) f
 - Keep generated firmware private and secure
 - Follow responsible disclosure practices for any security research
 - Use the SECURITY.md template to raise security concerns
-
----
-
-## Default build pipeline (host → container → host)
-
-To avoid any VFIO inside the container, the build runs in three stages:
-
-1) Host collect: probe the PCIe device and write a datastore with config space and MSI-X info.
-2) Container templating: run parsing and template generation against the staged datastore (no device access).
-3) Host Vivado: run synthesis on the host using the generated artifacts.
-
-Quick usage:
-
-```
-# Stage 1 only (collect and exit)
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board <BOARD> --host-collect-only
-
-# Full flow (host collect → container templating → host vivado)
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board <BOARD>
-
-# No-container fallback (uses host-only context locally)
-sudo python3 pcileech.py build --bdf 0000:03:00.0 --board <BOARD> --local
-```
-
-- Datastore: `pcileech_datastore/` by default (override with `--datastore`).
-- Files written: `device_context.json`, `msix_data.json`, and `output/` artifacts.
-- Container image: `pcileech-fwgen` (built from `Containerfile` if missing).
-
-See site/docs/host-container-pipeline.md for details.
-

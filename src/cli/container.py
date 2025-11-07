@@ -536,8 +536,24 @@ def run_build(cfg: BuildConfig) -> None:
     # Try container build first
     try:
         require_podman()
-        if not image_exists(f"{resolved_image}:{resolved_tag}"):
-            build_image(resolved_image, resolved_tag)
+        # Always rebuild container to ensure latest code
+        image_name = f"{resolved_image}:{resolved_tag}"
+        if image_exists(image_name):
+            log_info_safe(
+                logger,
+                safe_format("Removing old container image: {img}", img=image_name),
+                prefix="BUILD",
+            )
+            try:
+                subprocess.run(
+                    ["podman", "rmi", "-f", image_name],
+                    check=True,
+                    capture_output=True,
+                )
+            except subprocess.CalledProcessError:
+                # Ignore removal errors, build will overwrite anyway
+                pass
+        build_image(resolved_image, resolved_tag)
     except (ConfigurationError, RuntimeError) as e:
         if "Cannot connect to Podman" in str(e) or "connection refused" in str(e):
             log_warning_safe(
