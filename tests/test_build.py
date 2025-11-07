@@ -562,7 +562,7 @@ def test_msix_manager_preload_data_success(valid_bdf, mock_logger):
     with mock.patch("os.path.exists", return_value=True), mock.patch.object(
         manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
     ), mock.patch(
-        "src.build.parse_msix_capability",
+        "src.device_clone.msix.parse_msix_capability",
         return_value={"table_size": 16},
     ):
 
@@ -595,7 +595,7 @@ def test_msix_manager_preload_data_no_msix(valid_bdf, mock_logger):
     # Mock config space path existence and read_config_space
     with mock.patch("os.path.exists", return_value=True), mock.patch.object(
         manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
-    ), mock.patch("src.build.parse_msix_capability", return_value={"table_size": 0}):
+    ), mock.patch("src.device_clone.msix.parse_msix_capability", return_value={"table_size": 0}):
         result = manager.preload_data()
 
         # New behavior: treat absence of MSI-X capability as not preloaded
