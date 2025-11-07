@@ -14,8 +14,7 @@ import platform
 import shutil
 import subprocess
 from functools import wraps
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict
 
 try:
     import psutil

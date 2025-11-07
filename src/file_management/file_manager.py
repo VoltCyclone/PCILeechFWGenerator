@@ -70,17 +70,17 @@ class FileManager:
         directories["ip"] = ip_path
 
         log_info_safe(
-            logger, "Created PCILeech directory structure", prefix="FILE_MANAGER"
+            logger, "Created PCILeech directory structure", prefix="FILEMGR"
         )
         log_info_safe(
             logger,
             safe_format("  Source directory: {src_path}", src_path=src_path),
-            prefix="FILE_MANAGER",
+            prefix="FILEMGR",
         )
         log_info_safe(
             logger,
             safe_format("  IP directory: {ip_path}", ip_path=ip_path),
-            prefix="FILE_MANAGER",
+            prefix="FILEMGR",
         )
 
         return directories
@@ -109,7 +109,7 @@ class FileManager:
         log_info_safe(
             logger,
             safe_format("Written file to src directory: {filename}", filename=filename),
-            prefix="FILE_MANAGER",
+            prefix="FILEMGR",
         )
         return file_path
 
@@ -137,7 +137,7 @@ class FileManager:
         log_info_safe(
             logger,
             safe_format("Written file to ip directory: {filename}", filename=filename),
-            prefix="FILE_MANAGER",
+            prefix="FILEMGR",
         )
         return file_path
 
@@ -146,149 +146,151 @@ class FileManager:
         preserved_files = []
         cleaned_files = []
 
-        # Define patterns for files to preserve
+        # Patterns for files to preserve
         preserve_patterns = [
-            "*.bit",  # Final bitstream
-            "*.mcs",  # Flash memory file
-            "*.ltx",  # Debug probes
-            "*.dcp",  # Design checkpoint
-            "*.log",  # Log files
-            "*.rpt",  # Report files
-            "build_firmware.tcl",  # Final TCL build script
-            "*.tcl",  # All TCL files (preserve in-place)
-            "*.sv",  # SystemVerilog source files (needed for build)
-            "*.v",  # Verilog source files (needed for build)
-            "*.xdc",  # Constraint files (needed for build)
-            "*.hex",
+            "*.bit",   # Final bitstream
+            "*.mcs",   # Flash memory file
+            "*.ltx",   # Debug probes
+            "*.dcp",   # Design checkpoint
+            "*.log",   # Log files
+            "*.rpt",   # Report files
+            "*.tcl",   # TCL scripts
+            "*.sv",    # SystemVerilog source files
+            "*.v",     # Verilog source files
+            "*.xdc",   # Constraint files
+            "*.hex",   # Hex memory files
         ]
 
-        # Define patterns for files/directories to clean
+        # Patterns for files/directories to clean
         cleanup_patterns = [
-            "vivado_project/",  # Vivado project directory
-            "project_dir/",  # Alternative project directory
-            "*.json",  # JSON files (intermediate)
-            "*.jou",  # Vivado journal files
-            "*.str",  # Vivado strategy files
-            ".Xil/",  # Xilinx temporary directory
+            "vivado_project/",   # Vivado project directory
+            "project_dir/",      # Alternative project directory
+            "*.json",            # JSON intermediate files
+            "*.jou",             # Vivado journal files
+            "*.str",             # Vivado strategy files
+            ".Xil/",             # Xilinx temporary directory
         ]
 
         log_info_safe(
-            logger, "Starting cleanup of intermediate files...", prefix="FILE_MANAGER"
+            logger, "Starting cleanup of intermediate files...", prefix="FILEMGR"
         )
 
         try:
-            # Get all files in output directory
             all_files = list(self.output_dir.rglob("*"))
 
             for file_path in all_files:
-                should_preserve = False
-
                 # Check if file should be preserved
-                for pattern in preserve_patterns:
-                    if fnmatch.fnmatch(file_path.name, pattern):
-                        should_preserve = True
-                        preserved_files.append(str(file_path))
-                        break
+                if self._should_preserve_file(file_path, preserve_patterns):
+                    preserved_files.append(str(file_path))
+                    continue
 
-                # If not preserved, check if it should be cleaned
-                if not should_preserve:
-                    # Handle cleanup patterns
-                    for pattern in cleanup_patterns:
-                        if pattern.endswith("/"):
-                            # Directory pattern
-                            if file_path.is_dir() and fnmatch.fnmatch(
-                                file_path.name + "/", pattern
-                            ):
-                                try:
-                                    shutil.rmtree(file_path)
-                                    cleaned_files.append(str(file_path))
-                                    log_info_safe(
-                                        logger,
-                                        safe_format(
-                                            "Cleaned directory: {filename}",
-                                            filename=file_path.name,
-                                        ),
-                                        prefix="FILE_MANAGER",
-                                    )
-                                except PermissionError as e:
-                                    log_warning_safe(
-                                        logger,
-                                        safe_format(
-                                            "Permission denied while cleaning directory {filename} (path: {filepath}): {error}",
-                                            filename=file_path.name,
-                                            filepath=file_path,
-                                            error=e,
-                                        ),
-                                        prefix="FILE_MANAGER",
-                                    )
-                                except FileNotFoundError as e:
-                                    log_warning_safe(
-                                        logger,
-                                        safe_format(
-                                            "Directory not found during cleanup {filename} (path: {filepath}): {error}",
-                                            filename=file_path.name,
-                                            filepath=file_path,
-                                            error=e,
-                                        ),
-                                        prefix="FILE_MANAGER",
-                                    )
-                                except Exception as e:
-                                    log_warning_safe(
-                                        logger,
-                                        safe_format(
-                                            "Unexpected error while cleaning directory {filename} (path: {filepath}): {error}",
-                                            filename=file_path.name,
-                                            filepath=file_path,
-                                            error=e,
-                                        ),
-                                        prefix="FILE_MANAGER",
-                                    )
-                                break
-                        else:
-                            # File pattern
-                            if file_path.is_file() and fnmatch.fnmatch(
-                                file_path.name, pattern
-                            ):
-                                try:
-                                    file_path.unlink()
-                                    cleaned_files.append(str(file_path))
-                                    log_debug_safe(
-                                        logger,
-                                        safe_format(
-                                            "Cleaned file: {filename}",
-                                            filename=file_path.name,
-                                        ),
-                                        prefix="FILE_MANAGER",
-                                    )
-                                except Exception as e:
-                                    log_warning_safe(
-                                        logger,
-                                        safe_format(
-                                            "Could not clean file {filename} (path: {filepath}): {error}",
-                                            filename=file_path.name,
-                                            filepath=file_path,
-                                            error=e,
-                                        ),
-                                        prefix="FILE_MANAGER",
-                                    )
-                                break
+                # Check if file should be cleaned
+                if self._should_cleanup_path(file_path, cleanup_patterns):
+                    if self._cleanup_path(file_path):
+                        cleaned_files.append(str(file_path))
 
             log_info_safe(
                 logger,
                 "Cleanup completed: preserved {preserved_count} files, cleaned {cleaned_count} items",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 preserved_count=len(preserved_files),
                 cleaned_count=len(cleaned_files),
             )
 
+        except OSError as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Filesystem error during cleanup: {error}",
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
         except Exception as e:
             log_error_safe(
                 logger,
-                safe_format("Error during cleanup: {error}", error=e),
-                prefix="FILE_MANAGER",
+                safe_format("Unexpected error during cleanup: {error}", error=str(e)),
+                prefix="FILEMGR",
             )
 
         return preserved_files
+
+    def _should_preserve_file(self, file_path: Path, patterns: List[str]) -> bool:
+        """Check if file matches preservation patterns."""
+        return any(fnmatch.fnmatch(file_path.name, pattern) for pattern in patterns)
+
+    def _should_cleanup_path(self, file_path: Path, patterns: List[str]) -> bool:
+        """Check if path matches cleanup patterns."""
+        for pattern in patterns:
+            if pattern.endswith("/"):
+                # Directory pattern
+                if file_path.is_dir() and fnmatch.fnmatch(file_path.name + "/", pattern):
+                    return True
+            else:
+                # File pattern
+                if file_path.is_file() and fnmatch.fnmatch(file_path.name, pattern):
+                    return True
+        return False
+
+    def _cleanup_path(self, file_path: Path) -> bool:
+        """Clean up a file or directory, return True if successful."""
+        try:
+            if file_path.is_dir():
+                shutil.rmtree(file_path)
+                log_info_safe(
+                    logger,
+                    safe_format("Cleaned directory: {name}", name=file_path.name),
+                    prefix="FILEMGR",
+                )
+            else:
+                file_path.unlink()
+                log_debug_safe(
+                    logger,
+                    safe_format("Cleaned file: {name}", name=file_path.name),
+                    prefix="FILEMGR",
+                )
+            return True
+        except PermissionError as e:
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Permission denied cleaning {name}: {error}",
+                    name=file_path.name,
+                    error=str(e),
+                ),
+                prefix="FILEMGR",
+            )
+            return False
+        except FileNotFoundError:
+            # File already removed, consider success
+            log_debug_safe(
+                logger,
+                safe_format("Path already removed: {name}", name=file_path.name),
+                prefix="FILEMGR",
+            )
+            return True
+        except OSError as e:
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "OS error cleaning {name}: {error}",
+                    name=file_path.name,
+                    error=str(e),
+                ),
+                prefix="FILEMGR",
+            )
+            return False
+        except Exception as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Unexpected error cleaning {name}: {error}",
+                    name=file_path.name,
+                    error=str(e),
+                ),
+                prefix="FILEMGR",
+            )
+            return False
 
     def validate_final_outputs(self) -> Dict[str, Any]:
         """Validate and provide information about final output files."""
@@ -306,17 +308,8 @@ class FileManager:
 
         try:
             # Check for TCL build file (main output when Vivado not available)
-            # First check for legacy files for backward compatibility
-            tcl_files = list(self.output_dir.glob("build_firmware.tcl"))
-            if not tcl_files:
-                # Also check for fallback TCL file name
-                tcl_files = list(self.output_dir.glob("build_all.tcl"))
-
-            # If no legacy files found, check for PCILeech script names
-            if not tcl_files:
-                tcl_files = list(self.output_dir.glob(PCILEECH_BUILD_SCRIPT))
-            if not tcl_files:
-                tcl_files = list(self.output_dir.glob(PCILEECH_PROJECT_SCRIPT))
+            tcl_files = self._find_tcl_build_script()
+            
             if tcl_files:
                 tcl_file = tcl_files[0]
                 file_size = tcl_file.stat().st_size
@@ -370,7 +363,7 @@ class FileManager:
                     # Create a new dictionary with the updated hex_file info
                     tcl_info = validation_results.get("tcl_file_info", {})
                     if isinstance(tcl_info, dict):
-                        # Create a new dict with all existing values plus the hex_file
+                        # Create a new dict with all existing values
                         tcl_info_updated = dict(tcl_info)
                         tcl_info_updated["hex_file"] = {
                             "filename": hex_file.name,
@@ -381,7 +374,7 @@ class FileManager:
                         validation_results["tcl_file_info"] = tcl_info_updated
                     validation_results["file_sizes"][hex_file.name] = hex_size
                 else:
-                    # For TCL-only builds, check if hex generation commands are present
+                    # Check if hex generation commands are present
                     tcl_info = validation_results.get("tcl_file_info", {})
                     if isinstance(tcl_info, dict):
                         tcl_info_updated = dict(tcl_info)
@@ -455,73 +448,104 @@ class FileManager:
                 validation_results["file_sizes"][report_file.name] = file_size
 
             # Determine overall validation status
-            if validation_results["tcl_file_info"]:
-                if validation_results["build_mode"] == "full_vivado":
-                    # Full Vivado build - check bitstream
-                    bitstream_info = validation_results.get("bitstream_info", {})
-                    if bitstream_info:
-                        if (
-                            isinstance(bitstream_info, dict)
-                            and bitstream_info.get("size_bytes", 0) > 1000000
-                        ):  # > 1MB
-                            validation_results["validation_status"] = (
-                                "success_full_build"
-                            )
-                        else:
-                            validation_results["validation_status"] = (
-                                "warning_small_bitstream"
-                            )
-                    else:
-                        validation_results["validation_status"] = "failed_no_bitstream"
-                else:
-                    # TCL-only build - check TCL file quality (this is the main output)
-                    tcl_info = validation_results.get("tcl_file_info", {})
-                    if isinstance(tcl_info, dict):
-                        has_device_config = tcl_info.get("has_device_config", False)
-                        size_bytes = tcl_info.get("size_bytes", 0)
-                        if has_device_config and size_bytes > 1000:
-                            validation_results["validation_status"] = (
-                                "success_tcl_ready"
-                            )
-                        else:
-                            validation_results["validation_status"] = (
-                                "warning_incomplete_tcl"
-                            )
-                        # Check if hex generation commands are present in TCL script
-                        if not tcl_info.get("has_hex_generation", False):
-                            validation_results["validation_status"] = (
-                                "warning_missing_hex"
-                            )
-                    else:
-                        validation_results["validation_status"] = (
-                            "warning_incomplete_tcl"
-                        )
-            else:
-                validation_results["validation_status"] = "failed_no_tcl"
+            validation_results["validation_status"] = self._determine_validation_status(
+                validation_results
+            )
 
+        except OSError as e:
+            log_error_safe(
+                logger,
+                "Filesystem error during validation: {error}",
+                prefix="FILEMGR",
+                error=str(e),
+            )
+            validation_results["validation_status"] = "error"
         except Exception as e:
             log_error_safe(
                 logger,
-                "Error during output validation: {error}",
-                prefix="FILE_MANAGER",
-                error=e,
+                "Unexpected error during validation: {error}",
+                prefix="FILEMGR",
+                error=str(e),
             )
             validation_results["validation_status"] = "error"
 
         return validation_results
 
+    def _find_tcl_build_script(self) -> List[Path]:
+        """Find TCL build script, checking both legacy and current naming conventions."""
+        # Check legacy names for backward compatibility
+        for legacy_name in ["build_firmware.tcl", "build_all.tcl"]:
+            tcl_files = list(self.output_dir.glob(legacy_name))
+            if tcl_files:
+                return tcl_files
+        
+        # Check current PCILeech script names
+        for script_name in [PCILEECH_BUILD_SCRIPT, PCILEECH_PROJECT_SCRIPT]:
+            tcl_files = list(self.output_dir.glob(script_name))
+            if tcl_files:
+                return tcl_files
+        
+        return []
+
+    def _determine_validation_status(self, validation_results: Dict[str, Any]) -> str:
+        """Determine overall validation status based on build outputs."""
+        if not validation_results.get("tcl_file_info"):
+            return "failed_no_tcl"
+        
+        if validation_results["build_mode"] == "full_vivado":
+            return self._validate_full_vivado_build(validation_results)
+        
+        return self._validate_tcl_only_build(validation_results)
+
+    def _validate_full_vivado_build(self, validation_results: Dict[str, Any]) -> str:
+        """Validate full Vivado build outputs."""
+        bitstream_info = validation_results.get("bitstream_info", {})
+        
+        if not bitstream_info:
+            return "failed_no_bitstream"
+        
+        if isinstance(bitstream_info, dict):
+            size_bytes = bitstream_info.get("size_bytes", 0)
+            if size_bytes > 1_000_000:  # > 1MB
+                return "success_full_build"
+        
+        return "warning_small_bitstream"
+
+    def _validate_tcl_only_build(self, validation_results: Dict[str, Any]) -> str:
+        """Validate TCL-only build outputs."""
+        tcl_info = validation_results.get("tcl_file_info", {})
+        
+        if not isinstance(tcl_info, dict):
+            return "warning_incomplete_tcl"
+        
+        has_device_config = tcl_info.get("has_device_config", False)
+        size_bytes = tcl_info.get("size_bytes", 0)
+        has_hex_generation = tcl_info.get("has_hex_generation", False)
+        
+        if not has_hex_generation:
+            return "warning_missing_hex"
+        
+        if has_device_config and size_bytes > 1000:
+            return "success_tcl_ready"
+        
+        return "warning_incomplete_tcl"
+
     def _determine_report_type(self, filename: str) -> str:
         """Determine the type of report based on filename."""
-        if "timing" in filename.lower():
-            return "timing_analysis"
-        elif "utilization" in filename.lower():
-            return "resource_utilization"
-        elif "power" in filename.lower():
-            return "power_analysis"
-        elif "drc" in filename.lower():
-            return "design_rule_check"
-        else:
-            return "general"
+        filename_lower = filename.lower()
+        
+        report_types = {
+            "timing": "timing_analysis",
+            "utilization": "resource_utilization",
+            "power": "power_analysis",
+            "drc": "design_rule_check",
+        }
+        
+        for keyword, report_type in report_types.items():
+            if keyword in filename_lower:
+                return report_type
+        
+        return "general"
 
     def generate_project_file(
         self, device_info: Dict[str, Any], board: str
@@ -611,7 +635,7 @@ class FileManager:
             log_info_safe(
                 logger,
                 "Using PCILeech repository at: {repo_path}",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 repo_path=repo_path,
             )
 
@@ -620,7 +644,7 @@ class FileManager:
             log_info_safe(
                 logger,
                 safe_format("Board path: {board_path}", board_path=board_path),
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
             )
 
             # Create source directory structure
@@ -644,24 +668,15 @@ class FileManager:
                             log_info_safe(
                                 logger,
                                 "Copied source file: {src_name}",
-                                prefix="FILE_MANAGER",
+                                prefix="FILEMGR",
                                 src_name=src_file.name,
                             )
 
-                # Copy package files
-                for pkg_file in board_path.rglob("*_pkg.sv*"):
-                    if pkg_file.is_file():
-                        dest_file = src_dir / pkg_file.name
-                        shutil.copy2(pkg_file, dest_file)
-                        copied_files["packages"].append(str(dest_file))
-                        log_info_safe(
-                            logger,
-                            safe_format(
-                                "Copied package file: {pkg_name}",
-                                pkg_name=pkg_file.name,
-                            ),
-                            prefix="FILE_MANAGER",
-                        )
+                # Copy header and package files (avoid duplicates)
+                copied_names = set()
+                self._copy_package_files(
+                    board_path, src_dir, copied_files, copied_names
+                )
 
             # Copy local PCILeech files from project directory
             local_pcileech_dir = Path(__file__).parent.parent.parent / "pcileech"
@@ -672,7 +687,7 @@ class FileManager:
                         "Copying local PCILeech files from: {local_dir}",
                         local_dir=local_pcileech_dir,
                     ),
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                 )
 
                 # Copy package files
@@ -683,9 +698,10 @@ class FileManager:
                     log_info_safe(
                         logger,
                         safe_format(
-                            "Copied local package: {pkg_name}", pkg_name=pkg_file.name
+                            "Copied local package: {pkg_name}",
+                            pkg_name=pkg_file.name
                         ),
-                        prefix="FILE_MANAGER",
+                        prefix="FILEMGR",
                     )
 
                 # Copy RTL files
@@ -698,9 +714,10 @@ class FileManager:
                         log_info_safe(
                             logger,
                             safe_format(
-                                "Copied local RTL: {rtl_name}", rtl_name=rtl_file.name
+                                "Copied local RTL: {rtl_name}",
+                                rtl_name=rtl_file.name
                             ),
-                            prefix="FILE_MANAGER",
+                            prefix="FILEMGR",
                         )
 
             # Copy constraint files using repo manager
@@ -716,16 +733,39 @@ class FileManager:
                     log_info_safe(
                         logger,
                         safe_format(
-                            "Copied constraint file: {xdc_name}", xdc_name=xdc_file.name
+                            "Copied constraint file: {xdc_name}",
+                            xdc_name=xdc_file.name
                         ),
-                        prefix="FILE_MANAGER",
+                        prefix="FILEMGR",
                     )
 
-            except Exception as e:
+            except FileNotFoundError as e:
                 log_warning_safe(
                     logger,
-                    safe_format("Could not copy constraint files: {error}", error=e),
-                    prefix="FILE_MANAGER",
+                    safe_format(
+                        "Constraint files not found for board {board}: {error}",
+                        board=board,
+                        error=str(e)
+                    ),
+                    prefix="FILEMGR",
+                )
+            except (OSError, IOError) as e:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Could not copy constraint files: {error}",
+                        error=str(e)
+                    ),
+                    prefix="FILEMGR",
+                )
+            except Exception as e:
+                log_error_safe(
+                    logger,
+                    safe_format(
+                        "Unexpected error copying constraint files: {error}",
+                        error=str(e)
+                    ),
+                    prefix="FILEMGR",
                 )
 
             # Log summary
@@ -736,23 +776,82 @@ class FileManager:
                     "Successfully copied {total_files} PCILeech source files",
                     total_files=total_files,
                 ),
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
             )
 
         except ImportError as e:
             log_error_safe(
                 logger,
-                safe_format("Could not import repo manager: {error}", error=e),
-                prefix="FILE_MANAGER",
+                safe_format(
+                    "Could not import repo manager module: {error}",
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+        except FileNotFoundError as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Source files not found for board {board}: {error}",
+                    board=board,
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+        except (OSError, IOError) as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Filesystem error copying PCILeech sources: {error}",
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
             )
         except Exception as e:
             log_error_safe(
                 logger,
-                safe_format("Error copying PCILeech sources: {error}", error=e),
-                prefix="FILE_MANAGER",
+                safe_format(
+                    "Unexpected error copying PCILeech sources: {error}",
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
             )
 
         return copied_files
+
+    def _copy_package_files(
+        self,
+        board_path: Path,
+        src_dir: Path,
+        copied_files: Dict[str, List[str]],
+        copied_names: set,
+    ) -> None:
+        """Copy header and package files from board path to source directory."""
+        # Copy header files (.svh)
+        for header_file in board_path.rglob("*.svh"):
+            if header_file.is_file() and header_file.name not in copied_names:
+                dest_file = src_dir / header_file.name
+                shutil.copy2(header_file, dest_file)
+                copied_files["packages"].append(str(dest_file))
+                copied_names.add(header_file.name)
+                log_info_safe(
+                    logger,
+                    safe_format("Copied header file: {name}", name=header_file.name),
+                    prefix="FILEMGR",
+                )
+
+        # Copy package files (*_pkg.sv*)
+        for pkg_file in board_path.rglob("*_pkg.sv*"):
+            if pkg_file.is_file() and pkg_file.name not in copied_names:
+                dest_file = src_dir / pkg_file.name
+                shutil.copy2(pkg_file, dest_file)
+                copied_files["packages"].append(str(dest_file))
+                copied_names.add(pkg_file.name)
+                log_info_safe(
+                    logger,
+                    safe_format("Copied package file: {name}", name=pkg_file.name),
+                    prefix="FILEMGR",
+                )
 
     def copy_vivado_tcl_scripts(self, board: str) -> List[Path]:
         """Copy Vivado TCL scripts from submodule to output directory.
@@ -779,12 +878,12 @@ class FileManager:
             board_path = RepoManager.get_board_path(board, repo_root=repo_path)
             
             if not board_path.exists():
-                raise FileNotFoundError(
-                    safe_format(
-                        "Board directory not found: {board_path}",
-                        board_path=board_path
-                    )
+                error_msg = safe_format(
+                    "Board directory not found: {board_path}",
+                    board_path=board_path
                 )
+                log_error_safe(logger, error_msg, prefix="FILEMGR")
+                raise FileNotFoundError(error_msg)
             
             log_info_safe(
                 logger,
@@ -792,7 +891,7 @@ class FileManager:
                     "Copying Vivado TCL scripts for board: {board}",
                     board=board
                 ),
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
             )
             
             # Copy all vivado_*.tcl files
@@ -807,7 +906,7 @@ class FileManager:
                         pattern=tcl_pattern,
                         board_path=board_path
                     ),
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                 )
                 return copied_scripts
             
@@ -822,7 +921,7 @@ class FileManager:
                         "  Copied TCL script: {script_name}",
                         script_name=tcl_file.name
                     ),
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                 )
             
             log_info_safe(
@@ -831,18 +930,40 @@ class FileManager:
                     "Successfully copied {count} TCL scripts",
                     count=len(copied_scripts)
                 ),
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
             )
             
+        except FileNotFoundError as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "TCL scripts not found for board {board}: {error}",
+                    board=board,
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+            raise
+        except (OSError, IOError) as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Filesystem error copying TCL scripts for {board}: {error}",
+                    board=board,
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+            raise
         except Exception as e:
             log_error_safe(
                 logger,
                 safe_format(
-                    "Error copying TCL scripts for {board}: {error}",
+                    "Unexpected error copying TCL scripts for {board}: {error}",
                     board=board,
-                    error=e
+                    error=str(e)
                 ),
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
             )
             raise
         
@@ -890,70 +1011,24 @@ class FileManager:
 
     def print_final_output_info(self, validation_results: Dict[str, Any]):
         """Print detailed information about final output files."""
-        log_info_safe(logger, "=" * 80, prefix="FILE_MANAGER")
-        log_info_safe(logger, "FINAL BUILD OUTPUT VALIDATION", prefix="FILE_MANAGER")
-        log_info_safe(logger, "=" * 80, prefix="FILE_MANAGER")
+        log_info_safe(logger, "=" * 80, prefix="FILEMGR")
+        log_info_safe(logger, "FINAL BUILD OUTPUT VALIDATION", prefix="FILEMGR")
+        log_info_safe(logger, "=" * 80, prefix="FILEMGR")
+
+        status = validation_results["validation_status"]
+        self._log_build_status(status)
 
         build_mode = validation_results["build_mode"]
-        status = validation_results["validation_status"]
-
-        # Display build status
-        if status == "success_full_build":
-            log_info_safe(
-                logger,
-                "BUILD STATUS: SUCCESS (Full Vivado Build)",
-                prefix="FILE_MANAGER",
-            )
-        elif status == "success_tcl_ready":
-            log_info_safe(
-                logger,
-                "BUILD STATUS: SUCCESS (TCL Build Script Ready)",
-                prefix="FILE_MANAGER",
-            )
-        elif status == "warning_small_bitstream":
-            log_warning_safe(
-                logger,
-                "BUILD STATUS: WARNING - Bitstream file is unusually small",
-                prefix="FILE_MANAGER",
-            )
-        elif status == "warning_incomplete_tcl":
-            log_warning_safe(
-                logger,
-                "BUILD STATUS: WARNING - TCL script may be incomplete",
-                prefix="FILE_MANAGER",
-            )
-        elif status == "warning_missing_hex":
-            log_warning_safe(
-                logger,
-                "BUILD STATUS: WARNING - No hex file generated in TCL script",
-                prefix="FILE_MANAGER",
-            )
-        elif status == "failed_no_bitstream":
-            log_error_safe(
-                logger,
-                "BUILD STATUS: FAILED - No bitstream file generated",
-                prefix="FILE_MANAGER",
-            )
-        elif status == "failed_no_tcl":
-            log_error_safe(
-                logger,
-                "BUILD STATUS: FAILED - No TCL build script generated",
-                prefix="FILE_MANAGER",
-            )
-        else:
-            log_error_safe(
-                logger, "BUILD STATUS: ERROR - Validation failed", prefix="FILE_MANAGER"
-            )
-
         log_info_safe(
             logger,
             "BUILD MODE: {build_mode}",
-            prefix="FILE_MANAGER",
+            prefix="FILEMGR",
             build_mode=build_mode.replace("_", " ").title(),
         )
 
         # Pretty summary table using centralized string utilities
         try:
+            build_mode = validation_results["build_mode"]
             status_map = {
                 "success_full_build": ("SUCCESS", "Full Vivado Build", "✅"),
                 "success_tcl_ready": ("SUCCESS", "TCL Build Script Ready", "✅"),
@@ -1071,31 +1146,45 @@ class FileManager:
 
             banner = format_kv_table(rows, title="Build Output Summary")
             for line in banner.splitlines():
-                safe_print_format(line, prefix="FILE_MANAGER")
+                safe_print_format(line, prefix="FILEMGR")
+        except KeyError as e:
+            log_warning_safe(
+                logger,
+                "Missing expected key in validation results: {err}",
+                prefix="FILEMGR",
+                err=str(e),
+            )
+        except (TypeError, ValueError) as e:
+            log_warning_safe(
+                logger,
+                "Invalid validation result format: {err}",
+                prefix="FILEMGR",
+                err=str(e),
+            )
         except Exception as e:
             log_debug_safe(
                 logger,
                 "Failed to render summary banner: {err}",
-                prefix="FILE_MANAGER",
-                err=e,
+                prefix="FILEMGR",
+                err=str(e),
             )
 
         # TCL file information (always show if present)
         if validation_results.get("tcl_file_info"):
             info = validation_results["tcl_file_info"]
-            safe_print_format("\n📜 BUILD SCRIPT:", prefix="FILE_MANAGER")
+            safe_print_format("\n📜 BUILD SCRIPT:", prefix="FILEMGR")
             safe_print_format(
-                "   File: {filename}", prefix="FILE_MANAGER", filename=info["filename"]
+                "   File: {filename}", prefix="FILEMGR", filename=info["filename"]
             )
             safe_print_format(
                 "   Size: {size_kb} KB ({size_bytes:,} bytes)",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 size_kb=info["size_kb"],
                 size_bytes=info["size_bytes"],
             )
             safe_print_format(
                 "   SHA256: {sha256}...",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 sha256=info["sha256"][:16],
             )
 
@@ -1121,28 +1210,28 @@ class FileManager:
             else:
                 features.append("⚠️  No hex file generation commands")
 
-            safe_print_format("   Features:", prefix="FILE_MANAGER")
+            safe_print_format("   Features:", prefix="FILEMGR")
             for feature in features:
                 safe_print_format(
-                    "     {feature}", prefix="FILE_MANAGER", feature=feature
+                    "     {feature}", prefix="FILEMGR", feature=feature
                 )
 
         # Bitstream information (only if Vivado was run)
         if validation_results.get("bitstream_info"):
             info = validation_results["bitstream_info"]
-            safe_print_format("\n📁 BITSTREAM FILE:", prefix="FILE_MANAGER")
+            safe_print_format("\n📁 BITSTREAM FILE:", prefix="FILEMGR")
             safe_print_format(
-                "   File: {filename}", prefix="FILE_MANAGER", filename=info["filename"]
+                "   File: {filename}", prefix="FILEMGR", filename=info["filename"]
             )
             safe_print_format(
                 "   Size: {size_mb} MB ({size_bytes:,} bytes)",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 size_mb=info["size_mb"],
                 size_bytes=info["size_bytes"],
             )
             safe_print_format(
                 "   SHA256: {sha256}...",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 sha256=info["sha256"][:16],
             )
 
@@ -1150,59 +1239,59 @@ class FileManager:
             if info["size_mb"] < self.min_bitstream_size_mb:
                 safe_print_format(
                     "   ⚠️  WARNING: Bitstream is very small (less than {min_size} MB), may be incomplete",
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                     min_size=self.min_bitstream_size_mb,
                 )
             elif info["size_mb"] > self.max_bitstream_size_mb:
                 safe_print_format(
                     "   ⚠️  WARNING: Bitstream is very large (greater than {max_size} MB), check for issues",
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                     max_size=self.max_bitstream_size_mb,
                 )
             else:
                 safe_print_format(
-                    "   ✅ Bitstream size looks normal", prefix="FILE_MANAGER"
+                    "   ✅ Bitstream size looks normal", prefix="FILEMGR"
                 )
 
         # Flash file information
         if validation_results.get("flash_file_info"):
             info = validation_results["flash_file_info"]
-            safe_print_format("\n💾 FLASH FILE:", prefix="FILE_MANAGER")
+            safe_print_format("\n💾 FLASH FILE:", prefix="FILEMGR")
             safe_print_format(
-                "   File: {filename}", prefix="FILE_MANAGER", filename=info["filename"]
+                "   File: {filename}", prefix="FILEMGR", filename=info["filename"]
             )
             safe_print_format(
                 "   Size: {size_mb} MB ({size_bytes:,} bytes)",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 size_mb=info["size_mb"],
                 size_bytes=info["size_bytes"],
             )
             safe_print_format(
                 "   SHA256: {sha256}...",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 sha256=info["sha256"][:16],
             )
 
         # Debug file information
         if validation_results.get("debug_file_info"):
             info = validation_results["debug_file_info"]
-            safe_print_format("\n🔍 DEBUG FILE:", prefix="FILE_MANAGER")
+            safe_print_format("\n🔍 DEBUG FILE:", prefix="FILEMGR")
             safe_print_format(
-                "   File: {filename}", prefix="FILE_MANAGER", filename=info["filename"]
+                "   File: {filename}", prefix="FILEMGR", filename=info["filename"]
             )
             safe_print_format(
                 "   Size: {size_bytes:,} bytes",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
                 size_bytes=info["size_bytes"],
             )
 
         # Report files
         if validation_results.get("reports_info"):
-            safe_print_format("\n📊 ANALYSIS REPORTS:", prefix="FILE_MANAGER")
+            safe_print_format("\n📊 ANALYSIS REPORTS:", prefix="FILEMGR")
             for report in validation_results["reports_info"]:
                 safe_print_format(
                     "   {filename} ({report_type}) - {size_bytes:,} bytes",
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                     filename=report["filename"],
                     report_type=report["type"],
                     size_bytes=report["size_bytes"],
@@ -1211,24 +1300,62 @@ class FileManager:
         # File checksums
         if validation_results.get("checksums"):
             safe_print_format(
-                "\n🔐 FILE CHECKSUMS (for verification):", prefix="FILE_MANAGER"
+                "\n🔐 FILE CHECKSUMS (for verification):", prefix="FILEMGR"
             )
             for filename, checksum in validation_results["checksums"].items():
                 safe_print_format(
                     "   {filename}: {checksum}...",
-                    prefix="FILE_MANAGER",
+                    prefix="FILEMGR",
                     filename=filename,
                     checksum=checksum[:16],
                 )
 
-        safe_print_format("\n" + "=" * 80, prefix="FILE_MANAGER")
+        safe_print_format("\n" + "=" * 80, prefix="FILEMGR")
         if build_mode == "tcl_only":
             safe_print_format(
                 "TCL build script is ready! Run with Vivado to generate bitstream.",
-                prefix="FILE_MANAGER",
+                prefix="FILEMGR",
             )
         else:
             safe_print_format(
-                "Build output files are ready for deployment!", prefix="FILE_MANAGER"
+                "Build output files are ready for deployment!", prefix="FILEMGR"
             )
-        safe_print_format("=" * 80 + "\n", prefix="FILE_MANAGER")
+        safe_print_format("=" * 80 + "\n", prefix="FILEMGR")
+
+    def _log_build_status(self, status: str) -> None:
+        """Log build status message based on validation status."""
+        status_messages = {
+            "success_full_build": (
+                log_info_safe,
+                "BUILD STATUS: SUCCESS (Full Vivado Build)",
+            ),
+            "success_tcl_ready": (
+                log_info_safe,
+                "BUILD STATUS: SUCCESS (TCL Build Script Ready)",
+            ),
+            "warning_small_bitstream": (
+                log_warning_safe,
+                "BUILD STATUS: WARNING - Bitstream file is unusually small",
+            ),
+            "warning_incomplete_tcl": (
+                log_warning_safe,
+                "BUILD STATUS: WARNING - TCL script may be incomplete",
+            ),
+            "warning_missing_hex": (
+                log_warning_safe,
+                "BUILD STATUS: WARNING - No hex file generated in TCL script",
+            ),
+            "failed_no_bitstream": (
+                log_error_safe,
+                "BUILD STATUS: FAILED - No bitstream file generated",
+            ),
+            "failed_no_tcl": (
+                log_error_safe,
+                "BUILD STATUS: FAILED - No TCL build script generated",
+            ),
+        }
+
+        log_func, message = status_messages.get(
+            status, (log_error_safe, "BUILD STATUS: ERROR - Validation failed")
+        )
+        log_func(logger, message, prefix="FILEMGR")

@@ -551,6 +551,8 @@ def test_copy_pcileech_sources_success(temp_dir):
     (board_path / "board_top.sv").write_text("module board_top; endmodule")
     (board_path / "support.v").write_text("module support; endmodule")
     (board_path / "board_pkg.svh").write_text("package board_pkg; endpackage")
+    # Add header file to test .svh file copying
+    (board_path / "pcileech_header.svh").write_text("`define HEADER_INCLUDED")
 
     constraints_dir = repo_root / "constraints" / "vc707"
     constraints_dir.mkdir(parents=True)
@@ -585,8 +587,17 @@ def test_copy_pcileech_sources_success(temp_dir):
 
     assert sorted(Path(p).name for p in result["systemverilog"]) == ["board_top.sv"]
     assert sorted(Path(p).name for p in result["verilog"]) == ["support.v"]
-    assert sorted(Path(p).name for p in result["packages"]) == ["board_pkg.svh"]
+    # Verify both package files and header files are copied
+    assert sorted(Path(p).name for p in result["packages"]) == [
+        "board_pkg.svh",
+        "pcileech_header.svh",
+    ]
     assert sorted(Path(p).name for p in result["constraints"]) == ["board.xdc"]
+    
+    # Verify header file exists in output
+    output_header = temp_dir / "src" / "pcileech_header.svh"
+    assert output_header.exists(), "Header file should be copied to output"
+    assert "`define HEADER_INCLUDED" in output_header.read_text()
 
 
 def test_copy_pcileech_sources_repo_import_error(temp_dir):
