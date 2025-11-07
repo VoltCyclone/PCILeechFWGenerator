@@ -6,6 +6,8 @@ This guide covers development setup, testing, and contributing to the PCILeech F
 
 ### 1. Clone and Setup
 
+**For Local Development** (requires voltcyclone-fpga submodule):
+
 ```bash
 git clone --recurse-submodules https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
@@ -14,12 +16,26 @@ pip install -r requirements-dev.txt
 pip install -e .
 ```
 
-**Note:** The `--recurse-submodules` flag is required to initialize the `voltcyclone-fpga` submodule at `lib/voltcyclone-fpga`.
+**For Container Development** (no submodule needed):
+
+```bash
+# Clone without submodules
+git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
+cd PCILeechFWGenerator
+
+# Build container (automatically clones voltcyclone-fpga)
+podman build -t dma-fw .
+```
+
+**Note for local development:** The `--recurse-submodules` flag is required to initialize the `voltcyclone-fpga` submodule at `lib/voltcyclone-fpga`.
 
 If you already cloned without submodules, initialize them with:
+
 ```bash
 git submodule update --init --recursive
 ```
+
+**Note for container builds:** The container automatically clones the `voltcyclone-fpga` repository during the build process, eliminating the need for git submodule management. See [Container Builds](site/docs/container-builds.md) for details.
 
 ### 2. Install Pre-commit Hooks
 

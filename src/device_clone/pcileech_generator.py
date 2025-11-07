@@ -18,8 +18,12 @@ All data sources are dynamic with no fallback mechanisms - the system fails
 fast if required data is not available.
 """
 
-import logging
+from __future__ import annotations
 
+import logging
+import os
+
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from pathlib import Path
@@ -52,6 +56,7 @@ from src.pci_capability.msix_bar_validator import validate_msix_bar_configuratio
 
 # Import from centralized locations
 from src.string_utils import (
+    log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
@@ -413,7 +418,6 @@ class PCILeechGenerator:
     # ------------------------------------------------------------------
     # Lightweight context manager for consistent step logging/handling
     # ------------------------------------------------------------------
-    from contextlib import contextmanager
 
     @contextmanager
     def _generation_step(
@@ -453,7 +457,7 @@ class PCILeechGenerator:
             log_info_safe(
                 self.logger,
                 "Behavior profiling disabled, skipping device behavior capture",
-                prefix="MSIX",
+                prefix="PCIL",
             )
             return None
 
@@ -463,7 +467,7 @@ class PCILeechGenerator:
                 "Capturing device behavior profile for {duration}s",
                 duration=self.config.behavior_capture_duration,
             ),
-            prefix="MSIX",
+            prefix="PCIL",
         )
 
         try:
@@ -487,7 +491,7 @@ class PCILeechGenerator:
                     accesses=behavior_profile.total_accesses,
                     patterns=len(behavior_profile.timing_patterns),
                 ),
-                prefix="MSIX",
+                prefix="PCIL",
             )
 
             return behavior_profile
@@ -509,7 +513,7 @@ class PCILeechGenerator:
                         "profile: {error}",
                         error=str(e),
                     ),
-                    prefix="MSIX",
+                    prefix="PCIL",
                 )
                 return None
             else:
@@ -533,7 +537,7 @@ class PCILeechGenerator:
                 "Analyzing configuration space for device {bdf}",
                 bdf=self.config.device_bdf,
             ),
-            prefix="MSIX",
+            prefix="CFG",
         )
 
         try:
@@ -544,7 +548,7 @@ class PCILeechGenerator:
                 log_info_safe(
                     self.logger,
                     "Using pre-collected configuration space data from host",
-                    prefix="MSIX",
+                    prefix="CFG",
                 )
                 config_space_bytes = self._preloaded_config_space
             else:
@@ -560,7 +564,7 @@ class PCILeechGenerator:
                     "Config space read failed (IO): {error}",
                     error=str(e),
                 ),
-                prefix="MSIX",
+                prefix="CFG",
             )
             raise PCILeechGenerationError(
                 safe_format("Configuration space read failed: {err}", err=e)
@@ -572,7 +576,7 @@ class PCILeechGenerator:
                     "Config space value error: {error}",
                     error=str(e),
                 ),
-                prefix="MSIX",
+                prefix="CFG",
             )
             raise PCILeechGenerationError(
                 safe_format("Configuration space parse failed: {err}", err=e)
@@ -585,7 +589,7 @@ class PCILeechGenerator:
                     "continue without device identity: {error}",
                     error=str(e),
                 ),
-                prefix="MSIX",
+                prefix="CFG",
             )
             raise PCILeechGenerationError(
                 safe_format(
@@ -615,7 +619,7 @@ class PCILeechGenerator:
                 "Analyzing configuration space for device {bdf} (VFIO already active)",
                 bdf=self.config.device_bdf,
             ),
-            prefix="MSIX",
+            prefix="CFG",
         )
 
         try:
@@ -632,7 +636,7 @@ class PCILeechGenerator:
                     "continue without device identity: {error}",
                     error=str(e),
                 ),
-                prefix="MSIX",
+                prefix="CFG",
             )
             raise PCILeechGenerationError(
                 safe_format(
@@ -661,6 +665,29 @@ class PCILeechGenerator:
             Raises:
                 PCILeechGenerationError: If critical fields are missing
         """
+        # Validate config space length (must be 256 or 4096 bytes)
+        if not config_space_bytes or len(config_space_bytes) == 0:
+            raise PCILeechGenerationError(
+                "Configuration space is empty"
+            )
+        
+        cfg_len = len(config_space_bytes)
+        if cfg_len not in (256, 4096):
+            # Check if it's a power of 2 at least
+            is_power_of_two = (cfg_len & (cfg_len - 1)) == 0 and cfg_len > 0
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Unexpected config space length: {len} bytes "
+                    "(expected 256 or 4096). Power of 2: {is_pow2}. "
+                    "Did you pass a hex string without proper conversion?",
+                    len=cfg_len,
+                    is_pow2=is_power_of_two,
+                ),
+                prefix="CFG",
+            )
+            # Don't fail, but warn - some devices might have unusual sizes
+        
         # Initial extraction (fast, local)
         base_info = self.config_space_manager.extract_device_info(config_space_bytes)
 
@@ -678,7 +705,7 @@ class PCILeechGenerator:
                     "DeviceInfoLookup failed, using base extracted info: {err}",
                     err=str(e),
                 ),
-                prefix="MSIX",
+                prefix="CFG",
             )
             device_info = base_info
 
@@ -710,7 +737,7 @@ class PCILeechGenerator:
                 device_id=device_info.get("device_id", 0),
                 class_code=device_info.get("class_code", 0),
             ),
-            prefix="MSIX",
+            prefix="CFG",
         )
 
         return config_space_data
@@ -743,11 +770,21 @@ class PCILeechGenerator:
         # Parse MSI-X capability
         msix_info = parse_msix_capability(config_space_hex)
 
-        # Return None if capability is missing or table_size == 0
-        if msix_info["table_size"] == 0:
+        # Guard against None or missing fields
+        if not msix_info:
             log_info_safe(
                 self.logger,
-                "MSI-X capability not found or table_size is 0",
+                "MSI-X capability not found",
+                prefix="MSIX",
+            )
+            return None
+
+        # Return None if table_size == 0
+        if msix_info.get("table_size", 0) == 0:
+            log_info_safe(
+                self.logger,
+                "MSI-X capability found but table_size is 0",
+                prefix="MSIX",
             )
             return None
 
@@ -768,13 +805,13 @@ class PCILeechGenerator:
         # Build comprehensive MSI-X data
         msix_data = {
             "capability_info": msix_info,
-            "table_size": msix_info["table_size"],
-            "table_bir": msix_info["table_bir"],
-            "table_offset": msix_info["table_offset"],
-            "pba_bir": msix_info["pba_bir"],
-            "pba_offset": msix_info["pba_offset"],
-            "enabled": msix_info["enabled"],
-            "function_mask": msix_info["function_mask"],
+            "table_size": msix_info.get("table_size", 0),
+            "table_bir": msix_info.get("table_bir", 0),
+            "table_offset": msix_info.get("table_offset", 0),
+            "pba_bir": msix_info.get("pba_bir", 0),
+            "pba_offset": msix_info.get("pba_offset", 0),
+            "enabled": msix_info.get("enabled", False),
+            "function_mask": msix_info.get("function_mask", False),
             "validation_errors": validation_errors,
             "is_valid": is_valid,
         }
@@ -784,9 +821,9 @@ class PCILeechGenerator:
             safe_format(
                 "MSI-X capabilities processed: {vectors} vectors, table BIR {bir}, "
                 "offset 0x{offset:x}",
-                vectors=msix_info["table_size"],
-                bir=msix_info["table_bir"],
-                offset=msix_info["table_offset"],
+                vectors=msix_info.get("table_size", 0),
+                bir=msix_info.get("table_bir", 0),
+                offset=msix_info.get("table_offset", 0),
             ),
             prefix="MSIX",
         )
@@ -1044,15 +1081,94 @@ class PCILeechGenerator:
             repo_path = RepoManager.ensure_repo()
             xdc_files = RepoManager.get_xdc_files(board, repo_root=repo_path)
             
+            # Validate output directory exists and is writable
+            if not output_dir.exists():
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Output directory does not exist: {path}, "
+                        "attempting to create",
+                        path=output_dir
+                    ),
+                    prefix="PCIL"
+                )
+                try:
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                except PermissionError as e:
+                    raise PCILeechGenerationError(
+                        safe_format(
+                            "Cannot create output directory {path}: "
+                            "Permission denied. "
+                            "Ensure the parent directory is writable. "
+                            "Try: sudo chown -R $(id -u):$(id -g) {parent} "
+                            "or: sudo mkdir -p {path} && "
+                            "sudo chown $(id -u):$(id -g) {path}",
+                            path=output_dir,
+                            parent=output_dir.parent
+                        )
+                    ) from e
+            
+            # Verify output directory is writable
+            if not os.access(output_dir, os.W_OK):
+                # Get directory ownership info for diagnostics
+                try:
+                    stat_info = output_dir.stat()
+                    owner_info = safe_format(
+                        "uid={uid} gid={gid} mode={mode}",
+                        uid=stat_info.st_uid,
+                        gid=stat_info.st_gid,
+                        mode=oct(stat_info.st_mode)
+                    )
+                except Exception:
+                    owner_info = "unknown"
+                
+                raise PCILeechGenerationError(
+                    safe_format(
+                        "Output directory {path} is not writable. "
+                        "Current ownership: {owner}. "
+                        "Fix with: sudo chown -R $(id -u):$(id -g) {path}",
+                        path=output_dir,
+                        owner=owner_info
+                    )
+                )
+            
             # Copy XDC files to output directory
             constraints_dir = output_dir / "constraints"
-            constraints_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                constraints_dir.mkdir(parents=True, exist_ok=True)
+            except PermissionError as e:
+                raise PCILeechGenerationError(
+                    safe_format(
+                        "Cannot create constraints directory {path}: "
+                        "Permission denied. "
+                        "Parent directory {parent} ownership: {owner}. "
+                        "Check volume mount permissions or run: "
+                        "chmod 777 {parent}",
+                        path=constraints_dir,
+                        parent=output_dir,
+                        owner=(
+                            f"uid={output_dir.stat().st_uid} "
+                            f"gid={output_dir.stat().st_gid}"
+                        )
+                    )
+                ) from e
             
             result = {}
             for xdc_file in xdc_files:
                 dest_file = constraints_dir / xdc_file.name
                 import shutil
-                shutil.copy2(xdc_file, dest_file)
+                try:
+                    shutil.copy2(xdc_file, dest_file)
+                except PermissionError as e:
+                    raise PCILeechGenerationError(
+                        safe_format(
+                            "Cannot write constraint file {dest}: "
+                            "Permission denied. "
+                            "Directory permissions: {perms}",
+                            dest=dest_file,
+                            perms=oct(constraints_dir.stat().st_mode)
+                        )
+                    ) from e
                 result[xdc_file.name] = str(dest_file)
                 
                 log_info_safe(
@@ -1187,14 +1303,10 @@ class PCILeechGenerator:
             # Initialize writemask generator
             writemask_gen = WritemaskGenerator()
 
-            # Config space COE path
-            cfg_space_coe = (
-                self.config.output_dir / "systemverilog" / "pcileech_cfgspace.coe"
-            )
+            # Config space COE path - use src directory for consistency
+            cfg_space_coe = self.config.output_dir / "src" / "pcileech_cfgspace.coe"
             writemask_coe = (
-                self.config.output_dir
-                / "systemverilog"
-                / "pcileech_cfgspace_writemask.coe"
+                self.config.output_dir / "src" / "pcileech_cfgspace_writemask.coe"
             )
 
             # Ensure output directory exists
@@ -1229,31 +1341,24 @@ class PCILeechGenerator:
                 else:
                     # If COE already exists in output, reuse it
                     systemverilog_coe_path = (
-                        self.config.output_dir
-                        / "systemverilog"
-                        / "pcileech_cfgspace.coe"
+                        self.config.output_dir / "src" / "pcileech_cfgspace.coe"
                     )
                     if systemverilog_coe_path.exists():
-                        # Copy from systemverilog directory to avoid regeneration
-                        cfg_space_coe.write_text(systemverilog_coe_path.read_text())
+                        # Already in src directory
                         log_info_safe(
                             self.logger,
                             safe_format(
-                                "Copied existing COE from systemverilog dir to {path}",
+                                "Config space COE already exists at {path}",
                                 path=str(cfg_space_coe),
                             ),
                             prefix="WRMASK",
                         )
                     else:
                         # Generate new content as last resort
-                        from src.templating.systemverilog_generator import (
-                            AdvancedSVGenerator,
+                        # Use existing sv_generator instance instead of re-importing
+                        modules = self.sv_generator.generate_pcileech_modules(
+                            template_context
                         )
-
-                        sv_gen = AdvancedSVGenerator(
-                            template_dir=self.config.template_dir
-                        )
-                        modules = sv_gen.generate_pcileech_modules(template_context)
 
                         if "pcileech_cfgspace.coe" in modules:
                             cfg_space_coe.write_text(modules["pcileech_cfgspace.coe"])
@@ -1286,7 +1391,7 @@ class PCILeechGenerator:
 
             # Read generated writemask content
             if writemask_coe.exists():
-                return writemask_coe.read_text()
+                return writemask_coe.read_text(encoding="utf-8")
             else:
                 log_warning_safe(
                     self.logger,
@@ -1699,6 +1804,23 @@ class PCILeechGenerator:
             components_dir = output_dir / "components"
             components_dir.mkdir(exist_ok=True)
 
+            # Persist build integration, if provided
+            bi = generation_result.get("firmware_components", {}).get(
+                "build_integration"
+            )
+            if bi:
+                # Save as .sv file in src directory
+                bi_file = sv_dir / "pcileech_integration.sv"
+                bi_file.write_text(bi)
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Saved build integration to {path}",
+                        path=str(bi_file),
+                    ),
+                    prefix="PCIL",
+                )
+
             # Save writemask COE if generated
             firmware_components = generation_result.get("firmware_components", {})
             if (
@@ -1907,39 +2029,49 @@ class PCILeechGenerator:
         manager = VFIODeviceManager(self.config.device_bdf, self.logger)
         total_bytes = table_size * MSIX_ENTRY_SIZE
 
-        raw = manager.read_region_slice(
-            index=table_bir, offset=table_offset, size=total_bytes
-        )
-        if not raw or len(raw) < total_bytes:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "MSI-X table read incomplete: requested={req} got={got}",
-                    req=total_bytes,
-                    got=(len(raw) if raw else 0),
-                ),
-                prefix="MSIX",
+        try:
+            raw = manager.read_region_slice(
+                index=table_bir, offset=table_offset, size=total_bytes
             )
-            return None
-
-        # Split into 16-byte entries and also build dword-wise init hex
-        entries: List[Dict[str, Any]] = []
-        hex_lines: List[str] = []
-        for i in range(table_size):
-            start = i * MSIX_ENTRY_SIZE
-            chunk = raw[start : start + MSIX_ENTRY_SIZE]
-            entries.append({"vector": i, "data": chunk.hex(), "enabled": True})
-            # Break into four 32-bit LE words for init hex
-            for w in range(DWORDS_PER_MSIX_ENTRY):
-                word = int.from_bytes(
-                    chunk[w * DWORD_SIZE : (w + 1) * DWORD_SIZE], "little"
+            if not raw or len(raw) < total_bytes:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X table read incomplete: requested={req} got={got}",
+                        req=total_bytes,
+                        got=(len(raw) if raw else 0),
+                    ),
+                    prefix="MSIX",
                 )
-                hex_lines.append(format(word, "08X"))
+                return None
 
-        return {
-            "table_entries": entries,
-            "table_init_hex": "\n".join(hex_lines) + "\n",
-        }
+            # Split into 16-byte entries and also build dword-wise init hex
+            entries: List[Dict[str, Any]] = []
+            hex_lines: List[str] = []
+            for i in range(table_size):
+                start = i * MSIX_ENTRY_SIZE
+                chunk = raw[start : start + MSIX_ENTRY_SIZE]
+                entries.append({"vector": i, "data": chunk.hex(), "enabled": True})
+                # Break into four 32-bit LE words for init hex
+                for w in range(DWORDS_PER_MSIX_ENTRY):
+                    word = int.from_bytes(
+                        chunk[w * DWORD_SIZE : (w + 1) * DWORD_SIZE], "little"
+                    )
+                    hex_lines.append(format(word, "08X"))
+
+            return {
+                "table_entries": entries,
+                "table_init_hex": "\n".join(hex_lines) + "\n",
+            }
+        finally:
+            # Best-effort close if provided
+            close = getattr(manager, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    # Ignore close errors
+                    pass
 
     # --- Validation helpers ---
 
@@ -2077,7 +2209,17 @@ class PCILeechGenerator:
                             "prefetchable": bool(prefetch),
                         }
                     )
-            except Exception:
-                # Skip malformed entries silently; validator will catch missing BARs
+            except Exception as e:
+                # Log malformed entries for diagnostics
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to coerce BAR entry: {entry} | error: {err}",
+                        entry=str(b)[:100],  # Truncate for safety
+                        err=str(e),
+                    ),
+                    prefix="PCIL",
+                )
+                # Skip malformed entries; validator will catch missing BARs
                 continue
         return result

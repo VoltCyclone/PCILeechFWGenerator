@@ -628,7 +628,7 @@ class TemplateRenderer:
         content = self.render_template(template_name, context)
         out_path = Path(out_path)
         tmp = out_path.with_suffix(out_path.suffix + ".tmp")
-        tmp.write_text(content)
+        tmp.write_text(content, encoding="utf-8")
         tmp.replace(out_path)
         return out_path
 

@@ -13,10 +13,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip build-essential \
         linux-headers-generic \
-        pciutils kmod ca-certificates && \
+        pciutils kmod ca-certificates git && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
+
+# ── Clone voltcyclone-fpga repository during build ───────────────────────────
+# This eliminates user errors with git submodules
+RUN mkdir -p lib && \
+    git clone --depth 1 https://github.com/VoltCyclone/voltcyclone-fpga.git lib/voltcyclone-fpga && \
+    echo "✓ voltcyclone-fpga cloned successfully" && \
+    ls -la lib/voltcyclone-fpga/
 
 # ── VFIO constants patching ───────────────────────────────────────────────────
 COPY vfio_helper.c patch_vfio_constants.py build_vfio_constants.sh ./
@@ -54,8 +61,10 @@ RUN pip3 install --no-cache-dir -r requirements.txt -r requirements-tui.txt
 # Copy application files
 COPY src ./src
 COPY configs ./configs
-COPY lib/voltcyclone-fpga ./lib/voltcyclone-fpga
 COPY pcileech.py .
+
+# Copy voltcyclone-fpga from build stage (cloned during build)
+COPY --from=build /src/lib/voltcyclone-fpga ./lib/voltcyclone-fpga
 
 # Copy the patched VFIO constants from build stage
 COPY --from=build /src/vfio_constants_patched.py ./src/cli/vfio_constants.py

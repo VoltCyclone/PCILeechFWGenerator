@@ -310,7 +310,7 @@ class SVOverlayGenerator:
                 )
                 
                 # Read generated writemask
-                writemask_content = wm_temp_path.read_text()
+                writemask_content = wm_temp_path.read_text(encoding="utf-8")
                 
                 log_info_safe(
                     self.logger,

@@ -8,6 +8,7 @@ and configurations dynamically.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -278,8 +279,8 @@ class BoardDiscovery:
 
         for src_dir in src_dirs:
             if src_dir.exists():
-                files.extend([f.name for f in src_dir.glob("*.sv")])
-                files.extend([f.name for f in src_dir.glob("*.v")])
+                files.extend(sorted(f.name for f in src_dir.glob("*.sv")))
+                files.extend(sorted(f.name for f in src_dir.glob("*.v")))
 
         # Remove duplicates while preserving order
         seen = set()
@@ -299,8 +300,8 @@ class BoardDiscovery:
 
         for ip_dir in ip_dirs:
             if ip_dir.exists():
-                files.extend([f.name for f in ip_dir.glob("*.xci")])
-                files.extend([f.name for f in ip_dir.glob("*.xcix")])
+                files.extend(sorted(f.name for f in ip_dir.glob("*.xci")))
+                files.extend(sorted(f.name for f in ip_dir.glob("*.xcix")))
 
         return list(set(files))
 
@@ -317,7 +318,7 @@ class BoardDiscovery:
 
         for xdc_dir in xdc_dirs:
             if xdc_dir.exists():
-                files.extend([f.name for f in xdc_dir.glob("*.xdc")])
+                files.extend(sorted(f.name for f in xdc_dir.glob("*.xdc")))
 
         return list(set(files))
 
@@ -334,7 +335,7 @@ class BoardDiscovery:
 
         for coe_dir in coe_dirs:
             if coe_dir.exists():
-                files.extend([f.name for f in coe_dir.glob("*.coe")])
+                files.extend(sorted(f.name for f in coe_dir.glob("*.coe")))
 
         return list(set(files))
 
@@ -501,8 +502,14 @@ class BoardDiscovery:
             export_data[board_name] = export_config
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_file, "w") as f:
+        
+        # Atomic write: write to temp file and replace
+        tmp = output_file.with_suffix(output_file.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(export_data, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(output_file)
 
         log_info_safe(
             logger,

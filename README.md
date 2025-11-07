@@ -113,11 +113,11 @@ The tool automatically checks for newer versions during CLI builds. You can:
 ### Development from Repository
 
 ```bash
-# Clone with submodules (required for lib/voltcyclone-fpga)
-git clone --recurse-submodules https://github.com/voltcyclone/PCILeechFWGenerator.git
+# Clone the repository
+git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 
-# If already cloned without submodules, initialize them:
+# Initialize submodule (only needed for local development, NOT for container builds)
 git submodule update --init --recursive
 
 python3 -m venv .venv && source .venv/bin/activate
@@ -127,7 +127,9 @@ pip install -e .
 sudo -E python3 pcileech.py tui
 ```
 
-> **Note for developers**: When working from a git checkout, you must clone with `--recurse-submodules` or run `git submodule update --init --recursive` after cloning. The `lib/voltcyclone-fpga` submodule contains FPGA board definitions and synthesis templates.
+> **Note for developers**: When working from a git checkout for local development, you must clone with `--recurse-submodules` or run `git submodule update --init --recursive` after cloning. The `lib/voltcyclone-fpga` submodule contains FPGA board definitions and synthesis templates.
+>
+> **Note for container users**: The container build automatically clones the `voltcyclone-fpga` repository during the build process, so you don't need to initialize any git submodules manually. Just build the container!
 >
 > **Note for pip users**: The voltcyclone-fpga submodule contents are bundled automatically in pip distributions, so no additional steps are needed.
 
