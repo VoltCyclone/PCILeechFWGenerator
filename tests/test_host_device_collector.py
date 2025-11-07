@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from src.build import MSIXData
+from src.device_clone.msix import MSIXData
 from src.cli.host_device_collector import HostDeviceCollector
 
 
@@ -135,7 +135,7 @@ def test_collect_msix_found(monkeypatch, logger):
         }
 
     monkeypatch.setattr(
-        'src.device_clone.msix_capability.parse_msix_capability', _fake_parse
+        'src.cli.host_device_collector.parse_msix_capability', _fake_parse
     )
 
     collector = HostDeviceCollector('0000:03:00.0', logger=logger)
@@ -170,7 +170,7 @@ def test_collect_msix_exception_logs_and_recovers(monkeypatch, logger, caplog):
         raise ValueError('parse error')
 
     monkeypatch.setattr(
-        'src.device_clone.msix_capability.parse_msix_capability', _boom
+        'src.cli.host_device_collector.parse_msix_capability', _boom
     )
     collector = HostDeviceCollector('0000:03:00.0', logger=logger)
     with caplog.at_level(logging.WARNING):

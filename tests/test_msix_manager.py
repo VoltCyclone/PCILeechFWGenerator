@@ -4,7 +4,8 @@ import sys
 
 import pytest
 
-from src.build import BuildConfiguration, MSIXData, MSIXManager
+from src.build import BuildConfiguration
+from src.device_clone.msix import MSIXData, MSIXManager
 
 
 def _in_container() -> bool:
@@ -109,7 +110,7 @@ import os
 
 import pytest
 
-from src.build import MSIXManager
+from src.device_clone.msix import MSIXManager
 
 
 def make_entry(addr_low: int, addr_high: int, data: int, ctrl: int) -> bytes:
@@ -170,7 +171,7 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
             "function_mask": False,
         }
 
-    monkeypatch.setattr("src.build.parse_msix_capability", fake_parse_msix_capability)
+    monkeypatch.setattr("src.device_clone.msix.parse_msix_capability", fake_parse_msix_capability)
 
     mgr = MSIXManager("0000:00:00.0")
     # Avoid attempting to open the real sysfs config path; return dummy bytes
