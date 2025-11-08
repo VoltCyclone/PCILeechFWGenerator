@@ -608,6 +608,16 @@ Environment Variables:
         default="pcileech_datastore",
         help="Host dir for device_context.json and outputs",
     )
+    build_parser.add_argument(
+        "--no-mmio-learning",
+        action="store_true",
+        help="Disable MMIO trace capture for BAR register learning",
+    )
+    build_parser.add_argument(
+        "--force-recapture",
+        action="store_true",
+        help="Force recapture of MMIO traces even if cached models exist",
+    )
 
     # TUI command
     tui_parser = subparsers.add_parser("tui", help="Launch interactive TUI")
@@ -839,7 +849,17 @@ def run_host_collect(args):
     # Set permissive permissions to allow container writes (0o777 = rwxrwxrwx)
     output_dir.chmod(0o777)
 
-    collector = HostCollector(args.bdf, datastore, logger)
+    # Get MMIO learning flags
+    enable_mmio_learning = not getattr(args, "no_mmio_learning", False)
+    force_recapture = getattr(args, "force_recapture", False)
+
+    collector = HostCollector(
+        args.bdf,
+        datastore,
+        logger,
+        enable_mmio_learning=enable_mmio_learning,
+        force_recapture=force_recapture,
+    )
     rc = collector.run()
     if rc == 0:
         log_info_safe(

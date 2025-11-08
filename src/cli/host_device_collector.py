@@ -35,15 +35,25 @@ from src.exceptions import BuildError
 class HostDeviceCollector:
     """Collects all device information on the host before container launch."""
     
-    def __init__(self, bdf: str, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        bdf: str,
+        logger: Optional[logging.Logger] = None,
+        enable_mmio_learning: bool = True,
+        force_recapture: bool = False,
+    ):
         """Initialize the collector.
         
         Args:
             bdf: PCI Bus/Device/Function identifier
             logger: Optional logger instance
+            enable_mmio_learning: Enable MMIO trace capture for BAR models
+            force_recapture: Force recapture even if cached models exist
         """
         self.bdf = bdf
         self.logger = logger or logging.getLogger(__name__)
+        self.enable_mmio_learning = enable_mmio_learning
+        self.force_recapture = force_recapture
         
     def collect_device_context(self, output_dir: Path) -> Dict[str, Any]:
         """Collect complete device context using existing infrastructure.
@@ -104,7 +114,14 @@ class HostDeviceCollector:
                     msix_manager, config_space_bytes
                 )
                 
-                # 4. Save collected data for container consumption
+                # 4. Collect BAR models via MMIO learning (optional)
+                bar_models = None
+                if self.enable_mmio_learning:
+                    bar_models = self._collect_bar_models(
+                        device_info, output_dir
+                    )
+                
+                # 5. Save collected data for container consumption
                 # Note: Template context building is deferred to the container
                 # to avoid duplicating PCILeechContextBuilder instantiation
                 collected_data = {
@@ -114,10 +131,12 @@ class HostDeviceCollector:
                     "msix_data": (
                         asdict(msix_data) if msix_data.preloaded else None
                     ),
+                    "bar_models": bar_models,
                     "collection_metadata": {
                         "collected_at": time.time(),
                         "config_space_size": len(config_space_bytes),
                         "has_msix": msix_data.preloaded,
+                        "has_bar_models": bar_models is not None,
                         "collector_version": "1.0"
                     }
                 }
@@ -205,6 +224,100 @@ class HostDeviceCollector:
                 prefix="MSIX"
             )
             return MSIXData(preloaded=False)
+    
+    def _collect_bar_models(
+        self, device_info: Dict[str, Any], output_dir: Path
+    ) -> Optional[Dict[int, Dict[str, Any]]]:
+        """Collect BAR register models via MMIO trace capture.
+        
+        Args:
+            device_info: Device information dict with bar_config
+            output_dir: Output directory for cache
+            
+        Returns:
+            Dict mapping BAR index to serialized BarModel, or None on failure
+        """
+        try:
+            from src.device_clone.bar_model_synthesizer import (
+                synthesize_bar_models,
+            )
+            
+            bar_config = device_info.get("bar_config", {})
+            bars = bar_config.get("bars", [])
+            
+            if not bars:
+                log_info_safe(
+                    self.logger,
+                    "No BARs found, skipping MMIO learning",
+                    prefix="MMIO"
+                )
+                return None
+            
+            cache_dir = output_dir / ".pcileech_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Capturing MMIO traces for {bdf} (cache: {cache})",
+                    bdf=self.bdf,
+                    cache=cache_dir,
+                ),
+                prefix="MMIO",
+            )
+            
+            bar_models = synthesize_bar_models(
+                self.bdf,
+                bars,
+                cache_dir=cache_dir,
+                force_recapture=self.force_recapture,
+                logger=self.logger,
+            )
+            
+            if bar_models:
+                # Serialize models for JSON storage
+                from src.device_clone.bar_model_loader import (
+                    serialize_bar_model,
+                )
+                
+                serialized = {}
+                for bar_idx, model in bar_models.items():
+                    serialized[bar_idx] = serialize_bar_model(model)
+                
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Collected BAR models for {count} BARs",
+                        count=len(serialized),
+                    ),
+                    prefix="MMIO",
+                )
+                return serialized
+            else:
+                log_warning_safe(
+                    self.logger,
+                    "No BAR models captured (insufficient trace data)",
+                    prefix="MMIO",
+                )
+                return None
+                
+        except PermissionError:
+            log_warning_safe(
+                self.logger,
+                "MMIO learning requires root (bpftrace) - skipping",
+                prefix="MMIO",
+            )
+            return None
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MMIO learning failed (non-fatal): {error}",
+                    error=str(e),
+                ),
+                prefix="MMIO",
+            )
+            return None
     
     def _save_collected_data(self, output_dir: Path, data: Dict[str, Any]) -> None:
         """Save collected device data to files for container consumption.

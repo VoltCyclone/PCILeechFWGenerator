@@ -734,8 +734,21 @@ class PCILeechContextBuilder:
         interrupt_strategy: str = "intx",
         interrupt_vectors: int = 1,
         donor_template: Optional[Dict[str, Any]] = None,
+        enable_mmio_learning: bool = True,
+        force_recapture: bool = False,
     ) -> TemplateContext:
-        """Build comprehensive template context."""
+        """Build comprehensive template context.
+        
+        Args:
+            behavior_profile: Optional behavior profile
+            config_space_data: Device configuration space data
+            msix_data: Optional MSI-X capability data
+            interrupt_strategy: Interrupt strategy to use
+            interrupt_vectors: Number of interrupt vectors
+            donor_template: Optional donor template data
+            enable_mmio_learning: Enable automatic MMIO trace capture (default: True)
+            force_recapture: Force recapture of MMIO traces even if cached (default: False)
+        """
         log_info_safe(
             self.logger,
             safe_format(
@@ -780,6 +793,8 @@ class PCILeechContextBuilder:
                 interrupt_strategy,
                 interrupt_vectors,
                 donor_template,
+                enable_mmio_learning,
+                force_recapture,
             )
         except Exception as e:
             handle_error("Context section build failed", e)
@@ -808,6 +823,8 @@ class PCILeechContextBuilder:
         interrupt_strategy,
         interrupt_vectors,
         donor_template,
+        enable_mmio_learning=True,
+        force_recapture=False,
     ):
         """Build all context sections with minimal nesting."""
         context: TemplateContext = {
@@ -817,7 +834,12 @@ class PCILeechContextBuilder:
             "config_space": self._build_config_space_context(config_space_data),
             "msix_config": self._build_msix_context(msix_data),
             "msix_data": msix_data,  # Raw MSI-X data for SystemVerilog generator
-            "bar_config": self._build_bar_config(config_space_data, behavior_profile),
+            "bar_config": self._build_bar_config(
+                config_space_data,
+                behavior_profile,
+                enable_mmio_learning,
+                force_recapture,
+            ),
             "timing_config": self._build_timing_config(
                 behavior_profile, device_identifiers
             ).to_dict(),
@@ -1483,12 +1505,170 @@ class PCILeechContextBuilder:
 
         return context
 
+    def _capture_or_load_bar_models(
+        self,
+        device_bdf: str,
+        bar_configs: list,
+        enable_mmio_learning: bool = True,
+        force_recapture: bool = False,
+    ) -> Dict[int, Any]:
+        """Capture MMIO traces or load cached models.
+
+        Args:
+            device_bdf: Device to profile
+            bar_configs: Analyzed BAR info
+            enable_mmio_learning: If False, skip MMIO learning
+            force_recapture: Ignore cache, always capture
+
+        Returns:
+            Dict mapping BAR index to learned models
+        """
+        if not enable_mmio_learning:
+            return {}
+
+        # Check for prefilled bar_models from container flow
+        import os
+        device_context_path = os.getenv("DEVICE_CONTEXT_PATH")
+        if device_context_path and os.path.exists(device_context_path):
+            try:
+                import json
+                from src.device_clone.bar_model_loader import deserialize_bar_model
+                
+                with open(device_context_path, "r") as f:
+                    device_context = json.load(f)
+                
+                bar_models_data = device_context.get("bar_models")
+                if bar_models_data:
+                    models = {}
+                    for bar_idx_str, model_data in bar_models_data.items():
+                        bar_idx = int(bar_idx_str)
+                        models[bar_idx] = deserialize_bar_model(model_data)
+                    
+                    log_info_safe(
+                        self.logger,
+                        safe_format(
+                            "Loaded {count} prefilled BAR models from {path}",
+                            count=len(models),
+                            path=device_context_path,
+                        ),
+                        prefix="MMIO",
+                    )
+                    return models
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to load prefilled BAR models: {err}",
+                        err=str(e),
+                    ),
+                    prefix="MMIO",
+                )
+
+        from src.device_clone.bar_model_loader import BarModel, load_bar_model, save_bar_model
+        from src.device_clone.bar_model_synthesizer import synthesize_model
+        from src.device_clone.mmio_tracer import MmioTracer
+
+        models = {}
+        cache_dir = Path(".pcileech_cache") / device_bdf.replace(":", "_")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        for bar_info in bar_configs:
+            if not bar_info.is_memory or bar_info.size == 0:
+                continue  # Skip I/O BARs and empty BARs
+
+            bar_idx = bar_info.index
+            cache_file = cache_dir / f"bar{bar_idx}_model.json"
+
+            # Try cache first
+            if cache_file.exists() and not force_recapture:
+                try:
+                    models[bar_idx] = load_bar_model(cache_file)
+                    log_info_safe(
+                        self.logger,
+                        safe_format("Loaded cached model for BAR{idx}", idx=bar_idx),
+                        prefix="MMIO",
+                    )
+                    continue
+                except Exception as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "Cache invalid for BAR{idx}: {err}",
+                            idx=bar_idx,
+                            err=str(e),
+                        ),
+                        prefix="MMIO",
+                    )
+
+            # Capture fresh trace
+            log_info_safe(
+                self.logger,
+                safe_format("Capturing MMIO trace for BAR{idx}...", idx=bar_idx),
+                prefix="MMIO",
+            )
+
+            try:
+                tracer = MmioTracer(device_bdf)
+                trace = tracer.capture_probe_trace(
+                    bar_index=bar_idx, duration_sec=5.0, trigger_rebind=False
+                )
+
+                if len(trace.accesses) == 0:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "No MMIO traffic captured for BAR{idx}", idx=bar_idx
+                        ),
+                        prefix="MMIO",
+                    )
+                    continue
+
+                # Synthesize model
+                model = synthesize_model(trace)
+                models[bar_idx] = model
+
+                # Cache for future runs
+                save_bar_model(model, cache_file)
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Learned BAR{idx} model: {nregs} registers, cached to {path}",
+                        idx=bar_idx,
+                        nregs=len(model.registers),
+                        path=cache_file,
+                    ),
+                    prefix="MMIO",
+                )
+
+            except PermissionError:
+                log_warning_safe(
+                    self.logger,
+                    "Skipping MMIO trace (requires root); using synthetic content",
+                    prefix="MMIO",
+                )
+                break  # Don't try other BARs if no perms
+            except Exception as e:
+                log_error_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to capture BAR{idx}: {err}",
+                        idx=bar_idx,
+                        err=extract_root_cause(e),
+                    ),
+                    prefix="MMIO",
+                )
+                # Continue to next BAR
+
+        return models
+
     def _build_bar_config(
         self,
         config_space_data: Dict[str, Any],
         behavior_profile: Optional[BehaviorProfile],
+        enable_mmio_learning: bool = True,
+        force_recapture: bool = False,
     ) -> Dict[str, Any]:
-        """Build BAR configuration with minimal nesting and generate BAR content."""
+        """Build BAR configuration with optional MMIO learning."""
         self._check_and_fix_power_state()
         bars = config_space_data["bars"]
         bar_configs = self._analyze_bars(bars)
@@ -1503,7 +1683,8 @@ class PCILeechContextBuilder:
             prefix="BAR",
         )
         config = self._build_bar_config_dict(primary_bar, bar_configs)
-        # --- BAR content generation integration ---
+
+        # --- BAR content generation with MMIO learning ---
         # Use device signature if available, else fallback to vendor:device
         device_signature = config_space_data.get("device_signature")
         if not device_signature:
@@ -1512,10 +1693,58 @@ class PCILeechContextBuilder:
                 vendor=config_space_data.get("vendor_id", ""),
                 device=config_space_data.get("device_id", ""),
             )
+
+        # Attempt to learn models from live device
+        bar_models = {}
+        if enable_mmio_learning:
+            try:
+                bar_models = self._capture_or_load_bar_models(
+                    device_bdf=config_space_data.get("device_bdf", self.device_bdf),
+                    bar_configs=bar_configs,
+                    enable_mmio_learning=enable_mmio_learning,
+                    force_recapture=force_recapture,
+                )
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format("MMIO learning failed: {err}", err=str(e)),
+                    prefix="MMIO",
+                )
+
+        # Generate BAR content (with learned models if available)
+        from src.device_clone.bar_content_generator import BarContentType
+
         bar_sizes = {b.index: b.size for b in bar_configs if b.size > 0}
         bar_content_gen = BarContentGenerator(device_signature=device_signature)
-        bar_contents = bar_content_gen.generate_all_bars(bar_sizes)
+
+        bar_contents = {}
+        for bar_idx, size in bar_sizes.items():
+            model = bar_models.get(bar_idx)
+            if model:
+                content = bar_content_gen.generate_bar_content(
+                    size, bar_idx, BarContentType.LEARNED, model=model
+                )
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "BAR{idx}: Used LEARNED model with {nregs} registers",
+                        idx=bar_idx,
+                        nregs=len(model.registers),
+                    ),
+                    prefix="BAR",
+                )
+            else:
+                # Fallback to existing heuristics
+                if size <= 4096:
+                    content_type = BarContentType.REGISTERS
+                else:
+                    content_type = BarContentType.MIXED
+                content = bar_content_gen.generate_bar_content(size, bar_idx, content_type)
+
+            bar_contents[bar_idx] = content
+
         config["bar_contents"] = bar_contents
+
         if behavior_profile:
             config.update(
                 self._adjust_bar_config_for_behavior(config, behavior_profile)

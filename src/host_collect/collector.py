@@ -30,10 +30,19 @@ class HostCollector:
       - msix_data.json: { "config_space_hex": "...", "msix_info": {..} }
     """
 
-    def __init__(self, bdf: str, datastore: Path, logger=None) -> None:
+    def __init__(
+        self,
+        bdf: str,
+        datastore: Path,
+        logger=None,
+        enable_mmio_learning: bool = True,
+        force_recapture: bool = False,
+    ) -> None:
         self.bdf = bdf
         self.datastore = datastore
         self.logger = logger or get_logger(self.__class__.__name__)
+        self.enable_mmio_learning = enable_mmio_learning
+        self.force_recapture = force_recapture
 
     def run(self) -> int:
         try:

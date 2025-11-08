@@ -875,6 +875,10 @@ class PCILeechGenerator:
                 interrupt_strategy=interrupt_strategy,
                 interrupt_vectors=interrupt_vectors,
                 donor_template=self.config.donor_template,
+                enable_mmio_learning=getattr(
+                    self.config, "enable_mmio_learning", True
+                ),
+                force_recapture=getattr(self.config, "force_recapture", False),
             )
 
             log_info_safe(

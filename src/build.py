@@ -202,6 +202,9 @@ class BuildConfiguration:
     # Hard gate to disable any VFIO/sysfs hardware access inside container
     # Requires host-provided context/config space; fail fast if unavailable
     disable_vfio: bool = False
+    # MMIO learning for dynamic BAR models
+    enable_mmio_learning: bool = True
+    force_recapture: bool = False
 
 
 
@@ -998,6 +1001,12 @@ class ConfigurationManager:
         if disable_vfio:
             enable_profiling = False
 
+        # MMIO learning requires root and should be disabled in containers
+        enable_mmio_learning = (
+            not getattr(args, "no_mmio_learning", False) and not disable_vfio
+        )
+        force_recapture = getattr(args, "force_recapture", False)
+
         return BuildConfiguration(
             bdf=args.bdf,
             board=args.board,
@@ -1012,6 +1021,8 @@ class ConfigurationManager:
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
             disable_vfio=disable_vfio,
+            enable_mmio_learning=enable_mmio_learning,
+            force_recapture=force_recapture,
         )
 
     def extract_device_config(
@@ -1260,7 +1271,11 @@ class FirmwareBuilder:
             # Step 8: Store device configuration
             self._store_device_config(generation_result)
 
-            # Step 9: Generate donor template if requested
+            # Step 9: Run post-build validation
+            self._phase("Running post-build validation …")
+            self._run_post_build_validation(generation_result)
+
+            # Step 10: Generate donor template if requested
             if self.config.output_template:
                 self._phase("Writing donor template …")
                 self._generate_donor_template(generation_result)
@@ -1968,6 +1983,61 @@ class FirmwareBuilder:
             ctx, has_msix
         )
 
+    def _run_post_build_validation(self, result: Dict[str, Any]) -> None:
+        """Run post-build validation checks for driver compatibility."""
+        from src.utils.post_build_validator import (
+            PostBuildValidator,
+            PostBuildValidationCheck
+        )
+
+        validator = PostBuildValidator(self.logger)
+        
+        # Run comprehensive validation
+        is_valid, validation_results = validator.validate_build_output(
+            output_dir=self.config.output_dir,
+            generation_result=result
+        )
+
+        # Print validation report
+        validator.print_validation_report()
+
+        # Log critical findings
+        errors = [r for r in validation_results if r.severity == "error"]
+        if errors:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Build completed with {count} validation errors - "
+                    "firmware may not work with OS drivers",
+                    count=len(errors)
+                ),
+                prefix="BUILD"
+            )
+        
+        # Save validation report to JSON
+        warnings = [r for r in validation_results if r.severity == "warning"]
+        validation_data = {
+            "validation_passed": is_valid,
+            "total_checks": len(validation_results),
+            "errors": len(errors),
+            "warnings": len(warnings),
+            "results": [
+                {
+                    "check": r.check_name,
+                    "valid": r.is_valid,
+                    "severity": r.severity,
+                    "message": r.message,
+                    "details": r.details
+                }
+                for r in validation_results
+            ]
+        }
+        
+        self.file_manager.write_json(
+            "validation_report.json",
+            validation_data
+        )
+
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
         from .device_clone.donor_info_template import DonorInfoTemplateGenerator
@@ -2114,6 +2184,25 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         type=int,
         default=3600,
         help="Timeout for Vivado operations in seconds (default: 3600)",
+    )
+
+    # MMIO Learning Arguments
+    parser.add_argument(
+        "--no-mmio-learning",
+        action="store_true",
+        help=(
+            "Disable automatic MMIO trace capture for BAR register learning. "
+            "When disabled, uses synthetic BAR content generation."
+        ),
+    )
+
+    parser.add_argument(
+        "--force-recapture",
+        action="store_true",
+        help=(
+            "Force recapture of MMIO traces even if cached models exist. "
+            "Useful when driver or device behavior has changed."
+        ),
     )
 
     parser.add_argument(

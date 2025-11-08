@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List, Optional
 
 try:
@@ -39,7 +40,6 @@ from .build_constants import (
     DEFAULT_ACTIVE_PRIORITY,
     DEFAULT_ACTIVE_TIMER_PERIOD,
 )
-from .container import BuildConfig, run_build  # new unified runner
 from .version_checker import add_version_args, check_and_notify
 
 logger = get_logger(__name__)
@@ -408,7 +408,19 @@ def main(argv: Optional[List[str]] = None):
                     "build-integration",
                 ]
 
-        cfg = BuildConfig(
+        # Validate board parameter before launching build to fail fast
+        if not board or not board.strip():
+            log_error_safe(
+                logger,
+                "Board name is required. Use --board to specify a valid board "
+                "configuration (e.g., pcileech_100t484_x1)",
+                prefix="BUILD",
+            )
+            sys.exit(2)
+
+        # Use the unified flow through pcileech.py
+        # Build arguments for pcileech.py main()
+        build_args = SimpleNamespace(
             bdf=bdf,
             board=board,
             advanced_sv=args.advanced_sv,
@@ -427,18 +439,19 @@ def main(argv: Optional[List[str]] = None):
             donor_template=getattr(args, "donor_template", None),
             enable_error_injection=getattr(args, "enable_error_injection", False),
         )
-
-        # Validate board parameter before container launch to fail fast
-        if not board or not board.strip():
+        
+        # Import and call the unified entry point
+        try:
+            import pcileech
+            exit_code = pcileech.main(build_args)
+            sys.exit(exit_code)
+        except Exception as e:
             log_error_safe(
                 logger,
-                "Board name is required. Use --board to specify a valid board "
-                "configuration (e.g., pcileech_100t484_x1)",
-                prefix="BUILD",
+                safe_format("Build failed: {error}", error=str(e)),
+                prefix="BUILD"
             )
-            sys.exit(2)
-
-        run_build(cfg)
+            sys.exit(1)
 
     elif args.cmd == "flash":
         # Resolve board shorthand
