@@ -832,6 +832,12 @@ def run_host_collect(args):
 
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
     datastore.mkdir(parents=True, exist_ok=True)
+    
+    # Ensure output directory exists with proper permissions for container access
+    output_dir = datastore / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Set permissive permissions to allow container writes (0o777 = rwxrwxrwx)
+    output_dir.chmod(0o777)
 
     collector = HostCollector(args.bdf, datastore, logger)
     rc = collector.run()
