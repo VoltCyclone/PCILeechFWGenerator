@@ -1108,29 +1108,51 @@ class PCILeechGenerator:
                         )
                     ) from e
             
-            # Verify output directory is writable
-            if not os.access(output_dir, os.W_OK):
+            # Verify output directory is writable by attempting to create test file
+            # os.access() can give false negatives with sudo/root, test directly
+            test_file = output_dir / ".write_test"
+            try:
+                test_file.write_text("")
+                test_file.unlink()
+            except (PermissionError, OSError) as e:
                 # Get directory ownership info for diagnostics
                 try:
                     stat_info = output_dir.stat()
-                    owner_info = safe_format(
-                        "uid={uid} gid={gid} mode={mode}",
-                        uid=stat_info.st_uid,
-                        gid=stat_info.st_gid,
-                        mode=oct(stat_info.st_mode)
-                    )
+                    current_uid = os.getuid()
+                    
+                    # Build error message based on whether we're running as root
+                    if current_uid == 0:
+                        # Running as root - permission issue is unexpected
+                        error_msg = safe_format(
+                            "Output directory {path} is not writable as root. "
+                            "Directory mode: {mode}. "
+                            "Check for read-only mount or filesystem issue.",
+                            path=output_dir,
+                            mode=oct(stat_info.st_mode)
+                        )
+                    else:
+                        # Not running as root - suggest ownership fix
+                        owner_info = safe_format(
+                            "uid={uid} gid={gid} mode={mode}",
+                            uid=stat_info.st_uid,
+                            gid=stat_info.st_gid,
+                            mode=oct(stat_info.st_mode)
+                        )
+                        error_msg = safe_format(
+                            "Output directory {path} is not writable. "
+                            "Current ownership: {owner}. "
+                            "Fix with: sudo chown -R $(id -u):$(id -g) {path}",
+                            path=output_dir,
+                            owner=owner_info
+                        )
                 except Exception:
-                    owner_info = "unknown"
-                
-                raise PCILeechGenerationError(
-                    safe_format(
-                        "Output directory {path} is not writable. "
-                        "Current ownership: {owner}. "
-                        "Fix with: sudo chown -R $(id -u):$(id -g) {path}",
+                    error_msg = safe_format(
+                        "Output directory {path} is not writable: {error}",
                         path=output_dir,
-                        owner=owner_info
+                        error=e
                     )
-                )
+                
+                raise PCILeechGenerationError(error_msg) from e
             
             # Copy XDC files to output directory
             constraints_dir = output_dir / "constraints"
