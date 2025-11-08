@@ -1120,8 +1120,26 @@ class PCILeechGenerator:
                     stat_info = output_dir.stat()
                     current_uid = os.getuid()
                     
-                    # Build error message based on whether we're running as root
-                    if current_uid == 0:
+                    # Check if we're in a container
+                    in_container = (
+                        os.path.exists("/.dockerenv") or
+                        os.path.exists("/run/.containerenv") or
+                        os.getenv("container") is not None
+                    )
+                    
+                    # Build error message based on context
+                    if current_uid == 0 and in_container:
+                        # Running as root in container - likely mount issue
+                        error_msg = safe_format(
+                            "Output directory {path} is not writable in container. "
+                            "This is likely a volume mount permission issue. "
+                            "On the HOST, run: sudo chmod 777 {path} "
+                            "or ensure volume is mounted with write permissions. "
+                            "Directory mode: {mode}",
+                            path=output_dir,
+                            mode=oct(stat_info.st_mode)
+                        )
+                    elif current_uid == 0:
                         # Running as root - permission issue is unexpected
                         error_msg = safe_format(
                             "Output directory {path} is not writable as root. "
@@ -1980,10 +1998,14 @@ class PCILeechGenerator:
                 return None
 
         except Exception as e:
+            from src.error_utils import extract_root_cause
+            root_cause = extract_root_cause(e)
             log_warning_safe(
                 self.logger,
-                "MSI-X preload failed: {error}",
-                error=str(e),
+                safe_format(
+                    "MSI-X preload failed: {error}",
+                    error=root_cause,
+                ),
                 prefix="MSIX",
             )
             return None
@@ -2034,11 +2056,13 @@ class PCILeechGenerator:
             table_bir = int(msix_data.get("table_bir", 0))
             table_offset = int(msix_data.get("table_offset", 0))
         except Exception as e:
+            from src.error_utils import extract_root_cause
+            root_cause = extract_root_cause(e)
             log_warning_safe(
                 self.logger,
                 safe_format(
                     "Invalid MSI-X capability fields: {error}",
-                    error=str(e),
+                    error=root_cause,
                 ),
                 prefix="MSIX",
             )
