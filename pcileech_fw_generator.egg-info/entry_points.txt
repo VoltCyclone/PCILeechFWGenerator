@@ -1,4 +1,0 @@
-[console_scripts]
-pcileech-build = src.build:main
-pcileech-generate = src.generate_cli:main
-pcileech-tui = src.tui_cli:main

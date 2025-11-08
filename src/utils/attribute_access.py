@@ -240,10 +240,14 @@ def require_attrs(
     if missing:
         prefix = f"{error_prefix}: " if error_prefix else ""
         if len(missing) == 1:
-            raise AttributeError(f"{prefix}Missing required attribute: '{missing[0]}'")
+            raise AttributeError(
+                f"{prefix}Missing required attribute: '{missing[0]}'"
+            )
         else:
             attrs_list = ", ".join(f"'{attr}'" for attr in missing)
-            raise AttributeError(f"{prefix}Missing required attributes: {attrs_list}")
+            raise AttributeError(
+                f"{prefix}Missing required attributes: {attrs_list}"
+            )
 
     return result
 
