@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 
 ## 📑 Table of Contents
 
+- [Version 0.14.1 (2025-11-07)](#version-01342-2025-11-07)
 - [Version 0.13.41 (2025-10-20)](#version-01341-2025-10-20)
 - [Version 0.13.40 (2025-10-20)](#version-01340-2025-10-20)
 - [Version 0.13.39 (2025-10-19)](#version-01339-2025-10-19)
@@ -52,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v0.5.0
 - [Version 0.13.5 (2025-08-22)](#version-0135-2025-08-22)
 - [Version 0.13.4 (2025-08-16)](#version-0134-2025-08-16)
 - [Version 0.5.8 (2025-06-09)](#020---2025-06-09)
+
+---
+## Version 0.14.1 (2025-11-07)
+
+### Bug Fixes
+
+- Fix perms.
+
+### Other
+
+- Re-add iommu in container and fix context handling (#462).
+- :arrow_up:(deps): Bump actions/download-artifact from 5 to 6 (#447).
 
 ---
 ## Version 0.13.41 (2025-10-20)
