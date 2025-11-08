@@ -389,7 +389,7 @@ class TemplateContextValidator:
         try:
             template_path = Path(__file__).parent.parent / "templates" / template_name
             if template_path.exists():
-                content = template_path.read_text()
+                content = template_path.read_text(encoding="utf-8")
                 for m in re.finditer(
                     r"\{%-?\s*set\s+([A-Za-z_][A-Za-z0-9_]*)", content
                 ):
@@ -558,7 +558,7 @@ class TemplateContextValidator:
             template_path = tpl_root / template_name
             if not template_path.exists():
                 return
-            txt = template_path.read_text()
+            txt = template_path.read_text(encoding="utf-8")
             # Heuristic reference detection
             referenced = bool(
                 re.search(r"\{\{[^}]*\bdevice\b", txt)

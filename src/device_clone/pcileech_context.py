@@ -208,7 +208,6 @@ class DeviceIdentifiers:
     subsystem_device_id: Optional[str] = None
 
     def __post_init__(self):
-
         try:
             norm = IdentifierNormalizer.validate_all_identifiers(
                 {
@@ -220,8 +219,9 @@ class DeviceIdentifiers:
                     "subsystem_device_id": self.subsystem_device_id,
                 }
             )
-        except ContextError as e:
-            raise ContextError(str(e))
+        except ContextError:
+            # Preserve original validation error details without rewriting
+            raise
         self.vendor_id = norm["vendor_id"]
         self.device_id = norm["device_id"]
         self.class_code = norm["class_code"]
@@ -282,18 +282,40 @@ class BarConfiguration:
     _size_encoding: Optional[int] = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
-        """Validate BAR configuration."""
+        """Validate BAR configuration with aggregated errors and clear guidance."""
+        issues = []
         if not 0 <= self.index < ConfigSpaceConstants.MAX_BARS:
-            raise ContextError(
-                safe_format("Invalid BAR index: {index}", index=self.index)
+            issues.append(
+                safe_format(
+                    "Invalid BAR index: {index} (allowed 0..{max_idx})",
+                    index=self.index,
+                    max_idx=ConfigSpaceConstants.MAX_BARS - 1,
+                )
             )
         # BAR size must be a positive 32-bit unsigned value
         if self.size <= 0:
-            raise ContextError(safe_format("Invalid BAR size: {size}", size=self.size))
+            issues.append(
+                safe_format(
+                    "Invalid BAR size: {size} (must be > 0)", size=self.size
+                )
+            )
         if self.size > MAX_32BIT_VALUE:
+            issues.append(
+                safe_format(
+                    "Invalid BAR size: {size} (exceeds 32-bit limit {limit})",
+                    size=self.size,
+                    limit=MAX_32BIT_VALUE,
+                )
+            )
+
+        if issues:
             raise ContextError(
                 safe_format(
-                    "Invalid BAR size: {size} (exceeds 32-bit unsigned)", size=self.size
+                    "Invalid BAR configuration | index={index} size={size} | "
+                    "issues={issues}",
+                    index=self.index,
+                    size=self.size,
+                    issues=issues,
                 )
             )
 
@@ -398,7 +420,7 @@ class VFIODeviceManager:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
         self.close()
 
     def open(self) -> Tuple[int, int]:
@@ -417,6 +439,24 @@ class VFIODeviceManager:
             self._device_fd, self._container_fd = vfio_helpers.get_device_fd(
                 self.device_bdf
             )
+
+            # Treat negative FDs as unavailable; normalize to None so callers
+            # can fall back to sysfs-based logic without crashing.
+            if (self._device_fd is not None and self._device_fd < 0) or (
+                self._container_fd is not None and self._container_fd < 0
+            ):
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "VFIO unavailable; using fallbacks "
+                        "(dev_fd={dev}, cont_fd={cont})",
+                        dev=self._device_fd,
+                        cont=self._container_fd,
+                    ),
+                    prefix="VFIO",
+                )
+                self._device_fd = None
+                self._container_fd = None
 
             # Attempt to ensure VFIO binding and prerequisites. Do not make
             # this fatal here; log a warning if the check fails so callers can
@@ -458,7 +498,7 @@ class VFIODeviceManager:
     def close(self):
         """Close VFIO file descriptors."""
         for fd in [self._device_fd, self._container_fd]:
-            if fd is not None:
+            if fd is not None and fd >= 0:
                 try:
                     os.close(fd)
                 except OSError as e:
@@ -483,6 +523,11 @@ class VFIODeviceManager:
                     safe_format("VFIO device open failed: {error}", error=e),
                     prefix="VFIO",
                 )
+                return None
+            # After attempting open, ensure the FD is valid
+            if (self._device_fd is None) or (
+                isinstance(self._device_fd, int) and self._device_fd < 0
+            ):
                 return None
 
         info = VfioRegionInfo()
@@ -1478,7 +1523,36 @@ class PCILeechContextBuilder:
         return config
 
     def _analyze_bars(self, bars):
+        """Analyze BARs with detailed progress output."""
         bar_configs = []
+        
+        # Technical header
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "╔═════════════════════════════════════════════════════════════╗"
+            ),
+            prefix="BAR",
+        )
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "║  BASE ADDRESS REGISTER DISCOVERY & ANALYSIS                ║"
+            ),
+            prefix="BAR",
+        )
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "╠═════════════════════════════════════════════════════════════╣"
+            ),
+            prefix="BAR",
+        )
+        
+        total_bars = len(bars)
+        discovered_count = 0
+        total_memory_mapped = 0
+        
         for i, bar_data in enumerate(bars):
             try:
                 # Use the true BAR index from config space when querying VFIO.
@@ -1494,14 +1568,75 @@ class PCILeechContextBuilder:
                 bar_info = self._get_vfio_bar_info(vfio_region_index, bar_data)
                 if bar_info:
                     bar_configs.append(bar_info)
+                    discovered_count += 1
+                    
+                    # Technical per-BAR output
+                    size_mb = bar_info.size / (1024 * 1024)
+                    size_kb = bar_info.size / 1024
+                    
+                    if bar_info.is_memory:
+                        total_memory_mapped += bar_info.size
+                        if size_mb >= 1:
+                            size_display = safe_format(
+                                "{size:.2f} MB", size=size_mb
+                            )
+                        else:
+                            size_display = safe_format(
+                                "{size:.2f} KB", size=size_kb
+                            )
+                        bar_flags = "PREFETCH" if bar_info.prefetchable else "MEM"
+                    else:
+                        size_display = safe_format(
+                            "{size} bytes", size=bar_info.size
+                        )
+                        bar_flags = "IO"
+                    
+                    width_indicator = (
+                        "64-bit" if bar_info.bar_type == 1 else "32-bit"
+                    )
+                    
+                    bar_line = safe_format(
+                        "║ BAR{idx} @ 0x{addr:08X} │ {size:>12} │ "
+                        "{width:>7} │ {flags:>8} ║",
+                        idx=vfio_region_index,
+                        addr=bar_info.base_address,
+                        size=size_display,
+                        width=width_indicator,
+                        flags=bar_flags
+                    )
+                    log_info_safe(self.logger, bar_line, prefix="BAR")
             except Exception as e:
                 log_warning_safe(
                     self.logger,
                     safe_format(
-                        "Failed to analyze BAR {index}: {error}", index=i, error=str(e)
+                        "║ BAR{index}: DISCOVERY FAILED - {error}",
+                        index=i,
+                        error=str(e)
                     ),
                     prefix="BAR",
                 )
+        
+        # Summary footer
+        separator = (
+            "╠═════════════════════════════════════════════════════════════╣"
+        )
+        log_info_safe(self.logger, safe_format(separator), prefix="BAR")
+        
+        total_memory_mb = total_memory_mapped / (1024 * 1024)
+        summary_line = safe_format(
+            "║ DISCOVERED: {discovered}/{total} BARs │ "
+            "MEMORY MAPPED: {mem:.2f} MB              ║",
+            discovered=discovered_count,
+            total=total_bars,
+            mem=total_memory_mb
+        )
+        log_info_safe(self.logger, summary_line, prefix="BAR")
+        
+        footer = (
+            "╚═════════════════════════════════════════════════════════════╝"
+        )
+        log_info_safe(self.logger, safe_format(footer), prefix="BAR")
+        
         return bar_configs
 
     def _select_primary_bar(self, bar_configs):
@@ -1524,7 +1659,55 @@ class PCILeechContextBuilder:
         """Get BAR info via VFIO with strict size validation."""
         region_info = self._vfio_manager.get_region_info(index)
         if not region_info:
-            return None
+            # VFIO not available; construct from provided bar_data as a fallback.
+            try:
+                if isinstance(bar_data, dict):
+                    is_memory = bar_data.get("type", "memory") == "memory"
+                    is_io = not is_memory
+                    base_address = bar_data.get("address", 0)
+                    prefetchable = bar_data.get("prefetchable", False)
+                    bar_type = 1 if bar_data.get("is_64bit", False) else 0
+                    size = int(bar_data.get("size", 0) or 0)
+                elif isinstance(bar_data, BarInfo):
+                    is_memory = bar_data.bar_type == "memory"
+                    is_io = not is_memory
+                    base_address = bar_data.address
+                    prefetchable = bar_data.prefetchable
+                    bar_type = 1 if bar_data.is_64bit else 0
+                    size = int(getattr(bar_data, "size", 0) or 0)
+                elif hasattr(bar_data, "address"):
+                    is_memory = getattr(bar_data, "type", "memory") == "memory"
+                    is_io = not is_memory
+                    base_address = getattr(bar_data, "address", 0)
+                    prefetchable = getattr(bar_data, "prefetchable", False)
+                    bar_type = 1 if getattr(bar_data, "is_64bit", False) else 0
+                    size = int(getattr(bar_data, "size", 0) or 0)
+                else:
+                    return None
+
+                if is_memory and size > 0:
+                    return BarConfiguration(
+                        index=index,
+                        base_address=base_address,
+                        size=size,
+                        bar_type=bar_type,
+                        prefetchable=prefetchable,
+                        is_memory=is_memory,
+                        is_io=is_io,
+                    )
+                return None
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "BAR{index}: VFIO unavailable; sysfs fallback failed: "
+                        "{error}",
+                        index=index,
+                        error=str(e),
+                    ),
+                    prefix="BAR",
+                )
+                return None
 
         try:
             size = extract_bar_size(region_info)

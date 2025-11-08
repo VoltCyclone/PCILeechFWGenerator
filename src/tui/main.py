@@ -17,8 +17,18 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
-                             ProgressBar, RichLog, Select, Static, Switch)
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ProgressBar,
+    RichLog,
+    Select,
+    Static,
+)
 
 from src.device_clone.board_config import list_supported_boards
 
@@ -34,7 +44,6 @@ from .dialogs.build_log import BuildLogDialog
 from .dialogs.configuration import ConfigurationDialog
 from .dialogs.confirmation import ConfirmationDialog
 from .dialogs.device_details import DeviceDetailsDialog
-from .dialogs.file_path_input import FilePathInputDialog
 from .dialogs.help_dialog import HelpDialog
 from .dialogs.profile_manager import ProfileManagerDialog
 from .dialogs.search_filter import SearchFilterDialog

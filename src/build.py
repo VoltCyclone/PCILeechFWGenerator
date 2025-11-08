@@ -11,12 +11,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import glob
 
 import json
 
 import logging
 
 import os
+import platform
 
 import re
 
@@ -90,6 +92,50 @@ SYSTEMVERILOG_EXTENSION = ".sv"
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _running_in_container() -> bool:
+    """Best-effort detection for containerized environments.
+
+    Works for Docker/Podman/Kubernetes. Safe to call on non-Linux.
+    """
+    try:
+        if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
+            return True
+        # cgroup hint (Linux only)
+        cgroup_path = "/proc/1/cgroup"
+        if os.path.exists(cgroup_path):
+            with open(cgroup_path, "rt") as f:
+                data = f.read()
+            return any(tag in data for tag in ("docker", "kubepods", "containerd"))
+    except Exception:
+        return False
+    return False
+
+
+def _linux() -> bool:
+    """Return True if running on Linux."""
+    try:
+        return platform.system().lower() == "linux"
+    except Exception:
+        return False
+
+
+def _vfio_available() -> bool:
+    """Check basic VFIO device node availability and access.
+
+    Requires /dev/vfio/vfio and at least one group node with RW access.
+    """
+    try:
+        control = "/dev/vfio/vfio"
+        if not os.path.exists(control):
+            return False
+        groups = glob.glob("/dev/vfio/[0-9]*")
+        if not os.access(control, os.R_OK | os.W_OK):
+            return False
+        return any(os.access(g, os.R_OK | os.W_OK) for g in groups)
+    except Exception:
+        return False
+
+
 def _as_int(value: Union[int, str], field: str) -> int:
     """Normalize numeric identifier that may be int, hex (0x) or decimal string."""
     if isinstance(value, int):
@@ -132,6 +178,8 @@ def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
         return None
 
 
+
+
 @dataclass(slots=True)
 class BuildConfiguration:
     """Configuration for the firmware build process."""
@@ -151,6 +199,11 @@ class BuildConfiguration:
     vivado_timeout: int = 3600
     # Experimental / testing feature toggles
     enable_error_injection: bool = False
+    # Hard gate to disable any VFIO/sysfs hardware access inside container
+    # Requires host-provided context/config space; fail fast if unavailable
+    disable_vfio: bool = False
+
+
 
 
 @dataclass(slots=True)
@@ -161,6 +214,8 @@ class MSIXData:
     msix_info: Optional[Dict[str, Any]] = None
     config_space_hex: Optional[str] = None
     config_space_bytes: Optional[bytes] = None
+
+
 
 
 @dataclass(slots=True)
@@ -336,6 +391,73 @@ class MSIXManager:
             Returns empty MSIXData on any failure (non-critical operation)
         """
         try:
+            # In host-context-only mode, never touch sysfs/VFIO;
+            # use pre-saved files only
+            disable_vfio = str(
+                os.environ.get("PCILEECH_DISABLE_VFIO", "")
+            ).lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            ) or str(os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "")).lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            if disable_vfio:
+                msix_path = os.environ.get(
+                    "MSIX_DATA_PATH",
+                    "/app/output/msix_data.json",
+                )
+                try:
+                    if msix_path and os.path.exists(msix_path):
+                        with open(msix_path, "r") as f:
+                            payload = json.load(f)
+                        # Support different shapes
+                        msix_info = (
+                            payload.get("capability_info")
+                            or payload.get("msix_info")
+                        )
+                        cfg_hex = payload.get("config_space_hex")
+                        cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
+                        if not msix_info and cfg_hex:
+                            msix_info = parse_msix_capability(cfg_hex)
+                        if msix_info and int(msix_info.get("table_size", 0)) > 0:
+                            log_info_safe(
+                                self.logger,
+                                safe_format(
+                                    "Loaded MSI-X from {path} ({n} vectors)",
+                                    path=msix_path,
+                                    n=msix_info.get("table_size", 0),
+                                ),
+                                prefix="MSIX",
+                            )
+                            return MSIXData(
+                                preloaded=True,
+                                msix_info=msix_info,
+                                config_space_hex=cfg_hex,
+                                config_space_bytes=cfg_bytes,
+                            )
+                except Exception as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to load MSI-X from host file: {err}", err=str(e)
+                        ),
+                        prefix="MSIX",
+                    )
+                # Do not attempt sysfs/VFIO in strict mode
+                log_info_safe(
+                    self.logger,
+                    (
+                        "MSI-X preload: host-context-only mode active; "
+                        "skipping sysfs/VFIO"
+                    ),
+                    prefix="MSIX",
+                )
+                return MSIXData(preloaded=False)
             log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
 
             # 1) Prefer host-provided JSON (mounted into container) if available
@@ -412,7 +534,11 @@ class MSIXManager:
             else:
                 # No MSI-X capability found -> treat as not preloaded so callers
                 # don't assume hardware MSI-X values are available.
-                log_info_safe(self.logger, "No MSI-X capability found", prefix="MSIX")
+                log_info_safe(
+                    self.logger,
+                    "No MSI-X capability found",
+                    prefix="MSIX",
+                )
                 return MSIXData(preloaded=False, msix_info=None)
 
         except Exception as e:
@@ -424,7 +550,10 @@ class MSIXManager:
             if self.logger.isEnabledFor(logging.DEBUG):
                 log_debug_safe(
                     self.logger,
-                    safe_format("MSI-X preload exception details: {err}", err=str(e)),
+                    safe_format(
+                        "MSI-X preload exception details: {err}",
+                        err=str(e),
+                    ),
                     prefix="MSIX",
                 )
             return MSIXData(preloaded=False)
@@ -803,10 +932,71 @@ class ConfigurationManager:
         )
         enable_profiling = args.profile > 0
         preload_msix = getattr(args, "preload_msix", True)
+
+        # Helper: parse boolean envs
+
+        def _env_bool(name: str, default: bool = False) -> bool:
+            val = os.environ.get(name)
+            return (
+                default
+                if val is None
+                else str(val).strip().lower() in ("1", "true", "yes", "on")
+            )
+        # Decide VFIO availability and policy once, up front
+        device_ctx_set = bool(os.environ.get("DEVICE_CONTEXT_PATH"))
+        host_context_only = (
+            _env_bool("PCILEECH_HOST_CONTEXT_ONLY", False)
+            or getattr(args, "host_context_only", False)
+        )
+        env_disable_vfio = _env_bool("PCILEECH_DISABLE_VFIO", False)
+
+        must_disable_vfio = (
+            env_disable_vfio
+            or host_context_only
+            or device_ctx_set
+            or (
+                _running_in_container()
+                and (not _linux() or not _vfio_available())
+            )
+        )
+        disable_vfio = must_disable_vfio
+
+        # Helpful decision log for CI/containers
+        try:
+            reason_bits: List[str] = []
+            if env_disable_vfio:
+                reason_bits.append("PCILEECH_DISABLE_VFIO=1")
+            if host_context_only:
+                reason_bits.append(
+                    "PCILEECH_HOST_CONTEXT_ONLY=1 or --host-context-only"
+                )
+            if device_ctx_set:
+                reason_bits.append("DEVICE_CONTEXT_PATH set")
+            if _running_in_container():
+                if not _linux():
+                    reason_bits.append("container non-Linux")
+                if not _vfio_available():
+                    reason_bits.append("container w/o /dev/vfio")
+            if disable_vfio:
+                log_info_safe(
+                    self.logger,
+                    "VFIO disabled ({reasons})",
+                    reasons=", ".join(reason_bits) if reason_bits else "policy",
+                    prefix="VFIO",
+                )
+            else:
+                log_info_safe(self.logger, "VFIO enabled", prefix="VFIO")
+        except Exception:
+            # Best-effort logging only
+            pass
         if use_prod:
             # Map production flags when present
             enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
             preload_msix = PRODUCTION_DEFAULTS.get("MSIX_CAPABILITY", True)
+
+        # Honor disable_vfio: don't attempt any profiling/probing in container
+        if disable_vfio:
+            enable_profiling = False
 
         return BuildConfiguration(
             bdf=args.bdf,
@@ -814,13 +1004,14 @@ class ConfigurationManager:
             output_dir=Path(args.output).resolve(),
             enable_profiling=enable_profiling,
             preload_msix=preload_msix,
-            profile_duration=args.profile,
+            profile_duration=(0 if disable_vfio else args.profile),
             output_template=getattr(args, "output_template", None),
             donor_template=getattr(args, "donor_template", None),
             vivado_path=getattr(args, "vivado_path", None),
             vivado_jobs=getattr(args, "vivado_jobs", 4),
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
+            disable_vfio=disable_vfio,
         )
 
     def extract_device_config(
@@ -874,15 +1065,17 @@ class ConfigurationManager:
                     raise ConfigurationError(
                         f"{display_name} is zero (0x{int_value:04X}), which "
                         "indicates "
-                        "a generic or uninitialized value. Use a real device for cloning."
+                        "a generic or uninitialized value. Use a real device "
+                        "for cloning."
                     )
 
         # Additional validation for vendor/device ID pairs that are known generics
         vendor_id = _as_int(device_config["vendor_id"], "vendor_id")
         device_id = _as_int(device_config["device_id"], "device_id")
 
-        # Validate that vendor/device IDs are not zero or obviously invalid
-        # Generic firmware prevention is handled through donor device integrity checks
+    # Validate that vendor/device IDs are not zero or obviously invalid
+    # Generic firmware prevention is handled through donor device
+    # integrity checks
         if vendor_id == 0 or device_id == 0:
             raise ConfigurationError(
                 f"Invalid vendor/device ID combination "
@@ -1161,8 +1354,6 @@ class FirmwareBuilder:
 
     def _init_components(self) -> None:
         """Initialize PCILeech generator and other components."""
-        from .device_clone.behavior_profiler import BehaviorProfiler
-        
         from .device_clone.board_config import get_pcileech_board_config
         
         from .device_clone.pcileech_generator import (
@@ -1170,8 +1361,41 @@ class FirmwareBuilder:
             PCILeechGenerator,
         )
 
-        self.gen = PCILeechGenerator(
-            PCILeechGenerationConfig(
+        # Check if we have preloaded config space from host collection
+        preloaded_config_space = self._load_preloaded_config_space()
+        
+        if preloaded_config_space:
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Using preloaded config space from host: {size} bytes",
+                    size=len(preloaded_config_space)
+                ),
+                prefix="BUILD"
+            )
+        else:
+            if getattr(self.config, "disable_vfio", False):
+                # In host-context-only mode we must fail fast if data is missing
+                log_error_safe(
+                    self.logger,
+                    "Host-prepared config space not found "
+                    "but VFIO is disabled; aborting",
+                    prefix="BUILD",
+                )
+                raise PCILeechBuildError(
+                    "Missing preloaded config space "
+                    "(DEVICE_CONTEXT_PATH/MSIX_DATA_PATH); "
+                    "container is configured to not perform "
+                    "VFIO/sysfs reads."
+                )
+            else:
+                log_info_safe(
+                    self.logger,
+                    "No preloaded config space available - will use VFIO",
+                    prefix="BUILD"
+                )
+
+        gen_cfg = PCILeechGenerationConfig(
                 device_bdf=self.config.bdf,
                 board=self.config.board,
                 template_dir=None,
@@ -1180,10 +1404,31 @@ class FirmwareBuilder:
                 enable_error_injection=getattr(
                     self.config, "enable_error_injection", False
                 ),
-            )
+                preloaded_config_space=preloaded_config_space,
         )
+        # Explicitly relax VFIO when host data is provided or VFIO is disabled
+        if getattr(self.config, "disable_vfio", False) or preloaded_config_space:
+            setattr(gen_cfg, "strict_vfio", False)
 
-        self.profiler = BehaviorProfiler(bdf=self.config.bdf)
+        self.gen = PCILeechGenerator(gen_cfg)
+
+        # Only construct profiler if it's actually enabled and VFIO is allowed
+        if (
+            self.config.enable_profiling
+            and not getattr(self.config, "disable_vfio", False)
+        ):
+            # Import lazily to avoid any side-effects when VFIO is disabled
+            from .device_clone.behavior_profiler import BehaviorProfiler
+            self.profiler = BehaviorProfiler(bdf=self.config.bdf)
+        else:
+            # Provide a patchable, no-op profiler instance so tests can stub it
+            # Use a minimal object with an attachable attribute to satisfy tests
+            Noop = type("NoopProfiler", (), {})  # pragma: no cover - trivial
+            self.profiler = Noop()
+            # attach a default no-op method that tests may overwrite
+            self.profiler.capture_behavior_profile = (
+                lambda duration: {"duration": duration, "events": []}
+            )
 
     # ────────────────────────────────────────────────────────────────────────
     # Private methods - build steps
@@ -1220,6 +1465,166 @@ class FirmwareBuilder:
                     safe_format("Failed to load donor template: {err}", err=str(e))
                 ) from e
         return None
+
+    def _load_preloaded_config_space(self) -> Optional[bytes]:
+        """
+        Load preloaded config space from host collection.
+        
+        Returns:
+            Config space bytes if available, None otherwise
+        """
+        context_path = os.environ.get(
+            "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
+        )
+        msix_path = os.environ.get(
+            "MSIX_DATA_PATH", "/app/output/msix_data.json"
+        )
+        
+        # If no path configured, silently return None
+        if not context_path:
+            return None
+            
+        # If path doesn't exist, return None (normal for non-container builds)
+        if not os.path.exists(context_path):
+            return None
+        
+        try:
+            with open(context_path, "r") as f:
+                payload = json.load(f)
+        except json.JSONDecodeError as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Device context file is not valid JSON: {path} - {err}",
+                    path=context_path,
+                    err=str(e)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        except (OSError, IOError) as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Failed to read device context file: {path} - {err}",
+                    path=context_path,
+                    err=str(e)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        # Extract config space hex
+        config_space_hex = payload.get("config_space_hex")
+        # Also support nested path when full template_context was saved by host
+        if not config_space_hex:
+            try:
+                tc = payload.get("template_context") or {}
+                if isinstance(tc, dict):
+                    config_space_hex = tc.get("config_space_hex")
+            except Exception:
+                config_space_hex = None
+        if not config_space_hex:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "No config_space_hex in device context; trying MSI-X: {path}",
+                    path=context_path,
+                ),
+                prefix="HOST_CFG",
+            )
+            # Fallback: try reading from msix_data.json if available
+            try:
+                if msix_path and os.path.exists(msix_path):
+                    with open(msix_path, "r") as f:
+                        msix_payload = json.load(f)
+                    config_space_hex = msix_payload.get("config_space_hex")
+                    if config_space_hex:
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Loaded config_space_hex from MSI-X ({size} chars)",
+                                size=len(config_space_hex),
+                            ),
+                            prefix="HOST_CFG",
+                        )
+                    else:
+                        log_debug_safe(
+                            self.logger,
+                            safe_format(
+                                "MSI-X payload missing config_space_hex: {path}",
+                                path=msix_path,
+                            ),
+                            prefix="HOST_CFG",
+                        )
+                else:
+                    log_debug_safe(
+                        self.logger,
+                        safe_format(
+                            "MSI-X data file not found at {path}",
+                            path=msix_path,
+                        ),
+                        prefix="HOST_CFG",
+                    )
+            except json.JSONDecodeError as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X data file invalid JSON: {path} - {err}",
+                        path=msix_path,
+                        err=str(e),
+                    ),
+                    prefix="HOST_CFG",
+                )
+            except (OSError, IOError) as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to read MSI-X data file: {path} - {err}",
+                        path=msix_path,
+                        err=str(e),
+                    ),
+                    prefix="HOST_CFG",
+                )
+            # If still no hex, give up gracefully
+            if not config_space_hex:
+                return None
+        
+        # Convert hex to bytes
+        try:
+            config_space_bytes = bytes.fromhex(config_space_hex)
+        except ValueError as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Invalid hex string in config_space_hex: {err}",
+                    err=str(e)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        # Validate minimum size
+        if len(config_space_bytes) < 64:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Config space too small: {size} bytes (minimum 64 expected)",
+                    size=len(config_space_bytes)
+                ),
+                prefix="HOST_CFG"
+            )
+            return None
+        
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "Loaded preloaded config space from host: {size} bytes",
+                size=len(config_space_bytes)
+            ),
+            prefix="HOST_CFG"
+        )
+        return config_space_bytes
 
     def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
         """
@@ -1367,6 +1772,13 @@ class FirmwareBuilder:
 
     def _recheck_vfio_bindings(self) -> None:
         """Recheck VFIO bindings via canonical helper and log the outcome."""
+        if getattr(self.config, "disable_vfio", False):
+            log_info_safe(
+                self.logger,
+                "VFIO binding recheck skipped (disabled)",
+                prefix="VFIO",
+            )
+            return
         try:
             from src.cli.vfio_helpers import ensure_device_vfio_binding
         except Exception:
@@ -1430,7 +1842,15 @@ class FirmwareBuilder:
 
     def _generate_profile(self) -> None:
         """Generate behavior profile if configured."""
-        if self.config.profile_duration > 0:
+        # Skip in host-context-only mode to avoid any device access
+        if getattr(self.config, "disable_vfio", False):
+            log_info_safe(
+                self.logger,
+                "Profiling disabled (host-context-only mode)",
+                prefix="BUILD",
+            )
+            return
+        if self.profiler and self.config.profile_duration > 0:
             profile = self.profiler.capture_behavior_profile(
                 duration=self.config.profile_duration
             )
@@ -1660,6 +2080,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         dest="preload_msix",
         default=True,
         help="Disable preloading of MSI-X data before VFIO binding",
+    )
+    parser.add_argument(
+        "--host-context-only",
+        action="store_true",
+        help=(
+            "Do not touch VFIO/sysfs; require DEVICE_CONTEXT_PATH/MSIX_DATA_PATH"
+        ),
     )
     parser.add_argument(
         "--output-template",

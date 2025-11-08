@@ -7,7 +7,6 @@ This module provides services for validating and building firmware for devices.
 import asyncio
 import os
 import time
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 

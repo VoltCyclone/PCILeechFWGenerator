@@ -688,9 +688,13 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
 
     finally:
         # 5. Close group fd (device fd keeps container reference)
-        log_debug_safe(
-            logger,
-            safe_format("Closing group fd {grp_fd}", grp_fd=grp_fd),
-            prefix="VFIO",
-        )
-        os.close(grp_fd)
+        try:
+            if isinstance(grp_fd, int) and grp_fd >= 0:
+                log_debug_safe(
+                    logger,
+                    safe_format("Closing group fd {grp_fd}", grp_fd=grp_fd),
+                    prefix="VFIO",
+                )
+                os.close(grp_fd)
+        except Exception:
+            pass

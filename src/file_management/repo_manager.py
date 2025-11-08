@@ -28,8 +28,59 @@ from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
 
 # Git submodule path - single source of truth
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SUBMODULE_PATH = _REPO_ROOT / "lib" / "voltcyclone-fpga"
 REPO_URL = "https://github.com/VoltCyclone/voltcyclone-fpga.git"
+
+
+def _get_voltcyclone_fpga_path() -> Path:
+    """
+    Determine the voltcyclone-fpga repository path for the current environment.
+    
+    This function supports multiple deployment scenarios:
+    1. Local development: lib/voltcyclone-fpga submodule
+    2. Container build: Files cloned to /app/lib/voltcyclone-fpga
+    3. pip install: Bundled files in package data
+    
+    Returns:
+        Path to voltcyclone-fpga repository
+    """
+    import os
+    
+    # Check for explicit override (useful for testing and custom deployments)
+    env_path = os.getenv("PCILEECH_VOLTCYCLONE_FPGA_PATH")
+    if env_path:
+        path = Path(env_path)
+        if path.exists():
+            return path
+    
+    # Standard locations to check in priority order
+    candidate_paths = [
+        # 1. Relative to project root (local development with submodule)
+        _REPO_ROOT / "lib" / "voltcyclone-fpga",
+        
+        # 2. Container runtime location
+        Path("/app/lib/voltcyclone-fpga"),
+        
+        # 3. Container build location (fallback)
+        Path("/src/lib/voltcyclone-fpga"),
+        
+        # 4. Package data location (pip install)
+        _REPO_ROOT / "voltcyclone-fpga",
+    ]
+    
+    for candidate in candidate_paths:
+        if candidate.exists() and candidate.is_dir():
+            # Validate it has expected board directories
+            expected_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
+            if any((candidate / d).exists() for d in expected_dirs):
+                return candidate
+    
+    # If no valid path found, return the default submodule path
+    # (will fail later with helpful error message)
+    return _REPO_ROOT / "lib" / "voltcyclone-fpga"
+
+
+# Compute the submodule path dynamically
+SUBMODULE_PATH = _get_voltcyclone_fpga_path()
 
 ###############################################################################
 # Logging setup
@@ -114,7 +165,6 @@ class RepoManager:
     # Entry points
     # ---------------------------------------------------------------------
 
-
     @classmethod
     def ensure_repo(cls) -> Path:
         """Ensure voltcyclone-fpga assets exist and return their path.
@@ -122,40 +172,68 @@ class RepoManager:
         Prefers a full git submodule but accepts read-only vendor payloads
         that ship without git metadata when the expected board directories
         are present.
+        
+        This method is environment-aware and supports:
+        - Local development with git submodules
+        - Container deployments with cloned repos
+        - pip-installed bundled files
 
         Raises:
             RuntimeError: If no firmware assets are available
         """
+        # SUBMODULE_PATH is dynamically computed to handle multiple environments
         if not SUBMODULE_PATH.exists():
-            raise RuntimeError(
-                safe_format(
-                    "voltcyclone-fpga submodule not found at {path}. "
-                    "Initialize with: git submodule update --init --recursive",
-                    path=SUBMODULE_PATH,
+            # Provide environment-specific error messages
+            import os
+            in_container = os.path.exists("/.dockerenv") or os.path.exists("/app")
+            
+            if in_container:
+                raise RuntimeError(
+                    safe_format(
+                        "voltcyclone-fpga files not found at {path}. "
+                        "Container build may have failed. Expected files to be "
+                        "cloned during docker/podman build.",
+                        path=SUBMODULE_PATH,
+                    )
                 )
-            )
+            else:
+                raise RuntimeError(
+                    safe_format(
+                        "voltcyclone-fpga submodule not found at {path}. "
+                        "For local development, initialize with: "
+                        "git submodule update --init --recursive",
+                        path=SUBMODULE_PATH,
+                    )
+                )
 
+        # Check if it's a valid git repository
         if cls._is_valid_repo(SUBMODULE_PATH):
             log_debug_safe(
                 _logger,
-                "Using voltcyclone-fpga submodule at {path}",
+                "Using voltcyclone-fpga git repository at {path}",
                 path=SUBMODULE_PATH,
                 prefix="REPO",
             )
             return SUBMODULE_PATH
 
+        # Check if it has the required board files (vendored/containerized copy)
         if cls._has_vendored_payload(SUBMODULE_PATH):
-            log_warning_safe(
+            log_info_safe(
                 _logger,
-                "voltcyclone-fpga assets missing git metadata; using vendored copy",
+                "Using voltcyclone-fpga files at {path} (git metadata not present, "
+                "assuming container or pip install)",
+                path=SUBMODULE_PATH,
                 prefix="REPO",
             )
             return SUBMODULE_PATH
 
+        # Path exists but doesn't have expected content
         raise RuntimeError(
             safe_format(
-                "voltcyclone-fpga assets at {path} are unavailable or incomplete. "
-                "Reinitialize with: git submodule update --init --recursive",
+                "voltcyclone-fpga directory at {path} exists but is incomplete. "
+                "Missing required board directories. "
+                "For local dev: git submodule update --init --recursive. "
+                "For containers: rebuild the container image.",
                 path=SUBMODULE_PATH,
             )
         )
@@ -243,7 +321,7 @@ class RepoManager:
         xdc: list[Path] = []
         for root in search_roots:
             if root.exists():
-                xdc.extend(root.glob("**/*.xdc"))
+                xdc.extend(sorted(root.glob("**/*.xdc")))
         if not xdc:
             raise RuntimeError(
                 safe_format(
@@ -269,16 +347,18 @@ class RepoManager:
             f"# XDC constraints for {board_type}",
             f"# Sources: {[f.name for f in files]}",
         ]
-        for fp in files:
-            # Use the file name or relative path safely
+        root = repo_root or cls.ensure_repo()
+        
+        def _safe_rel(fp: Path, root: Path) -> str:
+            """Get safe relative path for display."""
             try:
-                relative_path = (
-                    fp.relative_to(fp.parents[1]) if len(fp.parents) > 1 else fp.name
-                )
-            except (IndexError, ValueError):
-                relative_path = fp.name
-            parts.append(f"\n# ==== {relative_path} ====")
-            parts.append(fp.read_text("utf‑8"))
+                return str(fp.relative_to(root))
+            except (ValueError, RuntimeError):
+                return fp.name
+        
+        for fp in files:
+            parts.append(f"\n# ==== {_safe_rel(fp, root)} ====")
+            parts.append(fp.read_text(encoding="utf-8"))
         return "\n".join(parts)
 
     # ------------------------------------------------------------------

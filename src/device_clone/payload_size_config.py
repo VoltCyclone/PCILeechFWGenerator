@@ -9,9 +9,11 @@ including automatic cfg_force_mps parameter calculation and tiny PCIe algorithm 
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from src.device_clone.constants import (MPS_ENCODING_TO_VALUE,
-                                        MPS_VALUE_TO_ENCODING,
-                                        PCIE_MPS_CONSTANTS, VALID_MPS_VALUES)
+from src.device_clone.constants import (
+    MPS_VALUE_TO_ENCODING,
+    PCIE_MPS_CONSTANTS,
+    VALID_MPS_VALUES,
+)
 
 from src.exceptions import ContextError
 
@@ -122,10 +124,12 @@ class PayloadSizeConfig:
 
         if self.max_payload_size < threshold:
             warning = safe_format(
-                "Payload size {max_payload_size} bytes is below the recommended "
-                "threshold of {threshold} bytes. This may cause performance issues "
-                "with the 'tiny PCIe algorithm'. Consider using a larger payload size "
-                "if your device supports it.",
+                (
+                    "Payload size {max_payload_size} bytes is below the recommended "
+                    "threshold of {threshold} bytes. This may cause performance "
+                    "issues with the 'tiny PCIe algorithm'. Consider using a larger "
+                    "payload size if your device supports it."
+                ),
                 max_payload_size=self.max_payload_size,
                 threshold=threshold,
             )
@@ -149,8 +153,11 @@ class PayloadSizeConfig:
         if device_max_payload and self.max_payload_size > device_max_payload:
             raise PayloadSizeError(
                 safe_format(
-                    "Configured payload size {max_payload_size} bytes exceeds "
-                    "device maximum supported payload size of {device_max_payload} bytes",
+                    (
+                        "Configured payload size {max_payload_size} bytes exceeds "
+                        "device maximum supported payload size of "
+                        "{device_max_payload} bytes"
+                    ),
                     max_payload_size=self.max_payload_size,
                     device_max_payload=device_max_payload,
                 )

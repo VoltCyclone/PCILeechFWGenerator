@@ -240,3 +240,172 @@ def test_run_build_interactive_local_yes(monkeypatch):
     run_build(BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4"))
     assert calls["local"] == 1
 
+
+def test_run_build_restores_driver_on_success(monkeypatch, tmp_path: Path):
+    """Test original driver restored after successful container build."""
+    calls = {"get_driver": 0, "restore": 0}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container, "check_podman_available", lambda: True)
+    monkeypatch.setattr(container, "require_podman", lambda: None)
+    monkeypatch.setattr(container, "image_exists", lambda _: True)
+
+    # Mock get_current_driver to return nvme
+
+    def fake_get_current_driver(bdf):
+        calls["get_driver"] += 1
+        return "nvme"
+
+    monkeypatch.setattr(container, "get_current_driver", fake_get_current_driver)
+
+    # Mock restore_driver
+
+    def fake_restore_driver(bdf, driver):
+        calls["restore"] += 1
+        assert bdf == "0000:03:00.0"
+        assert driver == "nvme"
+
+    monkeypatch.setattr(container, "restore_driver", fake_restore_driver)
+
+    # Mock HostDeviceCollector at the import site (within container module)
+    # to avoid triggering the problematic MSIXManager import
+
+
+    class FakeHostDeviceCollector:
+        def __init__(self, bdf, logger):
+            pass
+
+        def collect_device_context(self, out_dir):
+            return {"device": "data"}
+
+    # Mock the import by patching sys.modules before container tries to import it
+    import sys
+    fake_module = types.ModuleType('host_device_collector')
+    fake_module.HostDeviceCollector = FakeHostDeviceCollector
+    monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
+
+    # Mock _get_iommu_group
+    monkeypatch.setattr(container, "_get_iommu_group", lambda bdf: 12)
+
+    # Mock Path.exists for preflight checks - skip VFIO checks
+
+    def fake_path_exists(path_str):
+        # Make /dev/vfio/vfio and group exist to skip preflight checks
+        if "/dev/vfio" in str(path_str):
+            return True
+        return False
+
+    monkeypatch.setattr("pathlib.Path.exists", fake_path_exists)
+
+    # Mock subprocess.run for podman
+
+    def fake_subprocess_run(cmd, **kwargs):
+        assert "podman" in cmd[0]
+        return SimpleNamespace(returncode=0)
+    
+    monkeypatch.setattr(container.subprocess, "run", fake_subprocess_run)
+    
+    # Run build
+    cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
+    run_build(cfg)
+    
+    # Verify driver was queried and restored
+    assert calls["get_driver"] == 1
+    assert calls["restore"] == 1
+
+
+def test_run_build_restores_driver_on_failure(monkeypatch, tmp_path: Path):
+    """Test that original driver is restored even when container build fails."""
+    calls = {"get_driver": 0, "restore": 0}
+    
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container, "check_podman_available", lambda: True)
+    monkeypatch.setattr(container, "require_podman", lambda: None)
+    monkeypatch.setattr(container, "image_exists", lambda _: False)
+
+    # Mock get_current_driver
+
+    def fake_get_current_driver(bdf):
+        calls["get_driver"] += 1
+        return "nvme"
+
+    monkeypatch.setattr(container, "get_current_driver", fake_get_current_driver)
+
+    # Mock restore_driver
+
+    def fake_restore_driver(bdf, driver):
+        calls["restore"] += 1
+        assert driver == "nvme"
+
+    monkeypatch.setattr(container, "restore_driver", fake_restore_driver)
+
+    # Mock HostDeviceCollector to fail at the import site (within container module)
+    # to avoid triggering the problematic MSIXManager import
+
+
+    class FakeFailingCollector:
+        def __init__(self, bdf, logger):
+            raise BuildError("Collection failed")
+
+    # Mock the import by patching sys.modules before container tries to import it
+    import sys
+    fake_module = types.ModuleType('host_device_collector')
+    fake_module.HostDeviceCollector = FakeFailingCollector
+    monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
+
+    # Mock build_image to prevent it from being called
+
+    def fake_build_image(image, tag):
+        pass  # Should not be reached due to HostDeviceCollector failure
+
+    monkeypatch.setattr(container, "build_image", fake_build_image)
+
+    # Run build and expect it to fail
+    cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
+    with pytest.raises(BuildError):
+        run_build(cfg)
+    
+    # Verify driver was still restored in finally block
+    assert calls["get_driver"] == 1
+    assert calls["restore"] == 1
+
+
+def test_run_build_skips_restore_when_no_original_driver(
+    monkeypatch, tmp_path: Path
+):
+    """Test that restore is skipped when device has no original driver."""
+    calls = {"restore": 0}
+
+    # Mock functions
+    monkeypatch.setattr(container, "require_podman", lambda: None)
+    monkeypatch.setattr(container, "image_exists", lambda _: True)
+
+    # Mock get_current_driver to return None (no driver)
+    monkeypatch.setattr(container, "get_current_driver", lambda bdf: None)
+
+    # Mock restore_driver - should never be called
+
+    def fake_restore_driver(bdf, driver):
+        calls["restore"] += 1
+
+    monkeypatch.setattr(container, "restore_driver", fake_restore_driver)
+
+    # Mock HostDeviceCollector at the import site (within container module)
+    # to avoid triggering the problematic MSIXManager import
+
+
+    class FakeHostDeviceCollector:
+        def __init__(self, bdf, logger):
+            pass
+
+        def collect_device_context(self, out_dir):
+            return {"device": "data"}
+
+    # Mock the import by patching sys.modules before container tries to import it
+    import sys
+    fake_module = types.ModuleType('host_device_collector')
+    fake_module.HostDeviceCollector = FakeHostDeviceCollector
+    monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
+
+    # Mock _get_iommu_group
+

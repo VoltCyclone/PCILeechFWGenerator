@@ -6,12 +6,11 @@ This module provides a centralized template rendering system to replace
 the string formatting and concatenation currently used in build.py.
 """
 
-import builtins
 import logging
 import math
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from src.__version__ import __version__
 from src.exceptions import TemplateRenderError
@@ -30,16 +29,13 @@ from .sv_constants import SV_CONSTANTS
 
 try:
     from jinja2 import (
-        BaseLoader,
         Environment,
         FileSystemLoader,
         StrictUndefined,
-        Template,
         TemplateError,
         TemplateNotFound,
         TemplateRuntimeError,
         Undefined,
-        meta,
         nodes,
     )
     from jinja2.bccache import FileSystemBytecodeCache
@@ -632,7 +628,7 @@ class TemplateRenderer:
         content = self.render_template(template_name, context)
         out_path = Path(out_path)
         tmp = out_path.with_suffix(out_path.suffix + ".tmp")
-        tmp.write_text(content)
+        tmp.write_text(content, encoding="utf-8")
         tmp.replace(out_path)
         return out_path
 
@@ -655,8 +651,8 @@ class TemplateRenderer:
         self,
         context: Dict[str, Any],
         template_name: Optional[str] = None,
-        required_fields: Optional[list] = None,
-        optional_fields: Optional[list] = None,
+    _required_fields: Optional[list] = None,
+    _optional_fields: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
         Validate and prepare template context with permissive validation.
@@ -667,8 +663,8 @@ class TemplateRenderer:
         Args:
             context: Original template context
             template_name: Name of the template being rendered
-            required_fields: List of required fields (deprecated)
-            optional_fields: List of optional fields (deprecated)
+            _required_fields: List of required fields (deprecated, unused)
+            _optional_fields: List of optional fields (deprecated, unused)
 
         Returns:
             Validated and prepared context

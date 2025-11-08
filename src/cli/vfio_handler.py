@@ -3,6 +3,8 @@
 import os
 import time
 import logging
+import fcntl
+import atexit
 from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 from dataclasses import dataclass
@@ -324,10 +326,15 @@ class VFIOBinder:
         self._path_manager = VFIOPathManager(bdf)
         self._device_info: Optional[DeviceInfo] = None
         self._privilege_manager = None
+        self._group_lock: Optional[Any] = None  # File lock for IOMMU group
+        self._added_device_ids: List[Tuple[str, str]] = []  # Track new_id calls
 
         # Initialize privilege manager if available
         if HAS_PRIVILEGE_MANAGER and PrivilegeManager is not None:
             self._privilege_manager = PrivilegeManager()
+        
+        # Check security context and emit warnings
+        self._check_security_context()
 
     @staticmethod
     def _validate_permissions() -> None:
@@ -433,6 +440,188 @@ class VFIOBinder:
                 f"Please ensure IOMMU is enabled in BIOS/UEFI and kernel."
             )
 
+    def _check_security_context(self) -> None:
+        """Check for SELinux/AppArmor and emit diagnostic warnings.
+        
+        This helps users understand container VFIO failures caused by
+        security contexts blocking /dev/vfio access or sysfs writes.
+        """
+        # Check SELinux
+        selinux_enforce = Path("/sys/fs/selinux/enforce")
+        if selinux_enforce.exists():
+            try:
+                if selinux_enforce.read_text().strip() == "1":
+                    log_warning_safe(
+                        logger,
+                        "SELinux is enforcing - container VFIO may fail. "
+                        "Run container with: --security-opt label=disable",
+                        prefix="SEC",
+                    )
+            except (OSError, IOError):
+                pass
+        
+        # Check AppArmor
+        apparmor_enabled = Path("/sys/module/apparmor/parameters/enabled")
+        if apparmor_enabled.exists():
+            try:
+                if apparmor_enabled.read_text().strip().upper() in ("Y", "1"):
+                    log_warning_safe(
+                        logger,
+                        "AppArmor is enabled - Docker containers may need: "
+                        "--security-opt apparmor=unconfined",
+                        prefix="SEC",
+                    )
+            except (OSError, IOError):
+                pass
+
+    def _wait_for_group_node(self, group_id: str, timeout: float = 3.0) -> None:
+        """Wait for /dev/vfio/{group} device node to appear.
+        
+        In containers, udev may race with bind operations. This ensures
+        the group device node exists before we try to access it.
+        
+        Args:
+            group_id: IOMMU group ID
+            timeout: Maximum wait time in seconds
+            
+        Raises:
+            VFIOGroupError: If timeout waiting for group node
+        """
+        group_path = Path(f"/dev/vfio/{group_id}")
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            if group_path.exists():
+                log_debug_safe(
+                    logger,
+                    safe_format(
+                        "Group device node ready: {path}",
+                        path=group_path
+                    ),
+                    prefix="VFIO",
+                )
+                return
+            time.sleep(0.05)
+        
+        raise VFIOGroupError(
+            safe_format(
+                "Timeout waiting for {path}. "
+                "Check SELinux labels (relabel_files) or udev rules.",
+                path=group_path
+            )
+        )
+
+    def _acquire_group_lock(self, group_id: str) -> None:
+        """Acquire inter-process lock for IOMMU group.
+        
+        Prevents multiple containers/processes from binding devices in
+        the same IOMMU group concurrently.
+        
+        Args:
+            group_id: IOMMU group ID
+            
+        Raises:
+            VFIOBindError: If group is already locked by another process
+        """
+        lock_dir = Path("/var/lock")
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        
+        lock_path = lock_dir / f"pcileech-vfio-{group_id}.lock"
+        
+        try:
+            lock_file = open(lock_path, "w")
+            # Try non-blocking lock
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._group_lock = lock_file
+            
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "Acquired group lock: {path}",
+                    path=lock_path
+                ),
+                prefix="LOCK",
+            )
+        except (OSError, IOError) as e:
+            if lock_file:
+                lock_file.close()
+            raise VFIOBindError(
+                safe_format(
+                    "IOMMU group {gid} is already in use by another process. "
+                    "Lock file: {path}",
+                    gid=group_id,
+                    path=lock_path
+                )
+            ) from e
+
+    def _release_group_lock(self) -> None:
+        """Release IOMMU group lock if held."""
+        if self._group_lock:
+            try:
+                fcntl.flock(self._group_lock.fileno(), fcntl.LOCK_UN)
+                self._group_lock.close()
+                log_debug_safe(
+                    logger,
+                    "Released group lock",
+                    prefix="LOCK",
+                )
+            except Exception as e:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Failed to release group lock: {err}",
+                        err=e
+                    ),
+                    prefix="LOCK",
+                )
+            finally:
+                self._group_lock = None
+
+    def _cleanup_device_ids(self) -> None:
+        """Aggressively remove device IDs added to vfio-pci.
+        
+        Ensures clean state on exit - prevents ID pollution in vfio-pci
+        that could affect subsequent binds.
+        """
+        if not self._added_device_ids:
+            return
+        
+        remove_id_path = self._path_manager.remove_id_path
+        if not remove_id_path.exists():
+            log_debug_safe(
+                logger,
+                "remove_id sysfs entry not available",
+                prefix="VFIO",
+            )
+            return
+        
+        for vendor_id, device_id in self._added_device_ids:
+            try:
+                remove_id_path.write_text(f"{vendor_id} {device_id}\n")
+                log_debug_safe(
+                    logger,
+                    safe_format(
+                        "Removed device ID from vfio-pci: {vid}:{did}",
+                        vid=vendor_id,
+                        did=device_id
+                    ),
+                    prefix="VFIO",
+                )
+            except (OSError, IOError) as e:
+                # Non-fatal but log it
+                log_debug_safe(
+                    logger,
+                    safe_format(
+                        "Failed to remove device ID {vid}:{did}: {err}",
+                        vid=vendor_id,
+                        did=device_id,
+                        err=e
+                    ),
+                    prefix="VFIO",
+                )
+        
+        self._added_device_ids.clear()
+
     def _save_original_driver(self) -> None:
         """Save the current driver for restoration."""
         if self._path_manager.driver_path.exists():
@@ -490,6 +679,8 @@ class VFIOBinder:
                     self._path_manager.new_id_path.write_text(
                         f"{vendor_id} {device_id}\n"
                     )
+                    # Track added IDs for cleanup
+                    self._added_device_ids.append((vendor_id, device_id))
                 except (OSError, IOError):
                     # This might fail if ID is already added, which is fine
                     pass
@@ -576,40 +767,54 @@ class VFIOBinder:
 
         # Check IOMMU is enabled
         self._check_iommu()
+        
+        # Get IOMMU group for locking
+        group_id = self._get_iommu_group()
+        
+        # Acquire inter-process lock to prevent concurrent binding
+        self._acquire_group_lock(group_id)
+        
+        try:
+            # Save original driver for cleanup
+            self._save_original_driver()
 
-        # Save original driver for cleanup
-        self._save_original_driver()
+            # Unbind from current driver
+            self._unbind_current_driver()
 
-        # Unbind from current driver
-        self._unbind_current_driver()
+            # Set driver override
+            self._set_driver_override()
 
-        # Set driver override
-        self._set_driver_override()
+            # Bind to vfio-pci
+            self._bind_to_vfio()
+            
+            # Wait for /dev/vfio/{group} to appear (udev race in containers)
+            self._wait_for_group_node(group_id)
 
-        # Bind to vfio-pci
-        self._bind_to_vfio()
+            # Attach to IOMMU group if requested
+            if self._attach:
+                try:
+                    self._attach_group()
+                except Exception as e:
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "Failed to attach IOMMU group for {bdf}: {err}",
+                            bdf=self.bdf,
+                            err=e
+                        ),
+                        prefix="VFIO",
+                    )
+                    # Continue anyway - the device is bound
 
-        # Attach to IOMMU group if requested
-        if self._attach:
-            try:
-                self._attach_group()
-            except Exception as e:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Failed to attach IOMMU group for {bdf}: {err}",
-                        bdf=self.bdf,
-                        err=e
-                    ),
-                    prefix="VFIO",
-                )
-                # Continue anyway - the device is bound
-
-        log_info_safe(
-            logger,
-            safe_format("Successfully bound {bdf} to vfio-pci", bdf=self.bdf),
-            prefix="VFIO",
-        )
+            log_info_safe(
+                logger,
+                safe_format("Successfully bound {bdf} to vfio-pci", bdf=self.bdf),
+                prefix="VFIO",
+            )
+        except Exception:
+            # Release lock on any failure
+            self._release_group_lock()
+            raise
 
     def unbind(self) -> None:
         """Unbind device from vfio-pci and restore original driver.
@@ -663,15 +868,8 @@ class VFIOBinder:
                 prefix="VFIO",
             )
 
-        # Remove device ID from vfio-pci if possible
-        if self._path_manager.remove_id_path.exists():
-            try:
-                vendor_id, device_id = self._path_manager.get_vendor_device_id()
-                self._check_privilege("remove device ID from vfio-pci")
-                self._path_manager.remove_id_path.write_text(f"{vendor_id} {device_id}\n")
-            except (OSError, IOError):
-                # Non-fatal
-                pass
+        # Aggressively clean up device IDs
+        self._cleanup_device_ids()
 
         # Probe for original driver
         if self.original_driver and self.original_driver != "vfio-pci":
@@ -710,6 +908,9 @@ class VFIOBinder:
                     except (OSError, IOError):
                         pass
 
+        # Release group lock
+        self._release_group_lock()
+        
         self._bound = False
         log_info_safe(
             logger,
@@ -722,17 +923,22 @@ class VFIOBinder:
         self.bind()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        if self._bound:
-            try:
-                self.unbind()
-            except Exception as e:
-                log_warning_safe(
-                    logger,
-                    safe_format("Failed to unbind in cleanup: {err}", err=e),
-                    prefix="VFIO",
-                )
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        """Context manager exit - ensures complete cleanup."""
+        try:
+            if self._bound:
+                try:
+                    self.unbind()
+                except Exception as e:
+                    log_warning_safe(
+                        logger,
+                        safe_format("Failed to unbind in cleanup: {err}", err=e),
+                        prefix="VFIO",
+                    )
+        finally:
+            # Always clean up device IDs and release lock, even if unbind fails
+            self._cleanup_device_ids()
+            self._release_group_lock()
 
     @property
     def is_bound(self) -> bool:
@@ -812,13 +1018,15 @@ def _get_current_driver(bdf: str) -> Optional[str]:
         path_manager = VFIOPathManager(bdf)
         if path_manager.driver_path.exists():
             return path_manager.driver_path.resolve().name
-    except Exception:
+    except Exception as e:
         log_warning_safe(
             logger,
-            safe_format("Failed to get current driver for {bdf}: {err}", bdf=bdf, err=e),
+            safe_format(
+                "Failed to get current driver for {bdf}: {err}",
+                bdf=bdf, err=e
+            ),
             prefix="VFIO",
         )
-        pass
     return None
 
 
