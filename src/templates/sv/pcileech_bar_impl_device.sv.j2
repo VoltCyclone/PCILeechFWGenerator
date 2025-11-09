@@ -1,0 +1,243 @@
+{{ header }}
+//
+// Device-Specific PCILeech BAR Implementation
+//
+// Auto-generated module implementing the {{ device_signature }} BAR register map.
+// This module provides device-authentic register behavior learned from the donor device.
+//
+// Register Map Summary:
+{% if bar_model and bar_model.registers %}
+{%- for offset, reg in bar_model.registers.items() | sort %}
+//   0x{{ '%04X' % offset }}: {{ 'DWORD' if reg.width == 4 else ('WORD' if reg.width == 2 else 'BYTE') }} {{ 'RW' if reg.rw_mask else 'RO' }} (reset=0x{{ '%0*X' % (reg.width * 2, reg.reset) }})
+{% endfor -%}
+{% else %}
+//   (No learned register map - using fallback behavior)
+{% endif %}
+//
+// Integration: Replace pcileech_bar_impl_zerowrite4k or pcileech_bar_impl_none
+//              in pcileech_tlps128_bar_controller.sv
+//
+
+`timescale 1ns / 1ps
+
+module pcileech_bar_impl_device #(
+    parameter BAR_SIZE = {{ bar_model.size if bar_model else 4096 }}  // BAR size in bytes
+)(
+    input               rst,
+    input               clk,
+    
+    // BAR read/write interface (provided by PCILeech)
+    input [31:0]        wr_addr,
+    input [31:0]        wr_data,
+    input [3:0]         wr_be,
+    input               wr_valid,
+    
+    input [87:0]        rd_req_ctx,
+    input [31:0]        rd_req_addr,
+    input               rd_req_valid,
+    
+    output reg [87:0]   rd_rsp_ctx,
+    output reg [31:0]   rd_rsp_data,
+    output reg          rd_rsp_valid
+    
+    {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
+    // Interrupt control (connect to cfg registers if needed)
+    , output reg        interrupt_assert
+    , output reg [7:0]  interrupt_data
+    {% endif %}
+);
+
+{% if bar_model and bar_model.registers %}
+    // ========================================================================
+    // Register Storage
+    // ========================================================================
+    
+    {% for offset, reg in bar_model.registers.items() | sort %}
+    {%- set reg_name = 'reg_0x%04X' % offset %}
+    {%- set reg_width_bits = reg.width * 8 %}
+    reg [{{ reg_width_bits - 1 }}:0] {{ reg_name }};  // Offset 0x{{ '%04X' % offset }}
+    {% endfor %}
+    
+    // ========================================================================
+    // Reset Logic
+    // ========================================================================
+    
+    always @(posedge clk) begin
+        if (rst) begin
+            {% for offset, reg in bar_model.registers.items() | sort %}
+            {%- set reg_name = 'reg_0x%04X' % offset %}
+            {{ reg_name }} <= {{ reg.width * 8 }}'h{{ '%0*X' % (reg.width * 2, reg.reset) }};
+            {% endfor %}
+            {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
+            interrupt_assert <= 1'b0;
+            interrupt_data <= 8'h00;
+            {% endif %}
+        end
+        else begin
+            // Write logic handled below
+        end
+    end
+    
+    // ========================================================================
+    // Write Logic (with byte enables and RW masks)
+    // ========================================================================
+    
+    always @(posedge clk) begin
+        if (!rst && wr_valid) begin
+            case (wr_addr[31:0] & 32'hFFFFFFFC)  // Align to DWORD boundary
+                {% for offset, reg in bar_model.registers.items() | sort %}
+                {%- if reg.rw_mask != 0 %}
+                {%- set reg_name = 'reg_0x%04X' % offset %}
+                {%- set aligned_offset = (offset // 4) * 4 %}
+                {%- set mask_b0 = (reg.rw_mask % 256) %}
+                {%- set mask_b1 = ((reg.rw_mask // 256) % 256) %}
+                {%- set mask_b2 = ((reg.rw_mask // 65536) % 256) %}
+                {%- set mask_b3 = ((reg.rw_mask // 16777216) % 256) %}
+                32'h{{ '%08X' % aligned_offset }}: begin
+                    {%- if reg.width == 4 %}
+                    // DWORD write with byte enables
+                    if (wr_be[0]) {{ reg_name }}[7:0]   <= ({{ reg_name }}[7:0]   & ~32'h{{ '%02X' % mask_b0 }}) | (wr_data[7:0]   & 32'h{{ '%02X' % mask_b0 }});
+                    if (wr_be[1]) {{ reg_name }}[15:8]  <= ({{ reg_name }}[15:8]  & ~32'h{{ '%02X' % mask_b1 }}) | (wr_data[15:8]  & 32'h{{ '%02X' % mask_b1 }});
+                    if (wr_be[2]) {{ reg_name }}[23:16] <= ({{ reg_name }}[23:16] & ~32'h{{ '%02X' % mask_b2 }}) | (wr_data[23:16] & 32'h{{ '%02X' % mask_b2 }});
+                    if (wr_be[3]) {{ reg_name }}[31:24] <= ({{ reg_name }}[31:24] & ~32'h{{ '%02X' % mask_b3 }}) | (wr_data[31:24] & 32'h{{ '%02X' % mask_b3 }});
+                    {%- elif reg.width == 2 %}
+                    // WORD write
+                    {%- set byte_offset = offset % 4 %}
+                    {%- set mask_w0 = (reg.rw_mask % 256) %}
+                    {%- set mask_w1 = ((reg.rw_mask // 256) % 256) %}
+                    {%- if byte_offset == 0 %}
+                    if (wr_be[0]) {{ reg_name }}[7:0]  <= ({{ reg_name }}[7:0]  & ~16'h{{ '%02X' % mask_w0 }}) | (wr_data[7:0]  & 16'h{{ '%02X' % mask_w0 }});
+                    if (wr_be[1]) {{ reg_name }}[15:8] <= ({{ reg_name }}[15:8] & ~16'h{{ '%02X' % mask_w1 }}) | (wr_data[15:8] & 16'h{{ '%02X' % mask_w1 }});
+                    {%- elif byte_offset == 2 %}
+                    if (wr_be[2]) {{ reg_name }}[7:0]  <= ({{ reg_name }}[7:0]  & ~16'h{{ '%02X' % mask_w0 }}) | (wr_data[23:16] & 16'h{{ '%02X' % mask_w0 }});
+                    if (wr_be[3]) {{ reg_name }}[15:8] <= ({{ reg_name }}[15:8] & ~16'h{{ '%02X' % mask_w1 }}) | (wr_data[31:24] & 16'h{{ '%02X' % mask_w1 }});
+                    {%- endif %}
+                    {%- elif reg.width == 1 %}
+                    // BYTE write
+                    {%- set byte_offset = offset % 4 %}
+                    {%- set mask_byte = (reg.rw_mask % 256) %}
+                    if (wr_be[{{ byte_offset }}]) {{ reg_name }} <= ({{ reg_name }} & ~8'h{{ '%02X' % mask_byte }}) | (wr_data[{{ byte_offset * 8 + 7 }}:{{ byte_offset * 8 }}] & 8'h{{ '%02X' % mask_byte }});
+                    {%- endif %}
+                end
+                {%- endif %}
+                {% endfor %}
+                default: begin
+                    // Unregistered writes - no action
+                end
+            endcase
+        end
+    end
+    
+    // ========================================================================
+    // Read Logic (2-cycle latency to match pcileech_bar_impl_zerowrite4k)
+    // ========================================================================
+    
+    reg [87:0] rd_req_ctx_d1;
+    reg        rd_req_valid_d1;
+    reg [31:0] rd_data_d1;
+    
+    // Cycle 1: Decode address and fetch register
+    always @(posedge clk) begin
+        rd_req_ctx_d1 <= rd_req_ctx;
+        rd_req_valid_d1 <= rd_req_valid;
+        
+        if (rd_req_valid) begin
+            case (rd_req_addr[31:0] & 32'hFFFFFFFC)  // Align to DWORD
+                {% for offset, reg in bar_model.registers.items() | sort %}
+                {%- set reg_name = 'reg_0x%04X' % offset %}
+                {%- set aligned_offset = (offset // 4) * 4 %}
+                32'h{{ '%08X' % aligned_offset }}: begin
+                    {%- if reg.width == 4 %}
+                    rd_data_d1 <= {{ reg_name }};
+                    {%- elif reg.width == 2 %}
+                    {%- set byte_offset = offset % 4 %}
+                    {%- if byte_offset == 0 %}
+                    rd_data_d1 <= { 16'h0000, {{ reg_name }} };
+                    {%- elif byte_offset == 2 %}
+                    rd_data_d1 <= { {{ reg_name }}, 16'h0000 };
+                    {%- endif %}
+                    {%- elif reg.width == 1 %}
+                    {%- set byte_offset = offset % 4 %}
+                    rd_data_d1 <= { {{ 32 - (byte_offset + 1) * 8 }}'h0, {{ reg_name }}, {{ byte_offset * 8 }}'h0 };
+                    {%- endif %}
+                end
+                {% endfor %}
+                default: begin
+                    // Unregistered read - return 0 (safe fallback)
+                    rd_data_d1 <= 32'h00000000;
+                end
+            endcase
+        end
+        else begin
+            rd_data_d1 <= 32'h00000000;
+        end
+    end
+    
+    // Cycle 2: Output registered response
+    always @(posedge clk) begin
+        rd_rsp_ctx   <= rd_req_ctx_d1;
+        rd_rsp_valid <= rd_req_valid_d1;
+        rd_rsp_data  <= rd_data_d1;
+    end
+    
+    {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
+    // ========================================================================
+    // Interrupt Logic (placeholder - customize per device requirements)
+    // ========================================================================
+    
+    // Example: Assert interrupt on specific register write
+    // This should be customized based on device-specific behavior
+    always @(posedge clk) begin
+        if (rst) begin
+            interrupt_assert <= 1'b0;
+            interrupt_data <= 8'h00;
+        end
+        else begin
+            // TODO: Implement device-specific interrupt triggers
+            // For now, keep interrupt de-asserted
+            interrupt_assert <= 1'b0;
+            interrupt_data <= 8'h00;
+        end
+    end
+    {% endif %}
+
+{% else %}
+    // ========================================================================
+    // Fallback: No learned register map available
+    // Implement simple read/write memory behavior
+    // ========================================================================
+    
+    reg [87:0] rd_req_ctx_d1;
+    reg        rd_req_valid_d1;
+    wire [31:0] doutb;
+    
+    always @(posedge clk) begin
+        rd_req_ctx_d1   <= rd_req_ctx;
+        rd_req_valid_d1 <= rd_req_valid;
+        rd_rsp_ctx      <= rd_req_ctx_d1;
+        rd_rsp_valid    <= rd_req_valid_d1;
+        rd_rsp_data     <= doutb;
+    end
+    
+    // Use block RAM for fallback storage
+    bram_bar_zero4k i_bram_bar_fallback(
+        .addra  ( wr_addr[11:2]     ),
+        .clka   ( clk               ),
+        .dina   ( wr_data           ),
+        .ena    ( wr_valid          ),
+        .wea    ( wr_be             ),
+        .addrb  ( rd_req_addr[11:2] ),
+        .clkb   ( clk               ),
+        .doutb  ( doutb             ),
+        .enb    ( rd_req_valid      )
+    );
+    
+    {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
+    always @(posedge clk) begin
+        interrupt_assert <= 1'b0;
+        interrupt_data <= 8'h00;
+    end
+    {% endif %}
+{% endif %}
+
+endmodule

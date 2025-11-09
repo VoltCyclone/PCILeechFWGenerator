@@ -1505,6 +1505,123 @@ class PCILeechContextBuilder:
 
         return context
 
+    def _sample_bar_data_direct(
+        self, device_bdf: str, bar_configs: list
+    ) -> Dict[int, bytes]:
+        """Sample BAR data directly via sysfs (read-only, safe).
+
+        This complements MMIO tracing by capturing actual reset values
+        from the donor device's BARs. Runs before MMIO learning to provide
+        baseline data.
+
+        Args:
+            device_bdf: Device BDF (e.g., "0000:03:00.0")
+            bar_configs: Analyzed BAR configurations
+
+        Returns:
+            Dict mapping BAR index to sampled bytes (first 8KB or full BAR)
+        """
+        try:
+            from src.device_clone.sysfs_bar_reader import SysfsBarReader
+        except ImportError:
+            log_warning_safe(
+                self.logger,
+                "sysfs_bar_reader not available; skipping direct BAR sampling",
+                prefix="SYSFS_BAR",
+            )
+            return {}
+
+        sampled_bars: Dict[int, bytes] = {}
+
+        try:
+            reader = SysfsBarReader(device_bdf)
+
+            for bar_info in bar_configs:
+                if not bar_info.is_memory or bar_info.size == 0:
+                    continue  # Skip I/O BARs and empty BARs
+
+                bar_idx = bar_info.index
+
+                try:
+                    # Sample first 8KB or entire BAR if smaller
+                    sample_size = min(8192, bar_info.size)
+                    data = reader.read_bar_bytes(
+                        bar_idx, offset=0, length=sample_size
+                    )
+
+                    if data:
+                        sampled_bars[bar_idx] = data
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Sampled {size} bytes from BAR{idx} "
+                                "(total size: 0x{total:X})",
+                                size=len(data),
+                                idx=bar_idx,
+                                total=bar_info.size,
+                            ),
+                            prefix="SYSFS_BAR",
+                        )
+                    else:
+                        log_warning_safe(
+                            self.logger,
+                            safe_format(
+                                "Failed to sample BAR{idx}", idx=bar_idx
+                            ),
+                            prefix="SYSFS_BAR",
+                        )
+
+                except PermissionError:
+                    log_warning_safe(
+                        self.logger,
+                        "BAR sampling requires root privileges; "
+                        "skipping direct sampling",
+                        prefix="SYSFS_BAR",
+                    )
+                    return {}  # Abort all sampling if permission denied
+                except Exception as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to sample BAR{idx}: {err}",
+                            idx=bar_idx,
+                            err=extract_root_cause(e),
+                        ),
+                        prefix="SYSFS_BAR",
+                    )
+                    continue
+
+            if sampled_bars:
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Successfully sampled {count} BAR(s) from donor device",
+                        count=len(sampled_bars),
+                    ),
+                    prefix="SYSFS_BAR",
+                )
+
+        except FileNotFoundError:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Device {bdf} not found in sysfs; skipping direct BAR sampling",
+                    bdf=device_bdf,
+                ),
+                prefix="SYSFS_BAR",
+            )
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Direct BAR sampling failed: {err}",
+                    err=extract_root_cause(e),
+                ),
+                prefix="SYSFS_BAR",
+            )
+
+        return sampled_bars
+
     def _capture_or_load_bar_models(
         self,
         device_bdf: str,
@@ -1684,7 +1801,7 @@ class PCILeechContextBuilder:
         )
         config = self._build_bar_config_dict(primary_bar, bar_configs)
 
-        # --- BAR content generation with MMIO learning ---
+        # --- BAR content generation with sampling + MMIO learning ---
         # Use device signature if available, else fallback to vendor:device
         device_signature = config_space_data.get("device_signature")
         if not device_signature:
@@ -1694,7 +1811,11 @@ class PCILeechContextBuilder:
                 device=config_space_data.get("device_id", ""),
             )
 
-        # Attempt to learn models from live device
+        # Step 1: Sample BARs directly via sysfs (safe, read-only)
+        device_bdf = config_space_data.get("device_bdf", self.device_bdf)
+        bar_samples = self._sample_bar_data_direct(device_bdf, bar_configs)
+
+        # Step 2: Attempt to learn models from live device (optional MMIO trace)
         bar_models = {}
         if enable_mmio_learning:
             try:
@@ -1711,7 +1832,7 @@ class PCILeechContextBuilder:
                     prefix="MMIO",
                 )
 
-        # Generate BAR content (with learned models if available)
+        # Generate BAR content (with learned models or sampled data if available)
         from src.device_clone.bar_content_generator import BarContentType
 
         bar_sizes = {b.index: b.size for b in bar_configs if b.size > 0}
@@ -1720,7 +1841,10 @@ class PCILeechContextBuilder:
         bar_contents = {}
         for bar_idx, size in bar_sizes.items():
             model = bar_models.get(bar_idx)
+            sampled_data = bar_samples.get(bar_idx)
+
             if model:
+                # Use learned MMIO model (most accurate)
                 content = bar_content_gen.generate_bar_content(
                     size, bar_idx, BarContentType.LEARNED, model=model
                 )
@@ -1733,17 +1857,76 @@ class PCILeechContextBuilder:
                     ),
                     prefix="BAR",
                 )
+            elif sampled_data:
+                # Use directly sampled data (donor reset values)
+                # Pad or truncate to match BAR size
+                if len(sampled_data) < size:
+                    # Pad with high-entropy data
+                    padding = bar_content_gen._get_seeded_bytes(
+                        size - len(sampled_data),
+                        f"pad_bar{bar_idx}"
+                    )
+                    content = sampled_data + padding
+                else:
+                    content = sampled_data[:size]
+
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "BAR{idx}: Used SAMPLED data ({sampled}B of {total}B)",
+                        idx=bar_idx,
+                        sampled=len(sampled_data),
+                        total=size,
+                    ),
+                    prefix="BAR",
+                )
             else:
-                # Fallback to existing heuristics
+                # Fallback to existing heuristics (synthetic data)
                 if size <= 4096:
                     content_type = BarContentType.REGISTERS
                 else:
                     content_type = BarContentType.MIXED
-                content = bar_content_gen.generate_bar_content(size, bar_idx, content_type)
+                content = bar_content_gen.generate_bar_content(
+                    size, bar_idx, content_type
+                )
 
             bar_contents[bar_idx] = content
 
         config["bar_contents"] = bar_contents
+        # Store sampled data for reference (optional)
+        if bar_samples:
+            config["bar_samples"] = bar_samples
+
+        # Store learned BAR models if available for SystemVerilog generation
+        if bar_models:
+            # Serialize models for template compatibility
+            from src.device_clone.bar_model_loader import serialize_bar_model
+            
+            serialized_models = {}
+            for bar_idx, model in bar_models.items():
+                try:
+                    serialized_models[bar_idx] = serialize_bar_model(model)
+                except Exception as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to serialize BAR{idx} model: {err}",
+                            idx=bar_idx,
+                            err=str(e),
+                        ),
+                        prefix="BAR",
+                    )
+            
+            if serialized_models:
+                config["bar_models"] = serialized_models
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Stored {count} learned BAR models in context",
+                        count=len(serialized_models),
+                    ),
+                    prefix="BAR",
+                )
 
         if behavior_profile:
             config.update(
