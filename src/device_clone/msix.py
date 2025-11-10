@@ -186,7 +186,12 @@ class MSIXManager:
             config_space_hex = config_space_bytes.hex()
             msix_info = parse_msix_capability(config_space_hex)
 
-            if msix_info["table_size"] > 0:
+            if (
+                msix_info is not None
+                and isinstance(msix_info, dict)
+                and "table_size" in msix_info
+                and msix_info["table_size"] > 0
+            ):
                 log_info_safe(
                     self.logger,
                     safe_format(

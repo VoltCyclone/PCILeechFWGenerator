@@ -191,3 +191,92 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
     assert mi["table_size"] == 2
     assert mi["table_bir"] == 0
     assert mi["table_offset"] == offset
+
+
+def test_preload_handles_none_msix_info(monkeypatch):
+    """Test that preload_data handles None or invalid msix_info gracefully."""
+    # Monkeypatch parse_msix_capability to return None (defensive programming test)
+    def fake_parse_msix_capability_none(hexdata: str):
+        return None
+
+    monkeypatch.setattr(
+        "src.device_clone.msix.parse_msix_capability", 
+        fake_parse_msix_capability_none
+    )
+    
+    # Monkeypatch os.path.exists to allow the config path check to pass
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    
+    mgr = MSIXManager("0000:00:00.0")
+    # Avoid attempting to open the real sysfs config path; return dummy bytes
+    monkeypatch.setattr(
+        MSIXManager, "_read_config_space", lambda self, p: b"\x00" * 256
+    )
+    
+    msix_data = mgr.preload_data()
+    
+    # Should return preloaded=False when msix_info is None
+    assert msix_data.preloaded is False
+    assert msix_data.msix_info is None
+
+
+def test_preload_handles_missing_table_size_key(monkeypatch):
+    """Test that preload_data handles msix_info without table_size key gracefully."""
+    # Monkeypatch parse_msix_capability to return a dict without table_size
+    def fake_parse_msix_capability_no_key(hexdata: str):
+        return {"enabled": False}  # Missing table_size key
+
+    monkeypatch.setattr(
+        "src.device_clone.msix.parse_msix_capability",
+        fake_parse_msix_capability_no_key
+    )
+    
+    # Monkeypatch os.path.exists to allow the config path check to pass
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    
+    mgr = MSIXManager("0000:00:00.0")
+    # Avoid attempting to open the real sysfs config path; return dummy bytes
+    monkeypatch.setattr(
+        MSIXManager, "_read_config_space", lambda self, p: b"\x00" * 256
+    )
+    
+    msix_data = mgr.preload_data()
+    
+    # Should return preloaded=False when table_size key is missing
+    assert msix_data.preloaded is False
+    assert msix_data.msix_info is None
+
+
+def test_preload_handles_zero_table_size(monkeypatch):
+    """Test that preload_data handles msix_info with table_size=0 gracefully."""
+    # Monkeypatch parse_msix_capability to return table_size=0
+    def fake_parse_msix_capability_zero(hexdata: str):
+        return {
+            "table_size": 0,
+            "table_bir": 0,
+            "table_offset": 0,
+            "pba_bir": 0,
+            "pba_offset": 0,
+            "enabled": False,
+            "function_mask": False,
+        }
+
+    monkeypatch.setattr(
+        "src.device_clone.msix.parse_msix_capability",
+        fake_parse_msix_capability_zero
+    )
+    
+    # Monkeypatch os.path.exists to allow the config path check to pass
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    
+    mgr = MSIXManager("0000:00:00.0")
+    # Avoid attempting to open the real sysfs config path; return dummy bytes
+    monkeypatch.setattr(
+        MSIXManager, "_read_config_space", lambda self, p: b"\x00" * 256
+    )
+    
+    msix_data = mgr.preload_data()
+    
+    # Should return preloaded=False when table_size is 0
+    assert msix_data.preloaded is False
+    assert msix_data.msix_info is None
