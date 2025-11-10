@@ -4,7 +4,8 @@ import sys
 
 import pytest
 
-from src.build import BuildConfiguration, MSIXData, MSIXManager
+from src.build import BuildConfiguration
+from src.device_clone.msix import MSIXData, MSIXManager
 
 
 def _in_container() -> bool:
@@ -109,7 +110,7 @@ import os
 
 import pytest
 
-from src.build import MSIXManager
+from src.device_clone.msix import MSIXManager
 
 
 def make_entry(addr_low: int, addr_high: int, data: int, ctrl: int) -> bytes:
