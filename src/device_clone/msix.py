@@ -12,7 +12,6 @@ import logging
 import os
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.string_utils import (
@@ -51,6 +50,7 @@ class MSIXManager:
         """
         self.bdf = bdf
         from src.log_config import get_logger
+
         self.logger = logger or get_logger(self.__class__.__name__)
 
     def preload_data(self) -> MSIXData:
@@ -66,9 +66,7 @@ class MSIXManager:
         try:
             # In host-context-only mode, never touch sysfs/VFIO;
             # use pre-saved files only
-            disable_vfio = str(
-                os.environ.get("PCILEECH_DISABLE_VFIO", "")
-            ).lower() in (
+            disable_vfio = str(os.environ.get("PCILEECH_DISABLE_VFIO", "")).lower() in (
                 "1",
                 "true",
                 "yes",
@@ -89,9 +87,8 @@ class MSIXManager:
                         with open(msix_path, "r") as f:
                             payload = json.load(f)
                         # Support different shapes
-                        msix_info = (
-                            payload.get("capability_info")
-                            or payload.get("msix_info")
+                        msix_info = payload.get("capability_info") or payload.get(
+                            "msix_info"
                         )
                         cfg_hex = payload.get("config_space_hex")
                         cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
