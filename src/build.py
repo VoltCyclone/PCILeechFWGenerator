@@ -1060,6 +1060,15 @@ class ConfigurationManager:
             "revision_id": "Revision ID",
             "class_code": "Class Code",
         }
+        
+        # Debug: log the actual values being validated
+        log_debug_safe(
+            self.logger,
+            "Validating device config fields: " + 
+            ", ".join([f"{k}={device_config.get(k, 'missing')}" 
+                       for k in required_fields.keys()]),
+            prefix="BUILD"
+        )
 
         for field, display_name in required_fields.items():
             value = device_config.get(field)
@@ -1073,12 +1082,36 @@ class ConfigurationManager:
             if isinstance(value, (int, str)):
                 int_value = _as_int(value, field)
                 if int_value == 0:
-                    raise ConfigurationError(
-                        f"{display_name} is zero (0x{int_value:04X}), which "
-                        "indicates "
-                        "a generic or uninitialized value. Use a real device "
-                        "for cloning."
-                    )
+                    # Revision ID = 0x00 is valid for many real devices
+                    # Only vendor_id, device_id, and class_code should be non-zero
+                    if field == "revision_id":
+                        log_info_safe(
+                            self.logger,
+                            "Revision ID is 0x00 - this is valid for many devices",
+                            prefix="BUILD"
+                        )
+                        # Additional validation: if revision is 0, ensure 
+                        # vendor/device are reasonable
+                        vendor_id = _as_int(
+                            device_config.get("vendor_id", 0), "vendor_id"
+                        )
+                        device_id = _as_int(
+                            device_config.get("device_id", 0), "device_id"
+                        )
+                        if vendor_id == 0 or device_id == 0:
+                            raise ConfigurationError(
+                                "Cannot accept Revision ID = 0x00 when Vendor ID "
+                                f"(0x{vendor_id:04X}) or Device ID "
+                                f"(0x{device_id:04X}) are also zero - this "
+                                "indicates an uninitialized device"
+                            )
+                    else:
+                        raise ConfigurationError(
+                            f"{display_name} is zero (0x{int_value:04X}), which "
+                            "indicates "
+                            "a generic or uninitialized value. Use a real device "
+                            "for cloning."
+                        )
 
         # Additional validation for vendor/device ID pairs that are known generics
         vendor_id = _as_int(device_config["vendor_id"], "vendor_id")
