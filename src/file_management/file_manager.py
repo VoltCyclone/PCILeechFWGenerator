@@ -969,6 +969,113 @@ class FileManager:
         
         return copied_scripts
 
+    def copy_ip_files(self, board: str) -> List[Path]:
+        """Copy IP files (.coe, .xci) from voltcyclone-fpga submodule to output.
+        
+        This method copies IP files from the lib/voltcyclone-fpga submodule
+        to support Vivado builds that reference these files.
+        
+        Args:
+            board: Board name (e.g., 'pcileech_squirrel')
+            
+        Returns:
+            List of copied IP file paths
+            
+        Raises:
+            FileNotFoundError: If IP files are not found
+        """
+        try:
+            from src.file_management.repo_manager import RepoManager
+            
+            # Get board path from repo manager
+            repo_manager = RepoManager()
+            board_path = repo_manager.get_board_path(board)
+            if not board_path:
+                raise FileNotFoundError(
+                    f"Board '{board}' not found in voltcyclone-fpga"
+                )
+            
+            # Create IP directory in output
+            ip_dir = self.output_dir / "ip"
+            ip_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Look for IP files in board's ip directory
+            board_ip_dir = board_path / "ip"
+            copied_files = []
+            
+            if board_ip_dir.exists():
+                # Copy all IP files (.coe, .xci)
+                for pattern in ["*.coe", "*.xci"]:
+                    for ip_file in board_ip_dir.glob(pattern):
+                        if ip_file.is_file():
+                            dest_file = ip_dir / ip_file.name
+                            shutil.copy2(ip_file, dest_file)
+                            copied_files.append(dest_file)
+                            
+                            log_info_safe(
+                                logger,
+                                safe_format(
+                                    "  Copied IP file: {ip_name}",
+                                    ip_name=ip_file.name
+                                ),
+                                prefix="FILEMGR",
+                            )
+                
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Successfully copied {count} IP files",
+                        count=len(copied_files)
+                    ),
+                    prefix="FILEMGR",
+                )
+            else:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "No IP directory found for board {board} at {path}",
+                        board=board,
+                        path=board_ip_dir
+                    ),
+                    prefix="FILEMGR",
+                )
+            
+            return copied_files
+            
+        except FileNotFoundError as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "IP files not found for board {board}: {error}",
+                    board=board,
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+            raise
+        except (OSError, IOError) as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Filesystem error copying IP files for {board}: {error}",
+                    board=board,
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+            raise
+        except Exception as e:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Unexpected error copying IP files for {board}: {error}",
+                    board=board,
+                    error=str(e)
+                ),
+                prefix="FILEMGR",
+            )
+            raise
+
     def get_source_file_lists(self) -> Dict[str, List[str]]:
         """Get lists of source files in the output directory for TCL generation."""
         file_lists = {

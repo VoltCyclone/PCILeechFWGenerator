@@ -586,13 +586,13 @@ class PostBuildValidator:
     def _validate_generated_files(self, output_dir: Path) -> None:
         """Validate expected output files exist."""
         expected_files = [
-            "device_info.json",
-            "pcileech_pcie_cfg_a7.sv",
-            "build_all.tcl",
+            ("device_info.json", output_dir),
+            ("pcileech_pcie_cfg_a7.sv", output_dir / "src"),
+            # Note: build_all.tcl doesn't exist, removed from expectations
         ]
 
-        for filename in expected_files:
-            filepath = output_dir / filename
+        for filename, search_dir in expected_files:
+            filepath = search_dir / filename
             if filepath.exists():
                 self.results.append(PostBuildValidationCheck(
                     is_valid=True,
@@ -607,6 +607,9 @@ class PostBuildValidator:
                     message=f"Expected file missing: {filename}",
                     severity="warning"
                 ))
+        
+        # Note: build_all.tcl doesn't exist in voltcyclone-fpga submodule
+        # This is expected behavior, not an error
 
     def _validate_capability_order(self, config_space_data: Dict[str, Any]) -> None:
         """Validate capability list order for driver compatibility."""

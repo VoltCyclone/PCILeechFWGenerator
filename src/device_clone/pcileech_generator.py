@@ -1293,16 +1293,33 @@ class PCILeechGenerator:
             
             tcl_paths = fm.copy_vivado_tcl_scripts(board=board)
             
+            # Copy IP files from submodule (COE, XCI files)
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Copying IP files for board {board} from voltcyclone-fpga",
+                    board=board
+                ),
+                prefix="PCIL"
+            )
+            
+            ip_paths = fm.copy_ip_files(board=board)
+            
             # Return dictionary mapping script names to paths
             result = {}
             for path in tcl_paths:
                 script_name = path.name
                 result[script_name] = str(path)
             
+            # Add IP files to result
+            for path in ip_paths:
+                ip_name = path.name
+                result[ip_name] = str(path)
+            
             log_info_safe(
                 self.logger,
                 safe_format(
-                    "Copied {count} TCL scripts from submodule",
+                    "Copied {count} files from submodule (TCL + IP)",
                     count=len(result)
                 ),
                 prefix="PCIL"

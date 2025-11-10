@@ -1422,6 +1422,8 @@ class FirmwareBuilder:
                 preloaded_config_space=preloaded_config_space,
         )
         # Explicitly relax VFIO when host data is provided or VFIO is disabled
+        # Note: Container environments typically have VFIO warnings due to
+        # device binding limitations, but this is expected and handled gracefully
         if getattr(self.config, "disable_vfio", False) or preloaded_config_space:
             setattr(gen_cfg, "strict_vfio", False)
 
@@ -1506,6 +1508,26 @@ class FirmwareBuilder:
         try:
             with open(context_path, "r") as f:
                 payload = json.load(f)
+            
+            # Validate that we have the expected data structure
+            if not isinstance(payload, dict):
+                log_warning_safe(
+                    self.logger,
+                    "Device context file does not contain a valid dictionary",
+                    prefix="HOST_CFG"
+                )
+                return None
+                
+            # Log basic info about the payload
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Loaded device context with keys: {keys}",
+                    keys=list(payload.keys())
+                ),
+                prefix="HOST_CFG"
+            )
+            
         except json.JSONDecodeError as e:
             log_warning_safe(
                 self.logger,
@@ -1531,6 +1553,24 @@ class FirmwareBuilder:
         
         # Extract config space hex
         config_space_hex = payload.get("config_space_hex")
+        
+        # Validate against metadata if available
+        metadata = payload.get("collection_metadata", {})
+        expected_length = metadata.get("config_space_hex_length")
+        if expected_length and config_space_hex:
+            actual_length = len(config_space_hex)
+            if actual_length != expected_length:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Config space hex length mismatch: expected {expected}, "
+                        "got {actual} (possible corruption)",
+                        expected=expected_length,
+                        actual=actual_length
+                    ),
+                    prefix="HOST_CFG"
+                )
+        
         # Also support nested path when full template_context was saved by host
         if not config_space_hex:
             try:
@@ -1539,6 +1579,51 @@ class FirmwareBuilder:
                     config_space_hex = tc.get("config_space_hex")
             except Exception:
                 config_space_hex = None
+        
+        # Debug: log the size of the hex string when loaded
+        if config_space_hex:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Loaded config_space_hex from JSON: {length} characters",
+                    length=len(config_space_hex)
+                ),
+                prefix="HOST_CFG"
+            )
+            
+            # Check if the hex string is truncated (common issue)
+            if len(config_space_hex) < 512:  # Less than 256 bytes
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Config space hex appears truncated: {length} chars "
+                        "(expected ~8192 for 4096 bytes)",
+                        length=len(config_space_hex)
+                    ),
+                    prefix="HOST_CFG"
+                )
+                # Try to get the full config space from alternative sources
+                if msix_path and os.path.exists(msix_path):
+                    try:
+                        with open(msix_path, "r") as f:
+                            msix_payload = json.load(f)
+                        alt_hex = msix_payload.get("config_space_hex")
+                        if alt_hex and len(alt_hex) > len(config_space_hex):
+                            log_info_safe(
+                                self.logger,
+                                "Using longer config_space_hex from MSIX data file",
+                                prefix="HOST_CFG"
+                            )
+                            config_space_hex = alt_hex
+                    except Exception as e:
+                        log_debug_safe(
+                            self.logger,
+                            safe_format(
+                                "Failed to load alternative config from MSIX: {err}",
+                                err=str(e)
+                            ),
+                            prefix="HOST_CFG"
+                        )
         if not config_space_hex:
             log_debug_safe(
                 self.logger,
@@ -1562,6 +1647,15 @@ class FirmwareBuilder:
                                 size=len(config_space_hex),
                             ),
                             prefix="HOST_CFG",
+                        )
+                        # Debug: log the actual size for verification
+                        log_debug_safe(
+                            self.logger,
+                            safe_format(
+                                "MSI-X config_space_hex length: {length} characters",
+                                length=len(config_space_hex)
+                            ),
+                            prefix="HOST_CFG"
                         )
                     else:
                         log_debug_safe(
@@ -1607,6 +1701,25 @@ class FirmwareBuilder:
         
         # Convert hex to bytes
         try:
+            # Debug: log the size of the hex string before conversion
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Converting config_space_hex to bytes: {length} characters",
+                    length=len(config_space_hex)
+                ),
+                prefix="HOST_CFG"
+            )
+            
+            # If config space is severely truncated, fail gracefully
+            if len(config_space_hex) < 128:  # Less than 64 bytes
+                log_error_safe(
+                    self.logger,
+                    "Config space hex too short (< 64 bytes), corrupted data",
+                    prefix="HOST_CFG"
+                )
+                return None
+                
             config_space_bytes = bytes.fromhex(config_space_hex)
         except ValueError as e:
             log_warning_safe(

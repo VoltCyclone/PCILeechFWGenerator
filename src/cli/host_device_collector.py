@@ -124,9 +124,24 @@ class HostDeviceCollector:
                 # 5. Save collected data for container consumption
                 # Note: Template context building is deferred to the container
                 # to avoid duplicating PCILeechContextBuilder instantiation
+                config_space_hex = config_space_bytes.hex()
+                
+                # Validate that we have the full config space
+                if len(config_space_hex) != len(config_space_bytes) * 2:
+                    log_error_safe(
+                        self.logger,
+                        safe_format(
+                            "Config space hex length mismatch: {hex_len} chars "
+                            "vs {byte_len} bytes * 2",
+                            hex_len=len(config_space_hex),
+                            byte_len=len(config_space_bytes)
+                        ),
+                        prefix="HOST"
+                    )
+                
                 collected_data = {
                     "bdf": self.bdf,
-                    "config_space_hex": config_space_bytes.hex(),
+                    "config_space_hex": config_space_hex,
                     "device_info": device_info,
                     "msix_data": (
                         asdict(msix_data) if msix_data.preloaded else None
@@ -135,6 +150,7 @@ class HostDeviceCollector:
                     "collection_metadata": {
                         "collected_at": time.time(),
                         "config_space_size": len(config_space_bytes),
+                        "config_space_hex_length": len(config_space_hex),
                         "has_msix": msix_data.preloaded,
                         "has_bar_models": bar_models is not None,
                         "collector_version": "1.0"
@@ -333,6 +349,31 @@ class HostDeviceCollector:
         with open(context_file, "w") as f:
             json.dump(data, f, indent=2, default=str)
         
+        # Validate that the file was written correctly
+        try:
+            with open(context_file, "r") as f:
+                test_data = json.load(f)
+            test_hex = test_data.get("config_space_hex", "")
+            if len(test_hex) != len(data["config_space_hex"]):
+                log_error_safe(
+                    self.logger,
+                    safe_format(
+                        "Config space hex corrupted: {orig} -> {saved} chars",
+                        orig=len(data["config_space_hex"]),
+                        saved=len(test_hex)
+                    ),
+                    prefix="HOST"
+                )
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Failed to validate saved context file: {err}",
+                    err=str(e)
+                ),
+                prefix="HOST"
+            )
+        
         # Save MSI-X data separately for backward compatibility
         if data.get("msix_data"):
             msix_file = output_dir / "msix_data.json"
@@ -343,6 +384,32 @@ class HostDeviceCollector:
             }
             with open(msix_file, "w") as f:
                 json.dump(msix_payload, f, indent=2)
+            
+            # Validate MSIX file as well
+            try:
+                with open(msix_file, "r") as f:
+                    test_msix = json.load(f)
+                test_msix_hex = test_msix.get("config_space_hex", "")
+                if len(test_msix_hex) != len(data["config_space_hex"]):
+                    log_error_safe(
+                        self.logger,
+                        safe_format(
+                            "MSIX config space hex corrupted during save: "
+                            "{orig} -> {saved} chars",
+                            orig=len(data["config_space_hex"]),
+                            saved=len(test_msix_hex)
+                        ),
+                        prefix="HOST"
+                    )
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Failed to validate saved MSIX file: {err}",
+                        err=str(e)
+                    ),
+                    prefix="HOST"
+                )
         
         log_info_safe(
             self.logger,
