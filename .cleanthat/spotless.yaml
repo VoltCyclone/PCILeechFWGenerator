@@ -18,9 +18,9 @@ formatters:
   - id: "flexmark"
     skip: false
     parameters:
-      version: "0.64.8"
+      version: "0.64.10"
   - id: "freshmark"
     skip: false
     parameters:
       properties:
-        k1: "v1"
+        project_name: "ExampleProject"
