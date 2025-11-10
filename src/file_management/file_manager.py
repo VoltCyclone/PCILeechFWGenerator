@@ -988,8 +988,7 @@ class FileManager:
             from src.file_management.repo_manager import RepoManager
             
             # Get board path from repo manager
-            repo_manager = RepoManager()
-            board_path = repo_manager.get_board_path(board)
+            board_path = RepoManager.get_board_path(board)
             if not board_path:
                 raise FileNotFoundError(
                     f"Board '{board}' not found in voltcyclone-fpga"
