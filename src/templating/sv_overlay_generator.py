@@ -21,6 +21,7 @@ from src.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
+    log_warning_safe,
     safe_format,
 )
 
@@ -104,6 +105,16 @@ class SVOverlayGenerator:
                     context_with_header
                 )
                 overlays["pcileech_cfgspace_writemask.coe"] = writemask_coe
+
+            # Generate device-specific BAR implementation if BAR models available
+            bar_impl_sv = self._generate_bar_implementation(context_with_header)
+            if bar_impl_sv:
+                overlays["pcileech_bar_impl_device.sv"] = bar_impl_sv
+
+            # Generate device-aware BAR controller that uses device-specific impl
+            bar_controller_sv = self._generate_bar_controller(context_with_header)
+            if bar_controller_sv:
+                overlays["pcileech_tlps128_bar_controller.sv"] = bar_controller_sv
 
             log_info_safe(
                 self.logger,
@@ -353,6 +364,214 @@ class SVOverlayGenerator:
             prefix=self.prefix,
         )
         return self.generate_config_space_overlay(context)
+
+    def _generate_bar_implementation(self, context: Dict[str, Any]) -> Optional[str]:
+        """Generate device-specific BAR implementation module from learned models.
+        
+        This method generates a SystemVerilog module implementing the donor device's
+        BAR register map based on learned behavior from MMIO tracing.
+        
+        Args:
+            context: Template context with bar_config containing bar_models
+            
+        Returns:
+            Generated BAR implementation SystemVerilog code, or None if no models
+        """
+        log_debug_safe(
+            self.logger,
+            "Checking for BAR models to generate device-specific implementation",
+            prefix=self.prefix,
+        )
+        
+        # Check if we have learned BAR models from the context
+        bar_config = context.get("bar_config", {})
+        
+        # Try to get BAR models from various locations in context
+        # Priority: bar_config.bar_models > bar_models > bars (w/ models)
+        bar_models_data = None
+        
+        # Check bar_config for models
+        if isinstance(bar_config, dict):
+            bar_models_data = bar_config.get("bar_models")
+        
+        # Fallback to top-level bar_models
+        if not bar_models_data:
+            bar_models_data = context.get("bar_models")
+        
+        # If no models found, skip BAR implementation generation
+        if not bar_models_data:
+            log_debug_safe(
+                self.logger,
+                "No BAR models found - skipping device-specific BAR impl",
+                prefix=self.prefix,
+            )
+            return None
+        
+        model_count = (
+            len(bar_models_data) if isinstance(bar_models_data, dict) else 0
+        )
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "Generating device-specific BAR implementation from learned "
+                "models (bar_count={count})",
+                count=model_count,
+            ),
+            prefix=self.prefix,
+        )
+        
+        try:
+            # Find the primary BAR model (usually BAR0, but can be configured)
+            primary_bar_idx = bar_config.get("primary_bar", 0)
+            bar_model = None
+            
+            if isinstance(bar_models_data, dict):
+                # Get the model for the primary BAR
+                bar_model = (
+                    bar_models_data.get(str(primary_bar_idx)) or 
+                    bar_models_data.get(primary_bar_idx)
+                )
+                
+                # If primary not found, try first available
+                if not bar_model and bar_models_data:
+                    first_key = next(iter(bar_models_data))
+                    bar_model = bar_models_data[first_key]
+                    log_debug_safe(
+                        self.logger,
+                        safe_format(
+                            "Using BAR{idx} model "
+                            "(primary BAR{primary} not found)",
+                            idx=first_key,
+                            primary=primary_bar_idx,
+                        ),
+                        prefix=self.prefix,
+                    )
+            
+            if not bar_model:
+                log_warning_safe(
+                    self.logger,
+                    "BAR models present but no usable model found",
+                    prefix=self.prefix,
+                )
+                return None
+            
+            # Prepare template context with BAR model
+            bar_impl_context = dict(context)
+            
+            # Transform serialized model format to template format
+            # (serialization uses 'regs', template expects 'registers')
+            if isinstance(bar_model, dict) and "regs" in bar_model:
+                transformed_model = {"size": bar_model["size"]}
+                # Convert hex string keys to integer offsets
+                transformed_model["registers"] = {}
+                for hex_key, reg_data in bar_model["regs"].items():
+                    offset = int(hex_key, 16)
+                    transformed_model["registers"][offset] = reg_data
+                bar_impl_context["bar_model"] = transformed_model
+            else:
+                bar_impl_context["bar_model"] = bar_model
+            
+            # Ensure we have device_signature for the header
+            if "device_signature" not in bar_impl_context:
+                vendor_id = context.get("vendor_id", "0000")
+                device_id = context.get("device_id", "0000")
+                bar_impl_context["device_signature"] = safe_format(
+                    "{vendor}:{device}",
+                    vendor=vendor_id,
+                    device=device_id,
+                )
+            
+            # Render the BAR implementation template
+            template_path = "sv/pcileech_bar_impl_device.sv.j2"
+            content = self.renderer.render_template(template_path, bar_impl_context)
+            
+            # Calculate register count for logging
+            if isinstance(bar_model, dict):
+                nregs = len(bar_model.get("registers", {}))
+            elif hasattr(bar_model, "registers"):
+                nregs = len(getattr(bar_model, "registers", {}))
+            else:
+                nregs = 0
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Generated device-specific BAR implementation "
+                    "({size} bytes, {nregs} registers)",
+                    size=len(content),
+                    nregs=nregs,
+                ),
+                prefix=self.prefix,
+            )
+            
+            return content
+            
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Failed to generate BAR implementation: {error}",
+                    error=str(e),
+                ),
+                prefix=self.prefix,
+            )
+            # Non-fatal - just skip BAR implementation generation
+            return None
+
+    def _generate_bar_controller(self, context: Dict[str, Any]) -> Optional[str]:
+        """Generate device-aware BAR controller that uses device-specific impl.
+        
+        This method generates a templated version of pcileech_tlps128_bar_controller
+        that automatically uses the device-specific BAR implementation when
+        available.
+        
+        Args:
+            context: Template context with bar_config
+            
+        Returns:
+            Generated BAR controller SystemVerilog code, or None if not needed
+        """
+        log_debug_safe(
+            self.logger,
+            "Generating device-aware BAR controller",
+            prefix=self.prefix,
+        )
+        
+        try:
+            # Always generate the BAR controller - it adapts based on context
+            template_path = "sv/pcileech_tlps128_bar_controller.sv.j2"
+            content = self.renderer.render_template(template_path, context)
+            
+            has_models = bool(
+                context.get("bar_config", {}).get("bar_models") or
+                context.get("bar_models")
+            )
+            
+            impl_type = "device-specific" if has_models else "generic"
+            
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Generated BAR controller ({size} bytes, {impl_type} impl)",
+                    size=len(content),
+                    impl_type=impl_type,
+                ),
+                prefix=self.prefix,
+            )
+            
+            return content
+            
+        except Exception as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Failed to generate BAR controller: {error}",
+                    error=str(e),
+                ),
+                prefix=self.prefix,
+            )
+            # Non-fatal - use upstream pcileech-fpga version
+            return None
 
 
 # Backward compatibility alias

@@ -9,19 +9,16 @@ description = "Generate spoofed PCIe DMA firmware from real donor hardware"
 authors = [
     {name = "Ramsey McGrath", email = "ramsey@voltcyclone.info"}
 ]
-license = {text = "MIT"}
+license = "MIT"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
     "Operating System :: POSIX :: Linux",
     "Topic :: Software Development :: Embedded Systems",
     "Topic :: System :: Hardware",
@@ -50,18 +47,39 @@ testing = [
 ]
 
 [project.scripts]
-pcileech = "pcileech_main:main"
-pcileech-generate = "pcileech_main:main"
-pcileech-build = "pcileech_main:main"
-pcileech-tui = "pcileech_main:main"
+pcileech = "pcileechfwgenerator.pcileech_main:main"
+pcileech-generate = "pcileechfwgenerator.pcileech_main:main"
+pcileech-build = "pcileechfwgenerator.pcileech_main:main"
+pcileech-tui = "pcileechfwgenerator.pcileech_main:main"
 
 [tool.setuptools_scm]
 # For smarter version schemes and other configuration options,
 # check out https://github.com/pypa/setuptools_scm
 version_scheme = "no-guess-dev"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+package-dir = {"pcileechfwgenerator" = "src"}
+packages = [
+    "pcileechfwgenerator",
+    "pcileechfwgenerator.behavioral",
+    "pcileechfwgenerator.cli",
+    "pcileechfwgenerator.device_clone",
+    "pcileechfwgenerator.file_management",
+    "pcileechfwgenerator.host_collect",
+    "pcileechfwgenerator.pci_capability",
+    "pcileechfwgenerator.scripts",
+    "pcileechfwgenerator.templating",
+    "pcileechfwgenerator.tui",
+    "pcileechfwgenerator.tui.commands",
+    "pcileechfwgenerator.tui.core",
+    "pcileechfwgenerator.tui.models",
+    "pcileechfwgenerator.tui.plugins",
+    "pcileechfwgenerator.tui.plugins.examples",
+    "pcileechfwgenerator.tui.utils",
+    "pcileechfwgenerator.tui.widgets",
+    "pcileechfwgenerator.utils",
+    "pcileechfwgenerator.vivado_handling",
+]
 
 [tool.pylint.messages_control]
 # Disable the line-too-long check

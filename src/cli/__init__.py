@@ -3,15 +3,12 @@
 
 # Import non-circular components
 from .config import BuildConfig
-from .container import require_podman, run_build
 from .flash import flash_firmware
 from .vfio_handler import VFIOBinder
 
 # Define what symbols this package exports
 __all__ = [
     "BuildConfig",
-    "run_build",
-    "require_podman",
     "flash_firmware",
     "VFIOBinder",
     "get_parser",
@@ -34,3 +31,4 @@ def main(*args, **kwargs):
 
     cli = importlib.import_module(".cli", package="src.cli")
     return cli.main(*args, **kwargs)
+

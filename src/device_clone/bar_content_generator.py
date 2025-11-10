@@ -5,12 +5,15 @@ import struct
 import logging
 from collections import Counter
 from enum import Enum
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from src.string_utils import log_info_safe, safe_format
 from src.exceptions import ConfigSpaceError
 
 from src.log_config import get_logger
+
+if TYPE_CHECKING:
+    from src.device_clone.bar_model_loader import BarModel
 
 logger = get_logger(__name__)
 
@@ -32,6 +35,7 @@ class BarContentType(Enum):
     BUFFER = "buffer"
     FIRMWARE = "firmware"
     MIXED = "mixed"
+    LEARNED = "learned"  # Learned from MMIO trace
 
 
 class BarContentGenerator:
@@ -195,11 +199,97 @@ class BarContentGenerator:
             )
         return bytes(content)
 
+    def _generate_from_learned_model(
+        self, size: int, bar_index: int, model: "BarModel"
+    ) -> bytes:
+        """Generate BAR content from learned register model.
+
+        Strategy:
+        1. Start with high-entropy base (existing _get_seeded_bytes)
+        2. Overlay register reset values at exact offsets
+        3. Preserve determinism via device_signature seed
+
+        Args:
+            size: BAR size (must match or exceed model.size)
+            bar_index: BAR index for logging
+            model: Loaded BarModel with register specs
+
+        Returns:
+            BAR content bytes with learned registers overlaid
+
+        Raises:
+            ValueError: If size < model.size or invalid register specs
+        """
+        from src.device_clone.bar_model_loader import BarModel
+
+        if not isinstance(model, BarModel):
+            raise ValueError("model parameter must be a BarModel instance")
+
+        if size < model.size:
+            raise ValueError(
+                safe_format(
+                    "BAR{bar} size {actual} < model size {expected}",
+                    bar=bar_index,
+                    actual=size,
+                    expected=model.size,
+                )
+            )
+
+        # Start with high-entropy base
+        content = bytearray(
+            self._get_seeded_bytes(size, f"learned_bar{bar_index}")
+        )
+
+        # Overlay learned register values
+        for offset, reg in sorted(model.registers.items()):
+            if offset + reg.width > size:
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Skipping register at 0x{off:X} (exceeds BAR size)",
+                        off=offset,
+                    ),
+                    prefix="BARS",
+                )
+                continue
+
+            # Write reset value at offset
+            if reg.width == 1:
+                content[offset] = reg.reset & 0xFF
+            elif reg.width == 2:
+                struct.pack_into("<H", content, offset, reg.reset & 0xFFFF)
+            elif reg.width == 4:
+                struct.pack_into("<I", content, offset, reg.reset & 0xFFFFFFFF)
+            else:
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Unsupported register width {width} at 0x{off:X}",
+                        width=reg.width,
+                        off=offset,
+                    ),
+                    prefix="BARS",
+                )
+
+        log_info_safe(
+            logger,
+            safe_format(
+                "Generated LEARNED content for BAR{bar}: "
+                "{nregs} registers overlaid on high-entropy base",
+                bar=bar_index,
+                nregs=len(model.registers),
+            ),
+            prefix="BARS",
+        )
+
+        return bytes(content)
+
     def generate_bar_content(
         self,
         size: int,
         bar_index: int,
         content_type: BarContentType = BarContentType.MIXED,
+        model: Optional["BarModel"] = None,
     ) -> bytes:
         """
         Generate BAR memory content
@@ -207,6 +297,7 @@ class BarContentGenerator:
             size: Size of BAR in bytes
             bar_index: BAR index (0-5)
             content_type: Type of content to generate
+            model: Optional BarModel (required for LEARNED type)
         Returns:
             High-entropy BAR content bytes
         Raises:
@@ -218,7 +309,11 @@ class BarContentGenerator:
             raise ValueError("BAR index must be 0-5")
         if size < 32:
             return self._get_seeded_bytes(size, f"small_bar{bar_index}")
-        if content_type == BarContentType.REGISTERS:
+        if content_type == BarContentType.LEARNED:
+            if model is None:
+                raise ValueError("LEARNED content type requires model parameter")
+            return self._generate_from_learned_model(size, bar_index, model)
+        elif content_type == BarContentType.REGISTERS:
             return self._generate_register_content(size, bar_index)
         elif content_type == BarContentType.BUFFER:
             return self._generate_buffer_content(size, bar_index)

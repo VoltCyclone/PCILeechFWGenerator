@@ -1,0 +1,256 @@
+{{ header }}
+//
+// PCILeech FPGA - Device-Aware BAR Controller
+//
+// Auto-generated BAR controller with device-specific implementation.
+// This file integrates the learned BAR behavior from {{ device_signature }}.
+//
+// Based on PCILeech FPGA BAR PIO controller by Ulf Frisk
+// Modified to use device-specific BAR implementation when available.
+//
+
+`timescale 1ns / 1ps
+`include "pcileech_header.svh"
+
+module pcileech_tlps128_bar_controller(
+    input                   rst,
+    input                   clk,
+    input                   bar_en,
+    input [15:0]            pcie_id,
+    IfAXIS128.sink_lite     tlps_in,
+    IfAXIS128.source        tlps_out
+);
+    
+    // ------------------------------------------------------------------------
+    // 1: TLP RECEIVE:
+    // Receive incoming BAR requests from the TLP stream:
+    // send them onwards to read and write FIFOs
+    // ------------------------------------------------------------------------
+    wire in_is_wr_ready;
+    bit  in_is_wr_last;
+    wire in_is_first    = tlps_in.tuser[0];
+    wire in_is_bar      = bar_en && (tlps_in.tuser[8:2] != 0);
+    wire in_is_rd       = (in_is_first && tlps_in.tlast && ((tlps_in.tdata[31:25] == 7'b0000000) || (tlps_in.tdata[31:25] == 7'b0010000) || (tlps_in.tdata[31:24] == 8'b00000010)));
+    wire in_is_wr       = in_is_wr_last || (in_is_first && in_is_wr_ready && ((tlps_in.tdata[31:25] == 7'b0100000) || (tlps_in.tdata[31:25] == 7'b0110000) || (tlps_in.tdata[31:24] == 8'b01000010)));
+    
+    always @ ( posedge clk )
+        if ( rst ) begin
+            in_is_wr_last <= 0;
+        end
+        else if ( tlps_in.tvalid ) begin
+            in_is_wr_last <= !tlps_in.tlast && in_is_wr;
+        end
+    
+    wire [6:0]  wr_bar;
+    wire [31:0] wr_addr;
+    wire [3:0]  wr_be;
+    wire [31:0] wr_data;
+    wire        wr_valid;
+    wire [87:0] rd_req_ctx;
+    wire [6:0]  rd_req_bar;
+    wire [31:0] rd_req_addr;
+    wire        rd_req_valid;
+    wire [87:0] rd_rsp_ctx;
+    wire [31:0] rd_rsp_data;
+    wire        rd_rsp_valid;
+        
+    pcileech_tlps128_bar_rdengine i_pcileech_tlps128_bar_rdengine(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        // TLPs:
+        .pcie_id        ( pcie_id                       ),
+        .tlps_in        ( tlps_in                       ),
+        .tlps_in_valid  ( tlps_in.tvalid && in_is_bar && in_is_rd ),
+        .tlps_out       ( tlps_out                      ),
+        // BAR reads:
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_bar     ( rd_req_bar                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid                  ),
+        .rd_rsp_ctx     ( rd_rsp_ctx                    ),
+        .rd_rsp_data    ( rd_rsp_data                   ),
+        .rd_rsp_valid   ( rd_rsp_valid                  )
+    );
+
+    pcileech_tlps128_bar_wrengine i_pcileech_tlps128_bar_wrengine(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        // TLPs:
+        .tlps_in        ( tlps_in                       ),
+        .tlps_in_valid  ( tlps_in.tvalid && in_is_bar && in_is_wr ),
+        .tlps_in_ready  ( in_is_wr_ready                ),
+        // outgoing BAR writes:
+        .wr_bar         ( wr_bar                        ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid                      )
+    );
+    
+    wire [87:0] bar_rsp_ctx[7];
+    wire [31:0] bar_rsp_data[7];
+    wire        bar_rsp_valid[7];
+    
+    assign rd_rsp_ctx = bar_rsp_valid[0] ? bar_rsp_ctx[0] :
+                        bar_rsp_valid[1] ? bar_rsp_ctx[1] :
+                        bar_rsp_valid[2] ? bar_rsp_ctx[2] :
+                        bar_rsp_valid[3] ? bar_rsp_ctx[3] :
+                        bar_rsp_valid[4] ? bar_rsp_ctx[4] :
+                        bar_rsp_valid[5] ? bar_rsp_ctx[5] :
+                        bar_rsp_valid[6] ? bar_rsp_ctx[6] : 0;
+    assign rd_rsp_data = bar_rsp_valid[0] ? bar_rsp_data[0] :
+                        bar_rsp_valid[1] ? bar_rsp_data[1] :
+                        bar_rsp_valid[2] ? bar_rsp_data[2] :
+                        bar_rsp_valid[3] ? bar_rsp_data[3] :
+                        bar_rsp_valid[4] ? bar_rsp_data[4] :
+                        bar_rsp_valid[5] ? bar_rsp_data[5] :
+                        bar_rsp_valid[6] ? bar_rsp_data[6] : 0;
+    assign rd_rsp_valid = bar_rsp_valid[0] || bar_rsp_valid[1] || bar_rsp_valid[2] || bar_rsp_valid[3] || bar_rsp_valid[4] || bar_rsp_valid[5] || bar_rsp_valid[6];
+    
+{% if bar_config and bar_config.get('bar_models') %}
+    // ========================================================================
+    // Device-Specific BAR Implementation (learned from donor device)
+    // ========================================================================
+    
+    // Primary BAR uses device-specific implementation
+    pcileech_bar_impl_device #(
+        .BAR_SIZE       ( {{ bar_config.bars[bar_config.primary_bar|default(0)].size if bar_config.bars else 4096 }} )
+    ) i_bar0(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[0]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[0] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[0]                ),
+        .rd_rsp_data    ( bar_rsp_data[0]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[0]              )
+    );
+{% else %}
+    // ========================================================================
+    // Generic BAR Implementation (no learned model available)
+    // ========================================================================
+    
+    // BAR0: Zero-initialized read/write BAR (4KB default)
+    pcileech_bar_impl_zerowrite4k i_bar0(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[0]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[0] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[0]                ),
+        .rd_rsp_data    ( bar_rsp_data[0]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[0]              )
+    );
+{% endif %}
+    
+    // ========================================================================
+    // Additional BARs (use generic implementations)
+    // ========================================================================
+    
+    // BAR1: Address loopback (useful for testing)
+    pcileech_bar_impl_loopaddr i_bar1(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[1]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[1] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[1]                ),
+        .rd_rsp_data    ( bar_rsp_data[1]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[1]              )
+    );
+    
+    // BAR2-6: Unimplemented
+    pcileech_bar_impl_none i_bar2(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[2]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[2] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[2]                ),
+        .rd_rsp_data    ( bar_rsp_data[2]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[2]              )
+    );
+    
+    pcileech_bar_impl_none i_bar3(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[3]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[3] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[3]                ),
+        .rd_rsp_data    ( bar_rsp_data[3]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[3]              )
+    );
+    
+    pcileech_bar_impl_none i_bar4(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[4]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[4] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[4]                ),
+        .rd_rsp_data    ( bar_rsp_data[4]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[4]              )
+    );
+    
+    pcileech_bar_impl_none i_bar5(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[5]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[5] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[5]                ),
+        .rd_rsp_data    ( bar_rsp_data[5]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[5]              )
+    );
+    
+    pcileech_bar_impl_none i_bar6_optrom(
+        .rst            ( rst                           ),
+        .clk            ( clk                           ),
+        .wr_addr        ( wr_addr                       ),
+        .wr_be          ( wr_be                         ),
+        .wr_data        ( wr_data                       ),
+        .wr_valid       ( wr_valid && wr_bar[6]         ),
+        .rd_req_ctx     ( rd_req_ctx                    ),
+        .rd_req_addr    ( rd_req_addr                   ),
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[6] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[6]                ),
+        .rd_rsp_data    ( bar_rsp_data[6]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[6]              )
+    );
+
+
+endmodule
+
+// NOTE: The read/write engine implementations and BAR implementation modules
+// (pcileech_bar_impl_*) are not included in this template.
+// They should be sourced from the upstream pcileech-fpga repository or
+// generated as separate modules (e.g., pcileech_bar_impl_device.sv).

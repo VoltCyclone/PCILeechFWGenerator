@@ -252,6 +252,10 @@ class TemplateContextValidator:
                 "error_handling",
                 "performance_counters",
                 "behavior_profile",
+                # BAR model learned data (may be absent -> fallback path)
+                "bar_model",
+                # Interrupt configuration (may be absent in baseline context)
+                "interrupt_config",
             },
             "default_values": {
                 "pcileech_modules": [],
@@ -266,6 +270,10 @@ class TemplateContextValidator:
                 "device_specific_config": {},
                 "enable_performance_counters": False,
                 "enable_error_detection": False,
+                # Provide explicit default None so StrictUndefined doesn't raise
+                "bar_model": None,
+                # Provide a safe default interrupt config so templates can check strategy
+                "interrupt_config": {"strategy": "none"},
             },
         },
     }
@@ -465,6 +473,37 @@ class TemplateContextValidator:
                             ),
                             prefix="TEMPLATE",
                         )
+            # Post-default normalization: ensure interrupt_config.strategy present
+            if self._matches_pattern(template_name, "*pcileech*.j2"):
+                intr = validated_context.get("interrupt_config")
+                try:
+                    if isinstance(intr, dict):
+                        if "strategy" not in intr:
+                            intr["strategy"] = "none"
+                            log_debug_safe(
+                                logger,
+                                "Added default interrupt_config.strategy",
+                                tpl=template_name,
+                                prefix="TEMPLATE",
+                            )
+                    elif (
+                        intr is not None
+                        and getattr(intr, "strategy", None) is None
+                    ):
+                        validated_context["interrupt_config"] = {"strategy": "none"}
+                        log_debug_safe(
+                            logger,
+                            "Wrapped interrupt_config object with default strategy",
+                            tpl=template_name,
+                            prefix="TEMPLATE",
+                        )
+                except Exception as e:  # Defensive: never fail normalization
+                    log_debug_safe(
+                        logger,
+                        "Interrupt config normalization suppressed: {err}",
+                        err=str(e),
+                        prefix="TEMPLATE",
+                    )
         else:
 
             invalid_optional = []
@@ -559,7 +598,6 @@ class TemplateContextValidator:
             if not template_path.exists():
                 return
             txt = template_path.read_text(encoding="utf-8")
-            # Heuristic reference detection
             referenced = bool(
                 re.search(r"\{\{[^}]*\bdevice\b", txt)
                 or re.search(r"safe_attr\(\s*device\s*", txt)
@@ -576,9 +614,7 @@ class TemplateContextValidator:
                     prefix=logger_prefix,
                 )
                 return
-            # Synthesize
             from src.utils.unified_context import TemplateObject  # Lazy import
-
             source = (
                 validated_context.get("device_config")
                 or validated_context.get("config_space")
@@ -599,7 +635,7 @@ class TemplateContextValidator:
                 subsys_device_id = source.get("subsys_device_id") or source.get(
                     "subsystem_device_id"
                 )
-            else:  # Unrecognized structure; preserve previous behavior (None fields)
+            else:
                 vendor_id = device_id = class_code = subsys_vendor_id = (
                     subsys_device_id
                 ) = None

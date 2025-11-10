@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
+"""
+Unit tests for src/cli/container.py
+
+NOTE: run_build() is DEPRECATED. These tests verify the deprecation warning
+and existing functionality for backwards compatibility only.
+
+New code should use pcileech.py's unified 3-stage flow instead.
+See tests/test_unified_flow_orchestration.py for the preferred approach.
+"""
 import types
+import warnings
+import os
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-
-import pytest
 
 import src.cli.container as container
 from src.cli.container import (
@@ -218,6 +228,37 @@ def test_run_local_build_failure(monkeypatch, tmp_path: Path):
         run_local_build(cfg)
 
 
+def test_run_build_shows_deprecation_warning(monkeypatch):
+    """Verify run_build() emits a deprecation warning."""
+    cfg = BuildConfig(
+        bdf="0000:03:00.0",
+        board="pcileech_35t325_x1",
+    )
+    
+    # Mock to prevent actual execution
+    monkeypatch.setattr(container, "check_podman_available", lambda: False)
+    monkeypatch.setattr(os, "environ", {"CI": "1"})  # Non-interactive
+    
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")  # Capture all warnings
+        
+        try:
+            container.run_build(cfg)
+        except SystemExit:
+            pass  # Expected
+        
+        # Verify deprecation warning was issued
+        assert len(w) >= 1
+        dep_warnings = [
+            warning for warning in w
+            if issubclass(warning.category, DeprecationWarning)
+        ]
+        assert any(
+            "run_build() is deprecated" in str(warning.message)
+            for warning in dep_warnings
+        )
+
+
 def test_run_build_non_interactive_no_podman(monkeypatch):
     monkeypatch.setenv("CI", "1")
     monkeypatch.setattr(container, "check_podman_available", lambda: False)
@@ -379,6 +420,7 @@ def test_run_build_skips_restore_when_no_original_driver(
     # Mock functions
     monkeypatch.setattr(container, "require_podman", lambda: None)
     monkeypatch.setattr(container, "image_exists", lambda _: True)
+    monkeypatch.setattr(container, "check_podman_available", lambda: True)
 
     # Mock get_current_driver to return None (no driver)
     monkeypatch.setattr(container, "get_current_driver", lambda bdf: None)
@@ -408,4 +450,29 @@ def test_run_build_skips_restore_when_no_original_driver(
     monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
 
     # Mock _get_iommu_group
+    monkeypatch.setattr(container, "_get_iommu_group", lambda bdf: 12)
+
+    # Mock Path.exists for preflight checks - only /dev/vfio/* paths exist
+    def fake_path_exists(path_obj):
+        p = str(path_obj)
+        if "/dev/vfio" in p:
+            return True
+        return False
+    monkeypatch.setattr("pathlib.Path.exists", fake_path_exists)
+
+    # Mock subprocess.run for podman execution
+    def fake_subprocess_run(cmd, **kwargs):
+        # Support both shell string and argv list invocations.
+        if isinstance(cmd, (list, tuple)):
+            full = " ".join(str(p) for p in cmd)
+        else:
+            full = str(cmd)
+        assert "podman" in full
+        return types.SimpleNamespace(returncode=0)
+    monkeypatch.setattr(container.subprocess, "run", fake_subprocess_run)
+
+    # Run build (should succeed and not attempt restore since no original driver)
+    cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
+    run_build(cfg)
+    assert calls["restore"] == 0
 

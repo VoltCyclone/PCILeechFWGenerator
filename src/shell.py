@@ -104,6 +104,13 @@ class Shell:
                 error_msg += f"\nOutput: {e.output}"
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
+        except Exception as e:
+            # Catch-all to normalize unexpected subprocess errors in tests
+            error_msg = f"Command execution error: {cmd} ({e})"
+            if cwd:
+                error_msg += f" (cwd: {cwd})"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
     def run_check(
         self, *parts: str, timeout: int = 30, cwd: Optional[str] = None

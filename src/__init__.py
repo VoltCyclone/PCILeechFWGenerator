@@ -8,8 +8,10 @@ with a simplified import structure to reduce complexity.
 
 # Version information
 from .__version__ import __version__
+
 # CLI functionality
-from .cli import BuildConfig, VFIOBinder, flash_firmware, run_build
+from .cli import BuildConfig, VFIOBinder, flash_firmware
+
 # Device cloning functionality - flattened imports
 from .device_clone import BehaviorProfile  # Device clone suite
 from .device_clone import (BehaviorProfiler, ConfigSpaceManager,
@@ -78,7 +80,6 @@ __all__ = [
     # CLI
     "VFIOBinder",
     "BuildConfig",
-    "run_build",
     "flash_firmware",
     # File management
     "FileManager",

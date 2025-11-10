@@ -873,9 +873,9 @@ def run_vivado_with_error_reporting(
         str(log_file),
     ]
 
-    # Add jobs parameter if specified and greater than 1
-    if vivado_jobs > 1:
-        cmd.extend(["-jobs", str(vivado_jobs)])
+    # Note: -jobs parameter is not supported at Vivado command line level
+    # It should only be used within TCL scripts with launch_runs command
+    # Removing this incorrect usage to prevent Vivado errors
 
     try:
         process = subprocess.Popen(

@@ -202,6 +202,9 @@ class BuildConfiguration:
     # Hard gate to disable any VFIO/sysfs hardware access inside container
     # Requires host-provided context/config space; fail fast if unavailable
     disable_vfio: bool = False
+    # MMIO learning for dynamic BAR models
+    enable_mmio_learning: bool = True
+    force_recapture: bool = False
 
 
 
@@ -998,6 +1001,12 @@ class ConfigurationManager:
         if disable_vfio:
             enable_profiling = False
 
+        # MMIO learning requires root and should be disabled in containers
+        enable_mmio_learning = (
+            not getattr(args, "no_mmio_learning", False) and not disable_vfio
+        )
+        force_recapture = getattr(args, "force_recapture", False)
+
         return BuildConfiguration(
             bdf=args.bdf,
             board=args.board,
@@ -1012,6 +1021,8 @@ class ConfigurationManager:
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
             disable_vfio=disable_vfio,
+            enable_mmio_learning=enable_mmio_learning,
+            force_recapture=force_recapture,
         )
 
     def extract_device_config(
@@ -1049,6 +1060,15 @@ class ConfigurationManager:
             "revision_id": "Revision ID",
             "class_code": "Class Code",
         }
+        
+        # Debug: log the actual values being validated
+        log_debug_safe(
+            self.logger,
+            "Validating device config fields: " + 
+            ", ".join([f"{k}={device_config.get(k, 'missing')}" 
+                       for k in required_fields.keys()]),
+            prefix="BUILD"
+        )
 
         for field, display_name in required_fields.items():
             value = device_config.get(field)
@@ -1062,12 +1082,36 @@ class ConfigurationManager:
             if isinstance(value, (int, str)):
                 int_value = _as_int(value, field)
                 if int_value == 0:
-                    raise ConfigurationError(
-                        f"{display_name} is zero (0x{int_value:04X}), which "
-                        "indicates "
-                        "a generic or uninitialized value. Use a real device "
-                        "for cloning."
-                    )
+                    # Revision ID = 0x00 is valid for many real devices
+                    # Only vendor_id, device_id, and class_code should be non-zero
+                    if field == "revision_id":
+                        log_info_safe(
+                            self.logger,
+                            "Revision ID is 0x00 - this is valid for many devices",
+                            prefix="BUILD"
+                        )
+                        # Additional validation: if revision is 0, ensure 
+                        # vendor/device are reasonable
+                        vendor_id = _as_int(
+                            device_config.get("vendor_id", 0), "vendor_id"
+                        )
+                        device_id = _as_int(
+                            device_config.get("device_id", 0), "device_id"
+                        )
+                        if vendor_id == 0 or device_id == 0:
+                            raise ConfigurationError(
+                                "Cannot accept Revision ID = 0x00 when Vendor ID "
+                                f"(0x{vendor_id:04X}) or Device ID "
+                                f"(0x{device_id:04X}) are also zero - this "
+                                "indicates an uninitialized device"
+                            )
+                    else:
+                        raise ConfigurationError(
+                            f"{display_name} is zero (0x{int_value:04X}), which "
+                            "indicates "
+                            "a generic or uninitialized value. Use a real device "
+                            "for cloning."
+                        )
 
         # Additional validation for vendor/device ID pairs that are known generics
         vendor_id = _as_int(device_config["vendor_id"], "vendor_id")
@@ -1260,7 +1304,11 @@ class FirmwareBuilder:
             # Step 8: Store device configuration
             self._store_device_config(generation_result)
 
-            # Step 9: Generate donor template if requested
+            # Step 9: Run post-build validation
+            self._phase("Running post-build validation …")
+            self._run_post_build_validation(generation_result)
+
+            # Step 10: Generate donor template if requested
             if self.config.output_template:
                 self._phase("Writing donor template …")
                 self._generate_donor_template(generation_result)
@@ -1407,6 +1455,8 @@ class FirmwareBuilder:
                 preloaded_config_space=preloaded_config_space,
         )
         # Explicitly relax VFIO when host data is provided or VFIO is disabled
+        # Note: Container environments typically have VFIO warnings due to
+        # device binding limitations, but this is expected and handled gracefully
         if getattr(self.config, "disable_vfio", False) or preloaded_config_space:
             setattr(gen_cfg, "strict_vfio", False)
 
@@ -1491,6 +1541,26 @@ class FirmwareBuilder:
         try:
             with open(context_path, "r") as f:
                 payload = json.load(f)
+            
+            # Validate that we have the expected data structure
+            if not isinstance(payload, dict):
+                log_warning_safe(
+                    self.logger,
+                    "Device context file does not contain a valid dictionary",
+                    prefix="HOST_CFG"
+                )
+                return None
+                
+            # Log basic info about the payload
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Loaded device context with keys: {keys}",
+                    keys=list(payload.keys())
+                ),
+                prefix="HOST_CFG"
+            )
+            
         except json.JSONDecodeError as e:
             log_warning_safe(
                 self.logger,
@@ -1516,6 +1586,24 @@ class FirmwareBuilder:
         
         # Extract config space hex
         config_space_hex = payload.get("config_space_hex")
+        
+        # Validate against metadata if available
+        metadata = payload.get("collection_metadata", {})
+        expected_length = metadata.get("config_space_hex_length")
+        if expected_length and config_space_hex:
+            actual_length = len(config_space_hex)
+            if actual_length != expected_length:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Config space hex length mismatch: expected {expected}, "
+                        "got {actual} (possible corruption)",
+                        expected=expected_length,
+                        actual=actual_length
+                    ),
+                    prefix="HOST_CFG"
+                )
+        
         # Also support nested path when full template_context was saved by host
         if not config_space_hex:
             try:
@@ -1524,6 +1612,51 @@ class FirmwareBuilder:
                     config_space_hex = tc.get("config_space_hex")
             except Exception:
                 config_space_hex = None
+        
+        # Debug: log the size of the hex string when loaded
+        if config_space_hex:
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Loaded config_space_hex from JSON: {length} characters",
+                    length=len(config_space_hex)
+                ),
+                prefix="HOST_CFG"
+            )
+            
+            # Check if the hex string is truncated (common issue)
+            if len(config_space_hex) < 512:  # Less than 256 bytes
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Config space hex appears truncated: {length} chars "
+                        "(expected ~8192 for 4096 bytes)",
+                        length=len(config_space_hex)
+                    ),
+                    prefix="HOST_CFG"
+                )
+                # Try to get the full config space from alternative sources
+                if msix_path and os.path.exists(msix_path):
+                    try:
+                        with open(msix_path, "r") as f:
+                            msix_payload = json.load(f)
+                        alt_hex = msix_payload.get("config_space_hex")
+                        if alt_hex and len(alt_hex) > len(config_space_hex):
+                            log_info_safe(
+                                self.logger,
+                                "Using longer config_space_hex from MSIX data file",
+                                prefix="HOST_CFG"
+                            )
+                            config_space_hex = alt_hex
+                    except Exception as e:
+                        log_debug_safe(
+                            self.logger,
+                            safe_format(
+                                "Failed to load alternative config from MSIX: {err}",
+                                err=str(e)
+                            ),
+                            prefix="HOST_CFG"
+                        )
         if not config_space_hex:
             log_debug_safe(
                 self.logger,
@@ -1547,6 +1680,15 @@ class FirmwareBuilder:
                                 size=len(config_space_hex),
                             ),
                             prefix="HOST_CFG",
+                        )
+                        # Debug: log the actual size for verification
+                        log_debug_safe(
+                            self.logger,
+                            safe_format(
+                                "MSI-X config_space_hex length: {length} characters",
+                                length=len(config_space_hex)
+                            ),
+                            prefix="HOST_CFG"
                         )
                     else:
                         log_debug_safe(
@@ -1592,6 +1734,25 @@ class FirmwareBuilder:
         
         # Convert hex to bytes
         try:
+            # Debug: log the size of the hex string before conversion
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "Converting config_space_hex to bytes: {length} characters",
+                    length=len(config_space_hex)
+                ),
+                prefix="HOST_CFG"
+            )
+            
+            # If config space is severely truncated, fail gracefully
+            if len(config_space_hex) < 128:  # Less than 64 bytes
+                log_error_safe(
+                    self.logger,
+                    "Config space hex too short (< 64 bytes), corrupted data",
+                    prefix="HOST_CFG"
+                )
+                return None
+                
             config_space_bytes = bytes.fromhex(config_space_hex)
         except ValueError as e:
             log_warning_safe(
@@ -1968,6 +2129,61 @@ class FirmwareBuilder:
             ctx, has_msix
         )
 
+    def _run_post_build_validation(self, result: Dict[str, Any]) -> None:
+        """Run post-build validation checks for driver compatibility."""
+        from src.utils.post_build_validator import (
+            PostBuildValidator,
+            PostBuildValidationCheck
+        )
+
+        validator = PostBuildValidator(self.logger)
+        
+        # Run comprehensive validation
+        is_valid, validation_results = validator.validate_build_output(
+            output_dir=self.config.output_dir,
+            generation_result=result
+        )
+
+        # Print validation report
+        validator.print_validation_report()
+
+        # Log critical findings
+        errors = [r for r in validation_results if r.severity == "error"]
+        if errors:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Build completed with {count} validation errors - "
+                    "firmware may not work with OS drivers",
+                    count=len(errors)
+                ),
+                prefix="BUILD"
+            )
+        
+        # Save validation report to JSON
+        warnings = [r for r in validation_results if r.severity == "warning"]
+        validation_data = {
+            "validation_passed": is_valid,
+            "total_checks": len(validation_results),
+            "errors": len(errors),
+            "warnings": len(warnings),
+            "results": [
+                {
+                    "check": r.check_name,
+                    "valid": r.is_valid,
+                    "severity": r.severity,
+                    "message": r.message,
+                    "details": r.details
+                }
+                for r in validation_results
+            ]
+        }
+        
+        self.file_manager.write_json(
+            "validation_report.json",
+            validation_data
+        )
+
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
         from .device_clone.donor_info_template import DonorInfoTemplateGenerator
@@ -2114,6 +2330,25 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         type=int,
         default=3600,
         help="Timeout for Vivado operations in seconds (default: 3600)",
+    )
+
+    # MMIO Learning Arguments
+    parser.add_argument(
+        "--no-mmio-learning",
+        action="store_true",
+        help=(
+            "Disable automatic MMIO trace capture for BAR register learning. "
+            "When disabled, uses synthetic BAR content generation."
+        ),
+    )
+
+    parser.add_argument(
+        "--force-recapture",
+        action="store_true",
+        help=(
+            "Force recapture of MMIO traces even if cached models exist. "
+            "Useful when driver or device behavior has changed."
+        ),
     )
 
     parser.add_argument(

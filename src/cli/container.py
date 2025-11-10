@@ -118,6 +118,9 @@ class BuildConfig:
     donor_template: Optional[str] = None
     # experimental/testing features
     enable_error_injection: bool = False
+    # MMIO learning flags
+    enable_mmio_learning: bool = True
+    force_recapture: bool = False
 
     # ------------------------------------------------------------------
     # Image reference helpers
@@ -363,12 +366,14 @@ def _build_podman_command(
 def prompt_user_for_local_build() -> bool:
     """Prompt user to confirm local build when Podman is unavailable.
 
-    In CI or when NO_INTERACTIVE is set, we fail fast without prompting.
-    This enforces non-interactive invariants for hosted runners.
+    Preserve historical interactive behavior for backward‑compat tests.
+    Only suppress prompting when explicitly signalled via NO_INTERACTIVE or CI.
+    (Do NOT auto‑disable merely due to missing TTY; pytest monkeypatches input).
     """
-    non_interactive = bool(os.environ.get("NO_INTERACTIVE") or os.environ.get("CI"))
+    non_interactive = bool(
+        os.environ.get("NO_INTERACTIVE") or os.environ.get("CI")
+    )
     if non_interactive:
-        # Use error log to make failure conspicuous in CI output
         log_error_safe(
             logger,
             "Interactive fallback disabled (NO_INTERACTIVE/CI) - aborting",
@@ -376,25 +381,19 @@ def prompt_user_for_local_build() -> bool:
         )
         return False
 
-    print("\n" + "=" * 60)
-    print("Podman is not available or cannot connect.")
-    print("=" * 60)
-    print("\nThe build normally runs in a container for consistency.")
-    print("However, you can run the build locally on your system.")
-    print("\nNote: Local builds require all dependencies to be installed.")
-    print("      (Vivado, Python packages, etc.)")
-    print()
-
+    # Minimal user guidance (kept intentionally terse per repo docs rules)
+    print("Podman unavailable; optionally run local host build.")
     while True:
-        response = (
-            input("Would you like to run the build locally? [y/N]: ").strip().lower()
-        )
-        if response in ["y", "yes"]:
-            return True
-        elif response in ["n", "no", ""]:
+        try:
+            response = input("Run local build? [y/N]: ").strip().lower()
+        except EOFError:
+            # Non‑interactive stdin fallback to default 'no'
             return False
-        else:
-            print("Please enter 'y' for yes or 'n' for no.")
+        if response in ("y", "yes"):
+            return True
+        if response in ("n", "no", ""):
+            return False
+        print("Enter y or n.")
 
 
 def run_local_build(cfg: BuildConfig) -> None:
@@ -497,7 +496,26 @@ def run_local_build(cfg: BuildConfig) -> None:
 
 
 def run_build(cfg: BuildConfig) -> None:
-    """High‑level orchestration: VFIO bind → container run → cleanup"""
+    """
+    DEPRECATED: High‑level orchestration: VFIO bind → container run → cleanup.
+    
+    This function is deprecated and will be removed in a future version.
+    Use pcileech.py's unified 3-stage flow instead:
+      1. pcileech.run_host_collect() - Host-side data collection
+      2. pcileech.run_container_templating() - Container-based rendering
+      3. pcileech.run_host_vivado() - Host-side Vivado synthesis
+    
+    For internal use only. External callers should use:
+        python3 pcileech.py build --bdf ... --board ...
+    """
+    import warnings
+    
+    warnings.warn(
+        "run_build() is deprecated. Use pcileech.py's unified flow instead. "
+        "See UNIFIED_FLOW_IMPLEMENTATION.md for details.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     # Resolve image and tag once, respect dynamic tagging if enabled
     resolved_image, resolved_tag = cfg.resolve_image_parts()
     # Check if Podman is available and working
@@ -607,8 +625,19 @@ def run_build(cfg: BuildConfig) -> None:
     try:
         # Collect complete device context on host using single VFIO binding
         from .host_device_collector import HostDeviceCollector
-        
-        collector = HostDeviceCollector(cfg.bdf, logger)
+
+        # Be tolerant of older/mocked collector signatures in tests by
+        # retrying without keyword extras if not supported.
+        try:
+            collector = HostDeviceCollector(
+                cfg.bdf,
+                logger,
+                enable_mmio_learning=cfg.enable_mmio_learning,
+                force_recapture=cfg.force_recapture,
+            )
+        except TypeError:
+            # Fallback to legacy signature: (bdf, logger)
+            collector = HostDeviceCollector(cfg.bdf, logger)
         try:
             # Collect all device info (MSI-X, config space, BARs, etc.) in one go
             # Returns collected_data dict saved to output_dir for container use
