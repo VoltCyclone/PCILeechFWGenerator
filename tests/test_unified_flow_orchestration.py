@@ -13,6 +13,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch, mock_open
 
 
+# Module path constant for HostCollector to improve maintainability.
+HOST_COLLECTOR_CLASS_PATH = "src.host_collect.collector.HostCollector"
+FIND_VIVADO_INSTALLATION_PATH = "src.vivado_handling.find_vivado_installation"
+VIVADO_RUNNER_PATH = "src.vivado_handling.VivadoRunner"
+
+
 class TestHostCollect:
     """Test Stage 1: Host data collection."""
     
@@ -32,7 +38,7 @@ class TestHostCollect:
         mock_collector = MagicMock()
         mock_collector.run.return_value = 0
         
-        mock_path = "src.host_collect.collector.HostCollector"
+        mock_path = HOST_COLLECTOR_CLASS_PATH
         with patch(mock_path, return_value=mock_collector):
             result = pcileech.run_host_collect(args)
         
@@ -61,7 +67,7 @@ class TestHostCollect:
         mock_collector.run.return_value = 0
         mock_collector_class.return_value = mock_collector
         
-        mock_path = "src.host_collect.collector.HostCollector"
+        mock_path = HOST_COLLECTOR_CLASS_PATH
         with patch(mock_path, mock_collector_class):
             pcileech.run_host_collect(args)
         
@@ -86,7 +92,7 @@ class TestHostCollect:
         mock_collector = MagicMock()
         mock_collector.run.return_value = 1  # Failure
         
-        mock_path = "src.host_collect.collector.HostCollector"
+        mock_path = HOST_COLLECTOR_CLASS_PATH
         with patch(mock_path, return_value=mock_collector):
             result = pcileech.run_host_collect(args)
         
@@ -315,8 +321,8 @@ class TestHostVivado:
             "version": "2025.1",
         }
         
-        vivado_find_path = "src.vivado_handling.find_vivado_installation"
-        vivado_runner_path = "src.vivado_handling.VivadoRunner"
+        vivado_find_path = FIND_VIVADO_INSTALLATION_PATH
+        vivado_runner_path = VIVADO_RUNNER_PATH
         with patch(vivado_find_path, return_value=vivado_info):
             with patch(vivado_runner_path, return_value=mock_runner):
                 with patch("pcileech.get_logger"):
@@ -344,8 +350,9 @@ class TestHostVivado:
         
         mock_runner = MagicMock()
         
+        vivado_runner_path = VIVADO_RUNNER_PATH
         with patch(
-            "src.vivado_handling.VivadoRunner", return_value=mock_runner
+            vivado_runner_path, return_value=mock_runner
         ) as mock_runner_class:
             with patch("pcileech.get_logger"):
                 result = pcileech.run_host_vivado(args)

@@ -24,8 +24,9 @@ from src.string_utils import (
 from src.device_clone.config_space_manager import ConfigSpaceManager
 
 from src.device_clone.device_info_lookup import DeviceInfoLookup
+from src.device_clone.msix_capability import parse_msix_capability
 
-from src.build import MSIXManager, MSIXData
+from src.device_clone.msix import MSIXManager, MSIXData
 
 from src.cli.vfio_handler import VFIOBinder
 
@@ -35,6 +36,12 @@ from src.exceptions import BuildError
 class HostDeviceCollector:
     """Collects all device information on the host before container launch."""
     
+    def _serialize_msix_data(self, msix_data: MSIXData) -> Optional[Dict[str, Any]]:
+        """Serialize msix_data if preloaded, else return None."""
+        if msix_data.preloaded:
+            return asdict(msix_data)
+        return None
+
     def __init__(
         self,
         bdf: str,
@@ -82,7 +89,7 @@ class HostDeviceCollector:
         )
         
         # Use single VFIO binding session to collect all data
-        with VFIOBinder(self.bdf, attach=True) as binder:
+        with VFIOBinder(self.bdf, attach=True) as _:
             try:
                 # 1. Use existing ConfigSpaceManager for VFIO config space reading
                 config_manager = ConfigSpaceManager(self.bdf, strict_vfio=True)
@@ -143,9 +150,7 @@ class HostDeviceCollector:
                     "bdf": self.bdf,
                     "config_space_hex": config_space_hex,
                     "device_info": device_info,
-                    "msix_data": (
-                        asdict(msix_data) if msix_data.preloaded else None
-                    ),
+                    "msix_data": self._serialize_msix_data(msix_data),
                     "bar_models": bar_models,
                     "collection_metadata": {
                         "collected_at": time.time(),
@@ -195,7 +200,6 @@ class HostDeviceCollector:
         """
         try:
             # Parse MSI-X capability from config space
-            from src.device_clone.msix_capability import parse_msix_capability
             
             config_space_hex = config_space_bytes.hex()
             msix_info = parse_msix_capability(config_space_hex)
@@ -347,7 +351,7 @@ class HostDeviceCollector:
         # Save complete device context
         context_file = output_dir / "device_context.json"
         with open(context_file, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+            json.dump(data, f, indent=2)
         
         # Validate that the file was written correctly
         try:

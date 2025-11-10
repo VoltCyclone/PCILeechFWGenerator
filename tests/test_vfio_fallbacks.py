@@ -19,12 +19,12 @@ def test_vfio_manager_normalizes_negative_fds(monkeypatch, test_logger):
     # Patch VFIO open to return invalid FDs
     import src.cli.vfio_helpers as vfio_helpers
 
-    monkeypatch.setattr(vfio_helpers, 'get_device_fd', lambda bdf: (-1, -1))
+    monkeypatch.setattr(vfio_helpers, 'get_device_fd', lambda _: (-1, -1))
     # ensure_device_vfio_binding may get called but should be non-fatal; no-op
     monkeypatch.setattr(
         vfio_helpers,
         'ensure_device_vfio_binding',
-        lambda bdf: 'unknown',
+        lambda _: 'unknown',
         raising=True,
     )
 
@@ -44,11 +44,11 @@ def test_vfio_manager_normalizes_negative_fds(monkeypatch, test_logger):
 def test_vfio_manager_invalid_container_fd(monkeypatch, test_logger):
     import src.cli.vfio_helpers as vfio_helpers
 
-    monkeypatch.setattr(vfio_helpers, 'get_device_fd', lambda bdf: (10, -1))
+    monkeypatch.setattr(vfio_helpers, 'get_device_fd', lambda _: (10, -1))
     monkeypatch.setattr(
         vfio_helpers,
         'ensure_device_vfio_binding',
-        lambda bdf: 'unknown',
+        lambda _: 'unknown',
         raising=True,
     )
 
@@ -69,7 +69,7 @@ def test_bar_info_sysfs_fallback_returns_configuration(monkeypatch, test_logger)
     )
 
     # Force VFIO path to be unavailable
-    monkeypatch.setattr(builder._vfio_manager, 'get_region_info', lambda idx: None)
+    monkeypatch.setattr(builder._vfio_manager, 'get_region_info', lambda _: None)
 
     bar_data = {
         'type': 'memory',
@@ -93,7 +93,7 @@ def test_bar_info_sysfs_fallback_ignores_zero_size(monkeypatch, test_logger):
         device_bdf='0000:00:00.0',
         config=SimpleNamespace(),
     )
-    monkeypatch.setattr(builder._vfio_manager, 'get_region_info', lambda idx: None)
+    monkeypatch.setattr(builder._vfio_manager, 'get_region_info', lambda _: None)
 
     bar_data = {
         'type': 'memory',
