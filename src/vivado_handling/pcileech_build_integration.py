@@ -454,6 +454,11 @@ puts "Adding source files..."
         # Add synthesis and implementation
         script_content += safe_format(
             """
+# Generate IP cores before synthesis
+puts "Generating IP cores..."
+generate_target all [get_ips *]
+puts "IP core generation completed."
+
 # Configure run concurrency
 set RUN_JOBS 8
 if {{[info exists ::env(VIVADO_RUN_JOBS)] && $::env(VIVADO_RUN_JOBS) > 0}} {{

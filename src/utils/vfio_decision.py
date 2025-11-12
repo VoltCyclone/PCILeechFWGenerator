@@ -172,14 +172,35 @@ class VFIODecisionMaker:
         else:
             reason_text = (", ".join(decision.reasons) if decision.reasons
                            else "policy")
-            log_info_safe(
-                self.logger,
-                safe_format(
-                    "VFIO operations disabled ({reasons})",
-                    reasons=reason_text
-                ),
-                prefix="VFIO_DECISION"
-            )
+            
+            # Provide clearer messaging for common scenarios
+            if "PCILEECH_DISABLE_VFIO=1" in decision.reasons:
+                log_info_safe(
+                    self.logger,
+                    "VFIO operations skipped (using preloaded device data)",
+                    prefix="VFIO_DECISION"
+                )
+            elif "host-context-only mode" in decision.reasons:
+                log_info_safe(
+                    self.logger,
+                    "VFIO operations skipped (host-context-only mode)",
+                    prefix="VFIO_DECISION"
+                )
+            elif "preloaded device context available" in decision.reasons:
+                log_info_safe(
+                    self.logger,
+                    "VFIO operations skipped (preloaded device data available)",
+                    prefix="VFIO_DECISION"
+                )
+            else:
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "VFIO operations disabled ({reasons})",
+                        reasons=reason_text
+                    ),
+                    prefix="VFIO_DECISION"
+                )
 
         # Debug details
         log_debug_safe(
