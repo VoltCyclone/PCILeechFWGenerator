@@ -427,6 +427,62 @@ puts "Adding source files..."
             "}\n"
         )
 
+        # Handle locked IP cores with comprehensive strategy
+        script_content += "\n# Handle locked IP cores\n"
+        script_content += (
+            "# Report IP status to understand lock conditions\n"
+            'puts "Checking IP core status..."\n'
+            "report_ip_status -name ip_status -file ip_status_report.txt\n"
+            "\n"
+            "# Try to unlock and regenerate IP cores\n"
+            "set locked_ips [get_ips -filter {IS_LOCKED == true}]\n"
+            "if {[llength $locked_ips] > 0} {\n"
+            '    puts "Found [llength $locked_ips] locked IP cores, attempting to unlock..."\n'
+            "    foreach ip $locked_ips {\n"
+            '        puts "Processing locked IP: [get_property NAME $ip]"\n'
+            "        # Try to reset the IP to unlock it\n"
+            "        catch {reset_target all $ip}\n"
+            "        # Try to upgrade the IP\n"
+            "        catch {upgrade_ip $ip}\n"
+            "    }\n"
+            "}\n"
+            "\n"
+            "# Force regeneration of all IP cores\n"
+            'puts "Force regenerating all IP cores..."\n'
+            "foreach ip [get_ips] {\n"
+            "    set ip_name [get_property NAME $ip]\n"
+            '    puts "Regenerating IP: $ip_name"\n'
+            "    # Reset target to force regeneration\n"
+            "    catch {reset_target all $ip}\n"
+            "    # Generate new targets\n"
+            "    catch {generate_target all $ip}\n"
+            "}\n"
+            "\n"
+            "# Final attempt to generate all IP cores\n"
+            'puts "Final IP core generation attempt..."\n'
+            "set generation_failed 0\n"
+            "foreach ip [get_ips] {\n"
+            "    set ip_name [get_property NAME $ip]\n"
+            "    if {[get_property IS_LOCKED $ip]} {\n"
+            '        puts "WARNING: IP $ip_name is still locked after regeneration attempts"\n'
+            "        set generation_failed 1\n"
+            "    } else {\n"
+            "        # Try final generation\n"
+            "        if {[catch {generate_target all $ip} err]} {\n"
+            '            puts "ERROR: Failed to generate $ip_name: $err"\n'
+            "            set generation_failed 1\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "\n"
+            "if {$generation_failed} {\n"
+            '    puts "WARNING: Some IP cores could not be generated. Synthesis may fail."\n'
+            '    puts "Consider regenerating IP cores with the current Vivado version."\n'
+            "} else {\n"
+            '    puts "All IP cores successfully generated."\n'
+            "}\n"
+        )
+
         # Ensure all .sv files are treated as SystemVerilog
         script_content += "\n# Set SystemVerilog file types\n"
         script_content += (
