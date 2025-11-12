@@ -51,7 +51,6 @@ class VFIODecisionMaker:
 
         env = env or os.environ
         reasons = []
-        context = "unknown"
 
         # Check explicit disable flags first
         if self._is_explicitly_disabled(env):
