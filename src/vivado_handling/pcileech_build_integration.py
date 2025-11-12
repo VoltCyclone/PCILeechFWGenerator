@@ -25,17 +25,22 @@ logger = logging.getLogger(__name__)
 class PCILeechBuildIntegration:
     """Integrates pcileech-fpga repository with the build process."""
 
-    def __init__(self, output_dir: Path, repo_root: Optional[Path] = None):
+    def __init__(self, output_dir: Path, repo_root: Optional[Path] = None,
+                 manifest_tracker=None, logger=None):
         """
         Initialize the build integration.
 
         Args:
             output_dir: Output directory for build artifacts
             repo_root: Optional repository root path
+            manifest_tracker: Optional file manifest tracker
+            logger: Optional logger
         """
         self.output_dir = Path(output_dir)
         self.repo_root = repo_root or RepoManager.ensure_repo()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.file_manifest = manifest_tracker
+        self.logger = logger
 
         # Cache discovered boards
         self._boards_cache = None
@@ -127,6 +132,15 @@ class PCILeechBuildIntegration:
             )
             for xdc_file in xdc_files:
                 dest_path = output_dir / xdc_file.name
+
+                # Use manifest tracker if available to prevent duplicates
+                if self.file_manifest:
+                    added = self.file_manifest.add_copy_operation(
+                        xdc_file, dest_path
+                    )
+                    if not added:
+                        continue  # Skip duplicate
+
                 shutil.copy2(xdc_file, dest_path)
                 copied_files.append(dest_path)
                 log_info_safe(
@@ -165,6 +179,14 @@ class PCILeechBuildIntegration:
                 relative_path = src_file.relative_to(board_path)
                 dest_path = output_dir / relative_path
 
+                # Use manifest tracker if available to prevent duplicates
+                if self.file_manifest:
+                    added = self.file_manifest.add_copy_operation(
+                        src_file, dest_path
+                    )
+                    if not added:
+                        continue  # Skip duplicate
+
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dest_path)
                 copied_files.append(dest_path)
@@ -185,6 +207,14 @@ class PCILeechBuildIntegration:
         for filename, filepath in core_files.items():
             dest_path = output_dir / filename
             try:
+                # Use manifest tracker if available to prevent duplicates
+                if self.file_manifest:
+                    added = self.file_manifest.add_copy_operation(
+                        filepath, dest_path
+                    )
+                    if not added:
+                        continue  # Skip duplicate
+
                 shutil.copy2(filepath, dest_path)
                 copied_files.append(dest_path)
                 log_info_safe(
@@ -359,23 +389,109 @@ puts "Adding source files..."
             project_name=project_name,
         )
 
-        # Add source files
+        # Add source files (deduplicate to avoid module conflicts)
         script_content += "\n# Add source files\n"
         script_content += 'puts "Adding source files..."\n'
+
+        # Track added files by basename to avoid duplicates
+        added_files = set()
         for src_file in build_env["src_files"]:
+            basename = Path(src_file).name
+            # Skip if already added (prevents duplicate module definitions)
+            if basename in added_files:
+                continue
+            added_files.add(basename)
+
             # Convert to absolute path to avoid path resolution issues in Vivado
             abs_path = Path(src_file).resolve()
             script_content += f'add_files -norecurse "{abs_path}"\n'
 
-        # Ensure all .sv files are treated as SystemVerilog
+        # Add IP cores before setting file types
+        script_content += "\n# Add IP cores\n"
+        script_content += 'puts "Adding IP cores..."\n'
         script_content += (
-            "set sv_in_proj [get_files -of_objects [get_filesets sources_1] *.sv]\n"
-            "if {[llength $sv_in_proj] > 0} {\n"
-            '    puts "Setting file type=SystemVerilog for [llength $sv_in_proj] .sv files"\n'
-            "    set_property file_type SystemVerilog $sv_in_proj\n"
-            "    foreach sv_file $sv_in_proj {\n"
-            '        puts "  -> File type now: [get_property file_type [get_files $sv_file]] ($sv_file)"\n'
+            "# Add all IP files from ip directory\n"
+            "set ip_dir [file normalize \"./ip\"]\n"
+            "if {[file exists $ip_dir]} {\n"
+            "    set ip_files [glob -nocomplain -directory $ip_dir *.xci]\n"
+            "    if {[llength $ip_files] > 0} {\n"
+            '        puts "Found [llength $ip_files] IP cores"\n'
+            "        foreach ip_file $ip_files {\n"
+            "            add_files -norecurse $ip_file\n"
+            "        }\n"
+            "    } else {\n"
+            '        puts "WARNING: No IP cores found in $ip_dir"\n'
             "    }\n"
+            "} else {\n"
+            '    puts "WARNING: IP directory not found at $ip_dir"\n'
+            "}\n"
+        )
+
+        # Handle locked IP cores with comprehensive strategy
+        script_content += "\n# Handle locked IP cores\n"
+        script_content += (
+            "# Report IP status to understand lock conditions\n"
+            'puts "Checking IP core status..."\n'
+            "report_ip_status -name ip_status -file ip_status_report.txt\n"
+            "\n"
+            "# Try to unlock and regenerate IP cores\n"
+            "set locked_ips [get_ips -filter {IS_LOCKED == true}]\n"
+            "if {[llength $locked_ips] > 0} {\n"
+            '    puts "Found [llength $locked_ips] locked IP cores, attempting to unlock..."\n'
+            "    foreach ip $locked_ips {\n"
+            '        puts "Processing locked IP: [get_property NAME $ip]"\n'
+            "        # Try to reset the IP to unlock it\n"
+            "        catch {reset_target all $ip}\n"
+            "        # Try to upgrade the IP\n"
+            "        catch {upgrade_ip $ip}\n"
+            "    }\n"
+            "}\n"
+            "\n"
+            "# Force regeneration of all IP cores\n"
+            'puts "Force regenerating all IP cores..."\n'
+            "foreach ip [get_ips] {\n"
+            "    set ip_name [get_property NAME $ip]\n"
+            '    puts "Regenerating IP: $ip_name"\n'
+            "    # Reset target to force regeneration\n"
+            "    catch {reset_target all $ip}\n"
+            "    # Generate new targets\n"
+            "    catch {generate_target all $ip}\n"
+            "}\n"
+            "\n"
+            "# Final attempt to generate all IP cores\n"
+            'puts "Final IP core generation attempt..."\n'
+            "set generation_failed 0\n"
+            "foreach ip [get_ips] {\n"
+            "    set ip_name [get_property NAME $ip]\n"
+            "    if {[get_property IS_LOCKED $ip]} {\n"
+            '        puts "WARNING: IP $ip_name is still locked after regeneration attempts"\n'
+            "        set generation_failed 1\n"
+            "    } else {\n"
+            "        # Try final generation\n"
+            "        if {[catch {generate_target all $ip} err]} {\n"
+            '            puts "ERROR: Failed to generate $ip_name: $err"\n'
+            "            set generation_failed 1\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "\n"
+            "if {$generation_failed} {\n"
+            '    puts "WARNING: Some IP cores could not be generated. Synthesis may fail."\n'
+            '    puts "Consider regenerating IP cores with the current Vivado version."\n'
+            "} else {\n"
+            '    puts "All IP cores successfully generated."\n'
+            "}\n"
+        )
+
+        # Ensure all .sv files are treated as SystemVerilog
+        script_content += "\n# Set SystemVerilog file types\n"
+        script_content += (
+            "set sv_in_proj "
+            "[get_files -of_objects [get_filesets sources_1] *.sv]\n"
+            "if {[llength $sv_in_proj] > 0} {\n"
+            '    puts "Setting SystemVerilog type for '
+            '[llength $sv_in_proj] files"\n'
+            "    set_property file_type SystemVerilog $sv_in_proj\n"
             "}\n"
         )
 
@@ -386,13 +502,19 @@ puts "Adding source files..."
         script_content += "\n# Add constraint files\n"
         script_content += 'puts "Adding constraint files..."\n'
         for xdc_file in build_env["xdc_files"]:
-            # Convert to absolute path to avoid path resolution issues in Vivado
+            # Convert to absolute path
             abs_path = Path(xdc_file).resolve()
-            script_content += f'add_files -fileset constrs_1 -norecurse "{abs_path}"\n'
+            cmd = f'add_files -fileset constrs_1 -norecurse "{abs_path}"\n'
+            script_content += cmd
 
         # Add synthesis and implementation
         script_content += safe_format(
             """
+# Generate IP cores before synthesis
+puts "Generating IP cores..."
+generate_target all [get_ips *]
+puts "IP core generation completed."
+
 # Configure run concurrency
 set RUN_JOBS 8
 if {{[info exists ::env(VIVADO_RUN_JOBS)] && $::env(VIVADO_RUN_JOBS) > 0}} {{
@@ -477,8 +599,7 @@ puts "Bitstream location: $OUTPUT_DIR/$BITSTREAM_NAME"
                     "Device requires {device_lanes} PCIe lanes but board supports only {board_lanes}",
                     device_lanes=device_lanes,
                     board_lanes=board_lanes,
-                )
-            )
+                ))
 
         # Check FPGA resources (simplified check)
         if board_config.get("fpga_family") == "7series" and device_config.get(

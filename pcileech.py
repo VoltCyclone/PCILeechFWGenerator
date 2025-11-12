@@ -504,7 +504,10 @@ Examples:
   sudo python3 pcileech.py donor-template --save-to my_device.json
 
 Environment Variables:
-  PCILEECH_AUTO_INSTALL=1    Automatically install missing dependencies
+  PCILEECH_AUTO_INSTALL=1      Automatically install missing dependencies
+  PCILEECH_AUTO_CONTAINER=1    Skip container mode prompt (auto-select container)
+  NO_INTERACTIVE=1             Disable all interactive prompts
+  CI=1                         CI mode (implies NO_INTERACTIVE)
         """,
     )
 
@@ -617,6 +620,16 @@ Environment Variables:
         "--force-recapture",
         action="store_true",
         help="Force recapture of MMIO traces even if cached models exist",
+    )
+    build_parser.add_argument(
+        "--container-mode",
+        choices=["auto", "container", "local"],
+        default="auto",
+        help=(
+            "Templating execution mode: 'auto' (detect best, prompt if needed), "
+            "'container' (isolated, requires podman/docker), "
+            "'local' (direct execution). Default: auto"
+        ),
     )
 
     # TUI command
@@ -807,9 +820,11 @@ def handle_build(args):
                 return rc
 
         # Stage 2: templating / parsing (container or local)
-        if getattr(args, "local", False):
+        container_mode = getattr(args, "container_mode", "auto")
+        if container_mode == "local" or getattr(args, "local", False):
             rc = run_local_templating(args)
         else:
+            # auto or container - will be resolved in run_container_templating
             rc = run_container_templating(args)
         if rc != 0:
             return rc
@@ -852,6 +867,12 @@ def run_host_collect(args):
     # Get MMIO learning flags
     enable_mmio_learning = not getattr(args, "no_mmio_learning", False)
     force_recapture = getattr(args, "force_recapture", False)
+
+    log_info_safe(
+        logger,
+        "Stage 1: Collecting device data on host (VFIO operations enabled)",
+        prefix="BUILD",
+    )
 
     collector = HostCollector(
         args.bdf,
@@ -907,49 +928,192 @@ def run_container_templating(args):
     output_dir = datastore / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    runtime = "podman" if shutil.which("podman") else ("docker" if shutil.which("docker") else None)
-    if not runtime:
-        log_warning_safe(logger, "No podman/docker found; using local mode", prefix="BUILD")
+    # Determine execution mode
+    mode = getattr(args, "container_mode", "auto")
+    runtime = _detect_container_runtime()
+    can_use_container = runtime is not None
+    
+    # Log workflow explanation
+    log_info_safe(
+        logger,
+        "Stage 2: Template generation from collected device data",
+        prefix="BUILD"
+    )
+    
+    # Resolve mode (logging happens in helper functions)
+    if mode == "container":
+        if not can_use_container:
+            log_error_safe(
+                logger,
+                "Container mode requested but no podman/docker available",
+                prefix="BUILD"
+            )
+            return 1
+        use_container = True
+    elif mode == "local":
+        use_container = False
+    else:  # mode == "auto"
+        if not can_use_container:
+            use_container = False
+        else:
+            # Both options available - check if interactive (logs decision)
+            use_container = _choose_container_mode(runtime, logger)
+    
+    # Single logging point for final decision
+    if use_container:
+        log_info_safe(
+            logger,
+            safe_format(
+                "Using container mode with {rt} (VFIO not needed - using host data)",
+                rt=runtime
+            ),
+            prefix="BUILD"
+        )
+        return _run_in_container(args, runtime, datastore, output_dir, logger)
+    else:
+        log_info_safe(
+            logger,
+            "Using local mode (direct execution)",
+            prefix="BUILD"
+        )
         return run_local_templating(args)
 
+
+def _detect_container_runtime():
+    """Detect available container runtime (podman or docker)."""
+    if shutil.which("podman"):
+        return "podman"
+    elif shutil.which("docker"):
+        return "docker"
+    return None
+
+
+def _choose_container_mode(runtime: str, logger) -> bool:
+    """
+    Choose between container and local mode in auto mode.
+    Only called when both options are available.
+    
+    Returns True for container mode, False for local mode.
+    """
+    # Check for non-interactive environment variables
+    auto_container = os.environ.get("PCILEECH_AUTO_CONTAINER")
+    no_interactive = os.environ.get("NO_INTERACTIVE")
+    ci_mode = os.environ.get("CI")
+    
+    if auto_container or no_interactive or ci_mode:
+        # Log which env var triggered auto-selection
+        env_vars = []
+        if auto_container:
+            env_vars.append("PCILEECH_AUTO_CONTAINER=1")
+        if no_interactive:
+            env_vars.append("NO_INTERACTIVE=1")
+        if ci_mode:
+            env_vars.append("CI=1")
+        
+        log_debug_safe(
+            logger,
+            safe_format(
+                "Auto mode: non-interactive ({vars}), defaulting to container",
+                vars=", ".join(env_vars)
+            ),
+            prefix="BUILD"
+        )
+        return True
+    
+    # Interactive prompt
+    print("\n" + "=" * 70)
+    print("  Template Generation Mode Selection")
+    print("=" * 70)
+    print(f"\nContainer runtime available: {runtime}")
+    print("\nTwo execution modes are available:\n")
+    print("  [C] Container mode (recommended)")
+    print("      ✓ Isolated environment")
+    print("      ✓ Reproducible builds")
+    print("      ✓ No system dependency conflicts")
+    print("      ✗ Slightly slower startup\n")
+    print("  [L] Local mode")
+    print("      ✓ Faster execution")
+    print("      ✓ Direct access to system")
+    print("      ✗ May have dependency conflicts")
+    print("      ✗ Less reproducible\n")
+    print("=" * 70)
+    
+    while True:
+        try:
+            prompt = "\nSelect mode [C/L] (default: Container): "
+            choice = input(prompt).strip().upper()
+        except (EOFError, KeyboardInterrupt):
+            print("\nDefaulting to container mode")
+            return True
+        
+        if choice in ("", "C", "CONTAINER"):
+            log_debug_safe(
+                logger,
+                "Auto mode: user selected container",
+                prefix="BUILD"
+            )
+            return True
+        elif choice in ("L", "LOCAL"):
+            log_debug_safe(
+                logger,
+                "Auto mode: user selected local",
+                prefix="BUILD"
+            )
+            return False
+        else:
+            print("Invalid choice. Please enter 'C' for Container or 'L' for Local.")
+
+
+def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, logger):
+    """Execute templating in container."""
     if not _ensure_container_image(runtime, logger, tag="pcileech-fwgen"):
         return 1
 
-    envs = [
-        "-e",
-        "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
-        "-e",
-        "MSIX_DATA_PATH=/datastore/msix_data.json",
-        "-e",
-        "PCILEECH_HOST_CONTEXT_ONLY=1",
-        "-e",
-        "PCILEECH_DISABLE_VFIO=1",
-    ]
-    volume = ["-v", f"{str(datastore)}:/datastore"]
+    # Container environment configuration
+    # These env vars tell the build system to use preloaded device data
+    # instead of attempting VFIO operations inside the container
+    log_info_safe(
+        logger,
+        "Container will use preloaded device context from host",
+        prefix="BUILD"
+    )
+    log_debug_safe(
+        logger,
+        "Container env: PCILEECH_HOST_CONTEXT_ONLY=1 (use host data)",
+        prefix="BUILD"
+    )
+    log_debug_safe(
+        logger,
+        "Container env: PCILEECH_DISABLE_VFIO=1 (no VFIO in container)",
+        prefix="BUILD"
+    )
+    
+    # Build command with container-specific env vars
+    # These are ONLY set in the container subprocess, not globally
     cmd = [
         runtime,
         "run",
         "--rm",
         "-i",
-        *envs,
-        *volume,
+        "-e", "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
+        "-e", "MSIX_DATA_PATH=/datastore/msix_data.json", 
+        "-e", "PCILEECH_HOST_CONTEXT_ONLY=1",
+        "-e", "PCILEECH_DISABLE_VFIO=1",
+        "-v", f"{str(datastore)}:/datastore",
         "pcileech-fwgen",
         "python3",
         "-m",
         "src.build",
-        "--bdf",
-        args.bdf,
-        "--board",
-        args.board,
-        "--output",
-        "/datastore/output",
+        "--bdf", args.bdf,
+        "--board", args.board,
+        "--output", "/datastore/output",
     ]
     if getattr(args, "generate_donor_template", None):
         cmd.extend(["--output-template", "/datastore/donor_info_template.json"])
 
     log_info_safe(
         logger,
-        safe_format("Launching container: {rt}", rt=runtime),
+        safe_format("Executing in container using {rt}", rt=runtime),
         prefix="BUILD",
     )
     return subprocess.call(cmd)
