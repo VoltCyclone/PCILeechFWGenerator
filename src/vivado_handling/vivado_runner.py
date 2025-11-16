@@ -7,13 +7,18 @@ designed to replace the complex container-based approach.
 """
 
 import logging
+
 import os
+
 from pathlib import Path
+
 from typing import Any, Dict, Optional
 
 from src.string_utils import log_info_safe, log_warning_safe, safe_format
 
 from ..log_config import get_logger
+
+from .ip_lock_resolver import repair_ip_artifacts
 
 
 class VivadoIntegrationError(Exception):
@@ -29,7 +34,8 @@ class VivadoRunner:
     Attributes:
         board: current target device
         output_dir: dir for generated vivado project
-        vivado_path: root path to xilinx vivado installation (all paths derived from here)
+        vivado_path: root path to xilinx vivado installation
+            (all paths derived from here)
         logger: attach a logger
     """
 
@@ -167,7 +173,12 @@ echo "Vivado synthesis completed on host"
             )
 
         except Exception as e:
-            raise VivadoIntegrationError(f"Failed to create host execution script: {e}")
+            raise VivadoIntegrationError(
+                safe_format(
+                    "Failed to create host execution script: {err}",
+                    err=str(e),
+                )
+            )
 
     def run(self) -> None:
         """
@@ -177,6 +188,9 @@ echo "Vivado synthesis completed on host"
         Raises:
             VivadoIntegrationError: If Vivado integration fails
         """
+        # Ensure IP artifacts are writable/unlocked before Vivado touches them
+        self._prepare_ip_artifacts()
+
         # Check if we're running in a container
         if self._is_running_in_container():
             log_info_safe(
@@ -207,9 +221,12 @@ echo "Vivado synthesis completed on host"
         # Import these functions dynamically to avoid circular dependencies
         try:
             from .pcileech_build_integration import integrate_pcileech_build
+
             from .vivado_error_reporter import run_vivado_with_error_reporting
         except ImportError as e:
-            raise VivadoIntegrationError("Vivado handling modules not available") from e
+            raise VivadoIntegrationError(
+                "Vivado handling modules not available"
+            ) from e
 
         try:
             # Use integrated build if available
@@ -231,7 +248,8 @@ echo "Vivado synthesis completed on host"
             log_warning_safe(
                 self.logger,
                 safe_format(
-                    "Failed to use integrated build, falling back to generated scripts: {err}",
+                    "Failed to use integrated build; "
+                    "falling back to generated scripts: {err}",
                     err=str(e),
                 ),
                 prefix=self.prefix,
@@ -269,6 +287,24 @@ echo "Vivado synthesis completed on host"
             "Vivado implementation finished successfully ✓",
             prefix=self.prefix,
         )
+
+    def _prepare_ip_artifacts(self) -> None:
+        """Repair stale lock files or permissions inside the output tree."""
+        try:
+            repair_ip_artifacts(
+                self.output_dir,
+                logger=self.logger,
+                prefix=self.prefix,
+            )
+        except Exception as exc:  # pragma: no cover - best effort safeguard
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Failed to preflight IP artifacts: {err}",
+                    err=str(exc),
+                ),
+                prefix=self.prefix,
+            )
 
     def get_vivado_info(self) -> Dict[str, str]:
         """Get information about the Vivado installation.
