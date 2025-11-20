@@ -48,14 +48,16 @@ from src.string_utils import (
 
 from src.templating.template_context_validator import clear_global_template_cache
 
+from src.utils.build_logger import get_build_logger
+from src.utils.file_manifest import create_manifest_tracker
+from src.utils.template_validator import create_template_validator
+from src.utils.vfio_decision import make_vfio_decision
+
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
 
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-
-# Import MSI-X management classes from device_clone.msix module
-from .device_clone.msix import MSIXData, MSIXManager
 
 from .exceptions import (
     ConfigurationError,
@@ -64,7 +66,7 @@ from .exceptions import (
     PCILeechBuildError,
     PlatformCompatibilityError,
     VivadoIntegrationError,
-    MSIXPreloadError ## needed for a unit test
+    MSIXPreloadError  # needed for a unit test
 )
 
 from .log_config import get_logger, setup_logging
@@ -181,8 +183,6 @@ def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
         return None
 
 
-
-
 @dataclass(slots=True)
 class BuildConfiguration:
     """Configuration for the firmware build process."""
@@ -210,6 +210,14 @@ class BuildConfiguration:
     force_recapture: bool = False
 
 
+@dataclass(slots=True)
+class MSIXData:
+    """Container for MSI-X capability data."""
+
+    preloaded: bool
+    msix_info: Optional[Dict[str, Any]] = None
+    config_space_hex: Optional[str] = None
+    config_space_bytes: Optional[bytes] = None
 
 
 @dataclass(slots=True)
@@ -358,6 +366,286 @@ class ModuleChecker:
 # ──────────────────────────────────────────────────────────────────────────────
 # MSI-X Manager
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+class MSIXManager:
+    """Manages MSI-X capability data preloading and injection."""
+
+    def __init__(self, bdf: str, logger: Optional[logging.Logger] = None):
+        """
+        Initialize the MSI-X manager.
+
+        Args:
+            bdf: PCI Bus/Device/Function address
+            logger: Optional logger instance
+        """
+        self.bdf = bdf
+        self.logger = logger or get_logger(self.__class__.__name__)
+
+    def preload_data(self) -> MSIXData:
+        """
+        Preload MSI-X data before VFIO binding.
+
+        Returns:
+            MSIXData object containing preloaded information
+
+        Note:
+            Returns empty MSIXData on any failure (non-critical operation)
+        """
+        try:
+            # In host-context-only mode, never touch sysfs/VFIO;
+            # use pre-saved files only
+            disable_vfio = str(
+                os.environ.get("PCILEECH_DISABLE_VFIO", "")
+            ).lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            ) or str(os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "")).lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            if disable_vfio:
+                msix_path = os.environ.get(
+                    "MSIX_DATA_PATH",
+                    "/app/output/msix_data.json",
+                )
+                try:
+                    if msix_path and os.path.exists(msix_path):
+                        with open(msix_path, "r") as f:
+                            payload = json.load(f)
+                        # Support different shapes
+                        msix_info = (
+                            payload.get("capability_info")
+                            or payload.get("msix_info")
+                        )
+                        cfg_hex = payload.get("config_space_hex")
+                        cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
+                        if not msix_info and cfg_hex:
+                            msix_info = parse_msix_capability(cfg_hex)
+                        if msix_info and int(msix_info.get("table_size", 0)) > 0:
+                            log_info_safe(
+                                self.logger,
+                                safe_format(
+                                    "Loaded MSI-X from {path} ({n} vectors)",
+                                    path=msix_path,
+                                    n=msix_info.get("table_size", 0),
+                                ),
+                                prefix="MSIX",
+                            )
+                            return MSIXData(
+                                preloaded=True,
+                                msix_info=msix_info,
+                                config_space_hex=cfg_hex,
+                                config_space_bytes=cfg_bytes,
+                            )
+                except Exception as e:
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "Failed to load MSI-X from host file: {err}", err=str(e)
+                        ),
+                        prefix="MSIX",
+                    )
+                # Do not attempt sysfs/VFIO in strict mode
+                log_info_safe(
+                    self.logger,
+                    (
+                        "MSI-X preload: host-context-only mode active; "
+                        "skipping sysfs/VFIO"
+                    ),
+                    prefix="MSIX",
+                )
+                return MSIXData(preloaded=False)
+            log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
+
+            # 1) Prefer host-provided JSON (mounted into container) if available
+            #    This preserves MSI-X context when container lacks sysfs/VFIO access.
+            try:
+                msix_json_path = os.environ.get(
+                    "MSIX_DATA_PATH", "/app/output/msix_data.json"
+                )
+                if msix_json_path and os.path.exists(msix_json_path):
+                    with open(msix_json_path, "r") as f:
+                        payload = json.load(f)
+
+                    # Optional: ensure BDF matches if present
+                    bdf_in = payload.get("bdf")
+                    msix_info = payload.get("msix_info")
+                    cfg_hex = payload.get("config_space_hex")
+                    if msix_info and isinstance(msix_info, dict):
+                        log_info_safe(
+                            self.logger,
+                            safe_format(
+                                "Loaded MSI-X from {path} ({vectors} vectors)",
+                                path=msix_json_path,
+                                vectors=msix_info.get("table_size", 0),
+                            ),
+                            prefix="MSIX",
+                        )
+                        return MSIXData(
+                            preloaded=True,
+                            msix_info=msix_info,
+                            config_space_hex=cfg_hex,
+                            config_space_bytes=(
+                                bytes.fromhex(cfg_hex) if cfg_hex else None
+                            ),
+                        )
+            except Exception as e:
+                # Non-fatal; fall back to sysfs path
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X JSON ingestion skipped: {err}",
+                        err=str(e),
+                    ),
+                    prefix="MSIX",
+                )
+
+            config_space_path = CONFIG_SPACE_PATH_TEMPLATE.format(self.bdf)
+            if not os.path.exists(config_space_path):
+                log_warning_safe(
+                    self.logger,
+                    "Config space not accessible via sysfs, skipping MSI-X preload",
+                    prefix="MSIX",
+                )
+                return MSIXData(preloaded=False)
+
+            config_space_bytes = self._read_config_space(config_space_path)
+            config_space_hex = config_space_bytes.hex()
+            msix_info = parse_msix_capability(config_space_hex)
+
+            if msix_info["table_size"] > 0:
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Found MSI-X capability: {vectors} vectors",
+                        vectors=msix_info["table_size"],
+                    ),
+                    prefix="MSIX",
+                )
+                return MSIXData(
+                    preloaded=True,
+                    msix_info=msix_info,
+                    config_space_hex=config_space_hex,
+                    config_space_bytes=config_space_bytes,
+                )
+            else:
+                # No MSI-X capability found -> treat as not preloaded so callers
+                # don't assume hardware MSI-X values are available.
+                log_info_safe(
+                    self.logger,
+                    "No MSI-X capability found",
+                    prefix="MSIX",
+                )
+                return MSIXData(preloaded=False, msix_info=None)
+
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format("MSI-X preload failed: {err}", err=str(e)),
+                prefix="MSIX",
+            )
+            if self.logger.isEnabledFor(logging.DEBUG):
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X preload exception details: {err}",
+                        err=str(e),
+                    ),
+                    prefix="MSIX",
+                )
+            return MSIXData(preloaded=False)
+
+    def inject_data(self, result: Dict[str, Any], msix_data: MSIXData) -> None:
+        """
+        Inject preloaded MSI-X data into the generation result.
+
+        Args:
+            result: The generation result dictionary to update
+            msix_data: The preloaded MSI-X data
+        """
+        if not self._should_inject(msix_data):
+            return
+
+        log_info_safe(
+            self.logger, safe_format("Using preloaded MSI-X data"), prefix="MSIX"
+        )
+
+        # msix_info is guaranteed to be non-None by _should_inject
+        if msix_data.msix_info is not None:
+            if "msix_data" not in result or not result["msix_data"]:
+                result["msix_data"] = self._create_msix_result(msix_data.msix_info)
+
+            # Update template context if present
+            if (
+                "template_context" in result
+                and "msix_config" in result["template_context"]
+            ):
+                result["template_context"]["msix_config"].update(
+                    {
+                        "is_supported": True,
+                        "num_vectors": msix_data.msix_info["table_size"],
+                    }
+                )
+
+    def _read_config_space(self, path: str) -> bytes:
+        """
+        Read PCI config space from sysfs.
+
+        Args:
+            path: Path to config space file
+
+        Returns:
+            Config space bytes
+
+        Raises:
+            IOError: If reading fails
+        """
+        with open(path, "rb") as f:
+            return f.read()
+
+    def _should_inject(self, msix_data: MSIXData) -> bool:
+        """
+        Check if MSI-X data should be injected.
+
+        Args:
+            msix_data: The MSI-X data to check
+
+        Returns:
+            True if data should be injected
+        """
+        return (
+            msix_data.preloaded
+            and msix_data.msix_info is not None
+            and msix_data.msix_info.get("table_size", 0) > 0
+        )
+
+    def _create_msix_result(self, msix_info: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create MSI-X result dictionary from capability info.
+
+        Args:
+            msix_info: MSI-X capability information
+
+        Returns:
+            Formatted MSI-X result dictionary
+        """
+        return {
+            "capability_info": msix_info,
+            "table_size": msix_info["table_size"],
+            "table_bir": msix_info["table_bir"],
+            "table_offset": msix_info["table_offset"],
+            "pba_bir": msix_info["pba_bir"],
+            "pba_offset": msix_info["pba_offset"],
+            "enabled": msix_info["enabled"],
+            "function_mask": msix_info["function_mask"],
+            "is_valid": True,
+            "validation_errors": [],
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -647,62 +935,9 @@ class ConfigurationManager:
         enable_profiling = args.profile > 0
         preload_msix = getattr(args, "preload_msix", True)
 
-        # Helper: parse boolean envs
-
-        def _env_bool(name: str, default: bool = False) -> bool:
-            val = os.environ.get(name)
-            return (
-                default
-                if val is None
-                else str(val).strip().lower() in ("1", "true", "yes", "on")
-            )
-        # Decide VFIO availability and policy once, up front
-        device_ctx_set = bool(os.environ.get("DEVICE_CONTEXT_PATH"))
-        host_context_only = (
-            _env_bool("PCILEECH_HOST_CONTEXT_ONLY", False)
-            or getattr(args, "host_context_only", False)
-        )
-        env_disable_vfio = _env_bool("PCILEECH_DISABLE_VFIO", False)
-
-        must_disable_vfio = (
-            env_disable_vfio
-            or host_context_only
-            or device_ctx_set
-            or (
-                _running_in_container()
-                and (not _linux() or not _vfio_available())
-            )
-        )
-        disable_vfio = must_disable_vfio
-
-        # Helpful decision log for CI/containers
-        try:
-            reason_bits: List[str] = []
-            if env_disable_vfio:
-                reason_bits.append("PCILEECH_DISABLE_VFIO=1")
-            if host_context_only:
-                reason_bits.append(
-                    "PCILEECH_HOST_CONTEXT_ONLY=1 or --host-context-only"
-                )
-            if device_ctx_set:
-                reason_bits.append("DEVICE_CONTEXT_PATH set")
-            if _running_in_container():
-                if not _linux():
-                    reason_bits.append("container non-Linux")
-                if not _vfio_available():
-                    reason_bits.append("container w/o /dev/vfio")
-            if disable_vfio:
-                log_info_safe(
-                    self.logger,
-                    "VFIO disabled ({reasons})",
-                    reasons=", ".join(reason_bits) if reason_bits else "policy",
-                    prefix="VFIO",
-                )
-            else:
-                log_info_safe(self.logger, "VFIO enabled", prefix="VFIO")
-        except Exception:
-            # Best-effort logging only
-            pass
+        # Use centralized VFIO decision system
+        vfio_decision = make_vfio_decision(args, logger=self.logger)
+        disable_vfio = not vfio_decision.enabled
         if use_prod:
             # Map production flags when present
             enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
@@ -771,12 +1006,12 @@ class ConfigurationManager:
             "revision_id": "Revision ID",
             "class_code": "Class Code",
         }
-        
+
         # Debug: log the actual values being validated
         log_debug_safe(
             self.logger,
-            "Validating device config fields: " + 
-            ", ".join([f"{k}={device_config.get(k, 'missing')}" 
+            "Validating device config fields: " +
+            ", ".join([f"{k}={device_config.get(k, 'missing')}"
                        for k in required_fields.keys()]),
             prefix="BUILD"
         )
@@ -801,7 +1036,7 @@ class ConfigurationManager:
                             "Revision ID is 0x00 - this is valid for many devices",
                             prefix="BUILD"
                         )
-                        # Additional validation: if revision is 0, ensure 
+                        # Additional validation: if revision is 0, ensure
                         # vendor/device are reasonable
                         vendor_id = _as_int(
                             device_config.get("vendor_id", 0), "vendor_id"
@@ -921,6 +1156,14 @@ class FirmwareBuilder:
         self.config = config
         self.logger = logger or get_logger(self.__class__.__name__)
 
+        # Initialize centralized systems
+        self.build_logger = get_build_logger(self.logger)
+        self.file_manifest = create_manifest_tracker(self.logger)
+        self.template_validator = create_template_validator(
+            self._get_repo_root(),
+            self.logger
+        )
+
         # Initialize managers (dependency injection with defaults)
         self.msix_manager = msix_manager or MSIXManager(config.bdf, self.logger)
         self.file_manager = file_manager or FileOperationsManager(
@@ -937,13 +1180,52 @@ class FirmwareBuilder:
         # Store device configuration for later use
         self._device_config: Optional[DeviceConfiguration] = None
 
+    def _validate_board_template(self) -> None:
+        """Validate board template before build."""
+        self.build_logger.info(
+            safe_format("Validating board: {board}", board=self.config.board),
+            prefix="TEMPLATE"
+        )
+
+        is_valid, warnings = self.template_validator.validate_board_template(
+            self.config.board
+        )
+
+        if warnings:
+            for warning in warnings:
+                self.build_logger.warning(warning, prefix="TEMPLATE")
+
+        if not is_valid:
+            self.build_logger.warning(
+                "Board template validation failed - build may fail",
+                prefix="TEMPLATE"
+            )
+        else:
+            self.build_logger.info(
+                "Board template validation passed",
+                prefix="TEMPLATE"
+            )
+
+    def _get_repo_root(self) -> Path:
+        """Get the repository root path."""
+        # Try to find repo root relative to this file
+        current_file = Path(__file__).resolve()
+
+        # Look for common repo indicators
+        for parent in current_file.parents:
+            if (parent / ".git").exists():
+                return parent
+            if (parent / "lib" / "voltcyclone-fpga").exists():
+                return parent
+            if (parent / "pcileech-fpga").exists():
+                return parent
+
+        # Fallback to current directory
+        return Path.cwd()
+
     def _phase(self, message: str) -> None:
         """Log a build phase message with standardized formatting."""
-        log_info_safe(
-            self.logger,
-            safe_format("➤ {msg}", msg=message),
-            prefix="BUILD",
-        )
+        self.build_logger.phase(message)
 
     def build(self) -> List[str]:
         """
@@ -956,14 +1238,22 @@ class FirmwareBuilder:
             PCILeechBuildError: If build fails
         """
         try:
+            # Step 0: Validate board template before starting
+            self.build_logger.push_phase("template_validation")
+            self._validate_board_template()
+            self.build_logger.pop_phase("template_validation")
+
             # Step 1: Check for host-collected complete device context
+            self.build_logger.push_phase("host_context_check")
             host_context = self._check_host_collected_context()
-            
-            # Step 2: Load donor template if provided  
+            self.build_logger.pop_phase("host_context_check")
+
+            # Step 2: Load donor template if provided
             donor_template = self._load_donor_template()
 
             # Step 3: Generate PCILeech firmware
             if host_context:
+                self.build_logger.push_phase("host_context_generation")
                 self._phase("Using host-collected device context …")
                 # Use prefilled context from host, avoiding VFIO operations
                 generation_result = {
@@ -977,52 +1267,73 @@ class FirmwareBuilder:
                     },
                     "msix_data": host_context.get("msix_data"),
                 }
-                log_info_safe(
-                    self.logger,
+                self.build_logger.info(
                     "Complete device context loaded from host - "
                     "skipping container VFIO operations",
-                    prefix="BUILD"
+                    prefix="HOST_CFG"
                 )
+                self.build_logger.pop_phase("host_context_generation")
             else:
                 # Fallback to container-based generation with MSI-X preloading
+                self.build_logger.push_phase("firmware_generation")
                 msix_data = self._preload_msix()
-                
+
                 self._phase("Generating PCILeech firmware …")
                 generation_result = self._generate_firmware(donor_template)
-                
+
                 # Inject preloaded MSI-X data if available
                 self._inject_msix(generation_result, msix_data)
+                self.build_logger.pop_phase("firmware_generation")
 
+            self.build_logger.push_phase("module_writing")
             self._phase("Writing SystemVerilog modules …")
             # Step 4: Write SystemVerilog modules
             self._write_modules(generation_result)
+            self.build_logger.pop_phase("module_writing")
 
+            self.build_logger.push_phase("profile_generation")
             self._phase("Generating behavior profile …")
             # Step 5: Generate behavior profile if requested
             self._generate_profile()
+            self.build_logger.pop_phase("profile_generation")
 
+            self.build_logger.push_phase("tcl_generation")
             self._phase("Generating TCL scripts …")
             # Step 6: Generate TCL scripts
             self._generate_tcl_scripts(generation_result)
+            self.build_logger.pop_phase("tcl_generation")
 
             # Step 6.5: Write XDC constraint files
+            self.build_logger.push_phase("constraint_writing")
             self._write_xdc_files(generation_result)
+            self.build_logger.pop_phase("constraint_writing")
 
+            self.build_logger.push_phase("device_info_saving")
             self._phase("Saving device information …")
             # Step 7: Save device information
             self._save_device_info(generation_result)
+            self.build_logger.pop_phase("device_info_saving")
 
             # Step 8: Store device configuration
             self._store_device_config(generation_result)
 
             # Step 9: Run post-build validation
+            self.build_logger.push_phase("post_build_validation")
             self._phase("Running post-build validation …")
             self._run_post_build_validation(generation_result)
+            self.build_logger.pop_phase("post_build_validation")
 
             # Step 10: Generate donor template if requested
             if self.config.output_template:
+                self.build_logger.push_phase("donor_template_generation")
                 self._phase("Writing donor template …")
                 self._generate_donor_template(generation_result)
+                self.build_logger.pop_phase("donor_template_generation")
+
+            # Step 11: Save file manifest
+            self.build_logger.push_phase("manifest_saving")
+            self._save_file_manifest()
+            self.build_logger.pop_phase("manifest_saving")
 
             # Return list of artifacts
             return self.file_manager.list_artifacts()
@@ -1039,6 +1350,23 @@ class FirmwareBuilder:
             raise PCILeechBuildError(
                 safe_format("Build failed: {err}", err=str(e))
             ) from e
+
+    def _save_file_manifest(self) -> None:
+        """Save the file manifest for audit purposes."""
+        manifest_path = self.config.output_dir / "file_manifest.json"
+        self.file_manifest.save_manifest(manifest_path)
+
+        manifest = self.file_manifest.get_manifest()
+        self.build_logger.info(
+            safe_format(
+                "Saved file manifest: {files} files, {size} bytes, "
+                "{dups} duplicates skipped",
+                files=manifest.total_files,
+                size=manifest.total_size_bytes,
+                dups=len(manifest.duplicate_operations)
+            ),
+            prefix="FILEMGR"
+        )
 
     def run_vivado(self) -> None:
         """
@@ -1114,7 +1442,7 @@ class FirmwareBuilder:
     def _init_components(self) -> None:
         """Initialize PCILeech generator and other components."""
         from .device_clone.board_config import get_pcileech_board_config
-        
+
         from .device_clone.pcileech_generator import (
             PCILeechGenerationConfig,
             PCILeechGenerator,
@@ -1122,7 +1450,7 @@ class FirmwareBuilder:
 
         # Check if we have preloaded config space from host collection
         preloaded_config_space = self._load_preloaded_config_space()
-        
+
         if preloaded_config_space:
             log_info_safe(
                 self.logger,
@@ -1155,15 +1483,15 @@ class FirmwareBuilder:
                 )
 
         gen_cfg = PCILeechGenerationConfig(
-                device_bdf=self.config.bdf,
-                board=self.config.board,
-                template_dir=None,
-                output_dir=self.config.output_dir,
-                enable_behavior_profiling=self.config.enable_profiling,
-                enable_error_injection=getattr(
-                    self.config, "enable_error_injection", False
-                ),
-                preloaded_config_space=preloaded_config_space,
+            device_bdf=self.config.bdf,
+            board=self.config.board,
+            template_dir=None,
+            output_dir=self.config.output_dir,
+            enable_behavior_profiling=self.config.enable_profiling,
+            enable_error_injection=getattr(
+                self.config, "enable_error_injection", False
+            ),
+            preloaded_config_space=preloaded_config_space,
         )
         # Explicitly relax VFIO when host data is provided or VFIO is disabled
         # Note: Container environments typically have VFIO warnings due to
@@ -1230,7 +1558,7 @@ class FirmwareBuilder:
     def _load_preloaded_config_space(self) -> Optional[bytes]:
         """
         Load preloaded config space from host collection.
-        
+
         Returns:
             Config space bytes if available, None otherwise
         """
@@ -1240,19 +1568,19 @@ class FirmwareBuilder:
         msix_path = os.environ.get(
             "MSIX_DATA_PATH", "/app/output/msix_data.json"
         )
-        
+
         # If no path configured, silently return None
         if not context_path:
             return None
-            
+
         # If path doesn't exist, return None (normal for non-container builds)
         if not os.path.exists(context_path):
             return None
-        
+
         try:
             with open(context_path, "r") as f:
                 payload = json.load(f)
-            
+
             # Validate that we have the expected data structure
             if not isinstance(payload, dict):
                 log_warning_safe(
@@ -1261,7 +1589,7 @@ class FirmwareBuilder:
                     prefix="HOST_CFG"
                 )
                 return None
-                
+
             # Log basic info about the payload
             log_debug_safe(
                 self.logger,
@@ -1271,7 +1599,7 @@ class FirmwareBuilder:
                 ),
                 prefix="HOST_CFG"
             )
-            
+
         except json.JSONDecodeError as e:
             log_warning_safe(
                 self.logger,
@@ -1294,10 +1622,10 @@ class FirmwareBuilder:
                 prefix="HOST_CFG"
             )
             return None
-        
+
         # Extract config space hex
         config_space_hex = payload.get("config_space_hex")
-        
+
         # Validate against metadata if available
         metadata = payload.get("collection_metadata", {})
         expected_length = metadata.get("config_space_hex_length")
@@ -1314,7 +1642,7 @@ class FirmwareBuilder:
                     ),
                     prefix="HOST_CFG"
                 )
-        
+
         # Also support nested path when full template_context was saved by host
         if not config_space_hex:
             try:
@@ -1323,7 +1651,7 @@ class FirmwareBuilder:
                     config_space_hex = tc.get("config_space_hex")
             except Exception:
                 config_space_hex = None
-        
+
         # Debug: log the size of the hex string when loaded
         if config_space_hex:
             log_debug_safe(
@@ -1334,7 +1662,7 @@ class FirmwareBuilder:
                 ),
                 prefix="HOST_CFG"
             )
-            
+
             # Check if the hex string is truncated (common issue)
             if len(config_space_hex) < 512:  # Less than 256 bytes
                 log_warning_safe(
@@ -1442,7 +1770,7 @@ class FirmwareBuilder:
             # If still no hex, give up gracefully
             if not config_space_hex:
                 return None
-        
+
         # Convert hex to bytes
         try:
             # Debug: log the size of the hex string before conversion
@@ -1454,7 +1782,7 @@ class FirmwareBuilder:
                 ),
                 prefix="HOST_CFG"
             )
-            
+
             # If config space is severely truncated, fail gracefully
             if len(config_space_hex) < 128:  # Less than 64 bytes
                 log_error_safe(
@@ -1463,7 +1791,7 @@ class FirmwareBuilder:
                     prefix="HOST_CFG"
                 )
                 return None
-                
+
             config_space_bytes = bytes.fromhex(config_space_hex)
         except ValueError as e:
             log_warning_safe(
@@ -1475,7 +1803,7 @@ class FirmwareBuilder:
                 prefix="HOST_CFG"
             )
             return None
-        
+
         # Validate minimum size
         if len(config_space_bytes) < 64:
             log_warning_safe(
@@ -1487,7 +1815,7 @@ class FirmwareBuilder:
                 prefix="HOST_CFG"
             )
             return None
-        
+
         log_info_safe(
             self.logger,
             safe_format(
@@ -1501,7 +1829,7 @@ class FirmwareBuilder:
     def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
         """
         Check for complete device context collected on host.
-        
+
         Returns:
             Complete device context if available, None otherwise
         """
@@ -1513,7 +1841,7 @@ class FirmwareBuilder:
             if context_path and os.path.exists(context_path):
                 with open(context_path, "r") as f:
                     payload = json.load(f)
-                
+
                 template_context = payload.get("template_context")
                 if template_context:
                     log_info_safe(
@@ -1526,7 +1854,7 @@ class FirmwareBuilder:
                         prefix="HOST_CTX"
                     )
                     return template_context
-                    
+
         except Exception as e:
             log_debug_safe(
                 self.logger,
@@ -1536,7 +1864,7 @@ class FirmwareBuilder:
                 ),
                 prefix="HOST_CTX"
             )
-        
+
         return None
 
     def _preload_msix(self) -> MSIXData:
@@ -1754,10 +2082,10 @@ class FirmwareBuilder:
             fm.create_pcileech_structure()
             # Copy sources and constraints from the submodule and local pcileech/
             copied = fm.copy_pcileech_sources(self.config.board)
-            
+
             # Copy static TCL scripts from submodule instead of generating them
             tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
-            
+
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1766,7 +2094,7 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD",
             )
-            
+
         except Exception as e:
             log_error_safe(
                 self.logger,
@@ -1848,7 +2176,7 @@ class FirmwareBuilder:
         )
 
         validator = PostBuildValidator(self.logger)
-        
+
         # Run comprehensive validation
         is_valid, validation_results = validator.validate_build_output(
             output_dir=self.config.output_dir,
@@ -1870,7 +2198,7 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD"
             )
-        
+
         # Save validation report to JSON
         warnings = [r for r in validation_results if r.severity == "warning"]
         validation_data = {
@@ -1889,7 +2217,7 @@ class FirmwareBuilder:
                 for r in validation_results
             ]
         }
-        
+
         self.file_manager.write_json(
             "validation_report.json",
             validation_data
