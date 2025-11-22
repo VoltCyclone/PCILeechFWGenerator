@@ -106,6 +106,25 @@ class PCILeechBuildIntegration:
         # Copy source files from repository
         src_files = self._copy_source_files(board_name, board_output_dir / "src")
 
+        # Copy IP definition files (.xci/.coe) if present - required for Vivado to import IP cores.
+        ip_files = self._copy_ip_files(board_name, board_output_dir / "ip")
+
+        # Fail fast if no IP definition files discovered. These are required for
+        # downstream Vivado IP import/regeneration; continuing would produce
+        # opaque synthesis failures. Provide actionable remediation.
+        if not ip_files:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Build aborted: no IP definition files (.xci/.coe) found for board {board}. "
+                    "Ensure voltcyclone-fpga submodule is initialized and up to date. "
+                    "Remediation: run 'git submodule update --init --recursive' or verify board's ip/ directory.",
+                    board=board_name,
+                ),
+                prefix=self.prefix,
+            )
+            raise SystemExit(2)
+
         # Get or create build scripts
         build_scripts = self._prepare_build_scripts(
             board_name, board_config, board_output_dir
@@ -118,6 +137,7 @@ class PCILeechBuildIntegration:
             "templates": templates,
             "xdc_files": xdc_files,
             "src_files": src_files,
+            "ip_files": ip_files,
             "build_scripts": build_scripts,
         }
 
@@ -281,6 +301,61 @@ class PCILeechBuildIntegration:
             )
 
         return build_scripts
+
+    def _copy_ip_files(self, board_name: str, output_dir: Path) -> List[Path]:
+        """Copy IP definition files (.xci/.coe) required for project import.
+
+        Vivado will treat added .xci files as IP instances; without these the
+        subsequent unlock/regenerate logic will find no IP cores and synthesis
+        will fail when RTL references generated output products.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        copied: List[Path] = []
+        try:
+            board_path = RepoManager.get_board_path(board_name, repo_root=self.repo_root)
+            ip_dir = board_path / "ip"
+            if not ip_dir.exists():
+                log_warning_safe(
+                    logger,
+                    safe_format("No ip/ directory found for board {board}", board=board_name),
+                    prefix=self.prefix,
+                )
+                return copied
+            for pattern in ["*.xci", "*.coe"]:
+                for fp in ip_dir.glob(pattern):
+                    if fp.is_file():
+                        dest = output_dir / fp.name
+                        try:
+                            if self.file_manifest:
+                                added = self.file_manifest.add_copy_operation(fp, dest)
+                                if not added:
+                                    continue
+                            shutil.copy2(fp, dest)
+                            copied.append(dest)
+                            log_info_safe(
+                                logger,
+                                safe_format("Copied IP file: {name}", name=fp.name),
+                                prefix=self.prefix,
+                            )
+                        except Exception as e:
+                            log_warning_safe(
+                                logger,
+                                safe_format("Failed to copy IP file {file}: {err}", file=str(fp), err=e),
+                                prefix=self.prefix,
+                            )
+            if not copied:
+                log_warning_safe(
+                    logger,
+                    safe_format("No IP definition files (*.xci/*.coe) found for board {board}", board=board_name),
+                    prefix=self.prefix,
+                )
+        except Exception as e:
+            log_warning_safe(
+                logger,
+                safe_format("IP file copy error for board {board}: {err}", board=board_name, err=e),
+                prefix=self.prefix,
+            )
+        return copied
 
     def _generate_build_scripts(
         self, board_config: Dict, output_dir: Path
