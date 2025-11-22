@@ -503,59 +503,41 @@ puts "Adding source files..."
         )
 
         # Handle locked IP cores with comprehensive strategy
-        script_content += "\n# Handle locked IP cores\n"
+        script_content += "\n# Handle locked/out-of-date IP cores (enhanced)\n"
         script_content += (
-            "# Report IP status to understand lock conditions\n"
-            'puts "Checking IP core status..."\n'
-            "report_ip_status -name ip_status -file ip_status_report.txt\n"
-            "\n"
-            "# Try to unlock and regenerate IP cores\n"
+            "puts \"Refreshing IP catalog...\"\n"
+            "update_ip_catalog -quiet\n"
+            "report_ip_status -name ip_status_initial -file ip_status_initial.txt\n"
+            "set ips [get_ips]\n"
+            "if {[llength $ips] == 0} { puts \"INFO: No IP cores detected after catalog refresh.\" }\n"
             "set locked_ips [get_ips -filter {IS_LOCKED == true}]\n"
             "if {[llength $locked_ips] > 0} {\n"
-            '    puts "Found [llength $locked_ips] locked IP cores, attempting to unlock..."\n'
+            '    puts "Found [llength $locked_ips] locked IP cores (initial). Attempting unlock sequence..."\n'
             "    foreach ip $locked_ips {\n"
-            '        puts "Processing locked IP: [get_property NAME $ip]"\n'
-            "        # Try to reset the IP to unlock it\n"
-            "        catch {reset_target all $ip}\n"
-            "        # Try to upgrade the IP\n"
-            "        catch {upgrade_ip $ip}\n"
+            "        set nm [get_property NAME $ip]\n"
+            '        puts "Unlock attempt: $nm"\n'
+            "        catch {upgrade_ip $ip} ;# Handle version mismatches\n"
+            "        catch {reset_target all $ip} ;# Clear stale generated products\n"
+            "        catch {generate_target instantiation_template $ip}\n"
             "    }\n"
             "}\n"
-            "\n"
-            "# Force regeneration of all IP cores\n"
-            'puts "Force regenerating all IP cores..."\n'
+            "# Second pass regeneration for all IPs (locked or not)\n"
+            'puts "Regenerating all IP cores (pass 2)..."\n'
             "foreach ip [get_ips] {\n"
-            "    set ip_name [get_property NAME $ip]\n"
-            '    puts "Regenerating IP: $ip_name"\n'
-            "    # Reset target to force regeneration\n"
+            "    set nm [get_property NAME $ip]\n"
             "    catch {reset_target all $ip}\n"
-            "    # Generate new targets\n"
-            "    catch {generate_target all $ip}\n"
-            "}\n"
-            "\n"
-            "# Final attempt to generate all IP cores\n"
-            'puts "Final IP core generation attempt..."\n'
-            "set generation_failed 0\n"
-            "foreach ip [get_ips] {\n"
-            "    set ip_name [get_property NAME $ip]\n"
-            "    if {[get_property IS_LOCKED $ip]} {\n"
-            '        puts "WARNING: IP $ip_name is still locked after regeneration attempts"\n'
-            "        set generation_failed 1\n"
-            "    } else {\n"
-            "        # Try final generation\n"
-            "        if {[catch {generate_target all $ip} err]} {\n"
-            '            puts "ERROR: Failed to generate $ip_name: $err"\n'
-            "            set generation_failed 1\n"
-            "        }\n"
+            "    if {[catch {generate_target all $ip} gen_err]} {\n"
+            '        puts "ERROR: generate_target failed for $nm : $gen_err"\n'
             "    }\n"
             "}\n"
-            "\n"
-            "if {$generation_failed} {\n"
-            '    puts "WARNING: Some IP cores could not be generated. Synthesis may fail."\n'
-            '    puts "Consider regenerating IP cores with the current Vivado version."\n'
-            "} else {\n"
-            '    puts "All IP cores successfully generated."\n'
-            "}\n"
+            "# Final status check\n"
+            "set still_locked [get_ips -filter {IS_LOCKED == true}]\n"
+            "if {[llength $still_locked] > 0} {\n"
+            '    puts "ERROR: Locked IP cores remain: [join [get_property NAME $still_locked] ","]"\n'
+            '    puts "ERROR: Aborting prior to synthesis due to unrecoverable IP lock state."\n'
+            "    error \"Unrecoverable locked IP cores\"\n"
+            "} else { puts \"All IP cores unlocked/regenerated successfully.\" }\n"
+            "report_ip_status -name ip_status_final -file ip_status_final.txt\n"
         )
 
         # Ensure all .sv files are treated as SystemVerilog
