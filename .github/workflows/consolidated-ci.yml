@@ -37,7 +37,7 @@ jobs:
       template-validation-passed: ${{ steps.template-validation-result.outputs.passed }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1  # Shallow checkout for faster validation
           submodules: recursive
@@ -89,7 +89,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -126,7 +126,7 @@ jobs:
         python-version: ['3.11', '3.12']
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           submodules: recursive
@@ -203,7 +203,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository (for coverage tools)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -282,7 +282,7 @@ jobs:
       package-version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Need full history for version calculation
           submodules: recursive

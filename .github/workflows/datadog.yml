@@ -12,7 +12,7 @@ jobs:
     if: github.repository == 'VoltCyclone/PCILeechFWGenerator'
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         submodules: recursive
     - name: Check imported libraries are secure and compliant
@@ -30,7 +30,7 @@ jobs:
     if: github.repository == 'VoltCyclone/PCILeechFWGenerator'
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         submodules: recursive
     - name: Check code meets quality and security standards
