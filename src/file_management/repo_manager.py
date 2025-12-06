@@ -32,50 +32,12 @@ REPO_URL = "https://github.com/VoltCyclone/voltcyclone-fpga.git"
 
 
 def _get_voltcyclone_fpga_path() -> Path:
+    """Return the canonical voltcyclone-fpga submodule path.
+
+    Single-path policy: we control the git repo and build; no fallbacks,
+    environment overrides, or vendored payload acceptance. Fail fast if the
+    expected submodule path is not present.
     """
-    Determine the voltcyclone-fpga repository path for the current environment.
-    
-    This function supports multiple deployment scenarios:
-    1. Local development: lib/voltcyclone-fpga submodule
-    2. Container build: Files cloned to /app/lib/voltcyclone-fpga
-    3. pip install: Bundled files in package data
-    
-    Returns:
-        Path to voltcyclone-fpga repository
-    """
-    import os
-    
-    # Check for explicit override (useful for testing and custom deployments)
-    env_path = os.getenv("PCILEECH_VOLTCYCLONE_FPGA_PATH")
-    if env_path:
-        path = Path(env_path)
-        if path.exists():
-            return path
-    
-    # Standard locations to check in priority order
-    candidate_paths = [
-        # 1. Relative to project root (local development with submodule)
-        _REPO_ROOT / "lib" / "voltcyclone-fpga",
-        
-        # 2. Container runtime location
-        Path("/app/lib/voltcyclone-fpga"),
-        
-        # 3. Container build location (fallback)
-        Path("/src/lib/voltcyclone-fpga"),
-        
-        # 4. Package data location (pip install)
-        _REPO_ROOT / "voltcyclone-fpga",
-    ]
-    
-    for candidate in candidate_paths:
-        if candidate.exists() and candidate.is_dir():
-            # Validate it has expected board directories
-            expected_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
-            if any((candidate / d).exists() for d in expected_dirs):
-                return candidate
-    
-    # If no valid path found, return the default submodule path
-    # (will fail later with helpful error message)
     return _REPO_ROOT / "lib" / "voltcyclone-fpga"
 
 
@@ -166,79 +128,51 @@ class RepoManager:
     # ---------------------------------------------------------------------
 
     @classmethod
+    
     def ensure_repo(cls) -> Path:
-        """Ensure voltcyclone-fpga assets exist and return their path.
+        """Ensure voltcyclone-fpga git submodule exists (single pathway).
 
-        Prefers a full git submodule but accepts read-only vendor payloads
-        that ship without git metadata when the expected board directories
-        are present.
-        
-        This method is environment-aware and supports:
-        - Local development with git submodules
-        - Container deployments with cloned repos
-        - pip-installed bundled files
+        Requirements:
+        - Path must exist.
+        - Must be a valid git repository (submodule initialized).
+        - Must contain required board directories.
 
-        Raises:
-            RuntimeError: If no firmware assets are available
+        Any deviation raises RuntimeError with remediation instructions.
         """
-        # SUBMODULE_PATH is dynamically computed to handle multiple environments
         if not SUBMODULE_PATH.exists():
-            # Provide environment-specific error messages
-            import os
-            in_container = os.path.exists("/.dockerenv") or os.path.exists("/app")
-            
-            if in_container:
-                raise RuntimeError(
-                    safe_format(
-                        "voltcyclone-fpga files not found at {path}. "
-                        "Container build may have failed. Expected files to be "
-                        "cloned during docker/podman build.",
-                        path=SUBMODULE_PATH,
-                    )
-                )
-            else:
-                raise RuntimeError(
-                    safe_format(
-                        "voltcyclone-fpga submodule not found at {path}. "
-                        "For local development, initialize with: "
-                        "git submodule update --init --recursive",
-                        path=SUBMODULE_PATH,
-                    )
-                )
-
-        # Check if it's a valid git repository
-        if cls._is_valid_repo(SUBMODULE_PATH):
-            log_debug_safe(
-                _logger,
-                "Using voltcyclone-fpga git repository at {path}",
+            raise RuntimeError(safe_format(
+                "Missing voltcyclone-fpga submodule at {path}.\n"
+                "Remediation: git submodule update --init --recursive",
                 path=SUBMODULE_PATH,
-                prefix="REPO",
-            )
-            return SUBMODULE_PATH
+            ))
 
-        # Check if it has the required board files (vendored/containerized copy)
-        if cls._has_vendored_payload(SUBMODULE_PATH):
-            log_info_safe(
-                _logger,
-                "Using voltcyclone-fpga files at {path} (git metadata not present, "
-                "assuming container or pip install)",
+        if not cls._is_valid_repo(SUBMODULE_PATH):
+            raise RuntimeError(safe_format(
+                "voltcyclone-fpga at {path} is not a valid git repository.\n"
+                "Remediation: git submodule update --init --recursive",
                 path=SUBMODULE_PATH,
-                prefix="REPO",
-            )
-            return SUBMODULE_PATH
+            ))
 
-        # Path exists but doesn't have expected content
-        raise RuntimeError(
-            safe_format(
-                "voltcyclone-fpga directory at {path} exists but is incomplete. "
-                "Missing required board directories. "
-                "For local dev: git submodule update --init --recursive. "
-                "For containers: rebuild the container image.",
-                path=SUBMODULE_PATH,
-            )
+        # Minimal required directories
+        required_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
+        missing = [d for d in required_dirs if not (SUBMODULE_PATH / d).exists()]
+        if missing:
+            raise RuntimeError(safe_format(
+                "voltcyclone-fpga submodule incomplete; missing: {missing}.\n"
+                "Remediation: git submodule update --init --recursive",
+                missing=", ".join(missing),
+            ))
+
+        log_debug_safe(
+            _logger,
+            "Validated voltcyclone-fpga submodule at {path}",
+            path=SUBMODULE_PATH,
+            prefix="REPO",
         )
+        return SUBMODULE_PATH
 
     @classmethod
+    
     def update_submodule(cls) -> None:
         """Update the voltcyclone-fpga submodule to latest upstream changes.
 
@@ -269,6 +203,7 @@ class RepoManager:
             ) from exc
 
     @classmethod
+    
     def get_board_path(
         cls, board_type: str, *, repo_root: Optional[Path] = None
     ) -> Path:
@@ -308,6 +243,7 @@ class RepoManager:
         return path
 
     @classmethod
+    
     def get_xdc_files(
         cls, board_type: str, *, repo_root: Optional[Path] = None
     ) -> List[Path]:
@@ -339,6 +275,7 @@ class RepoManager:
         return uniq
 
     @classmethod
+    
     def read_combined_xdc(
         cls, board_type: str, *, repo_root: Optional[Path] = None
     ) -> str:
@@ -366,6 +303,7 @@ class RepoManager:
     # ------------------------------------------------------------------
 
     @classmethod
+    
     def _is_valid_repo(cls, path: Path) -> bool:
         """Check if path contains a valid git repository."""
         git_dir = path / ".git"
@@ -388,20 +326,8 @@ class RepoManager:
             return False
 
     @classmethod
-    def _has_vendored_payload(cls, path: Path) -> bool:
-        """Return True when required board assets exist without git metadata."""
-        expected = [
-            path / "CaptainDMA",
-            path / "EnigmaX1",
-            path / "PCIeSquirrel",
-        ]
-        missing = [p for p in expected if not p.exists()]
-        if missing:
-            return False
-        # At least one XDC file should exist beneath the tree
-        for root in expected:
-            if any(root.rglob("*.xdc")):
-                return True
+    
+    def _has_vendored_payload(cls, path: Path) -> bool:  # Deprecated single-path policy
         return False
 
 

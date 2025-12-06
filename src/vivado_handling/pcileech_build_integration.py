@@ -106,6 +106,25 @@ class PCILeechBuildIntegration:
         # Copy source files from repository
         src_files = self._copy_source_files(board_name, board_output_dir / "src")
 
+        # Copy IP definition files (.xci/.coe) if present - required for Vivado to import IP cores.
+        ip_files = self._copy_ip_files(board_name, board_output_dir / "ip")
+
+        # Fail fast if no IP definition files discovered. These are required for
+        # downstream Vivado IP import/regeneration; continuing would produce
+        # opaque synthesis failures. Provide actionable remediation.
+        if not ip_files:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Build aborted: no IP definition files (.xci/.coe) found for board {board}. "
+                    "Ensure voltcyclone-fpga submodule is initialized and up to date. "
+                    "Remediation: run 'git submodule update --init --recursive' or verify board's ip/ directory.",
+                    board=board_name,
+                ),
+                prefix=self.prefix,
+            )
+            raise SystemExit(2)
+
         # Get or create build scripts
         build_scripts = self._prepare_build_scripts(
             board_name, board_config, board_output_dir
@@ -118,6 +137,7 @@ class PCILeechBuildIntegration:
             "templates": templates,
             "xdc_files": xdc_files,
             "src_files": src_files,
+            "ip_files": ip_files,
             "build_scripts": build_scripts,
         }
 
@@ -282,6 +302,61 @@ class PCILeechBuildIntegration:
 
         return build_scripts
 
+    def _copy_ip_files(self, board_name: str, output_dir: Path) -> List[Path]:
+        """Copy IP definition files (.xci/.coe) required for project import.
+
+        Vivado will treat added .xci files as IP instances; without these the
+        subsequent unlock/regenerate logic will find no IP cores and synthesis
+        will fail when RTL references generated output products.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        copied: List[Path] = []
+        try:
+            board_path = RepoManager.get_board_path(board_name, repo_root=self.repo_root)
+            ip_dir = board_path / "ip"
+            if not ip_dir.exists():
+                log_warning_safe(
+                    logger,
+                    safe_format("No ip/ directory found for board {board}", board=board_name),
+                    prefix=self.prefix,
+                )
+                return copied
+            for pattern in ["*.xci", "*.coe"]:
+                for fp in ip_dir.glob(pattern):
+                    if fp.is_file():
+                        dest = output_dir / fp.name
+                        try:
+                            if self.file_manifest:
+                                added = self.file_manifest.add_copy_operation(fp, dest)
+                                if not added:
+                                    continue
+                            shutil.copy2(fp, dest)
+                            copied.append(dest)
+                            log_info_safe(
+                                logger,
+                                safe_format("Copied IP file: {name}", name=fp.name),
+                                prefix=self.prefix,
+                            )
+                        except Exception as e:
+                            log_warning_safe(
+                                logger,
+                                safe_format("Failed to copy IP file {file}: {err}", file=str(fp), err=e),
+                                prefix=self.prefix,
+                            )
+            if not copied:
+                log_warning_safe(
+                    logger,
+                    safe_format("No IP definition files (*.xci/*.coe) found for board {board}", board=board_name),
+                    prefix=self.prefix,
+                )
+        except Exception as e:
+            log_warning_safe(
+                logger,
+                safe_format("IP file copy error for board {board}: {err}", board=board_name, err=e),
+                prefix=self.prefix,
+            )
+        return copied
+
     def _generate_build_scripts(
         self, board_config: Dict, output_dir: Path
     ) -> Dict[str, Path]:
@@ -406,19 +481,33 @@ puts "Adding source files..."
             abs_path = Path(src_file).resolve()
             script_content += f'add_files -norecurse "{abs_path}"\n'
 
-        # Add IP cores before setting file types
-        script_content += "\n# Add IP cores\n"
+        # Add IP cores before setting file types - use import_files to copy into project
+        # and avoid locked IP issues from path relocation
+        script_content += "\n# Add IP cores (import to avoid locked IP issues)\n"
         script_content += 'puts "Adding IP cores..."\n'
         script_content += (
-            "# Add all IP files from ip directory\n"
+            "# Import all IP files from ip directory into project\n"
+            "# Using import_files -copy to create local copies, avoiding locked IP issues\n"
             "set ip_dir [file normalize \"./ip\"]\n"
             "if {[file exists $ip_dir]} {\n"
             "    set ip_files [glob -nocomplain -directory $ip_dir *.xci]\n"
             "    if {[llength $ip_files] > 0} {\n"
-            '        puts "Found [llength $ip_files] IP cores"\n'
+            '        puts "Found [llength $ip_files] IP cores - importing into project..."\n'
             "        foreach ip_file $ip_files {\n"
-            "            add_files -norecurse $ip_file\n"
+            "            set ip_name [file rootname [file tail $ip_file]]\n"
+            '            puts "Importing IP: $ip_name"\n'
+            "            # Use import_files with -copy to create local project copy\n"
+            "            # This prevents locked IP issues from path relocation\n"
+            "            if {[catch {import_files -norecurse -copy_to [get_property DIRECTORY [current_project]]/sources_1/ip $ip_file} import_err]} {\n"
+            "                # Fallback: try read_ip if import_files fails\n"
+            '                puts "Import failed, trying read_ip: $import_err"\n'
+            "                if {[catch {read_ip $ip_file} read_err]} {\n"
+            '                    puts "WARNING: Failed to add IP $ip_name: $read_err"\n'
+            "                }\n"
+            "            }\n"
             "        }\n"
+            "        # Update IP catalog after importing\n"
+            "        update_ip_catalog -rebuild -scan_changes\n"
             "    } else {\n"
             '        puts "WARNING: No IP cores found in $ip_dir"\n'
             "    }\n"
@@ -428,59 +517,64 @@ puts "Adding source files..."
         )
 
         # Handle locked IP cores with comprehensive strategy
-        script_content += "\n# Handle locked IP cores\n"
+        script_content += "\n# Handle locked/out-of-date IP cores (enhanced)\n"
         script_content += (
-            "# Report IP status to understand lock conditions\n"
-            'puts "Checking IP core status..."\n'
-            "report_ip_status -name ip_status -file ip_status_report.txt\n"
-            "\n"
-            "# Try to unlock and regenerate IP cores\n"
+            "puts \"Refreshing IP catalog...\"\n"
+            "update_ip_catalog -quiet\n"
+            "report_ip_status -name ip_status_initial -file ip_status_initial.txt\n"
+            "set ips [get_ips]\n"
+            "if {[llength $ips] == 0} { puts \"INFO: No IP cores detected after catalog refresh.\" }\n"
             "set locked_ips [get_ips -filter {IS_LOCKED == true}]\n"
             "if {[llength $locked_ips] > 0} {\n"
-            '    puts "Found [llength $locked_ips] locked IP cores, attempting to unlock..."\n'
+            '    puts "Found [llength $locked_ips] locked IP cores. Attempting force unlock sequence..."\n'
             "    foreach ip $locked_ips {\n"
-            '        puts "Processing locked IP: [get_property NAME $ip]"\n'
-            "        # Try to reset the IP to unlock it\n"
+            "        set nm [get_property NAME $ip]\n"
+            '        puts "Force unlocking IP: $nm"\n'
+            "        # Force unlock the IP first\n"
+            "        catch {set_property IS_LOCKED false $ip}\n"
+            "        # Handle version mismatches\n"
+            "        catch {upgrade_ip -quiet -vlnv [get_property IPDEF $ip] $ip}\n"
+            "        # Clear stale generated products\n"
             "        catch {reset_target all $ip}\n"
-            "        # Try to upgrade the IP\n"
-            "        catch {upgrade_ip $ip}\n"
             "    }\n"
             "}\n"
-            "\n"
-            "# Force regeneration of all IP cores\n"
-            'puts "Force regenerating all IP cores..."\n'
+            "# Force upgrade any out-of-date IPs\n"
+            "set upgrade_ips [get_ips -filter {UPGRADE_VERSIONS != \"\"}]\n"
+            "if {[llength $upgrade_ips] > 0} {\n"
+            '    puts "Upgrading [llength $upgrade_ips] out-of-date IP cores..."\n'
+            "    foreach ip $upgrade_ips {\n"
+            "        catch {upgrade_ip -quiet $ip}\n"
+            "    }\n"
+            "}\n"
+            "# Second pass regeneration for all IPs (locked or not)\n"
+            'puts "Regenerating all IP cores..."\n'
             "foreach ip [get_ips] {\n"
-            "    set ip_name [get_property NAME $ip]\n"
-            '    puts "Regenerating IP: $ip_name"\n'
-            "    # Reset target to force regeneration\n"
+            "    set nm [get_property NAME $ip]\n"
             "    catch {reset_target all $ip}\n"
-            "    # Generate new targets\n"
-            "    catch {generate_target all $ip}\n"
-            "}\n"
-            "\n"
-            "# Final attempt to generate all IP cores\n"
-            'puts "Final IP core generation attempt..."\n'
-            "set generation_failed 0\n"
-            "foreach ip [get_ips] {\n"
-            "    set ip_name [get_property NAME $ip]\n"
-            "    if {[get_property IS_LOCKED $ip]} {\n"
-            '        puts "WARNING: IP $ip_name is still locked after regeneration attempts"\n'
-            "        set generation_failed 1\n"
-            "    } else {\n"
-            "        # Try final generation\n"
-            "        if {[catch {generate_target all $ip} err]} {\n"
-            '            puts "ERROR: Failed to generate $ip_name: $err"\n'
-            "            set generation_failed 1\n"
-            "        }\n"
+            "    if {[catch {generate_target all $ip} gen_err]} {\n"
+            '        puts "WARNING: generate_target failed for $nm : $gen_err"\n'
+            "        # Try with synthesis target only as fallback\n"
+            "        catch {generate_target synthesis $ip}\n"
             "    }\n"
             "}\n"
-            "\n"
-            "if {$generation_failed} {\n"
-            '    puts "WARNING: Some IP cores could not be generated. Synthesis may fail."\n'
-            '    puts "Consider regenerating IP cores with the current Vivado version."\n'
-            "} else {\n"
-            '    puts "All IP cores successfully generated."\n'
-            "}\n"
+            "# Final status check\n"
+            "set still_locked [get_ips -filter {IS_LOCKED == true}]\n"
+            "if {[llength $still_locked] > 0} {\n"
+            '    puts "WARNING: Some IP cores remain locked: [join [get_property NAME $still_locked] \\",\\"]"\n'
+            '    puts "Attempting last resort: manual unlock and regenerate..."\n'
+            "    foreach ip $still_locked {\n"
+            "        catch {set_property IS_LOCKED false $ip}\n"
+            "        catch {generate_target all $ip}\n"
+            "    }\n"
+            "    # Re-check after last resort\n"
+            "    set final_locked [get_ips -filter {IS_LOCKED == true}]\n"
+            "    if {[llength $final_locked] > 0} {\n"
+            '        puts "ERROR: Cannot unlock IPs: [join [get_property NAME $final_locked] \\",\\"]"\n'
+            '        puts "ERROR: Try deleting the project and regenerating from scratch."\n'
+            "        error \"Unrecoverable locked IP cores\"\n"
+            "    }\n"
+            "} else { puts \"All IP cores unlocked/regenerated successfully.\" }\n"
+            "report_ip_status -name ip_status_final -file ip_status_final.txt\n"
         )
 
         # Ensure all .sv files are treated as SystemVerilog

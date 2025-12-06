@@ -3,7 +3,7 @@
 
 import logging
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from src.utils.build_logger import BuildLogger, get_build_logger
 
@@ -18,166 +18,222 @@ class TestBuildLogger:
 
         assert build_logger.logger == logger
 
-    def test_format_message_with_prefix(self):
-        """Test message formatting with prefix."""
-        logger = logging.getLogger("test")
-        build_logger = BuildLogger(logger)
+    def test_initialization_default_logger(self):
+        """Test BuildLogger uses default logger when none provided."""
+        build_logger = BuildLogger()
+        assert build_logger.logger is not None
 
-        msg = build_logger._format_message("Test message", prefix="BUILD")
-        assert msg == "[BUILD] Test message"
-
-    def test_format_message_without_prefix(self):
-        """Test message formatting without prefix."""
-        logger = logging.getLogger("test")
-        build_logger = BuildLogger(logger)
-
-        msg = build_logger._format_message("Test message")
-        assert msg == "Test message"
-
-    def test_info_with_prefix(self):
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_info_with_prefix(self, mock_log_info):
         """Test info logging with prefix."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
         build_logger.info("Test info", prefix="BUILD")
 
-        mock_logger.info.assert_called_once_with("[BUILD] Test info")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Test info", prefix="BUILD"
+        )
 
-    def test_warning_with_prefix(self):
+    @patch('src.utils.build_logger.log_warning_safe')
+    def test_warning_with_prefix(self, mock_log_warning):
         """Test warning logging with prefix."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
         build_logger.warning("Test warning", prefix="WARN")
 
-        mock_logger.warning.assert_called_once_with("[WARN] Test warning")
+        mock_log_warning.assert_called_once_with(
+            mock_logger, "Test warning", prefix="WARN"
+        )
 
-    def test_error_with_prefix(self):
+    @patch('src.utils.build_logger.log_error_safe')
+    def test_error_with_prefix(self, mock_log_error):
         """Test error logging with prefix."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
         build_logger.error("Test error", prefix="ERROR")
 
-        mock_logger.error.assert_called_once_with("[ERROR] Test error")
+        mock_log_error.assert_called_once_with(
+            mock_logger, "Test error", prefix="ERROR"
+        )
 
-    def test_debug_with_prefix(self):
+    @patch('src.utils.build_logger.log_debug_safe')
+    def test_debug_with_prefix(self, mock_log_debug):
         """Test debug logging with prefix."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
         build_logger.debug("Test debug", prefix="DEBUG")
 
-        mock_logger.debug.assert_called_once_with("[DEBUG] Test debug")
+        mock_log_debug.assert_called_once_with(
+            mock_logger, "Test debug", prefix="DEBUG"
+        )
 
-    def test_vfio_decision_info(self):
-        """Test VFIO decision logging."""
-        mock_logger = MagicMock()
-        build_logger = BuildLogger(mock_logger)
-
-        build_logger.vfio_decision_info("VFIO enabled")
-
-        mock_logger.info.assert_called_once_with("[VFIO_DECISION] VFIO enabled")
-
-    def test_vfio_info(self):
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_vfio_info(self, mock_log_info):
         """Test VFIO info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
         build_logger.vfio_info("Device found")
 
-        mock_logger.info.assert_called_once_with("[VFIO] Device found")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Device found", prefix="VFIO"
+        )
 
-    def test_vfio_warning(self):
-        """Test VFIO warning logging."""
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_host_cfg_info(self, mock_log_info):
+        """Test host config info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
-        build_logger.vfio_warning("Device not accessible")
+        build_logger.host_cfg_info("Loading context")
 
-        mock_logger.warning.assert_called_once_with(
-            "[VFIO] Device not accessible")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Loading context", prefix="HOST_CFG"
+        )
 
-    def test_host_context_info(self):
-        """Test host context info logging."""
-        mock_logger = MagicMock()
-        build_logger = BuildLogger(mock_logger)
-
-        build_logger.host_context_info("Loading context")
-
-        mock_logger.info.assert_called_once_with("[HOST_CFG] Loading context")
-
-    def test_file_manager_info(self):
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_filemgr_info(self, mock_log_info):
         """Test file manager info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
-        build_logger.file_manager_info("Copying file")
+        build_logger.filemgr_info("Copying file")
 
-        mock_logger.info.assert_called_once_with("[FILEMGR] Copying file")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Copying file", prefix="FILEMGR"
+        )
 
-    def test_template_info(self):
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_template_info(self, mock_log_info):
         """Test template info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
         build_logger.template_info("Rendering template")
 
-        mock_logger.info.assert_called_once_with("[TEMPLATE] Rendering template")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Rendering template", prefix="TEMPLATE"
+        )
 
-    def test_tcl_format_info(self):
-        """Test TCL format info logging."""
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_vivado_info(self, mock_log_info):
+        """Test Vivado info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
-        build_logger.tcl_format_info("Formatting TCL")
+        build_logger.vivado_info("Starting synthesis")
 
-        mock_logger.info.assert_called_once_with("[TCLFMT] Formatting TCL")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Starting synthesis", prefix="VIVADO"
+        )
 
-    def test_build_phase_info(self):
-        """Test build phase info logging."""
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_device_info(self, mock_log_info):
+        """Test device info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
-        build_logger.build_phase_info("Starting synthesis")
+        build_logger.device_info("Device detected")
 
-        mock_logger.info.assert_called_once_with(
-            "[BUILD] Starting synthesis")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Device detected", prefix="DEVICE"
+        )
 
-    def test_build_phase_warning(self):
-        """Test build phase warning logging."""
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_validation_info(self, mock_log_info):
+        """Test validation info logging."""
         mock_logger = MagicMock()
         build_logger = BuildLogger(mock_logger)
 
-        build_logger.build_phase_warning("Missing file")
+        build_logger.validation_info("Validating config")
 
-        mock_logger.warning.assert_called_once_with("[BUILD] Missing file")
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Validating config", prefix="VALID"
+        )
+
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_msix_info(self, mock_log_info):
+        """Test MSI-X info logging."""
+        mock_logger = MagicMock()
+        build_logger = BuildLogger(mock_logger)
+
+        build_logger.msix_info("MSI-X capability found")
+
+        mock_log_info.assert_called_once_with(
+            mock_logger, "MSI-X capability found", prefix="MSIX"
+        )
+
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_bar_info(self, mock_log_info):
+        """Test BAR info logging."""
+        mock_logger = MagicMock()
+        build_logger = BuildLogger(mock_logger)
+
+        build_logger.bar_info("BAR0 size: 4KB")
+
+        mock_log_info.assert_called_once_with(
+            mock_logger, "BAR0 size: 4KB", prefix="BAR"
+        )
+
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_pcil_info(self, mock_log_info):
+        """Test PCILeech generator info logging."""
+        mock_logger = MagicMock()
+        build_logger = BuildLogger(mock_logger)
+
+        build_logger.pcil_info("Generating firmware")
+
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Generating firmware", prefix="PCIL"
+        )
+
+    @patch('src.utils.build_logger.log_info_safe')
+    def test_repo_info(self, mock_log_info):
+        """Test repository info logging."""
+        mock_logger = MagicMock()
+        build_logger = BuildLogger(mock_logger)
+
+        build_logger.repo_info("Cloning repository")
+
+        mock_log_info.assert_called_once_with(
+            mock_logger, "Cloning repository", prefix="REPO"
+        )
+
+    def test_prefix_normalization(self):
+        """Test that prefixes are normalized from PREFIXES dict."""
+        build_logger = BuildLogger()
+
+        # Check that known prefixes are in the dict
+        assert "BUILD" in build_logger.PREFIXES.values()
+        assert "VFIO" in build_logger.PREFIXES.values()
+        assert "HOST_CFG" in build_logger.PREFIXES.values()
+
+    def test_phase_stack_operations(self):
+        """Test phase stack push/pop operations."""
+        build_logger = BuildLogger()
+
+        assert build_logger.current_phase() is None
+
+        build_logger._phase_stack.append("synthesis")
+        assert build_logger.current_phase() == "synthesis"
+
+        build_logger._phase_stack.pop()
+        assert build_logger.current_phase() is None
 
 
 class TestGetBuildLogger:
     """Test get_build_logger convenience function."""
 
-    @patch('src.utils.build_logger.logging.getLogger')
-    def test_get_build_logger_default(self, mock_get_logger):
+    def test_get_build_logger_default(self):
         """Test get_build_logger with default logger."""
-        mock_logger = MagicMock()
-        mock_get_logger.return_value = mock_logger
-
         result = get_build_logger()
 
         assert isinstance(result, BuildLogger)
-        mock_get_logger.assert_called_once_with("pcileechfwgenerator")
-
-    @patch('src.utils.build_logger.logging.getLogger')
-    def test_get_build_logger_custom_name(self, mock_get_logger):
-        """Test get_build_logger with custom logger name."""
-        mock_logger = MagicMock()
-        mock_get_logger.return_value = mock_logger
-
-        result = get_build_logger(name="custom_logger")
-
-        assert isinstance(result, BuildLogger)
-        mock_get_logger.assert_called_once_with("custom_logger")
+        assert result.logger is not None
 
     def test_get_build_logger_with_logger_instance(self):
         """Test get_build_logger with existing logger instance."""

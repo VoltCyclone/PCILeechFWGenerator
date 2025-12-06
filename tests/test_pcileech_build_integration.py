@@ -130,6 +130,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         # Setup mock returns for sub-methods
         integration._copy_xdc_files = MagicMock(return_value=[Path("/tmp/test.xdc")])
         integration._copy_source_files = MagicMock(return_value=[Path("/tmp/test.v")])
+        integration._copy_ip_files = MagicMock(return_value=[Path("/tmp/ip/pcie_7x_0.xci")])
         integration._prepare_build_scripts = MagicMock(
             return_value={"main": Path("/tmp/build.tcl")}
         )
@@ -148,13 +149,18 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertEqual(result["templates"], ["template1.v"])
         self.assertEqual(result["xdc_files"], [Path("/tmp/test.xdc")])
         self.assertEqual(result["src_files"], [Path("/tmp/test.v")])
+        self.assertEqual(result["ip_files"], [Path("/tmp/ip/pcie_7x_0.xci")])
         self.assertEqual(result["build_scripts"], {"main": Path("/tmp/build.tcl")})
 
         # Verify method calls (class method now)
         self.mock_template_discovery.copy_board_templates.assert_called_once()
         integration._copy_xdc_files.assert_called_once()
         integration._copy_source_files.assert_called_once()
+        integration._copy_ip_files.assert_called_once()
         integration._prepare_build_scripts.assert_called_once()
+
+    
+
 
     @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_xdc_files(self, mock_copy2):
@@ -178,6 +184,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             "artix7", repo_root=self.repo_root
         )
         mock_copy2.assert_called_once_with(xdc_files[0], output_dir / "pins.xdc")
+
+    
+
 
     @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files(self, mock_copy2):
@@ -217,6 +226,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             "artix7", repo_root=self.repo_root
         )
         self.assertEqual(mock_copy2.call_count, 2)
+
+    
+
 
     @patch("src.vivado_handling.pcileech_build_integration.Path.read_text")
     @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
@@ -261,6 +273,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         )
         mock_write_text.assert_called_once_with("# Adapted TCL content")
 
+    
+
+
     @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
     def test_prepare_build_scripts_generated(self, mock_write_text):
         """Test preparing build scripts with generated scripts."""
@@ -294,6 +309,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         mock_tcl_instance.build_pcileech_build_script.assert_called_once()
         self.assertEqual(mock_write_text.call_count, 2)
 
+    
+
+
     @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
     def test_create_unified_build_script(self, mock_write_text):
         """Test creating unified build script."""
@@ -307,6 +325,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             "templates": ["template1.v"],
             "xdc_files": [self.output_dir / "artix7" / "constraints" / "pins.xdc"],
             "src_files": [self.output_dir / "artix7" / "src" / "top.v"],
+            "ip_files": [self.output_dir / "artix7" / "ip" / "pcie_7x_0.xci"],
             "build_scripts": {
                 "main": self.output_dir / "artix7" / "scripts" / "build.tcl"
             },
@@ -325,6 +344,25 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         tcl_content = mock_write_text.call_args[0][0]
         self.assertIn("PCILeech Unified Build Script for artix7", tcl_content)
         self.assertIn("FPGA Part: xc7a35t", tcl_content)
+
+    
+
+
+    def test_prepare_build_environment_fail_fast_no_ip(self):
+        """Ensure build aborts with SystemExit when no IP definition files are found."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        # Mock successful discovery of board and sources/constraints but empty IP list
+        integration._copy_xdc_files = MagicMock(return_value=[Path("/tmp/test.xdc")])
+        integration._copy_source_files = MagicMock(return_value=[Path("/tmp/test.v")])
+        integration._copy_ip_files = MagicMock(return_value=[])  # trigger fail-fast
+        integration._prepare_build_scripts = MagicMock(return_value={"main": Path("/tmp/build.tcl")})
+        with self.assertRaises(SystemExit) as ctx:
+            integration.prepare_build_environment("artix7")
+        self.assertEqual(ctx.exception.code, 2)
+        integration._copy_ip_files.assert_called_once()
+
+    
+
 
     def test_validate_board_compatibility(self):
         """Test validating board compatibility."""
@@ -371,6 +409,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             )
             self.assertFalse(is_compatible)
             self.assertEqual(len(warnings), 3)
+
+    
+
 
     @patch("src.vivado_handling.pcileech_build_integration.logger")
     def test_integrate_pcileech_build(self, mock_logger):
