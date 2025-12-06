@@ -481,19 +481,33 @@ puts "Adding source files..."
             abs_path = Path(src_file).resolve()
             script_content += f'add_files -norecurse "{abs_path}"\n'
 
-        # Add IP cores before setting file types
-        script_content += "\n# Add IP cores\n"
+        # Add IP cores before setting file types - use import_files to copy into project
+        # and avoid locked IP issues from path relocation
+        script_content += "\n# Add IP cores (import to avoid locked IP issues)\n"
         script_content += 'puts "Adding IP cores..."\n'
         script_content += (
-            "# Add all IP files from ip directory\n"
+            "# Import all IP files from ip directory into project\n"
+            "# Using import_files -copy to create local copies, avoiding locked IP issues\n"
             "set ip_dir [file normalize \"./ip\"]\n"
             "if {[file exists $ip_dir]} {\n"
             "    set ip_files [glob -nocomplain -directory $ip_dir *.xci]\n"
             "    if {[llength $ip_files] > 0} {\n"
-            '        puts "Found [llength $ip_files] IP cores"\n'
+            '        puts "Found [llength $ip_files] IP cores - importing into project..."\n'
             "        foreach ip_file $ip_files {\n"
-            "            add_files -norecurse $ip_file\n"
+            "            set ip_name [file rootname [file tail $ip_file]]\n"
+            '            puts "Importing IP: $ip_name"\n'
+            "            # Use import_files with -copy to create local project copy\n"
+            "            # This prevents locked IP issues from path relocation\n"
+            "            if {[catch {import_files -norecurse -copy_to [get_property DIRECTORY [current_project]]/sources_1/ip $ip_file} import_err]} {\n"
+            "                # Fallback: try read_ip if import_files fails\n"
+            '                puts "Import failed, trying read_ip: $import_err"\n'
+            "                if {[catch {read_ip $ip_file} read_err]} {\n"
+            '                    puts "WARNING: Failed to add IP $ip_name: $read_err"\n'
+            "                }\n"
+            "            }\n"
             "        }\n"
+            "        # Update IP catalog after importing\n"
+            "        update_ip_catalog -rebuild -scan_changes\n"
             "    } else {\n"
             '        puts "WARNING: No IP cores found in $ip_dir"\n'
             "    }\n"
@@ -512,30 +526,53 @@ puts "Adding source files..."
             "if {[llength $ips] == 0} { puts \"INFO: No IP cores detected after catalog refresh.\" }\n"
             "set locked_ips [get_ips -filter {IS_LOCKED == true}]\n"
             "if {[llength $locked_ips] > 0} {\n"
-            '    puts "Found [llength $locked_ips] locked IP cores (initial). Attempting unlock sequence..."\n'
+            '    puts "Found [llength $locked_ips] locked IP cores. Attempting force unlock sequence..."\n'
             "    foreach ip $locked_ips {\n"
             "        set nm [get_property NAME $ip]\n"
-            '        puts "Unlock attempt: $nm"\n'
-            "        catch {upgrade_ip $ip} ;# Handle version mismatches\n"
-            "        catch {reset_target all $ip} ;# Clear stale generated products\n"
-            "        catch {generate_target instantiation_template $ip}\n"
+            '        puts "Force unlocking IP: $nm"\n'
+            "        # Force unlock the IP first\n"
+            "        catch {set_property IS_LOCKED false $ip}\n"
+            "        # Handle version mismatches\n"
+            "        catch {upgrade_ip -quiet -vlnv [get_property IPDEF $ip] $ip}\n"
+            "        # Clear stale generated products\n"
+            "        catch {reset_target all $ip}\n"
+            "    }\n"
+            "}\n"
+            "# Force upgrade any out-of-date IPs\n"
+            "set upgrade_ips [get_ips -filter {UPGRADE_VERSIONS != \"\"}]\n"
+            "if {[llength $upgrade_ips] > 0} {\n"
+            '    puts "Upgrading [llength $upgrade_ips] out-of-date IP cores..."\n'
+            "    foreach ip $upgrade_ips {\n"
+            "        catch {upgrade_ip -quiet $ip}\n"
             "    }\n"
             "}\n"
             "# Second pass regeneration for all IPs (locked or not)\n"
-            'puts "Regenerating all IP cores (pass 2)..."\n'
+            'puts "Regenerating all IP cores..."\n'
             "foreach ip [get_ips] {\n"
             "    set nm [get_property NAME $ip]\n"
             "    catch {reset_target all $ip}\n"
             "    if {[catch {generate_target all $ip} gen_err]} {\n"
-            '        puts "ERROR: generate_target failed for $nm : $gen_err"\n'
+            '        puts "WARNING: generate_target failed for $nm : $gen_err"\n'
+            "        # Try with synthesis target only as fallback\n"
+            "        catch {generate_target synthesis $ip}\n"
             "    }\n"
             "}\n"
             "# Final status check\n"
             "set still_locked [get_ips -filter {IS_LOCKED == true}]\n"
             "if {[llength $still_locked] > 0} {\n"
-            '    puts "ERROR: Locked IP cores remain: [join [get_property NAME $still_locked] ","]"\n'
-            '    puts "ERROR: Aborting prior to synthesis due to unrecoverable IP lock state."\n'
-            "    error \"Unrecoverable locked IP cores\"\n"
+            '    puts "WARNING: Some IP cores remain locked: [join [get_property NAME $still_locked] \\",\\"]"\n'
+            '    puts "Attempting last resort: manual unlock and regenerate..."\n'
+            "    foreach ip $still_locked {\n"
+            "        catch {set_property IS_LOCKED false $ip}\n"
+            "        catch {generate_target all $ip}\n"
+            "    }\n"
+            "    # Re-check after last resort\n"
+            "    set final_locked [get_ips -filter {IS_LOCKED == true}]\n"
+            "    if {[llength $final_locked] > 0} {\n"
+            '        puts "ERROR: Cannot unlock IPs: [join [get_property NAME $final_locked] \\",\\"]"\n'
+            '        puts "ERROR: Try deleting the project and regenerating from scratch."\n'
+            "        error \"Unrecoverable locked IP cores\"\n"
+            "    }\n"
             "} else { puts \"All IP cores unlocked/regenerated successfully.\" }\n"
             "report_ip_status -name ip_status_final -file ip_status_final.txt\n"
         )
