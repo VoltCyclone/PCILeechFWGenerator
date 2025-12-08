@@ -342,7 +342,7 @@ def test_run_build_restores_driver_on_success(monkeypatch, tmp_path: Path):
 
     def fake_subprocess_run(cmd, **kwargs):
         assert "podman" in cmd[0]
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
     
     monkeypatch.setattr(container.subprocess, "run", fake_subprocess_run)
     
@@ -468,7 +468,7 @@ def test_run_build_skips_restore_when_no_original_driver(
         else:
             full = str(cmd)
         assert "podman" in full
-        return types.SimpleNamespace(returncode=0)
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
     monkeypatch.setattr(container.subprocess, "run", fake_subprocess_run)
 
     # Run build (should succeed and not attempt restore since no original driver)
