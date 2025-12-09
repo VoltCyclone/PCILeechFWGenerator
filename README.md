@@ -14,7 +14,7 @@
 
 [![codecov](https://codecov.io/gh/ramseymcgrath/PCILeechFWGenerator/graph/badge.svg?token=JVX3C1WL86)](https://codecov.io/gh/ramseymcgrath/PCILeechFWGenerator)
 [![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions)
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://github.com/voltcyclone/PCILeechFWGenerator)
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)](https://github.com/voltcyclone/PCILeechFWGenerator)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.txt)
 [![Latest Release](https://img.shields.io/github/v/release/ramseymcgrath/PCILeechFWGenerator?include_prereleases)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
 [![Downloads](https://img.shields.io/github/downloads/ramseymcgrath/PCILeechFWGenerator/total)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
@@ -27,10 +27,20 @@
 
 ![Discord](https://dcbadge.limes.pink/api/shield/429866199833247744)
 
-Generate authentic PCIe DMA firmware from real donor hardware with a single command. This tool extracts donor configurations from a local device and generates unique PCILeech FPGA bitstreams (and optionally flashes a DMA card over USB-JTAG).
+Generate authentic PCIe DMA firmware from real donor hardware using a **3-stage host-container-host pipeline**. This tool extracts donor configurations from a local device via VFIO and generates unique PCILeech FPGA bitstreams.
 
 > [!WARNING]
 > This tool requires *real* hardware. The templates are built using the device identifiers directly from a donor card and placeholder values are explicitly avoided. Using your own donor device ensures your firmware will be unique.
+
+## Build Pipeline
+
+The generator uses a 3-stage pipeline:
+
+1. **Stage 1 (Host)**: Collects PCIe device data via VFIO on the host
+2. **Stage 2 (Container or Local)**: Generates firmware artifacts from collected data (no VFIO access in container)
+3. **Stage 3 (Host)**: Runs Vivado synthesis on the host (optional)
+
+The container does **NOT** access VFIO devices - it only performs templating using pre-collected data. See [Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline) for details.
 
 ## Key Features
 
@@ -45,60 +55,87 @@ Generate authentic PCIe DMA firmware from real donor hardware with a single comm
 - **Containerized Build Pipeline**: Podman-based synthesis environment with automated VFIO setup
 - **USB-JTAG Flashing**: Direct firmware deployment to DMA boards via integrated flash utilities
 
- **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Overlay Architecture](https://pcileechfwgenerator.voltcyclone.info/overlay-architecture)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
+ **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)** |  **[Overlay Architecture](https://pcileechfwgenerator.voltcyclone.info/overlay-architecture)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
 
 ## Quick Start
 
-### Installation
+### Installation (Ubuntu 22.04+ / Debian 12+)
+
+Modern Linux requires a virtual environment:
 
 ```bash
-# Install with TUI support (recommended)
+# Create and activate virtual environment
+python3 -m venv ~/.pcileech-venv
+source ~/.pcileech-venv/bin/activate
+
+# Install with TUI support
 pip install pcileechfwgenerator[tui]
 
-# Load required kernel modules
-sudo modprobe vfio vfio-pci
+# Verify installation
+pcileech version
 ```
 
-> **Python 3.12+ / Debian 12+ Users**: If you see `externally-managed-environment` errors, see [Installation on Python 3.12+](site/docs/installation-python312.md) for detailed instructions on using virtual environments with sudo.
+> ⚠️ **Don't skip the venv!** Running `pip install pcileechfwgenerator` directly will fail with `externally-managed-environment` on modern systems.
+
+### Running with Root Access (Required for VFIO)
+
+VFIO requires root. Use the venv's Python directly with sudo:
+
+```bash
+# Add this alias to ~/.bashrc for convenience:
+echo "alias pcileech-sudo='sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech'" >> ~/.bashrc
+source ~/.bashrc
+
+# Load VFIO modules
+sudo modprobe vfio vfio-pci
+
+# Now run commands with pcileech-sudo:
+pcileech-sudo tui                                                    # Interactive TUI
+pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1   # CLI build
+pcileech-sudo check --device 0000:03:00.0                            # VFIO diagnostics
+```
+
+For complete setup including IOMMU configuration, see the **[Installation Guide](https://pcileechfwgenerator.voltcyclone.info/installation)**.
 
 ### Requirements
 
-- **Python ≥ 3.9**
+- **Python ≥ 3.11**
 - **Donor PCIe card** (any inexpensive NIC, sound, or capture card)
-- **Linux OS** (You need this)
-
-### Recommended Requirements
-
-- **Podman** (recommended for containerized builds) - The build system uses Podman by default for consistency and reproducibility. If Podman isn't installed, you'll be prompted to run locally.
+- **Linux OS** with VFIO support (required for Stage 1 data collection)
 
 ### Optional Requirements
 
-- **DMA board** (pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1) - You don't need to flash your firmware with this tooling but you can.
-- **Vivado Studio** (2022.2+ for synthesis and bitstream generation) - You can use a locally generated Vivado project or insert the files into an existing one.
+- **Podman** - For isolated Stage 2 templating (container does NOT access VFIO)
+- **DMA board** - pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1
+- **Vivado** - 2022.2+ for bitstream synthesis (Stage 3)
 
 
-### Basic Usage
+### CLI Commands
 
 ```bash
 # Interactive TUI (recommended for first-time users)
-sudo pcileech tui
+pcileech-sudo tui
 
-# CLI interface for scripted builds (supports board shorthands)
-sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1
-# Or use shorthand:
-sudo pcileech build --bdf 0000:03:00.0 --board 35t
+# Full 3-stage build pipeline
+pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1
 
-# CLI build with custom Vivado settings
-sudo pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
+# Stage 1 only (collect device data, no templating)
+pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1 --host-collect-only
+
+# Force local mode for Stage 2 (skip container)
+pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1 --local
+
+# Full build with Vivado synthesis (Stage 3)
+pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
     --vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8 --vivado-timeout 7200
 
 # Check VFIO configuration
-sudo pcileech check --device 0000:03:00.0
+pcileech-sudo check --device 0000:03:00.0
 
-# Flash firmware to device
-sudo pcileech flash output/firmware.bin
+# Flash firmware to device (after Vivado synthesis produces .bit file)
+pcileech-sudo flash pcileech_datastore/output/*.bit --board pcileech_35t325_x1
 
-# Show version information
+# Show version information (doesn't need sudo)
 pcileech version
 ```
 
@@ -129,7 +166,7 @@ sudo -E python3 pcileech.py tui
 
 > **Note for developers**: When working from a git checkout for local development, you must clone with `--recurse-submodules` or run `git submodule update --init --recursive` after cloning. The `lib/voltcyclone-fpga` submodule contains FPGA board definitions and synthesis templates.
 >
-> **Note for container users**: The container build automatically clones the `voltcyclone-fpga` repository during the build process, so you don't need to initialize any git submodules manually. Just build the container!
+> **Note for container users**: The container (used only for Stage 2 templating) automatically clones the `voltcyclone-fpga` repository during image build. The container does NOT access VFIO - it only generates firmware from pre-collected device data.
 >
 > **Note for pip users**: The voltcyclone-fpga submodule contents are bundled automatically in pip distributions, so no additional steps are needed.
 
@@ -138,35 +175,50 @@ sudo -E python3 pcileech.py tui
 Having issues? Check our comprehensive **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** which covers:
 
 - **VFIO Setup Issues** - IOMMU configuration, module loading, device binding
-- **Installation Problems** - Package dependencies, container setup, Python 3.12+ externally-managed environments
+- **Installation Problems** - Virtual environment setup, Python 3.12+ issues
 - **BAR Detection Issues** - Power state problems, device compatibility  
-- **Device-Specific Issues** - Known problems with specific hardware
+- **Locked IP Cores** - Vivado licensing and IP regeneration
 
-Quick diagnostic command:
+### Common Issues
 
-```bash
-# Check VFIO setup and device compatibility
-sudo python3 pcileech.py check --device 0000:03:00.0 --interactive
-```
+#### "externally-managed-environment" Error
 
-### Common Installation Issues
-
-#### "externally-managed-environment" error on Python 3.12+/Debian 12+
-
-See [Installation on Python 3.12+](site/docs/installation-python312.md) for detailed solutions. Quick fix:
+You **must** use a virtual environment on modern Linux:
 
 ```bash
-# Create venv and install
 python3 -m venv ~/.pcileech-venv
 source ~/.pcileech-venv/bin/activate
 pip install pcileechfwgenerator[tui]
+```
 
-# Run with venv's Python directly
+#### "ModuleNotFoundError: No module named 'textual'"
+
+Install with TUI support:
+
+```bash
+pip install pcileechfwgenerator[tui]
+```
+
+#### "Permission denied" / VFIO Errors
+
+Use the venv's Python with sudo:
+
+```bash
 sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
+```
+
+#### Quick Diagnostic
+
+```bash
+pcileech-sudo check --device 0000:03:00.0 --interactive
 ```
 
 ## Direct Documentation Links
 
+- **[Installation Guide](https://pcileechfwgenerator.voltcyclone.info/installation)** - Complete installation instructions
+- **[Quick Start Guide](https://pcileechfwgenerator.voltcyclone.info/quick-start)** - Get started in minutes
+- **[Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)** - Understanding the 3-stage build flow
+- **[Container Builds](https://pcileechfwgenerator.voltcyclone.info/container-builds)** - Container configuration and troubleshooting
 - **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** - Comprehensive troubleshooting and diagnostic guide
 - **[Device Cloning Process](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** - Complete guide to the cloning workflow
 - **[Firmware Uniqueness](https://pcileechfwgenerator.voltcyclone.info/firmware-uniqueness)** - How authenticity is achieved
@@ -175,6 +227,22 @@ sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
 - **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)** - Contributing and development guide
 - **[TUI Documentation](https://pcileechfwgenerator.voltcyclone.info/tui-readme)** - Interactive interface guide
 - **[Config space info](https://pcileechfwgenerator.voltcyclone.info/config-space-shadow)** - Config space shadow info
+
+## Output Files
+
+After a successful build, artifacts are placed in the datastore (default: `pcileech_datastore/`):
+
+```
+pcileech_datastore/
+├── device_context.json       # Stage 1: Collected device data
+├── msix_data.json            # Stage 1: MSI-X capability data
+└── output/
+    ├── pcileech_top.sv       # Top-level SystemVerilog module
+    ├── device_config.sv      # Device configuration module
+    ├── config_space_init.hex # Configuration space initialization (BRAM)
+    ├── *.tcl                 # Vivado project/build scripts
+    └── *.bit                 # Bitstream (only after Stage 3 Vivado synthesis)
+```
 
 ## Cleanup & Safety
 
