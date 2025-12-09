@@ -801,14 +801,15 @@ def run_build(cfg: BuildConfig) -> None:
                 capture_output=True,
                 text=True,
             )
-            # Stream output to user's console for visibility
-            if result.stdout:
-                for line in result.stdout.splitlines():
-                    log_info_safe(logger, line, prefix="CONT")
-            if result.stderr:
-                for line in result.stderr.splitlines():
-                    # Use warning level for stderr to distinguish from stdout
-                    log_warning_safe(logger, line, prefix="CONT")
+            # Stream output to user's console for visibility only on success
+            if result.returncode == 0:
+                if result.stdout:
+                    for line in result.stdout.splitlines():
+                        log_info_safe(logger, line, prefix="CONT")
+                if result.stderr:
+                    for line in result.stderr.splitlines():
+                        # Use warning level for stderr to distinguish from stdout
+                        log_warning_safe(logger, line, prefix="CONT")
             # Check return code after logging output
             if result.returncode != 0:
                 raise subprocess.CalledProcessError(
