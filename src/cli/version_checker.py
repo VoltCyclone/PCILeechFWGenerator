@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 CACHE_FILE = Path.home() / ".cache" / "pcileech-fw-generator" / "version_check.json"
 CHECK_INTERVAL_DAYS = 1  # Check once per day
 GITHUB_API_URL = (
-    "https://api.github.com/repos/ramseymcgrath/PCILeechFWGenerator/releases/latest"
+    "https://api.github.com/repos/voltcyclone/PCILeechFWGenerator/releases/latest"
 )
 PYPI_API_URL = "https://pypi.org/pypi/pcileech-fw-generator/json"
 # Env var to control version source behaviour. Defaults to 'github'.

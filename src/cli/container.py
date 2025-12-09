@@ -314,6 +314,8 @@ def _build_podman_command(
     # Set environment variables for prefilled data paths
     cmd.extend(["-e", "DEVICE_CONTEXT_PATH=/app/output/device_context.json"])
     cmd.extend(["-e", "MSIX_DATA_PATH=/app/output/msix_data.json"])
+    # Signal container to use host-collected context and avoid VFIO/sysfs operations
+    cmd.extend(["-e", "PCILEECH_HOST_CONTEXT_ONLY=1"])
     
     # Mount kernel headers if present (Linux). On macOS this path won't exist.
     if kernel_headers and Path(kernel_headers).exists():
@@ -793,8 +795,47 @@ def run_build(cfg: BuildConfig) -> None:
         )
         start = time.time()
         try:
-            subprocess.run(podman_cmd_vec, check=True)
+            # Capture output to surface container errors on failure
+            result = subprocess.run(
+                podman_cmd_vec,
+                capture_output=True,
+                text=True,
+            )
+            # Stream output to user's console for visibility only on success
+            if result.returncode == 0:
+                if result.stdout:
+                    for line in result.stdout.splitlines():
+                        log_info_safe(logger, line, prefix="CONT")
+                if result.stderr:
+                    for line in result.stderr.splitlines():
+                        # Use warning level for stderr to distinguish from stdout
+                        log_warning_safe(logger, line, prefix="CONT")
+            # Check return code after logging output
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    result.returncode,
+                    podman_cmd_vec,
+                    output=result.stdout,
+                    stderr=result.stderr,
+                )
         except subprocess.CalledProcessError as e:
+            # Log captured container output if available
+            if hasattr(e, 'stdout') and e.stdout:
+                log_error_safe(
+                    logger,
+                    "Container stdout:",
+                    prefix="CONT",
+                )
+                for line in e.stdout.splitlines()[-50:]:  # Last 50 lines
+                    log_error_safe(logger, f"  {line}", prefix="CONT")
+            if hasattr(e, 'stderr') and e.stderr:
+                log_error_safe(
+                    logger,
+                    "Container stderr:",
+                    prefix="CONT",
+                )
+                for line in e.stderr.splitlines()[-50:]:  # Last 50 lines
+                    log_error_safe(logger, f"  {line}", prefix="CONT")
             # Enrich error when VFIO device nodes are not present inside container
             try:
                 # Quick probe: if container failed and host devices exist,
