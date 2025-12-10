@@ -445,14 +445,9 @@ class VFIODeviceManager:
             if (self._device_fd is not None and self._device_fd < 0) or (
                 self._container_fd is not None and self._container_fd < 0
             ):
-                log_warning_safe(
+                log_debug_safe(
                     self.logger,
-                    safe_format(
-                        "VFIO unavailable; using fallbacks "
-                        "(dev_fd={dev}, cont_fd={cont})",
-                        dev=self._device_fd,
-                        cont=self._container_fd,
-                    ),
+                    "VFIO FDs unavailable; using sysfs fallback",
                     prefix="VFIO",
                 )
                 self._device_fd = None
@@ -478,10 +473,10 @@ class VFIODeviceManager:
             except Exception as e:
                 # Log non-fatally; higher-level callers may re-run the check
                 # and decide to abort the operation if required.
-                log_warning_safe(
+                log_debug_safe(
                     self.logger,
                     safe_format(
-                        "VFIO binding check failed after open: {error}", error=e
+                        "VFIO binding check: {error}; using sysfs fallback", error=e
                     ),
                     prefix="VFIO",
                 )
@@ -524,6 +519,14 @@ class VFIODeviceManager:
                     prefix="VFIO",
                 )
                 return None
+            except Exception as e:
+                # Catch any other open() failures and return None for fallback
+                log_warning_safe(
+                    self.logger,
+                    safe_format("VFIO device open failed (fallback): {error}", error=e),
+                    prefix="VFIO",
+                )
+                return None
             # After attempting open, ensure the FD is valid
             if (self._device_fd is None) or (
                 isinstance(self._device_fd, int) and self._device_fd < 0
@@ -536,7 +539,13 @@ class VFIODeviceManager:
 
         try:
             if self._device_fd is None:
-                raise ContextError("Device FD not available")
+                # Return None to allow fallback path instead of raising
+                log_debug_safe(
+                    self.logger,
+                    "Device FD not available, returning None for fallback",
+                    prefix="VFIO",
+                )
+                return None
 
             from src.utils.vfio_retry import retry_vfio_ioctl
 
@@ -616,7 +625,15 @@ class VFIODeviceManager:
             info.argsz = ctypes.sizeof(VfioRegionInfo)
             info.index = index
             if self._device_fd is None:
-                raise ContextError("Device FD not available")
+                # Return None to allow fallback path instead of raising
+                log_debug_safe(
+                    self.logger,
+                    "Device FD not available for region slice, returning None",
+                    prefix="VFIO",
+                )
+                if opened_here:
+                    self.close()
+                return None
             from src.utils.vfio_retry import retry_vfio_ioctl
 
             def _do_ioctl():

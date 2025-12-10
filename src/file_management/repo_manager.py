@@ -55,6 +55,20 @@ _logger = get_logger(__name__)
 ###############################################################################
 
 
+def _is_container_env() -> bool:
+    """Detect if running inside a container environment.
+    
+    Container environments don't have .git directories since COPY
+    doesn't preserve git metadata. This affects validation logic.
+    """
+    return (
+        _os.path.exists("/.dockerenv") or
+        _os.path.exists("/run/.containerenv") or
+        _os.environ.get("container") in ("podman", "docker") or
+        _os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "").lower() in ("1", "true", "yes")
+    )
+
+
 def _run(
     cmd: List[str], 
     *, 
@@ -134,12 +148,22 @@ class RepoManager:
 
         Requirements:
         - Path must exist.
-        - Must be a valid git repository (submodule initialized).
+        - Must be a valid git repository (submodule initialized) OR
+          in container mode: must contain required board directories.
         - Must contain required board directories.
 
         Any deviation raises RuntimeError with remediation instructions.
         """
         if not SUBMODULE_PATH.exists():
+            # Provide context-aware error message
+            if _is_container_env():
+                raise RuntimeError(safe_format(
+                    "voltcyclone-fpga not found at {path}.\n"
+                    "Container image may be corrupted or out of date.\n"
+                    "Remediation: Rebuild the container image with:\n"
+                    "  podman build -t pcileech-fwgen -f Containerfile .",
+                    path=SUBMODULE_PATH,
+                ))
             raise RuntimeError(safe_format(
                 "Missing voltcyclone-fpga submodule at {path}.\n"
                 "Remediation: git submodule update --init --recursive",
@@ -147,13 +171,22 @@ class RepoManager:
             ))
 
         if not cls._is_valid_repo(SUBMODULE_PATH):
+            # Provide context-aware error message
+            if _is_container_env():
+                raise RuntimeError(safe_format(
+                    "voltcyclone-fpga at {path} is incomplete or corrupted.\n"
+                    "Container image may need to be rebuilt.\n"
+                    "Remediation: Rebuild the container image with:\n"
+                    "  podman build -t pcileech-fwgen -f Containerfile .",
+                    path=SUBMODULE_PATH,
+                ))
             raise RuntimeError(safe_format(
                 "voltcyclone-fpga at {path} is not a valid git repository.\n"
                 "Remediation: git submodule update --init --recursive",
                 path=SUBMODULE_PATH,
             ))
 
-        # Minimal required directories
+        # Minimal required directories (validated again for explicit error)
         required_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
         missing = [d for d in required_dirs if not (SUBMODULE_PATH / d).exists()]
         if missing:
@@ -305,7 +338,26 @@ class RepoManager:
     @classmethod
     
     def _is_valid_repo(cls, path: Path) -> bool:
-        """Check if path contains a valid git repository."""
+        """Check if path contains a valid voltcyclone-fpga repository.
+        
+        In container environments, .git directories are not preserved during
+        COPY operations, so we validate by checking for required board directories
+        instead. This is safe because the container builds clone the repo fresh.
+        """
+        # In container mode, skip git validation and check for required content
+        if _is_container_env():
+            # Validate by checking for required board directories
+            required_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
+            if all((path / d).exists() for d in required_dirs):
+                log_debug_safe(
+                    _logger,
+                    "Container mode: voltcyclone-fpga validated by content (no .git required)",
+                    prefix="REPO",
+                )
+                return True
+            return False
+        
+        # Normal mode: require valid git repository
         git_dir = path / ".git"
         if not git_dir.exists():
             return False

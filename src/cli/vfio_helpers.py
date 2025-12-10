@@ -41,9 +41,9 @@ def check_vfio_prerequisites() -> None:
 
     # Check if VFIO container device exists
     if not os.path.exists("/dev/vfio/vfio"):
-        log_warning_safe(
+        log_debug_safe(
             logger,
-            "[TODO HARDEN] VFIO container device /dev/vfio/vfio not found. Proceeding with warning.",
+            "VFIO device /dev/vfio/vfio not found; using sysfs fallback",
             prefix="VFIO",
         )
         return
@@ -54,16 +54,16 @@ def check_vfio_prerequisites() -> None:
         test_fd = os.open("/dev/vfio/vfio", os.O_RDWR)
         os.close(test_fd)
     except PermissionError:
-        log_warning_safe(
+        log_debug_safe(
             logger,
-            "[TODO HARDEN] Permission denied accessing /dev/vfio/vfio. Proceeding with warning.",
+            "Permission denied for /dev/vfio/vfio; using sysfs fallback",
             prefix="VFIO",
         )
         return
     except OSError as e:
-        log_warning_safe(
+        log_debug_safe(
             logger,
-            f"[TODO HARDEN] Failed to access VFIO container: {e}. Proceeding with warning.",
+            safe_format("VFIO access failed: {e}; using sysfs fallback", e=e),
             prefix="VFIO",
         )
         return
@@ -71,9 +71,9 @@ def check_vfio_prerequisites() -> None:
     # Check if vfio-pci driver is available
     vfio_pci_path = "/sys/bus/pci/drivers/vfio-pci"
     if not os.path.exists(vfio_pci_path):
-        log_warning_safe(
+        log_debug_safe(
             logger,
-            "[TODO HARDEN] vfio-pci driver not found. Proceeding with warning.",
+            "vfio-pci driver not loaded; using sysfs fallback",
             prefix="VFIO",
         )
         return
@@ -99,9 +99,12 @@ def check_iommu_group_binding(group: str) -> None:
 
     group_devices_path = f"/sys/kernel/iommu_groups/{group}/devices"
     if not os.path.exists(group_devices_path):
-        log_warning_safe(
+        log_debug_safe(
             logger,
-            f"[TODO HARDEN] IOMMU group {group} devices path not found: {group_devices_path}. Proceeding with warning.",
+            safe_format(
+                "IOMMU group {group} path not found; using sysfs fallback",
+                group=group,
+            ),
             prefix="VFIO",
         )
         return
@@ -132,15 +135,15 @@ def check_iommu_group_binding(group: str) -> None:
                 unbound_devices.append(device)
 
         if unbound_devices or wrong_driver_devices:
-            warn_msg = f"IOMMU group {group} has devices not bound to vfio-pci:\n"
-            if unbound_devices:
-                warn_msg += f"  Unbound devices: {unbound_devices}\n"
-            if wrong_driver_devices:
-                warn_msg += f"  Wrong driver devices: {wrong_driver_devices}\n"
-            warn_msg += "All devices in an IOMMU group should be bound to vfio-pci for VFIO to work. Proceeding with warning."
-            log_warning_safe(
+            # Log at debug level - this is expected when using sysfs fallback
+            drivers = [d[1] for d in wrong_driver_devices] if wrong_driver_devices else []
+            log_debug_safe(
                 logger,
-                warn_msg,
+                safe_format(
+                    "IOMMU group {group}: devices bound to {drivers}; using sysfs fallback",
+                    group=group,
+                    drivers=drivers or "(unbound)",
+                ),
                 prefix="VFIO",
             )
             return
@@ -153,9 +156,13 @@ def check_iommu_group_binding(group: str) -> None:
         )
 
     except OSError as e:
-        log_warning_safe(
+        log_debug_safe(
             logger,
-            f"[TODO HARDEN] Failed to check IOMMU group {group} bindings: {e}. Proceeding with warning.",
+            safe_format(
+                "IOMMU group {group} binding check failed: {e}; using sysfs fallback",
+                group=group,
+                e=e,
+            ),
             prefix="VFIO",
         )
         return
@@ -328,10 +335,10 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
     )
 
     if not os.path.exists(grp_path):
-        log_warning_safe(
+        log_debug_safe(
             logger,
             safe_format(
-                "VFIO group file not found: {grp_path}. Proceeding with warning.",
+                "VFIO group {grp_path} not found; using sysfs fallback",
                 grp_path=grp_path,
             ),
             prefix="VFIO",

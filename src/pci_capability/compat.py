@@ -11,7 +11,7 @@ import logging
 
 from typing import Dict, List, Optional
 
-from ..string_utils import (log_error_safe, log_info_safe,
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
                             log_warning_safe, safe_format)
 
 from .core import CapabilityWalker, ConfigSpace
@@ -44,10 +44,11 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
         return cap_info.offset if cap_info else None
 
     except (ValueError, IndexError) as e:
-        log_error_safe(
+        # Expected when capability not present or config space incomplete
+        log_debug_safe(
             logger,
             safe_format(
-                "Error finding standard capability 0x{cap_id:02x}: {e}",
+                "Capability 0x{cap_id:02x} not found: {e}",
                 cap_id=cap_id,
                 e=e,
             ),
@@ -75,13 +76,14 @@ def find_ext_cap(cfg: str, cap_id: int) -> Optional[int]:
         return cap_info.offset if cap_info else None
 
     except (ValueError, IndexError) as e:
-        log_error_safe(
+        # Expected when extended capability not present or config space incomplete
+        log_debug_safe(
             logger,
             safe_format(
-            "Error finding extended capability 0x{cap_id:04x}: {e}",
-            cap_id=cap_id,
-            e=e,
-            ),            
+                "Extended capability 0x{cap_id:04x} not found: {e}",
+                cap_id=cap_id,
+                e=e,
+            ),
             prefix="PCI_CAP",
         )
         return None
