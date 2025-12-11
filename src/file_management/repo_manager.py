@@ -65,6 +65,7 @@ def _is_container_env() -> bool:
         _os.path.exists("/.dockerenv") or
         _os.path.exists("/run/.containerenv") or
         _os.environ.get("container") in ("podman", "docker") or
+        _os.environ.get("PCILEECH_CONTAINER_MODE", "").lower() in ("1", "true", "yes") or
         _os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "").lower() in ("1", "true", "yes")
     )
 

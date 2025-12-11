@@ -40,7 +40,8 @@ FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
     PCILEECH_PRODUCTION_MODE=true \
-    PCILEECH_ALLOW_MOCK_DATA=false
+    PCILEECH_ALLOW_MOCK_DATA=false \
+    PCILEECH_CONTAINER_MODE=true
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -69,8 +70,13 @@ COPY --from=build /src/lib/voltcyclone-fpga ./lib/voltcyclone-fpga
 # Copy the patched VFIO constants from build stage
 COPY --from=build /src/vfio_constants_patched.py ./src/cli/vfio_constants.py
 
-# Ensure __init__.py files exist in all directories
-RUN find ./src -type d -exec touch {}/__init__.py \; 2>/dev/null || true
+# Ensure __init__.py files exist in directories that don't have them
+# IMPORTANT: Do NOT overwrite existing __init__.py files that have actual content
+RUN for dir in $(find ./src -type d); do \
+        if [ ! -f "$dir/__init__.py" ]; then \
+            touch "$dir/__init__.py"; \
+        fi; \
+    done
 
 # Copy and setup entrypoint
 COPY entrypoint.sh /usr/local/bin/entrypoint

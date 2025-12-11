@@ -487,7 +487,7 @@ puts "Adding source files..."
         script_content += 'puts "Adding IP cores..."\n'
         script_content += (
             "# Import all IP files from ip directory into project\n"
-            "# Using import_files -copy to create local copies, avoiding locked IP issues\n"
+            "# Using import_files -fileset to import copies, avoiding locked IP issues\n"
             "set ip_dir [file normalize \"./ip\"]\n"
             "if {[file exists $ip_dir]} {\n"
             "    set ip_files [glob -nocomplain -directory $ip_dir *.xci]\n"
@@ -496,9 +496,10 @@ puts "Adding source files..."
             "        foreach ip_file $ip_files {\n"
             "            set ip_name [file rootname [file tail $ip_file]]\n"
             '            puts "Importing IP: $ip_name"\n'
-            "            # Use import_files with -copy to create local project copy\n"
-            "            # This prevents locked IP issues from path relocation\n"
-            "            if {[catch {import_files -norecurse -copy_to [get_property DIRECTORY [current_project]]/sources_1/ip $ip_file} import_err]} {\n"
+            "            # Use import_files with -fileset to import into sources_1 fileset\n"
+            "            # import_files automatically copies files into the project directory\n"
+            "            set fs [get_filesets sources_1]\n"
+            "            if {[catch {import_files -norecurse -fileset $fs $ip_file} import_err]} {\n"
             "                # Fallback: try read_ip if import_files fails\n"
             '                puts "Import failed, trying read_ip: $import_err"\n'
             "                if {[catch {read_ip $ip_file} read_err]} {\n"
