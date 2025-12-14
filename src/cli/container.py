@@ -253,6 +253,39 @@ def require_podman() -> None:
         raise ConfigurationError("Podman not found - install it or adjust PATH")
 
 
+def get_image_age_days(name: str) -> Optional[int]:
+    """Get the age of a container image in days, or None if unable to determine."""
+    try:
+        result = subprocess.run(
+            ["podman", "image", "inspect", name, "--format", "{{.Created}}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return None
+        
+        created_str = result.stdout.strip()
+        # Parse ISO format timestamp (e.g., "2024-12-01T10:30:00.123456789Z")
+        from datetime import datetime, timezone
+        # Handle formats with nanoseconds - truncate to microseconds
+        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"]:
+            try:
+                parse_str = created_str
+                if "." in parse_str and len(parse_str.split(".")[-1].rstrip("Z")) > 6:
+                    parts = parse_str.split(".")
+                    parse_str = parts[0] + "." + parts[1][:6] + "Z"
+                created = datetime.strptime(parse_str, fmt)
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                return (now - created).days
+            except ValueError:
+                continue
+        return None
+    except Exception:
+        return None
+
+
 def image_exists(name: str) -> bool:
     try:
         shell = Shell()
@@ -267,6 +300,32 @@ def image_exists(name: str) -> bool:
         if "Cannot connect to Podman" in str(e) or "connection refused" in str(e):
             return False
         raise
+
+
+def check_image_staleness(name: str) -> None:
+    """Check if image exists and warn if it's potentially stale."""
+    if not image_exists(name):
+        return
+    
+    age_days = get_image_age_days(name)
+    if age_days is not None and age_days > 7:
+        log_warning_safe(
+            logger,
+            safe_format(
+                "Container image '{img}' is {days} days old. "
+                "If you experience issues, rebuild with: "
+                "podman system prune -a -f && podman build -t {img} -f Containerfile .",
+                img=name,
+                days=age_days,
+            ),
+            prefix="BUILD",
+        )
+    else:
+        log_info_safe(
+            logger,
+            safe_format("Using existing container image: {img}", img=name),
+            prefix="BUILD",
+        )
 
 
 def build_image(name: str, tag: str) -> None:

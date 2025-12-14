@@ -16,6 +16,7 @@ import sys
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 
 # Add project root to path for imports (use absolute path to avoid symlink issues)
 project_root = Path(__file__).resolve().parent
@@ -891,6 +892,39 @@ def run_host_collect(args):
     return rc
 
 
+def _get_image_age_days(runtime: str, tag: str) -> Optional[int]:
+    """Get the age of a container image in days, or None if unable to determine."""
+    try:
+        result = subprocess.run(
+            [runtime, "image", "inspect", tag, "--format", "{{.Created}}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return None
+        
+        created_str = result.stdout.strip()
+        # Parse ISO format timestamp (e.g., "2024-12-01T10:30:00.123456789Z")
+        from datetime import datetime, timezone
+        # Handle both formats: with and without nanoseconds
+        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"]:
+            try:
+                # Truncate nanoseconds to microseconds if present
+                if "." in created_str and len(created_str.split(".")[-1].rstrip("Z")) > 6:
+                    parts = created_str.split(".")
+                    created_str = parts[0] + "." + parts[1][:6] + "Z"
+                created = datetime.strptime(created_str, fmt)
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                return (now - created).days
+            except ValueError:
+                continue
+        return None
+    except Exception:
+        return None
+
+
 def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -> bool:
     """Ensure the container image exists; build it if missing."""
     try:
@@ -900,6 +934,30 @@ def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -
             text=True,
         )
         if inspect.returncode == 0:
+            # Image exists - warn user about potential staleness
+            age_days = _get_image_age_days(runtime, tag)
+            if age_days is not None and age_days > 7:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Container image '{tag}' is {days} days old. "
+                        "If you experience issues, rebuild with: "
+                        "{rt} system prune -a -f && {rt} build -t {tag} -f Containerfile .",
+                        tag=tag,
+                        days=age_days,
+                        rt=runtime,
+                    ),
+                    prefix="BUILD",
+                )
+            else:
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Using existing container image: {tag}",
+                        tag=tag,
+                    ),
+                    prefix="BUILD",
+                )
             return True
         # Build image
         log_info_safe(
