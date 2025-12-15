@@ -1303,11 +1303,32 @@ class PCILeechContextBuilder:
             "Missing device_id from config space data",
         )
 
+        # Require class_code - critical for device identity
+        class_code = config_space_data.get("class_code")
+        if class_code is None or class_code == "":
+            # Try to extract from config space if not present
+            if "class_code" not in config_space_data:
+                log_error_safe(
+                    self.logger,
+                    "class_code missing from config space data - device identity incomplete",
+                    prefix="CONTEXT",
+                )
+                # Use unknown device class as last resort, but warn heavily
+                class_code = DEFAULT_CLASS_CODE
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Using fallback class_code {code} - device may enumerate incorrectly!",
+                        code=class_code,
+                    ),
+                    prefix="CONTEXT",
+                )
+
         # DeviceIdentifiers.__post_init__ handles validation and normalization
         return DeviceIdentifiers(
             vendor_id=str(vendor_id),
             device_id=str(device_id),
-            class_code=config_space_data.get("class_code", DEFAULT_CLASS_CODE),
+            class_code=str(class_code),
             revision_id=config_space_data.get("revision_id", DEFAULT_REVISION_ID),
             subsystem_vendor_id=config_space_data.get("subsystem_vendor_id"),
             subsystem_device_id=config_space_data.get("subsystem_device_id"),

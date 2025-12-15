@@ -919,29 +919,52 @@ class ConfigSpaceManager:
             )
 
             # Validate subsystem IDs - detect clearly invalid values
-            if subsys_vendor_id == 0x0000 or subsys_vendor_id == 0xFFFF:
+            # CRITICAL: Preserve original subsystem IDs even if 0x0000
+            # Some devices legitimately have 0x0000 subsystem IDs
+            # Only replace 0xFFFF (invalid device marker)
+            if subsys_vendor_id == 0xFFFF:
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Invalid subsystem vendor ID 0x{subsys_vendor:04x}, using main vendor ID 0x{vendor:04x}",
+                        "Invalid subsystem vendor ID 0x{subsys_vendor:04x} (0xFFFF), using main vendor ID 0x{vendor:04x}",
                         subsys_vendor=subsys_vendor_id,
                         vendor=vendor_id,
                     ),
                     prefix="SUBS",
                 )
                 subsys_vendor_id = vendor_id
+            elif subsys_vendor_id == 0x0000:
+                # 0x0000 can be legitimate for some devices, just log it
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Subsystem vendor ID is 0x0000 - this may be normal for some devices (main vendor: 0x{vendor:04x})",
+                        vendor=vendor_id,
+                    ),
+                    prefix="SUBS",
+                )
 
-            if subsys_device_id == 0x0000 or subsys_device_id == 0xFFFF:
+            if subsys_device_id == 0xFFFF:
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Invalid subsystem device ID 0x{subsys_device:04x}, using main device ID 0x{device:04x}",
+                        "Invalid subsystem device ID 0x{subsys_device:04x} (0xFFFF), using main device ID 0x{device:04x}",
                         subsys_device=subsys_device_id,
                         device=device_id,
                     ),
                     prefix="SUBS",
                 )
                 subsys_device_id = device_id
+            elif subsys_device_id == 0x0000:
+                # 0x0000 can be legitimate for some devices, just log it
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Subsystem device ID is 0x0000 - this may be normal for some devices (main device: 0x{device:04x})",
+                        device=device_id,
+                    ),
+                    prefix="SUBS",
+                )
 
             # Log if subsystem IDs match main IDs (this might be normal for some devices)
             if subsys_vendor_id == vendor_id and subsys_device_id == device_id:

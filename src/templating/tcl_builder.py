@@ -39,7 +39,9 @@ _logger = logging.getLogger(__name__)
 DEFAULT_VENDOR_ID = 0x10EC  # Realtek
 DEFAULT_DEVICE_ID = 0x8168  # RTL8168
 DEFAULT_REVISION_ID = 0x15
-DEFAULT_CLASS_CODE = 0x020000  # Ethernet controller
+# CRITICAL: Default class code must be unknown (000000), NOT Ethernet!
+# This value should only be used as a last resort - real class code must come from hardware
+DEFAULT_CLASS_CODE = 0x000000  # Unknown device - MUST be read from actual hardware
 
 # PCIe link parameter validation sets
 PCIE_SPEED_CODES = {1, 2, 3, 4, 5}  # Gen1-Gen5 (2.5GT/s - 32GT/s)
@@ -344,8 +346,17 @@ class BuildContext:
 
         class_code = self.class_code
         if class_code is None:
-            class_code = 0x020000  # Legacy default (Ethernet controller)
-            context_metadata["defaults_used"]["class_code"] = 0x020000
+            # CRITICAL: No fallback! Fail if class_code is missing
+            log_error_safe(
+                self.logger,
+                "class_code missing from device_config - cannot generate firmware without device identity",
+                prefix="TCL",
+            )
+            raise ValueError(
+                "class_code is required in device_config. "
+                "Cannot generate firmware without proper device class code. "
+                "This value must be read from the actual hardware device."
+            )
         else:
             context_metadata["explicit_values"]["class_code"] = class_code
 
@@ -1257,7 +1268,8 @@ class TCLBuilder:
         final_vendor_id = vendor_id or config_vendor_id
         final_device_id = device_id or config_device_id
         final_revision_id = revision_id or config_revision_id
-        final_class_code = kwargs.get("class_code") or config_class_code or 0x020000
+        # CRITICAL: No fallback for class_code - must come from hardware
+        final_class_code = kwargs.get("class_code") or config_class_code
 
         # Validate critical device identification values are present
         # These are required for donor-unique firmware generation

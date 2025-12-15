@@ -140,6 +140,19 @@ class SVValidator:
                             )
                         )
 
+        # CRITICAL: Check for incorrect class_code defaults
+        class_code = device_config.get("class_code", "")
+        if class_code == "020000":
+            # Warn if using Ethernet class code - might be incorrect fallback
+            log_error_safe(
+                self.logger,
+                "Device has class_code=020000 (Ethernet Controller). "
+                "If the source device is NOT an Ethernet controller, this indicates "
+                "a fallback value was used instead of reading from hardware. "
+                "This will cause incorrect device enumeration in Windows/Linux.",
+                prefix="VALID",
+            )
+
         if missing_fields or invalid_fields:
             error_details: List[str] = []
             if missing_fields:

@@ -15,11 +15,13 @@ class SVConstants:
     DEFAULT_FIFO_DEPTH: int = 512
     DEFAULT_DATA_WIDTH: int = 128
     DEFAULT_FPGA_FAMILY: str = "artix7"
-    DEFAULT_CLASS_CODE: str = "020000"  # Network controller
-    DEFAULT_REVISION_ID: str = "01"
+    # CRITICAL: Use unknown device class, NOT Ethernet!
+    # Using Ethernet (020000) as default causes devices to enumerate incorrectly
+    DEFAULT_CLASS_CODE: str = "000000"  # Unknown device - should be read from hardware
+    DEFAULT_REVISION_ID: str = "00"  # Unknown revision - should be read from hardware
     # Integer variants for modules that operate on numeric config-space values
-    DEFAULT_CLASS_CODE_INT: int = 0x020000
-    DEFAULT_REVISION_ID_INT: int = 0x01
+    DEFAULT_CLASS_CODE_INT: int = 0x000000
+    DEFAULT_REVISION_ID_INT: int = 0x00
     DEFAULT_SUBSYSTEM_ID: str = "0000"
 
     # Common sizes and alignments
