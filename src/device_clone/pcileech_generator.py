@@ -50,7 +50,7 @@ from src.device_clone.writemask_generator import WritemaskGenerator
 
 from src.error_utils import extract_root_cause
 
-from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
+from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError, TemplateRenderError
 
 from src.pci_capability.msix_bar_validator import validate_msix_bar_configuration
 
