@@ -126,6 +126,6 @@ class BehavioralSpec:
 def require(condition: bool, message: str, **context) -> None:
     """Validate condition or exit with error."""
     if not condition:
-        log_error_safe(safe_format("Build aborted: {msg} | ctx={ctx}", 
+        log_error_safe(logger, safe_format("Build aborted: {msg} | ctx={ctx}", 
                                   msg=message, ctx=context))
         raise SystemExit(2)
