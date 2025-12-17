@@ -43,7 +43,7 @@ jobs:
           submodules: recursive
 
       - name: Cache template validation
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: template_variables_report.json
           key: template-validation-${{ env.CACHE_VERSION }}-${{ hashFiles('scripts/validate_template_variables.py', 'templates/**') }}
@@ -141,7 +141,7 @@ jobs:
           skip-missing: 'true'
 
       - name: Cache pytest cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .pytest_cache
           key: pytest-cache-${{ env.CACHE_VERSION }}-${{ matrix.python-version }}-${{ hashFiles('tests/**/*.py') }}
