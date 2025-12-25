@@ -18,7 +18,7 @@ from pathlib import Path
 
 import struct
 
-from string_utils import (
+from src.string_utils import (
     log_info_safe,
     log_warning_safe,
     log_error_safe,
