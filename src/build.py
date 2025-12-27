@@ -111,7 +111,11 @@ def _running_in_container() -> bool:
             with open(cgroup_path, "rt") as f:
                 data = f.read()
             return any(tag in data for tag in ("docker", "kubepods", "containerd"))
+    except (OSError, IOError):
+        # File system access errors are expected on some systems
+        return False
     except Exception:
+        # Unexpected errors during container detection (fail safe)
         return False
     return False
 
@@ -120,7 +124,11 @@ def _linux() -> bool:
     """Return True if running on Linux."""
     try:
         return platform.system().lower() == "linux"
+    except (AttributeError, OSError):
+        # Platform module issues or system call failures
+        return False
     except Exception:
+        # Unexpected platform detection errors (fail safe)
         return False
 
 
@@ -137,7 +145,11 @@ def _vfio_available() -> bool:
         if not os.access(control, os.R_OK | os.W_OK):
             return False
         return any(os.access(g, os.R_OK | os.W_OK) for g in groups)
+    except (OSError, IOError, PermissionError):
+        # File system or permission errors accessing VFIO devices
+        return False
     except Exception:
+        # Unexpected VFIO check errors (fail safe)
         return False
 
 
@@ -543,18 +555,39 @@ class MSIXManager:
                 )
                 return MSIXData(preloaded=False, msix_info=None)
 
-        except Exception as e:
+        except (OSError, IOError) as e:
             log_warning_safe(
                 self.logger,
-                safe_format("MSI-X preload failed: {err}", err=str(e)),
+                safe_format("MSI-X preload failed - I/O error: {err}", err=str(e)),
                 prefix="MSIX",
             )
             if self.logger.isEnabledFor(logging.DEBUG):
+                import traceback
                 log_debug_safe(
                     self.logger,
                     safe_format(
-                        "MSI-X preload exception details: {err}",
-                        err=str(e),
+                        "MSI-X preload I/O traceback:\n{tb}",
+                        tb=traceback.format_exc(),
+                    ),
+                    prefix="MSIX",
+                )
+            return MSIXData(preloaded=False)
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X preload failed - unexpected error: {err}",
+                    err=str(e)
+                ),
+                prefix="MSIX",
+            )
+            if self.logger.isEnabledFor(logging.DEBUG):
+                import traceback
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X preload unexpected traceback:\n{tb}",
+                        tb=traceback.format_exc(),
                     ),
                     prefix="MSIX",
                 )
@@ -758,9 +791,17 @@ class FileOperationsManager:
                 filename=filename,
                 prefix="BUILD",
             )
+        except (OSError, IOError) as e:
+            raise FileOperationError(
+                f"Failed to write JSON file {filename}: I/O error - {e}"
+            ) from e
+        except (TypeError, ValueError) as e:
+            raise FileOperationError(
+                f"Failed to write JSON file {filename}: Invalid data - {e}"
+            ) from e
         except Exception as e:
             raise FileOperationError(
-                f"Failed to write JSON file {filename}: {e}"
+                f"Failed to write JSON file {filename}: Unexpected error - {e}"
             ) from e
 
     def write_text(self, filename: str, content: str) -> None:
@@ -790,9 +831,17 @@ class FileOperationsManager:
                 filename=filename,
                 prefix="BUILD",
             )
+        except (OSError, IOError) as e:
+            raise FileOperationError(
+                f"Failed to write text file {filename}: I/O error - {e}"
+            ) from e
+        except UnicodeEncodeError as e:
+            raise FileOperationError(
+                f"Failed to write text file {filename}: Encoding error - {e}"
+            ) from e
         except Exception as e:
             raise FileOperationError(
-                f"Failed to write text file {filename}: {e}"
+                f"Failed to write text file {filename}: Unexpected error - {e}"
             ) from e
 
     def list_artifacts(self) -> List[str]:
@@ -849,17 +898,28 @@ class FileOperationsManager:
                 for path, content in write_tasks
             }
 
+            failed_writes = []
             try:
                 for future in as_completed(futures, timeout=FILE_WRITE_TIMEOUT):
                     path = futures[future]
                     try:
                         future.result()
+                    except (OSError, IOError) as e:
+                        failed_writes.append((path, f"I/O error: {e}"))
+                    except UnicodeEncodeError as e:
+                        failed_writes.append((path, f"Encoding error: {e}"))
                     except Exception as e:
-                        raise FileOperationError(
-                            f"Failed to write file {path}: {e}"
-                        ) from e
+                        failed_writes.append((path, f"Unexpected error: {e}"))
             except FutureTimeoutError as e:
-                raise FileOperationError("Parallel write timed out") from e
+                raise FileOperationError(
+                    f"Parallel write timed out after {FILE_WRITE_TIMEOUT}s"
+                ) from e
+            
+            if failed_writes:
+                error_details = "; ".join([f"{p}: {e}" for p, e in failed_writes])
+                raise FileOperationError(
+                    f"Failed to write {len(failed_writes)} file(s): {error_details}"
+                )
 
     def _sequential_write(self, write_tasks: List[Tuple[Path, str]]) -> None:
         """
@@ -874,8 +934,18 @@ class FileOperationsManager:
         for path, content in write_tasks:
             try:
                 self._write_single_file(path, content)
+            except (OSError, IOError) as e:
+                raise FileOperationError(
+                    f"Failed to write file {path}: I/O error - {e}"
+                ) from e
+            except UnicodeEncodeError as e:
+                raise FileOperationError(
+                    f"Failed to write file {path}: Encoding error - {e}"
+                ) from e
             except Exception as e:
-                raise FileOperationError(f"Failed to write file {path}: {e}") from e
+                raise FileOperationError(
+                    f"Failed to write file {path}: Unexpected error - {e}"
+                ) from e
 
     def _write_single_file(self, path: Path, content: str) -> None:
         """
@@ -1255,16 +1325,49 @@ class FirmwareBuilder:
             if host_context:
                 self.build_logger.push_phase("host_context_generation")
                 self._phase("Using host-collected device context …")
+                
+                # Extract config space bytes for processing
+                config_space_hex = host_context.get("config_space_hex", "")
+                config_space_bytes =(
+                    bytes.fromhex(config_space_hex) if config_space_hex else b""   
+                )
+                
+                # Build config_space_data with device IDs from host context
+                config_space_data = {
+                    "raw_config_space": config_space_bytes,
+                    "config_space_hex": config_space_hex,
+                    "vendor_id": format(host_context.get("vendor_id", 0), "04x"),
+                    "device_id": format(host_context.get("device_id", 0), "04x"),
+                    "class_code": format(host_context.get("class_code", 0), "06x"),
+                    "revision_id": format(host_context.get("revision_id", 0), "02x"),
+                    "device_info": {
+                        "vendor_id": host_context.get("vendor_id"),
+                        "device_id": host_context.get("device_id"),
+                        "class_code": host_context.get("class_code"),
+                        "revision_id": host_context.get("revision_id"),
+                        "subsystem_vendor_id":
+                            host_context.get("subsystem_vendor_id"),
+                        "subsystem_device_id":
+                            host_context.get("subsystem_device_id"),
+                    },
+                }
+                
+                # Log the device IDs being used
+                self.build_logger.info(
+                    safe_format(
+                        "Using device IDs: VID=0x{vid} DID=0x{did} Class=0x{cls}",
+                        vid=config_space_data["vendor_id"],
+                        did=config_space_data["device_id"],
+                        cls=config_space_data["class_code"]
+                    ),
+                    prefix="HOST_CFG"
+                )
+                
                 # Use prefilled context from host, avoiding VFIO operations
                 generation_result = {
                     "template_context": host_context,
                     "systemverilog_modules": {},
-                    "config_space_data": {
-                        "raw_config_space": bytes.fromhex(
-                            host_context.get("config_space_hex", "")
-                        ) if host_context.get("config_space_hex") else b"",
-                        "config_space_hex": host_context.get("config_space_hex", ""),
-                    },
+                    "config_space_data": config_space_data,
                     "msix_data": host_context.get("msix_data"),
                 }
                 self.build_logger.info(
@@ -1341,12 +1444,32 @@ class FirmwareBuilder:
         except PlatformCompatibilityError:
             # Reraise platform compatibility errors without modification
             raise
+        except (ConfigurationError, FileOperationError, VivadoIntegrationError):
+            # Reraise known build errors without wrapping
+            raise
+        except KeyboardInterrupt:
+            log_warning_safe(
+                self.logger,
+                "Build interrupted by user",
+                prefix="BUILD",
+            )
+            raise
         except Exception as e:
             log_error_safe(
                 self.logger,
                 safe_format("Build failed: {err}", err=str(e)),
                 prefix="BUILD",
             )
+            if self.logger.isEnabledFor(logging.DEBUG):
+                import traceback
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "Build failure traceback:\n{tb}",
+                        tb=traceback.format_exc(),
+                    ),
+                    prefix="BUILD",
+                )
             raise PCILeechBuildError(
                 safe_format("Build failed: {err}", err=str(e))
             ) from e
@@ -1649,7 +1772,27 @@ class FirmwareBuilder:
                 tc = payload.get("template_context") or {}
                 if isinstance(tc, dict):
                     config_space_hex = tc.get("config_space_hex")
-            except Exception:
+            except (AttributeError, KeyError, TypeError) as e:
+                # Malformed template context structure
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "Template context extraction failed: {err}",
+                        err=str(e)
+                    ),
+                    prefix="HOST_CFG"
+                )
+                config_space_hex = None
+            except Exception as e:
+                # Unexpected error during template context extraction
+                log_debug_safe(
+                    self.logger,
+                    safe_format(
+                        "Unexpected error in template context extraction: {err}",
+                        err=str(e)
+                    ),
+                    prefix="HOST_CFG"
+                )
                 config_space_hex = None
 
         # Debug: log the size of the hex string when loaded
@@ -1842,6 +1985,8 @@ class FirmwareBuilder:
                 with open(context_path, "r") as f:
                     payload = json.load(f)
 
+                # Check for nested template_context (old format) 
+                # or use payload directly
                 template_context = payload.get("template_context")
                 if template_context:
                     log_info_safe(
@@ -1854,6 +1999,20 @@ class FirmwareBuilder:
                         prefix="HOST_CTX"
                     )
                     return template_context
+                
+                # New format - device IDs directly in payload
+                if "config_space_hex" in payload and "vendor_id" in payload:
+                    log_info_safe(
+                        self.logger,
+                        safe_format(
+                            "Loaded device context with device IDs from host: "
+                            "VID=0x{vid:04x} DID=0x{did:04x}",
+                            vid=payload.get("vendor_id", 0),
+                            did=payload.get("device_id", 0)
+                        ),
+                        prefix="HOST_CTX"
+                    )
+                    return payload
 
         except Exception as e:
             log_debug_safe(
@@ -1883,8 +2042,6 @@ class FirmwareBuilder:
         result = self.gen.generate_pcileech_firmware()
 
         # Ensure a conservative template_context exists with MSI-X defaults.
-        # This prevents template generation from crashing when the generator
-        # returns a minimal result.
         result.setdefault("template_context", {})
         result.setdefault("systemverilog_modules", {})
         result.setdefault("config_space_data", {})
@@ -1933,12 +2090,15 @@ class FirmwareBuilder:
                     # Also inject config_space_coe for template compatibility
                     result["template_context"]["config_space_coe"] = config_space_hex
         except Exception as e:
-            # Log but do not fail build if hex generation fails
-            log_warning_safe(
+            # Fail build if hex generation fails
+            log_error_safe(
                 self.logger,
                 safe_format("Config space hex generation failed: {err}", err=str(e)),
                 prefix="BUILD",
             )
+            raise PCILeechBuildError(
+                f"Failed to generate config space hex: {e}"
+            ) from e
 
         # Emit audit file of top-level template context keys to verify propagation.
         try:
@@ -1981,11 +2141,22 @@ class FirmwareBuilder:
             return
         try:
             from src.cli.vfio_helpers import ensure_device_vfio_binding
-        except Exception:
-            # Helper not available; keep quiet in production paths
-            log_info_safe(
+        except ImportError:
+            # Helper module not available (expected in some environments)
+            log_debug_safe(
                 self.logger,
-                "VFIO binding recheck skipped: helper unavailable",
+                "VFIO binding recheck skipped: helper module not available",
+                prefix="VFIO",
+            )
+            return
+        except Exception as e:
+            # Unexpected import error
+            log_debug_safe(
+                self.logger,
+                safe_format(
+                    "VFIO binding recheck skipped: import failed - {err}",
+                    err=str(e)
+                ),
                 prefix="VFIO",
             )
             return
@@ -2081,7 +2252,7 @@ class FirmwareBuilder:
             # Ensure src/ and ip/ directories exist
             fm.create_pcileech_structure()
             # Copy sources and constraints from the submodule and local pcileech/
-            copied = fm.copy_pcileech_sources(self.config.board)
+            fm.copy_pcileech_sources(self.config.board)
 
             # Copy static TCL scripts from submodule instead of generating them
             tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
@@ -2515,12 +2686,36 @@ def main(argv: Optional[List[str]] = None) -> int:
         _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
         return 1
 
+    except (FileOperationError, VivadoIntegrationError) as e:
+        # Known build subsystem errors
+        error_type = type(e).__name__
+        log_error_safe(
+            logger,
+            "Build failed ({error_type}): {err}",
+            error_type=error_type,
+            err=str(e)
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            import traceback
+            log_debug_safe(
+                logger,
+                "Full traceback:\n{tb}",
+                tb=traceback.format_exc()
+            )
+        _maybe_emit_issue_report(e, logger, args)
+        return 1
+
     except PCILeechBuildError as e:
         # Known build errors
         log_error_safe(logger, "Build failed: {err}", err=str(e))
         if logger.isEnabledFor(logging.DEBUG):
-            log_debug_safe(logger, "Full traceback while handling build error")
-        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
+            import traceback
+            log_debug_safe(
+                logger,
+                "Full traceback:\n{tb}",
+                tb=traceback.format_exc()
+            )
+        _maybe_emit_issue_report(e, logger, args)
         return 1
 
     except KeyboardInterrupt:
@@ -2531,6 +2726,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except Exception as e:
         # Check if this is a platform compatibility error
         error_str = str(e)
+        error_type = type(e).__name__
         if (
             "requires Linux" in error_str
             or "platform incompatibility" in error_str
@@ -2545,12 +2741,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             # Unexpected errors
             log_error_safe(
-                logger, "Unexpected error: {err}", err=str(e), prefix="BUILD"
+                logger,
+                "Unexpected error ({error_type}): {err}",
+                error_type=error_type,
+                err=str(e),
+                prefix="BUILD"
             )
-            log_debug_safe(
-                logger, "Full traceback for unexpected error", prefix="BUILD"
-            )
-        _maybe_emit_issue_report(e, logger, args if "args" in locals() else None)
+            if logger.isEnabledFor(logging.DEBUG):
+                import traceback
+                log_debug_safe(
+                    logger,
+                    "Full traceback for unexpected error:\n{tb}",
+                    tb=traceback.format_exc(),
+                    prefix="BUILD"
+                )
+        _maybe_emit_issue_report(e, logger, args)
         return 1
 
 
