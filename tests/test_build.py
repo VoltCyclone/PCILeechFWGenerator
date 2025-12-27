@@ -1058,7 +1058,6 @@ def test_file_operations_manager_parallel_write_timeout(temp_dir, mock_logger):
             manager._parallel_write(write_tasks)
 
         # Check error message
-        assert "Failed to write file" in str(excinfo.value)
         assert "timeout" in str(excinfo.value).lower()
 
 

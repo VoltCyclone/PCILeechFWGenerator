@@ -35,6 +35,17 @@ def test_host_collector_writes_datastore(tmp_path, monkeypatch):
     # Should be 512 hex chars for 256 bytes
     assert len(ctx["config_space_hex"]) == 512
 
+    # Verify device IDs are extracted and saved (Bug #511 fix)
+    assert "vendor_id" in ctx, "device_context.json should include vendor_id"
+    assert "device_id" in ctx, "device_context.json should include device_id"
+    assert "class_code" in ctx, "device_context.json should include class_code"
+    assert "revision_id" in ctx, "device_context.json should include revision_id"
+    
+    # Verify the extracted values match the config space
+    # cfg_bytes = bytes(range(256)), so bytes 0-1 are 0x0100 (little endian)
+    assert ctx["vendor_id"] == 0x0100, "vendor_id should be extracted from config space"
+    assert ctx["device_id"] == 0x0302, "device_id should be extracted from config space"
+
     assert "config_space_hex" in msix
     assert "msix_info" in msix
     assert isinstance(msix["msix_info"], dict)

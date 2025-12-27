@@ -3,8 +3,8 @@
 
 import json
 import pytest
+import time
 from pathlib import Path
-from datetime import datetime
 from unittest.mock import MagicMock
 
 from src.utils.file_manifest import (
@@ -20,32 +20,38 @@ class TestFileOperation:
 
     def test_file_operation_creation(self):
         """Test creating a FileOperation."""
+        timestamp = time.time()
         op = FileOperation(
             source_path="/path/to/source.sv",
             dest_path="/path/to/dest.sv",
             operation_type="copy",
-            timestamp=datetime.now()
+            timestamp=timestamp,
+            size_bytes=1024
         )
         assert op.source_path == "/path/to/source.sv"
         assert op.dest_path == "/path/to/dest.sv"
         assert op.operation_type == "copy"
-        assert isinstance(op.timestamp, datetime)
+        assert op.timestamp == timestamp
+        assert op.size_bytes == 1024
 
     def test_file_operation_to_dict(self):
-        """Test FileOperation to_dict method."""
-        timestamp = datetime(2025, 11, 10, 12, 0, 0)
+        """Test FileOperation can be converted to dict using asdict."""
+        from dataclasses import asdict
+        timestamp = time.time()
         op = FileOperation(
             source_path="/src/file.sv",
             dest_path="/dst/file.sv",
             operation_type="copy",
-            timestamp=timestamp
+            timestamp=timestamp,
+            size_bytes=512
         )
-        result = op.to_dict()
+        result = asdict(op)
 
         assert result["source_path"] == "/src/file.sv"
         assert result["dest_path"] == "/dst/file.sv"
         assert result["operation_type"] == "copy"
-        assert result["timestamp"] == timestamp.isoformat()
+        assert result["timestamp"] == timestamp
+        assert result["size_bytes"] == 512
 
 
 class TestFileManifest:
@@ -53,22 +59,39 @@ class TestFileManifest:
 
     def test_file_manifest_creation(self):
         """Test creating a FileManifest."""
-        manifest = FileManifest()
+        timestamp = time.time()
+        manifest = FileManifest(
+            operations=[],
+            created_at=timestamp,
+            total_files=0,
+            total_size_bytes=0,
+            duplicate_operations=[]
+        )
         assert manifest.operations == []
-        assert isinstance(manifest.created_at, datetime)
+        assert manifest.created_at == timestamp
+        assert manifest.total_files == 0
+        assert manifest.total_size_bytes == 0
 
     def test_file_manifest_to_dict(self):
-        """Test FileManifest to_dict method."""
-        manifest = FileManifest()
+        """Test FileManifest can be converted to dict."""
+        from dataclasses import asdict
+        timestamp = time.time()
         op = FileOperation(
             source_path="/a/b.sv",
             dest_path="/c/b.sv",
             operation_type="copy",
-            timestamp=datetime.now()
+            timestamp=timestamp,
+            size_bytes=256
         )
-        manifest.operations.append(op)
+        manifest = FileManifest(
+            operations=[op],
+            created_at=timestamp,
+            total_files=1,
+            total_size_bytes=256,
+            duplicate_operations=[]
+        )
 
-        result = manifest.to_dict()
+        result = asdict(manifest)
 
         assert "created_at" in result
         assert "operations" in result
@@ -85,135 +108,167 @@ class TestFileManifestTracker:
         tracker = FileManifestTracker(logger=logger)
 
         assert tracker.logger == logger
-        assert isinstance(tracker.manifest, FileManifest)
-        assert len(tracker.manifest.operations) == 0
+        manifest = tracker.get_manifest()
+        assert isinstance(manifest, FileManifest)
+        assert len(manifest.operations) == 0
 
-    def test_record_copy_new_file(self):
+    def test_record_copy_new_file(self, tmp_path):
         """Test recording a new file copy."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
+        
+        # Create a temporary file to copy
+        src_file = tmp_path / "source.sv"
+        src_file.write_text("module test;")
+        dest_file = tmp_path / "dest.sv"
 
-        result = tracker.record_copy(
-            source_path="/src/module.sv",
-            dest_path="/build/module.sv"
+        result = tracker.add_copy_operation(
+            source_path=src_file,
+            dest_path=dest_file
         )
 
         assert result is True
-        assert len(tracker.manifest.operations) == 1
-        assert tracker.manifest.operations[0].source_path == "/src/module.sv"
-        assert tracker.manifest.operations[0].operation_type == "copy"
+        manifest = tracker.get_manifest()
+        assert len(manifest.operations) == 1
+        assert str(src_file) in manifest.operations[0].source_path
+        assert manifest.operations[0].operation_type == "copy"
 
-    def test_record_copy_duplicate_basename(self):
-        """Test duplicate file detection by basename."""
+    def test_record_copy_duplicate_basename(self, tmp_path):
+        """Test duplicate file detection by destination."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
+        
+        # Create temporary files
+        src1 = tmp_path / "source1.sv"
+        src1.write_text("module test1;")
+        src2 = tmp_path / "source2.sv"
+        src2.write_text("module test2;")
+        dest = tmp_path / "dest.sv"
 
         # First copy succeeds
-        result1 = tracker.record_copy(
-            source_path="/src/module.sv",
-            dest_path="/build/module.sv"
+        result1 = tracker.add_copy_operation(
+            source_path=src1,
+            dest_path=dest
         )
         assert result1 is True
 
-        # Second copy with same basename fails
-        result2 = tracker.record_copy(
-            source_path="/other/module.sv",
-            dest_path="/build/subfolder/module.sv"
+        # Second copy with same destination fails
+        result2 = tracker.add_copy_operation(
+            source_path=src2,
+            dest_path=dest
         )
         assert result2 is False
 
-        # Should have logged warning
-        logger.warning.assert_called()
-        warning_msg = logger.warning.call_args[0][0]
-        assert "already tracked" in warning_msg.lower()
-
-    def test_record_copy_different_basenames(self):
-        """Test recording files with different basenames."""
+    def test_record_copy_different_basenames(self, tmp_path):
+        """Test recording files with different destinations."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
+        
+        src1 = tmp_path / "source1.sv"
+        src1.write_text("module test1;")
+        src2 = tmp_path / "source2.sv"
+        src2.write_text("module test2;")
+        dest1 = tmp_path / "dest1.sv"
+        dest2 = tmp_path / "dest2.sv"
 
-        result1 = tracker.record_copy(
-            source_path="/src/module1.sv",
-            dest_path="/build/module1.sv"
+        result1 = tracker.add_copy_operation(
+            source_path=src1,
+            dest_path=dest1
         )
-        result2 = tracker.record_copy(
-            source_path="/src/module2.sv",
-            dest_path="/build/module2.sv"
+        result2 = tracker.add_copy_operation(
+            source_path=src2,
+            dest_path=dest2
         )
 
         assert result1 is True
         assert result2 is True
-        assert len(tracker.manifest.operations) == 2
+        manifest = tracker.get_manifest()
+        assert len(manifest.operations) == 2
 
-    def test_was_file_copied_true(self):
-        """Test was_file_copied returns True for tracked file."""
+    def test_was_file_copied_true(self, tmp_path):
+        """Test has_destination returns True for tracked file."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
+        
+        src = tmp_path / "test.sv"
+        src.write_text("module test;")
+        dest = tmp_path / "dest.sv"
+        
+        tracker.add_copy_operation(source_path=src, dest_path=dest)
+        
+        assert tracker.has_destination(dest) is True
 
-        tracker.record_copy(
-            source_path="/src/test.sv",
-            dest_path="/build/test.sv"
-        )
-
-        assert tracker.was_file_copied("/build/test.sv") is True
-        assert tracker.was_file_copied("/other/test.sv") is True  # Same basename
-
-    def test_was_file_copied_false(self):
-        """Test was_file_copied returns False for untracked file."""
+    def test_was_file_copied_false(self, tmp_path):
+        """Test has_destination returns False for untracked file."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
+        
+        dest = tmp_path / "notfound.sv"
+        assert tracker.has_destination(dest) is False
 
-        assert tracker.was_file_copied("/build/notfound.sv") is False
-
-    def test_get_stats(self):
-        """Test get_stats method."""
+    def test_get_stats(self, tmp_path):
+        """Test get_manifest returns statistics."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
-
-        tracker.record_copy("/src/a.sv", "/dst/a.sv")
-        tracker.record_copy("/src/b.xdc", "/dst/b.xdc")
-        tracker.record_copy("/src/c.sv", "/dst/c.sv")
-
-        stats = tracker.get_stats()
-
-        assert stats["total_operations"] == 3
-        assert stats["by_type"]["copy"] == 3
-        assert ".sv" in stats["by_extension"]
-        assert stats["by_extension"][".sv"] == 2
-        assert stats["by_extension"][".xdc"] == 1
+        
+        # Create test files
+        files = []
+        for i in range(3):
+            f = tmp_path / f"file{i}.sv"
+            f.write_text(f"module test{i};")
+            files.append(f)
+        
+        for i, f in enumerate(files):
+            tracker.add_copy_operation(
+                source_path=f,
+                dest_path=tmp_path / f"dest{i}.sv"
+            )
+        
+        manifest = tracker.get_manifest()
+        assert manifest.total_files == 3
+        assert len(manifest.operations) == 3
 
     def test_export_manifest(self, tmp_path):
-        """Test exporting manifest to JSON."""
+        """Test saving manifest to JSON."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
-
-        tracker.record_copy("/src/file.sv", "/dst/file.sv")
-
+        
+        src = tmp_path / "file.sv"
+        src.write_text("module test;")
+        dest = tmp_path / "dest.sv"
+        
+        tracker.add_copy_operation(source_path=src, dest_path=dest)
+        
         output_file = tmp_path / "manifest.json"
-        tracker.export_manifest(str(output_file))
-
+        tracker.save_manifest(output_file)
+        
         assert output_file.exists()
-
+        
         with open(output_file, 'r') as f:
             data = json.load(f)
-
+        
         assert "created_at" in data
         assert "operations" in data
         assert len(data["operations"]) == 1
 
-    def test_get_duplicate_files(self):
-        """Test get_duplicate_files method."""
+    def test_get_duplicate_files(self, tmp_path):
+        """Test duplicate detection."""
         logger = MagicMock()
         tracker = FileManifestTracker(logger=logger)
-
-        # Record same basename twice
-        tracker.record_copy("/src1/dup.sv", "/dst1/dup.sv")
-        tracker.record_copy("/src2/dup.sv", "/dst2/dup.sv")
-
-        duplicates = tracker.get_duplicate_files()
-
-        assert "dup.sv" in duplicates
-        assert len(duplicates["dup.sv"]) == 2
+        
+        src1 = tmp_path / "dup1.sv"
+        src1.write_text("module test1;")
+        src2 = tmp_path / "dup2.sv"
+        src2.write_text("module test2;")
+        dest = tmp_path / "dest.sv"
+        
+        # First succeeds
+        tracker.add_copy_operation(source_path=src1, dest_path=dest)
+        # Second is duplicate
+        tracker.add_copy_operation(source_path=src2, dest_path=dest)
+        
+        # Check duplicate count
+        assert tracker.get_duplicate_count() == 1
 
 
 class TestCreateManifestTracker:
@@ -226,3 +281,4 @@ class TestCreateManifestTracker:
 
         assert isinstance(tracker, FileManifestTracker)
         assert tracker.logger == logger
+

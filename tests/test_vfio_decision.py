@@ -72,17 +72,22 @@ class TestVFIODecisionMaker:
         assert decision.enabled is False
         assert decision.context == "device_context"
 
-    @patch('os.path.exists')
-    def test_container_detected(self, mock_exists):
+    def test_container_detected(self):
         """Test container detection disables VFIO."""
-        mock_exists.return_value = True  # /.dockerenv exists
         env = {}
 
         maker = VFIODecisionMaker()
-        decision = maker.decide(env=env)
+        
+        # Mock the checks to simulate container environment
+        with patch.object(maker, '_is_explicitly_disabled', return_value=False), \
+                patch.object(maker, '_is_host_context_only', return_value=False), \
+                patch.object(maker, '_has_device_context', return_value=False), \
+                patch.object(maker, '_is_container_without_vfio', return_value=True):
+            
+            decision = maker.decide(env=env)
 
-        assert decision.enabled is False
-        assert decision.context == "container"
+            assert decision.enabled is False
+            assert decision.context == "container"
 
     def test_vfio_enabled(self):
         """Test VFIO successfully enabled."""
