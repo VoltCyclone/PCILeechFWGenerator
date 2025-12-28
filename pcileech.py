@@ -1153,6 +1153,21 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "run",
         "--rm",
         "-i",
+    ]
+    
+    # Add user namespace mapping to prevent permission issues
+    # This ensures files created in the container have the correct
+    # ownership on the host
+    if runtime == "podman":
+        # Podman: keep the same user ID inside and outside the container
+        cmd.extend(["--userns=keep-id"])
+    elif runtime == "docker":
+        # Docker: run as current user
+        import os
+        cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+    
+    # Environment variables and volume mounts
+    cmd.extend([
         "-e", "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
         "-e", "MSIX_DATA_PATH=/datastore/msix_data.json", 
         "-e", "PCILEECH_HOST_CONTEXT_ONLY=1",
@@ -1165,7 +1180,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "--bdf", args.bdf,
         "--board", args.board,
         "--output", "/datastore/output",
-    ]
+    ])
     if getattr(args, "generate_donor_template", None):
         cmd.extend(["--output-template", "/datastore/donor_info_template.json"])
 
