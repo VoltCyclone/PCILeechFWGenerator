@@ -81,24 +81,17 @@ class HexFormatter:
             ValueError: If val is None and permissive=False, or invalid hex string
         """
         if val is None:
-            if not permissive:
-                raise ValueError(
-                    safe_format(
-                        "Cannot format None value as hex ID for {field_name} "
-                        "width={width}",
-                        "Donor-unique device identification values are required.",
-                        field_name=field_name,
-                        width=width
-                    )
+            # Never provide defaults in format_hex_id - all defaults must be
+            # applied before calling this function
+            raise ValueError(
+                safe_format(
+                    "Cannot format None value as hex ID for {field_name} "
+                    "width={width}",
+                    "Donor-unique device identification values are required.",
+                    field_name=field_name,
+                    width=width
                 )
-            
-            # Legacy defaults for testing/development
-            defaults = {
-                2: DEFAULT_REVISION_ID,
-                4: DEFAULT_VENDOR_ID,
-                6: DEFAULT_CLASS_CODE,
-            }
-            val = defaults.get(width, DEFAULT_VENDOR_ID)
+            )
         
         # Handle Enum values
         if isinstance(val, Enum):
@@ -200,6 +193,9 @@ class BuildContext:
     project_name: str = field(default_factory=get_project_name)
     project_dir: str = "./vivado_project"
     output_dir: str = "."
+    
+    # Logger instance
+    logger: Optional[logging.Logger] = None
     
     # Build strategies
     synthesis_strategy: str = "Vivado Synthesis Defaults"
@@ -346,17 +342,22 @@ class BuildContext:
 
         class_code = self.class_code
         if class_code is None:
-            # CRITICAL: No fallback! Fail if class_code is missing
-            log_error_safe(
-                self.logger,
-                "class_code missing from device_config - cannot generate firmware without device identity",
-                prefix="TCL",
-            )
-            raise ValueError(
-                "class_code is required in device_config. "
-                "Cannot generate firmware without proper device class code. "
-                "This value must be read from the actual hardware device."
-            )
+            if strict:
+                # CRITICAL: No fallback in strict mode! Fail if class_code is missing
+                log_error_safe(
+                    self.logger or _logger,
+                    "class_code missing from device_config - cannot generate firmware without device identity",
+                    prefix="TCL",
+                )
+                raise ValueError(
+                    "class_code is required in device_config. "
+                    "Cannot generate firmware without proper device class code. "
+                    "This value must be read from the actual hardware device."
+                )
+            else:
+                # Legacy default for non-strict mode
+                class_code = DEFAULT_CLASS_CODE
+                context_metadata["defaults_used"]["class_code"] = DEFAULT_CLASS_CODE
         else:
             context_metadata["explicit_values"]["class_code"] = class_code
 

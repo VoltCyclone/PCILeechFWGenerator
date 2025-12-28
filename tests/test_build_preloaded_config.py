@@ -342,3 +342,97 @@ class TestPreloadedConfigSpaceIntegration:
                 # Verify generator received preloaded config space
                 call_args = MockGenerator.call_args[0][0]
                 assert call_args.preloaded_config_space == mock_config_space
+
+
+def test_host_context_device_config_construction(
+    temp_dir, valid_bdf, valid_board
+):
+    """Test that device_config is constructed from host context when missing."""
+    # Create a host context without device_config (new format)
+    host_context_data = {
+        "vendor_id": 0x1912,
+        "device_id": 0x0014,
+        "class_code": 0x0C0330,
+        "revision_id": 0xA1,
+        "subsystem_vendor_id": 0x1234,
+        "subsystem_device_id": 0x5678,
+        "config_space_hex": "00" * 4096,
+    }
+    
+    context_file = temp_dir / "device_context.json"
+    with open(context_file, "w") as f:
+        json.dump(host_context_data, f)
+    
+    with mock.patch.dict(
+        os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}
+    ):
+        config = BuildConfiguration(
+            bdf=valid_bdf,
+            board=valid_board,
+            output_dir=temp_dir,
+        )
+        
+        # Mock all the necessary components
+        with mock.patch(
+            "src.device_clone.pcileech_generator.PCILeechGenerator"
+        ) as mock_gen_class, mock.patch(
+            "src.build.FirmwareBuilder._validate_board_template"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._generate_firmware"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._write_modules"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._generate_profile"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._generate_tcl_scripts"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._write_xdc_files"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._save_device_info"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._run_post_build_validation"
+        ), mock.patch(
+            "src.build.FirmwareBuilder._save_file_manifest"
+        ), mock.patch(
+            "src.file_management.file_manager.FileManager"
+        ) as mock_fm_class:
+            
+            mock_gen = mock.MagicMock()
+            mock_gen_class.return_value = mock_gen
+            mock_fm = mock.MagicMock()
+            mock_fm_class.return_value = mock_fm
+            mock_fm.list_artifacts.return_value = []
+            
+            builder = FirmwareBuilder(config)
+            
+            # Capture the generation_result created in build()
+            original_store_device_config = builder._store_device_config
+            captured_result = None
+            
+            def capture_result(result):
+                nonlocal captured_result
+                captured_result = result
+                return original_store_device_config(result)
+            
+            builder._store_device_config = capture_result
+            
+            # Run build
+            builder.build()
+            
+            # Verify device_config was constructed in template_context
+            assert captured_result is not None
+            assert "template_context" in captured_result
+            template_context = captured_result["template_context"]
+            assert "device_config" in template_context
+            
+            device_config = template_context["device_config"]
+            assert device_config["vendor_id"] == "1912"
+            assert device_config["device_id"] == "0014"
+            assert device_config["class_code"] == "0c0330"
+            assert device_config["revision_id"] == "a1"
+            assert device_config["subsystem_vendor_id"] == "1234"
+            assert device_config["subsystem_device_id"] == "5678"
+            assert device_config["device_bdf"] == valid_bdf
+            assert device_config["enable_perf_counters"] == False
+            assert device_config["enable_advanced_features"] == False
+            assert device_config["enable_error_injection"] == False
