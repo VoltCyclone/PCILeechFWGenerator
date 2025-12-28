@@ -252,7 +252,7 @@ jobs:
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.fork == false
           )
-        uses: codecov/codecov-action@v5.5.1
+        uses: codecov/codecov-action@v5.5.2
         with:
           files: merged/coverage.xml
           name: codecov-umbrella
