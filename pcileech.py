@@ -1163,7 +1163,6 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         cmd.extend(["--userns=keep-id"])
     elif runtime == "docker":
         # Docker: run as current user
-        import os
         cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
     
     # Environment variables and volume mounts
