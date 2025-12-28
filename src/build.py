@@ -96,63 +96,6 @@ SYSTEMVERILOG_EXTENSION = ".sv"
 # Type Definitions
 # ──────────────────────────────────────────────────────────────────────────────
 
-
-def _running_in_container() -> bool:
-    """Best-effort detection for containerized environments.
-
-    Works for Docker/Podman/Kubernetes. Safe to call on non-Linux.
-    """
-    try:
-        if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
-            return True
-        # cgroup hint (Linux only)
-        cgroup_path = "/proc/1/cgroup"
-        if os.path.exists(cgroup_path):
-            with open(cgroup_path, "rt") as f:
-                data = f.read()
-            return any(tag in data for tag in ("docker", "kubepods", "containerd"))
-    except (OSError, IOError):
-        # File system access errors are expected on some systems
-        return False
-    except Exception:
-        # Unexpected errors during container detection (fail safe)
-        return False
-    return False
-
-
-def _linux() -> bool:
-    """Return True if running on Linux."""
-    try:
-        return platform.system().lower() == "linux"
-    except (AttributeError, OSError):
-        # Platform module issues or system call failures
-        return False
-    except Exception:
-        # Unexpected platform detection errors (fail safe)
-        return False
-
-
-def _vfio_available() -> bool:
-    """Check basic VFIO device node availability and access.
-
-    Requires /dev/vfio/vfio and at least one group node with RW access.
-    """
-    try:
-        control = "/dev/vfio/vfio"
-        if not os.path.exists(control):
-            return False
-        groups = glob.glob("/dev/vfio/[0-9]*")
-        if not os.access(control, os.R_OK | os.W_OK):
-            return False
-        return any(os.access(g, os.R_OK | os.W_OK) for g in groups)
-    except (OSError, IOError, PermissionError):
-        # File system or permission errors accessing VFIO devices
-        return False
-    except Exception:
-        # Unexpected VFIO check errors (fail safe)
-        return False
-
-
 def _as_int(value: Union[int, str], field: str) -> int:
     """Normalize numeric identifier that may be int, hex (0x) or decimal string."""
     if isinstance(value, int):
@@ -1362,6 +1305,38 @@ class FirmwareBuilder:
                     ),
                     prefix="HOST_CFG"
                 )
+                
+                # Ensure device_config exists in host_context template_context
+                if not host_context.get("device_config"):
+                    host_context["device_config"] = {
+                        "device_bdf": self.config.bdf,
+                        "vendor_id": format(host_context.get("vendor_id", 0), "04x"),
+                        "device_id": format(host_context.get("device_id", 0), "04x"),
+                        "class_code": format(
+                            host_context.get("class_code", 0), "06x"),
+                        "revision_id": format(
+                            host_context.get("revision_id", 0), "02x"),
+                        "subsystem_vendor_id": format(
+                            host_context.get("subsystem_vendor_id", 0), "04x"
+                        ) if host_context.get("subsystem_vendor_id") else "0000",
+                        "subsystem_device_id": format(
+                            host_context.get("subsystem_device_id", 0), "04x"
+                        ) if host_context.get("subsystem_device_id") else "0000",
+                        "enable_perf_counters": False,
+                        "enable_advanced_features": False,
+                        "enable_error_injection": False,
+                        "enable_dma_operations": False,
+                        "enable_interrupt_coalescing": False,
+                    }
+                    self.build_logger.info(
+                        "Constructed device_config from host context device IDs",
+                        prefix="HOST_CFG"
+                    )
+                else:
+                    self.build_logger.info(
+                        "Using existing device_config from host context",
+                        prefix="HOST_CFG"
+                    )
                 
                 # Use prefilled context from host, avoiding VFIO operations
                 generation_result = {
