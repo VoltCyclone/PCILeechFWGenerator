@@ -233,7 +233,7 @@ show_progress() {
     echo "End of Help Ticket Information"
     echo "========================================================================"
     
-} > "$OUTPUT_FILE" 2>&1
+} > "$OUTPUT_FILE"
 
 # Animated completion
 echo -ne "${YELLOW}▓"
