@@ -4,20 +4,42 @@
 
 set -e
 
-# Colors for output
+# Colors and styles
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Output file
 OUTPUT_FILE="pcileech_ticket_$(date +%Y%m%d_%H%M%S).txt"
 
-echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║  PCILeech Firmware Generator - Help Ticket Collector          ║${NC}"
-echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
+# ASCII Art Banner
+clear
+echo -e "${CYAN}${BOLD}"
+cat << "EOF"
+    ____  __________    __                 __  
+   / __ \/ ____/  _/   / /   ___  ___  ___/ /_ 
+  / /_/ / /    / /    / /   / _ \/ _ \/ __/ __ \
+ / ____/ /____/ /    / /___/  __/  __/ /_/ / / /
+/_/    \____/___/   /_____/\___/\___/\__/_/ /_/ 
+                                                 
+       🔧 HELP TICKET DIAGNOSTICS COLLECTOR 🔧
+EOF
+echo -e "${NC}"
+echo -e "${DIM}═══════════════════════════════════════════════════════════════════${NC}"
+echo -e "${YELLOW}${BOLD}⚡ Scanning your system for diagnostic information...${NC}"
+echo -e "${DIM}═══════════════════════════════════════════════════════════════════${NC}"
 echo ""
+
+# Helper function to show progress
+show_progress() {
+    echo -e "${CYAN}⟳${NC} $1..." >&2
+}
 
 # Start collecting information
 {
@@ -26,6 +48,7 @@ echo ""
     echo "========================================================================"
     echo ""
     
+    show_progress "Gathering system information"
     # System Information
     echo "## SYSTEM INFORMATION"
     echo "========================================================================"
@@ -38,6 +61,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Checking Python environment"
     # Python Information
     echo "## PYTHON ENVIRONMENT"
     echo "========================================================================"
@@ -53,6 +77,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Analyzing repository status"
     # Git Information
     echo "## REPOSITORY INFORMATION"
     echo "========================================================================"
@@ -66,6 +91,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Detecting container runtime"
     # Container Runtime
     echo "## CONTAINER RUNTIME"
     echo "========================================================================"
@@ -76,13 +102,9 @@ echo ""
     else
         echo "Podman: Not installed"
     fi
-    if command -v docker &> /dev/null; then
-        echo "Docker: $(docker --version 2>&1)"
-    else
-        echo "Docker: Not installed"
-    fi
     echo ""
     
+    show_progress "Scanning VFIO/IOMMU configuration"
     # VFIO/IOMMU Information
     echo "## VFIO/IOMMU STATUS"
     echo "========================================================================"
@@ -104,6 +126,7 @@ echo ""
     lsmod | grep vfio 2>&1 || echo "No VFIO modules loaded"
     echo ""
     
+    show_progress "Enumerating PCI devices"
     # PCI Devices
     echo "## PCI DEVICES"
     echo "========================================================================"
@@ -115,6 +138,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Examining datastore contents"
     # Datastore Information
     echo "## DATASTORE STATUS"
     echo "========================================================================"
@@ -149,6 +173,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Reading recent build logs"
     # Recent Logs (if available)
     echo "## RECENT BUILD LOGS"
     echo "========================================================================"
@@ -166,6 +191,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Inventorying Python packages"
     # Installed Python Packages
     echo "## INSTALLED PYTHON PACKAGES"
     echo "========================================================================"
@@ -177,6 +203,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Verifying submodule status"
     # Submodule Status
     echo "## SUBMODULE DETAILED STATUS"
     echo "========================================================================"
@@ -194,6 +221,7 @@ echo ""
     fi
     echo ""
     
+    show_progress "Checking disk space"
     # Disk Space
     echo "## DISK SPACE"
     echo "========================================================================"
@@ -207,12 +235,35 @@ echo ""
     
 } > "$OUTPUT_FILE" 2>&1
 
-echo -e "${GREEN}✓ Information collected successfully${NC}"
-echo -e "${BLUE}Output saved to: ${YELLOW}$OUTPUT_FILE${NC}"
+# Animated completion
+echo -ne "${YELLOW}▓"
+for i in {1..50}; do
+    echo -ne "▓"
+    sleep 0.02
+done
+echo -e "${NC}"
 echo ""
-echo -e "${BLUE}To submit this information:${NC}"
-echo "  1. Review the file to ensure no sensitive information is included"
-echo "  2. Attach the file to your GitHub issue or support ticket"
-echo "  3. Include your specific error message and reproduction steps"
+
+# Success banner
+echo -e "${GREEN}${BOLD}"
+cat << "EOF"
+    DIAGNOSTIC SCAN COMPLETE
+EOF
+echo -e "${NC}"
 echo ""
-echo -e "${YELLOW}Note: Review $OUTPUT_FILE before sharing - it may contain system information${NC}"
+echo -e "${CYAN}┌─────────────────────────────────────────────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${BOLD}Output File:${NC} ${YELLOW}$OUTPUT_FILE${NC}"
+echo -e "${CYAN}│${NC} ${BOLD}File Size:${NC}   ${GREEN}$(wc -c < "$OUTPUT_FILE" | awk '{print int($1/1024)"KB"}')${NC}"
+echo -e "${CYAN}│${NC} ${BOLD}Timestamp:${NC}   ${BLUE}$(date '+%Y-%m-%d %H:%M:%S')${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────────────────┘${NC}"
+echo ""
+echo -e "${MAGENTA}${BOLD}NEXT STEPS:${NC}"
+echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${CYAN}1.${NC} Review ${YELLOW}$OUTPUT_FILE${NC} for sensitive information"
+echo -e "  ${CYAN}2.${NC} Attach the file to your ${BOLD}GitHub issue${NC} or support ticket"
+echo -e "  ${CYAN}3.${NC} Include your ${BOLD}error message${NC} and ${BOLD}reproduction steps${NC}"
+echo ""
+echo -e "${RED}${BOLD}WARNING:${NC} ${DIM}This file may contain system information - review before sharing${NC}"
+echo ""
+echo -e "${BLUE}${BOLD}Report issues at:${NC} ${CYAN}https://github.com/VoltCyclone/PCILeechFWGenerator/issues${NC}"
+echo ""
