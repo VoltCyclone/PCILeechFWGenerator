@@ -265,5 +265,5 @@ echo -e "  ${CYAN}3.${NC} Include your ${BOLD}error message${NC} and ${BOLD}repr
 echo ""
 echo -e "${RED}${BOLD}WARNING:${NC} ${DIM}This file may contain system information - review before sharing${NC}"
 echo ""
-echo -e "${BLUE}${BOLD}Report issues at:${NC} ${CYAN}https://github.com/VoltCyclone/PCILeechFWGenerator/issues${NC}"
+echo -e "${BLUE}${BOLD}Report issues at:${NC} ${CYAN}https://github.com/voltcyclone/PCILeechFWGenerator/issues${NC}"
 echo ""
