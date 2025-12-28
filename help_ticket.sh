@@ -210,12 +210,15 @@ show_progress() {
     if [ -d "lib/voltcyclone-fpga" ]; then
         echo "voltcyclone-fpga submodule: Present"
         echo "Path: lib/voltcyclone-fpga"
-        cd lib/voltcyclone-fpga
-        echo "Branch: $(git branch --show-current 2>&1 || echo 'Unknown')"
-        echo "Commit: $(git log -1 --oneline 2>&1 || echo 'Unknown')"
-        echo "Boards found:"
-        ls -d */ 2>&1 | head -15 || echo "Cannot list directories"
-        cd - > /dev/null
+        if cd lib/voltcyclone-fpga 2>/dev/null; then
+            echo "Branch: $(git branch --show-current 2>&1 || echo 'Unknown')"
+            echo "Commit: $(git log -1 --oneline 2>&1 || echo 'Unknown')"
+            echo "Boards found:"
+            ls -d */ 2>&1 | head -15 || echo "Cannot list directories"
+            cd - > /dev/null || echo "Warning: cannot return to previous directory"
+        else
+            echo "Cannot enter lib/voltcyclone-fpga directory (permission or other error)"
+        fi
     else
         echo "voltcyclone-fpga submodule: Not found"
     fi
