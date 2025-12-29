@@ -522,9 +522,12 @@ puts "Adding source files..."
         script_content += (
             "puts \"Refreshing IP catalog...\"\n"
             "update_ip_catalog -quiet\n"
-            "report_ip_status -name ip_status_initial -file ip_status_initial.txt\n"
             "set ips [get_ips]\n"
-            "if {[llength $ips] == 0} { puts \"INFO: No IP cores detected after catalog refresh.\" }\n"
+            "if {[llength $ips] == 0} {\n"
+            '    puts "INFO: No IP cores detected after catalog refresh."\n'
+            "} else {\n"
+            "    catch {report_ip_status -file ip_status_initial.txt}\n"
+            "}\n"
             "set locked_ips [get_ips -filter {IS_LOCKED == true}]\n"
             "if {[llength $locked_ips] > 0} {\n"
             '    puts "Found [llength $locked_ips] locked IP cores. Attempting force unlock sequence..."\n'
@@ -575,7 +578,9 @@ puts "Adding source files..."
             "        error \"Unrecoverable locked IP cores\"\n"
             "    }\n"
             "} else { puts \"All IP cores unlocked/regenerated successfully.\" }\n"
-            "report_ip_status -name ip_status_final -file ip_status_final.txt\n"
+            "if {[llength [get_ips]] > 0} {\n"
+            "    catch {report_ip_status -file ip_status_final.txt}\n"
+            "}\n"
         )
 
         # Ensure all .sv files are treated as SystemVerilog
