@@ -464,21 +464,21 @@ puts "Adding source files..."
             project_name=project_name,
         )
 
-        # Add source files (deduplicate to avoid module conflicts)
+        # Add source files (deduplicate exact paths to avoid true duplicates)
         script_content += "\n# Add source files\n"
         script_content += 'puts "Adding source files..."\n'
 
-        # Track added files by basename to avoid duplicates
+        # Track added files by absolute path to avoid adding exact duplicates
         added_files = set()
         for src_file in build_env["src_files"]:
-            basename = Path(src_file).name
-            # Skip if already added (prevents duplicate module definitions)
-            if basename in added_files:
-                continue
-            added_files.add(basename)
-
             # Convert to absolute path to avoid path resolution issues in Vivado
             abs_path = Path(src_file).resolve()
+            abs_path_str = str(abs_path)
+            # Skip if this exact file path has already been added
+            if abs_path_str in added_files:
+                continue
+            added_files.add(abs_path_str)
+
             script_content += f'add_files -norecurse "{abs_path}"\n'
 
         # Add IP cores before setting file types - use import_files to copy into project
