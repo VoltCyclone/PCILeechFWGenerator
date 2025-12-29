@@ -117,7 +117,7 @@ class PCILeechBuildIntegration:
                 logger,
                 safe_format(
                     "Build aborted: no IP definition files (.xci/.coe) found for board {board}. "
-                    "Ensure voltcyclone-fpga submodule is initialized and up to date. "
+                    "Ensure pcileech-fpga submodule is initialized and up to date. "
                     "Remediation: run 'git submodule update --init --recursive' or verify board's ip/ directory.",
                     board=board_name,
                 ),
