@@ -575,7 +575,7 @@ puts "Adding source files..."
             "    if {[llength $final_locked] > 0} {\n"
             '        puts "ERROR: Cannot unlock IPs: [join [get_property NAME $final_locked] \\",\\"]"\n'
             '        puts "ERROR: Try deleting the project and regenerating from scratch."\n'
-            "        error \"Unrecoverable locked IP cores\"\n"
+            '        error "Unrecoverable locked IP cores: [join [get_property NAME $final_locked] \\",\\"] . Please delete the project or manually remove/regenerate these IP cores and retry."\n'
             "    }\n"
             "} else { puts \"All IP cores unlocked/regenerated successfully.\" }\n"
             "if {[llength [get_ips]] > 0} {\n"
