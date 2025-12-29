@@ -426,7 +426,22 @@ class PCILeechBuildIntegration:
         script_path = build_env["output_dir"] / "build_all.tcl"
 
         board_config = build_env.get("board_config", {})
-        fpga_part = board_config.get("fpga_part", "<MISSING_FPGA_PART>")
+        if "fpga_part" not in board_config or not board_config["fpga_part"]:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Missing required 'fpga_part' for board '{board_name}' in unified build script generation.",
+                    board_name=board_name,
+                ),
+                prefix=self.prefix,
+            )
+            raise ValueError(
+                safe_format(
+                    "Cannot create unified build script: missing required 'fpga_part' for board '{board_name}'.",
+                    board_name=board_name,
+                )
+            )
+        fpga_part = board_config["fpga_part"]
         project_name = safe_format("pcileech_{board_name}", board_name=board_name)
 
         script_content = safe_format(
