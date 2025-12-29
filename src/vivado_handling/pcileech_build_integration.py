@@ -117,7 +117,7 @@ class PCILeechBuildIntegration:
                 logger,
                 safe_format(
                     "Build aborted: no IP definition files (.xci/.coe) found for board {board}. "
-                    "Ensure voltcyclone-fpga submodule is initialized and up to date. "
+                    "Ensure pcileech-fpga submodule is initialized and up to date. "
                     "Remediation: run 'git submodule update --init --recursive' or verify board's ip/ directory.",
                     board=board_name,
                 ),
@@ -426,7 +426,22 @@ class PCILeechBuildIntegration:
         script_path = build_env["output_dir"] / "build_all.tcl"
 
         board_config = build_env.get("board_config", {})
-        fpga_part = board_config.get("fpga_part", "<MISSING_FPGA_PART>")
+        if "fpga_part" not in board_config or not board_config["fpga_part"]:
+            log_error_safe(
+                logger,
+                safe_format(
+                    "Missing required 'fpga_part' for board '{board_name}' in unified build script generation.",
+                    board_name=board_name,
+                ),
+                prefix=self.prefix,
+            )
+            raise ValueError(
+                safe_format(
+                    "Cannot create unified build script: missing required 'fpga_part' for board '{board_name}'.",
+                    board_name=board_name,
+                )
+            )
+        fpga_part = board_config["fpga_part"]
         project_name = safe_format("pcileech_{board_name}", board_name=board_name)
 
         script_content = safe_format(
@@ -464,21 +479,21 @@ puts "Adding source files..."
             project_name=project_name,
         )
 
-        # Add source files (deduplicate to avoid module conflicts)
+        # Add source files (deduplicate exact paths to avoid true duplicates)
         script_content += "\n# Add source files\n"
         script_content += 'puts "Adding source files..."\n'
 
-        # Track added files by basename to avoid duplicates
+        # Track added files by absolute path to avoid adding exact duplicates
         added_files = set()
         for src_file in build_env["src_files"]:
-            basename = Path(src_file).name
-            # Skip if already added (prevents duplicate module definitions)
-            if basename in added_files:
-                continue
-            added_files.add(basename)
-
             # Convert to absolute path to avoid path resolution issues in Vivado
             abs_path = Path(src_file).resolve()
+            abs_path_str = str(abs_path)
+            # Skip if this exact file path has already been added
+            if abs_path_str in added_files:
+                continue
+            added_files.add(abs_path_str)
+
             script_content += f'add_files -norecurse "{abs_path}"\n'
 
         # Add IP cores before setting file types - use import_files to copy into project
@@ -575,7 +590,7 @@ puts "Adding source files..."
             "    if {[llength $final_locked] > 0} {\n"
             '        puts "ERROR: Cannot unlock IPs: [join [get_property NAME $final_locked] \\",\\"]"\n'
             '        puts "ERROR: Try deleting the project and regenerating from scratch."\n'
-            "        error \"Unrecoverable locked IP cores\"\n"
+            '        error "Unrecoverable locked IP cores: [join [get_property NAME $final_locked] \\",\\"] . Please delete the project or manually remove/regenerate these IP cores and retry."\n'
             "    }\n"
             "} else { puts \"All IP cores unlocked/regenerated successfully.\" }\n"
             "if {[llength [get_ips]] > 0} {\n"
