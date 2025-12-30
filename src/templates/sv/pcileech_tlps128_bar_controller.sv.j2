@@ -91,6 +91,53 @@ module pcileech_tlps128_bar_controller(
     wire [31:0] bar_rsp_data[7];
     wire        bar_rsp_valid[7];
     
+{% if timing_config is defined and timing_config and timing_config.get('enable_latency_jitter', False) %}
+    // ========================================================================
+    // TLP Latency Emulation (enabled via behavior profiling)
+    // ========================================================================
+    wire [87:0] bar_latency_rsp_ctx[7];
+    wire [31:0] bar_latency_rsp_data[7];
+    wire        bar_latency_rsp_valid[7];
+    
+    genvar bar_idx;
+    generate
+        for (bar_idx = 0; bar_idx < 7; bar_idx = bar_idx + 1) begin : gen_latency_emulators
+            tlp_latency_emulator #(
+                .MIN_LATENCY_CYCLES({{ timing_config.get('min_read_latency', 10) }}),
+                .MAX_LATENCY_CYCLES({{ timing_config.get('max_read_latency', 50) }}),
+                .AVG_LATENCY_CYCLES({{ timing_config.get('avg_read_latency', 30) }}),
+                .LFSR_SEED({{ timing_config.get('latency_lfsr_seed', 0xACE1) }}),
+                .ENABLE_JITTER(1'b1)
+            ) i_tlp_latency_emulator (
+                .rst            ( rst                               ),
+                .clk            ( clk                               ),
+                .req_ctx        ( bar_rsp_ctx[bar_idx]              ),
+                .req_data       ( bar_rsp_data[bar_idx]             ),
+                .req_valid      ( bar_rsp_valid[bar_idx]            ),
+                .rsp_ctx        ( bar_latency_rsp_ctx[bar_idx]      ),
+                .rsp_data       ( bar_latency_rsp_data[bar_idx]     ),
+                .rsp_valid      ( bar_latency_rsp_valid[bar_idx]    )
+            );
+        end
+    endgenerate
+    
+    assign rd_rsp_ctx = bar_latency_rsp_valid[0] ? bar_latency_rsp_ctx[0] :
+                        bar_latency_rsp_valid[1] ? bar_latency_rsp_ctx[1] :
+                        bar_latency_rsp_valid[2] ? bar_latency_rsp_ctx[2] :
+                        bar_latency_rsp_valid[3] ? bar_latency_rsp_ctx[3] :
+                        bar_latency_rsp_valid[4] ? bar_latency_rsp_ctx[4] :
+                        bar_latency_rsp_valid[5] ? bar_latency_rsp_ctx[5] :
+                        bar_latency_rsp_valid[6] ? bar_latency_rsp_ctx[6] : 0;
+    assign rd_rsp_data = bar_latency_rsp_valid[0] ? bar_latency_rsp_data[0] :
+                        bar_latency_rsp_valid[1] ? bar_latency_rsp_data[1] :
+                        bar_latency_rsp_valid[2] ? bar_latency_rsp_data[2] :
+                        bar_latency_rsp_valid[3] ? bar_latency_rsp_data[3] :
+                        bar_latency_rsp_valid[4] ? bar_latency_rsp_data[4] :
+                        bar_latency_rsp_valid[5] ? bar_latency_rsp_data[5] :
+                        bar_latency_rsp_valid[6] ? bar_latency_rsp_data[6] : 0;
+    assign rd_rsp_valid = bar_latency_rsp_valid[0] || bar_latency_rsp_valid[1] || bar_latency_rsp_valid[2] || bar_latency_rsp_valid[3] || bar_latency_rsp_valid[4] || bar_latency_rsp_valid[5] || bar_latency_rsp_valid[6];
+{% else %}
+    // Direct connection (no latency emulation)
     assign rd_rsp_ctx = bar_rsp_valid[0] ? bar_rsp_ctx[0] :
                         bar_rsp_valid[1] ? bar_rsp_ctx[1] :
                         bar_rsp_valid[2] ? bar_rsp_ctx[2] :
@@ -106,6 +153,7 @@ module pcileech_tlps128_bar_controller(
                         bar_rsp_valid[5] ? bar_rsp_data[5] :
                         bar_rsp_valid[6] ? bar_rsp_data[6] : 0;
     assign rd_rsp_valid = bar_rsp_valid[0] || bar_rsp_valid[1] || bar_rsp_valid[2] || bar_rsp_valid[3] || bar_rsp_valid[4] || bar_rsp_valid[5] || bar_rsp_valid[6];
+{% endif %}
     
 {% if bar_config and bar_config.get('bar_models') %}
     // ========================================================================

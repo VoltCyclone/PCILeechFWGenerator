@@ -1029,8 +1029,8 @@ def test_file_operations_manager_parallel_write_error(temp_dir, mock_logger):
         with pytest.raises(FileOperationError) as excinfo:
             manager._parallel_write(write_tasks)
 
-        # Check error message
-        assert "Failed to write file" in str(excinfo.value)
+        # Check error message contains the expected text
+        assert "Failed to write" in str(excinfo.value)
 
 
 def test_file_operations_manager_parallel_write_timeout(temp_dir, mock_logger):

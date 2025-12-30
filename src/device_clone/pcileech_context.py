@@ -357,20 +357,34 @@ class TimingParameters:
     timeout_cycles: int
     clock_frequency_mhz: float
     timing_regularity: float
+    
+    # TLP latency emulation parameters (optional, for enhanced realism)
+    min_read_latency: Optional[int] = None
+    max_read_latency: Optional[int] = None
+    avg_read_latency: Optional[int] = None
+    enable_latency_jitter: bool = False
+    latency_lfsr_seed: int = 0xACE1
 
     def __post_init__(self):
         """Validate timing parameters."""
-        for field_obj in fields(self):
-            field_value = getattr(self, field_obj.name)
+        # Validate required fields
+        required_fields = [
+            'read_latency', 'write_latency', 'burst_length',
+            'inter_burst_gap', 'timeout_cycles', 'clock_frequency_mhz',
+            'timing_regularity'
+        ]
+        
+        for field_name in required_fields:
+            field_value = getattr(self, field_name)
             if field_value is None:
                 raise ContextError(
-                    safe_format("{field} cannot be None", field=field_obj.name)
+                    safe_format("{field} cannot be None", field=field_name)
                 )
             if field_value <= 0:
                 raise ContextError(
                     safe_format(
                         "{field} must be positive: {value}",
-                        field=field_obj.name,
+                        field=field_name,
                         value=field_value,
                     )
                 )
@@ -382,6 +396,14 @@ class TimingParameters:
                     timing_regularity=self.timing_regularity,
                 )
             )
+        
+        # Set defaults for optional TLP latency parameters if not provided
+        if self.min_read_latency is None:
+            self.min_read_latency = max(1, int(self.read_latency * 0.8))
+        if self.max_read_latency is None:
+            self.max_read_latency = int(self.read_latency * 1.2)
+        if self.avg_read_latency is None:
+            self.avg_read_latency = self.read_latency
 
     @property
     def total_latency(self) -> int:
@@ -2318,23 +2340,52 @@ class PCILeechContextBuilder:
                 total_read = 0
                 total_write = 0
                 count = 0
+                
+                # Track min/max for realistic latency ranges
+                min_latency = float('inf')
+                max_latency = 0.0
 
                 for p in patterns:
                     # Handle both object and dict patterns
                     if hasattr(p, "avg_interval_us"):
-                        # Convert interval to latency estimate
-                        total_read += max(1, int(p.avg_interval_us / 100))
-                        total_write += max(1, int(p.avg_interval_us / 100))
+                        # Convert interval to latency estimate (cycles at 100MHz)
+                        latency_cycles = max(1, int(p.avg_interval_us / 10))  # 10ns per cycle at 100MHz
+                        total_read += latency_cycles
+                        total_write += latency_cycles
+                        
+                        # Track range for jitter emulation
+                        if hasattr(p, "std_deviation_us") and p.std_deviation_us:
+                            dev_cycles = int(p.std_deviation_us / 10)
+                            min_latency = min(min_latency, latency_cycles - dev_cycles)
+                            max_latency = max(max_latency, latency_cycles + dev_cycles)
+                        
                         count += 1
                     elif isinstance(p, dict) and "avg_interval_us" in p:
-                        total_read += max(1, int(p["avg_interval_us"] / 100))
-                        total_write += max(1, int(p["avg_interval_us"] / 100))
+                        latency_cycles = max(1, int(p["avg_interval_us"] / 10))
+                        total_read += latency_cycles
+                        total_write += latency_cycles
+                        
+                        if "std_deviation_us" in p and p["std_deviation_us"]:
+                            dev_cycles = int(p["std_deviation_us"] / 10)
+                            min_latency = min(min_latency, latency_cycles - dev_cycles)
+                            max_latency = max(max_latency, latency_cycles + dev_cycles)
+                        
                         count += 1
 
                 if count > 0:
                     avg_read = total_read / count
                     avg_write = total_write / count
                     burst_length = 32  # Default
+                    
+                    # Ensure realistic min/max bounds
+                    if min_latency == float('inf'):
+                        min_latency = max(1, int(avg_read * 0.8))
+                    if max_latency == 0:
+                        max_latency = int(avg_read * 1.2)
+                    
+                    min_latency = max(1, int(min_latency))
+                    max_latency = max(min_latency + 5, int(max_latency))
+                    
                     return TimingParameters(
                         read_latency=max(1, int(avg_read)),
                         write_latency=max(1, int(avg_write)),
@@ -2343,6 +2394,12 @@ class PCILeechContextBuilder:
                         timeout_cycles=max(100, int(avg_read * 100)),
                         clock_frequency_mhz=100.0,  # This should come from config
                         timing_regularity=0.95,
+                        # TLP latency emulation enabled automatically when behavior profile captured timing
+                        min_read_latency=min_latency,
+                        max_read_latency=max_latency,
+                        avg_read_latency=int(avg_read),
+                        enable_latency_jitter=True,  # Auto-enabled with behavior profile timing
+                        latency_lfsr_seed=0xACE1,  # Pseudo-random but deterministic
                     )
 
         # Try to get device-specific config
@@ -2369,14 +2426,22 @@ class PCILeechContextBuilder:
         if device_config and hasattr(device_config, "capabilities"):
             # Use the device-specific timing configuration from capabilities
             caps = device_config.capabilities
+            read_lat = getattr(caps, "read_latency", 10)
+            
             return TimingParameters(
-                read_latency=getattr(caps, "read_latency", 10),
+                read_latency=read_lat,
                 write_latency=getattr(caps, "write_latency", 10),
                 burst_length=getattr(caps, "burst_length", 32),
                 inter_burst_gap=getattr(caps, "inter_burst_gap", 8),
                 timeout_cycles=getattr(caps, "timeout_cycles", 1000),
                 clock_frequency_mhz=getattr(caps, "clock_frequency_mhz", 100.0),
                 timing_regularity=getattr(caps, "timing_regularity", 0.95),
+                # TLP latency parameters (defaults if not in caps)
+                min_read_latency=getattr(caps, "min_read_latency", read_lat),
+                max_read_latency=getattr(caps, "max_read_latency", read_lat),
+                avg_read_latency=getattr(caps, "avg_read_latency", read_lat),
+                enable_latency_jitter=getattr(caps, "enable_latency_jitter", False),
+                latency_lfsr_seed=getattr(caps, "latency_lfsr_seed", 0xACE1),
             )
         class_prefix = identifiers.class_code[:2]
 
@@ -2406,6 +2471,12 @@ class PCILeechContextBuilder:
             timeout_cycles=1000,
             clock_frequency_mhz=base_freq,
             timing_regularity=0.95,
+            # Default TLP latency parameters (no jitter without behavior profile)
+            min_read_latency=read_latency,
+            max_read_latency=read_latency,
+            avg_read_latency=read_latency,
+            enable_latency_jitter=False,
+            latency_lfsr_seed=0xACE1,
         )
 
     def _build_pcileech_config(self, identifiers: DeviceIdentifiers) -> Dict[str, Any]:
