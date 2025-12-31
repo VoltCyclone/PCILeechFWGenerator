@@ -252,10 +252,18 @@ class RepoManager:
             "pcileech_35t325_x4": repo_root / "CaptainDMA" / "35t325_x4",
             "pcileech_35t325_x1": repo_root / "CaptainDMA" / "35t325_x1",
             "pcileech_100t484_x1": repo_root / "CaptainDMA" / "100t484-1",
+            "pcileech_100t484_x4": repo_root / "ZDMA" / "100T",
             # Other boards
             "pcileech_enigma_x1": repo_root / "EnigmaX1",
             "pcileech_squirrel": repo_root / "PCIeSquirrel",
             "pcileech_pciescreamer_xc7a35": repo_root / "pciescreamer",
+            # Commercial PCILeech boards
+            "pcileech_gbox": repo_root / "GBOX",
+            "pcileech_netv2_35t": repo_root / "NeTV2",
+            "pcileech_netv2_100t": repo_root / "NeTV2",
+            "pcileech_screamer_m2": repo_root / "ScreamerM2",
+            # Development boards
+            "pcileech_ac701": repo_root / "ac701_ft601",
         }
         try:
             path = mapping[board_type]

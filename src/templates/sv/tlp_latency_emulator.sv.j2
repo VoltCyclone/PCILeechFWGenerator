@@ -1,0 +1,110 @@
+//
+// TLP Latency Emulator Module
+// Injects realistic response latency based on captured device behavior
+//
+// This module delays TLP responses to emulate real device timing characteristics.
+// Latency values are derived from behavior profiling of the target device.
+//
+
+`timescale 1ns / 1ps
+
+module tlp_latency_emulator #(
+    parameter MIN_LATENCY_CYCLES = 10,
+    parameter MAX_LATENCY_CYCLES = 50,
+    parameter AVG_LATENCY_CYCLES = 25,
+    parameter ENABLE_JITTER = 1,
+    parameter LFSR_SEED = 16'hACE1
+)(
+    input wire          clk,
+    input wire          rst,
+    
+    // Request interface
+    input wire          req_valid,
+    input wire [87:0]   req_ctx,
+    input wire [31:0]   req_data,
+    output reg          req_ready,
+    
+    // Response interface (delayed)
+    output reg          rsp_valid,
+    output reg [87:0]   rsp_ctx,
+    output reg [31:0]   rsp_data,
+    input wire          rsp_ready
+);
+
+    // Latency counter and state
+    reg [7:0] latency_counter;
+    reg [7:0] target_latency;
+    reg request_pending;
+    
+    // Store request data during latency period
+    reg [87:0] stored_ctx;
+    reg [31:0] stored_data;
+    
+    // LFSR for jitter generation
+    reg [15:0] lfsr;
+    wire lfsr_bit;
+    
+    // 16-bit LFSR with taps at 16, 15, 13, 4 (maximal length)
+    assign lfsr_bit = lfsr[15] ^ lfsr[14] ^ lfsr[12] ^ lfsr[3];
+    
+    always @(posedge clk) begin
+        if (rst) begin
+            lfsr <= LFSR_SEED;
+        end else if (req_valid && req_ready) begin
+            // Advance LFSR on new request
+            lfsr <= {lfsr[14:0], lfsr_bit};
+        end
+    end
+    
+    // Calculate jittered latency (or use fixed if ENABLE_JITTER=0)
+    wire [7:0] jitter_value;
+    assign jitter_value = lfsr[7:0] % ((MAX_LATENCY_CYCLES - MIN_LATENCY_CYCLES) + 1);
+    wire [7:0] jittered_latency = MIN_LATENCY_CYCLES + jitter_value;
+    wire [7:0] computed_latency = ENABLE_JITTER ? jittered_latency : AVG_LATENCY_CYCLES;
+
+    // Request acceptance logic
+    always @(*) begin
+        req_ready = !request_pending;
+    end
+    
+    // Latency state machine
+    always @(posedge clk) begin
+        if (rst) begin
+            request_pending <= 1'b0;
+            latency_counter <= 8'h0;
+            target_latency <= AVG_LATENCY_CYCLES;
+            rsp_valid <= 1'b0;
+            stored_ctx <= 88'h0;
+            stored_data <= 32'h0;
+        end else begin
+            // Default: clear response valid when accepted
+            if (rsp_valid && rsp_ready) begin
+                rsp_valid <= 1'b0;
+            end
+            
+            if (request_pending) begin
+                // Count down latency
+                if (latency_counter < target_latency) begin
+                    latency_counter <= latency_counter + 8'h1;
+                end else begin
+                    // Latency period complete - send response
+                    if (!rsp_valid || rsp_ready) begin
+                        rsp_valid <= 1'b1;
+                        rsp_ctx <= stored_ctx;
+                        rsp_data <= stored_data;
+                        request_pending <= 1'b0;
+                        latency_counter <= 8'h0;
+                    end
+                end
+            end else if (req_valid && req_ready) begin
+                // New request - store and start latency counter
+                request_pending <= 1'b1;
+                stored_ctx <= req_ctx;
+                stored_data <= req_data;
+                latency_counter <= 8'h0;
+                target_latency <= computed_latency;
+            end
+        end
+    end
+
+endmodule

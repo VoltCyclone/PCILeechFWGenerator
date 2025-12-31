@@ -298,11 +298,8 @@ class PCILeechTUI(App):
     def on_mount(self) -> None:
         """Initialize the application"""
         try:
-            # Set up the device table
-            device_table = self.query_one("#device-table", DataTable)
-            device_table.add_columns(
-                "Status", "BDF", "Device", "Indicators", "Driver", "IOMMU"
-            )
+            # Note: VirtualDeviceTable already adds columns in its __init__
+            # No need to add columns here
 
             # Set up quick search
             search_input = self.query_one("#quick-search", Input)
@@ -889,13 +886,15 @@ class PCILeechTUI(App):
                 pass
 
             result = await self.push_screen(
-                ConfigurationDialog("Build Configuration", self.current_config)
+                ConfigurationDialog("Build Configuration", self.current_config.to_dict())
             )
             if result is not None:
+                # Convert dict back to BuildConfiguration
+                config = BuildConfiguration.from_dict(result)
                 # Update app state first
-                self.app_state.set_config(result)
+                self.app_state.set_config(config)
                 # Then delegate configuration update to UI coordinator
-                await self.ui_coordinator.handle_configuration_update(result)
+                await self.ui_coordinator.handle_configuration_update(config)
         except Exception as e:
             if hasattr(self, "error_handler"):
                 self.error_handler.handle_operation_error(

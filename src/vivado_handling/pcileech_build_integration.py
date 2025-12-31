@@ -452,6 +452,10 @@ class PCILeechBuildIntegration:
 puts "Starting PCILeech build for board: {board_name}"
 puts "FPGA Part: {fpga_part}"
 
+# Change to board-specific directory for relative path resolution
+cd [file dirname [info script]]
+puts "Working directory: [pwd]"
+
 # Set project parameters
 set PROJECT_NAME "{project_name}"
 set PROJECT_DIR "./vivado_project"
@@ -483,18 +487,26 @@ puts "Adding source files..."
         script_content += "\n# Add source files\n"
         script_content += 'puts "Adding source files..."\n'
 
-        # Track added files by absolute path to avoid adding exact duplicates
+        # Track added files to avoid duplicates
         added_files = set()
+        board_output_dir = build_env["output_dir"]
+        
         for src_file in build_env["src_files"]:
-            # Convert to absolute path to avoid path resolution issues in Vivado
-            abs_path = Path(src_file).resolve()
-            abs_path_str = str(abs_path)
-            # Skip if this exact file path has already been added
-            if abs_path_str in added_files:
+            src_path = Path(src_file)
+            # Use relative path from board directory
+            try:
+                rel_path = src_path.relative_to(board_output_dir)
+            except ValueError:
+                # If file is not under board_output_dir, use the filename and assume it's in src/
+                rel_path = Path("src") / src_path.name
+            
+            rel_path_str = str(rel_path)
+            # Skip if this file has already been added
+            if rel_path_str in added_files:
                 continue
-            added_files.add(abs_path_str)
+            added_files.add(rel_path_str)
 
-            script_content += f'add_files -norecurse "{abs_path}"\n'
+            script_content += f'add_files -norecurse "{rel_path}"\n'
 
         # Add IP cores before setting file types - use import_files to copy into project
         # and avoid locked IP issues from path relocation
@@ -617,9 +629,15 @@ puts "Adding source files..."
         script_content += "\n# Add constraint files\n"
         script_content += 'puts "Adding constraint files..."\n'
         for xdc_file in build_env["xdc_files"]:
-            # Convert to absolute path
-            abs_path = Path(xdc_file).resolve()
-            cmd = f'add_files -fileset constrs_1 -norecurse "{abs_path}"\n'
+            xdc_path = Path(xdc_file)
+            # Use relative path from board directory
+            try:
+                rel_path = xdc_path.relative_to(board_output_dir)
+            except ValueError:
+                # If file is not under board_output_dir, use the filename and assume it's in constraints/
+                rel_path = Path("constraints") / xdc_path.name
+            
+            cmd = f'add_files -fileset constrs_1 -norecurse "{rel_path}"\n'
             script_content += cmd
 
         # Add synthesis and implementation

@@ -1336,7 +1336,9 @@ class DonorDumpManager:
                 if auto_install_headers:
                     log_info_safe(
                         logger,
-                        safe_format("Kernel headers missing, attempting to install..."),
+                        safe_format(
+                            "Kernel headers missing, attempting to install..."
+                        ),
                         prefix=LOG_PREFIX,
                     )
                     if not self.install_kernel_headers(kernel_version):
@@ -1346,7 +1348,8 @@ class DonorDumpManager:
                 else:
                     raise KernelHeadersNotFoundError(
                         f"Kernel headers not found for {kernel_version}. "
-                        f"Install with: sudo apt-get install linux-headers-{kernel_version}"
+                        f"Install with:"
+                        f"sudo apt-get install linux-headers-{kernel_version}"
                     )
 
             # Build module
@@ -1366,14 +1369,14 @@ class DonorDumpManager:
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Full 4KB configuration space extraction is disabled or not available"
+                        "Full 4KB extraction is disabled or not available"
                     ),
                     prefix=LOG_PREFIX,
                 )
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Some features may not work correctly without full configuration space data"
+                        "Some features may require full configuration space data"
                     ),
                     prefix=LOG_PREFIX,
                 )
@@ -1391,7 +1394,9 @@ class DonorDumpManager:
 
                 log_info_safe(
                     logger,
-                    safe_format("Saved donor information to {path}", path=save_to_file),
+                    safe_format(
+                        "Saved donor information to {path}", path=save_to_file
+                    ),
                     prefix=LOG_PREFIX,
                 )
             elif device_info and not save_to_file:

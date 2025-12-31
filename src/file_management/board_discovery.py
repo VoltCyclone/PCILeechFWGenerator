@@ -13,8 +13,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ..log_config import get_logger
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import (
+    log_debug_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .repo_manager import RepoManager
 
 logger = get_logger(__name__)
@@ -22,10 +26,10 @@ logger = get_logger(__name__)
 
 class BoardDiscovery:
     """Discover and analyze boards from voltcyclone-fpga submodule.
-    
+
     This class should NOT be instantiated - use class methods only.
     """
-    
+
     def __new__(cls, *args, **kwargs):
         raise TypeError(
             "BoardDiscovery may not be instantiated; call class methods only"
@@ -92,6 +96,38 @@ class BoardDiscovery:
             "fpga_part": "xc7a100tfgg484-1",
             "max_lanes": 1,
         },
+        "pcileech_100t484_x4": {
+            "dir": "ZDMA/100T",
+            "fpga_part": "xc7a100tfgg484-1",
+            "max_lanes": 4,
+        },
+        # Other commercial boards
+        "pcileech_gbox": {
+            "dir": "GBOX",
+            "fpga_part": "xc7a35tfgg484-2",
+            "max_lanes": 4,
+        },
+        "pcileech_netv2_35t": {
+            "dir": "NeTV2",
+            "fpga_part": "xc7a35tfgg484-2",
+            "max_lanes": 4,
+        },
+        "pcileech_netv2_100t": {
+            "dir": "NeTV2",
+            "fpga_part": "xc7a100tfgg484-1",
+            "max_lanes": 4,
+        },
+        "pcileech_screamer_m2": {
+            "dir": "ScreamerM2",
+            "fpga_part": "xc7a35tcsg324-2",
+            "max_lanes": 4,
+        },
+        # Development boards
+        "pcileech_ac701": {
+            "dir": "ac701_ft601",
+            "fpga_part": "xc7a200tfbg676-2",
+            "max_lanes": 4,
+        },
     }
 
     # PCIe reference clock IBUFDS_GTE2 LOC constraints for 7-series boards
@@ -111,7 +147,15 @@ class BoardDiscovery:
         "pcileech_pciescreamer_xc7a35": "IBUFDS_GTE2_X0Y0",
         # Artix-7 100T boards (FGG484 package)
         "pcileech_100t484_x1": "IBUFDS_GTE2_X0Y1",
+        "pcileech_100t484_x4": "IBUFDS_GTE2_X0Y1",
+        "pcileech_netv2_100t": "IBUFDS_GTE2_X0Y1",
         "100t": "IBUFDS_GTE2_X0Y1",
+        # Other Artix-7 boards
+        "pcileech_gbox": "IBUFDS_GTE2_X0Y0",
+        "pcileech_netv2_35t": "IBUFDS_GTE2_X0Y0",
+        "pcileech_screamer_m2": "IBUFDS_GTE2_X0Y0",
+        # Artix-7 200T boards (FBG676 package)
+        "pcileech_ac701": "IBUFDS_GTE2_X0Y3",
     }
 
     @classmethod
@@ -393,8 +437,6 @@ class BoardDiscovery:
 
         return capabilities
 
-
-
     @classmethod
     def get_board_display_info(
         cls, boards: Dict[str, Dict]
@@ -439,9 +481,15 @@ class BoardDiscovery:
             "pcileech_35t325_x4": "CaptainDMA 35T x4",
             "pcileech_35t325_x1": "CaptainDMA 35T x1 (325)",
             "pcileech_100t484_x1": "CaptainDMA 100T",
+            "pcileech_100t484_x4": "Artix-7 100T x4 (ZDMA-style)",
             "pcileech_enigma_x1": "CaptainDMA Enigma x1",
             "pcileech_squirrel": "CaptainDMA Squirrel",
             "pcileech_pciescreamer_xc7a35": "PCIeScreamer XC7A35",
+            "pcileech_gbox": "GBOX (Thunderbolt3)",
+            "pcileech_netv2_35t": "NeTV2 35T (UDP/IP)",
+            "pcileech_netv2_100t": "NeTV2 100T (UDP/IP)",
+            "pcileech_screamer_m2": "ScreamerM2 (M.2)",
+            "pcileech_ac701": "AC701/FT601 Dev Board",
         }
 
         if board_name in special_names:
@@ -502,7 +550,7 @@ class BoardDiscovery:
             export_data[board_name] = export_config
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Atomic write: write to temp file and replace
         tmp = output_file.with_suffix(output_file.suffix + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:

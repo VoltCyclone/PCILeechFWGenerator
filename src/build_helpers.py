@@ -102,6 +102,28 @@ def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
             "clock_constraints": f"{fam}.xdc",
         }
 
+    def artix100t(_) -> Dict[str, Any]:
+        return {
+            "pcie_ip_type": "pcie_7x",
+            "family": "artix7",
+            # Artix-7 100T supports up to x4 lanes for Gen2
+            "max_lanes": 4,
+            "supports_msi": True,
+            "supports_msix": True,
+            "clock_constraints": "artix7.xdc",
+        }
+
+    def artix200t(_) -> Dict[str, Any]:
+        return {
+            "pcie_ip_type": "pcie_7x",
+            "family": "artix7",
+            # Artix-7 200T supports up to x4 lanes for Gen2
+            "max_lanes": 4,
+            "supports_msi": True,
+            "supports_msix": True,
+            "clock_constraints": "artix7.xdc",
+        }
+
     def ultrascale(_) -> Dict[str, Any]:
         return {
             "pcie_ip_type": "pcie_ultrascale",
@@ -115,6 +137,8 @@ def create_fpga_strategy_selector() -> Callable[[str], Dict[str, Any]]:
     strategies: Dict[str, Callable[[str], Dict[str, Any]]] = {
         "xc7a35t": artix35,
         "xc7a75t": artix75_or_kintex,
+        "xc7a100t": artix100t,
+        "xc7a200t": artix200t,
         "xc7k": artix75_or_kintex,
         "xczu": ultrascale,
     }

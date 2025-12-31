@@ -33,7 +33,7 @@ def get_version():
         title = version_info.get("title", "PCILeech Firmware Generator")
         version = version_info.get("version", "unknown")
         return f"{title} v{version}"
-    except ImportError:
+    except (ImportError, AttributeError, KeyError):
         return "PCILeech Firmware Generator (version unknown)"
 
 
@@ -47,7 +47,7 @@ def _is_interactive_stdin() -> bool:
     """Check if stdin is interactive (safe for all environments)."""
     try:
         return sys.stdin.isatty()
-    except Exception:
+    except (AttributeError, OSError, ValueError):
         return False
 
 
@@ -56,7 +56,7 @@ def check_and_install_requirements():
     requirements_file = project_root / "requirements.txt"
 
     if not requirements_file.exists():
-        print("⚠️  Warning: requirements.txt not found")
+        print("Warning: requirements.txt not found")
         return True
 
     # Parse requirements.txt
@@ -88,27 +88,23 @@ def check_and_install_requirements():
     if not missing_packages:
         return True
 
-    print("❌ Missing required packages:")
+    print("\nMissing required packages:")
     for pkg in missing_packages:
-        print(f"   - {pkg}")
+        print(f"  • {pkg}")
 
     # Ask user if they want to install
     if os.getenv("PCILEECH_AUTO_INSTALL") == "1":
         install = True
     else:
-        print("\nOptions:")
-        print("1. Auto-install missing packages (requires pip)")
-        print("2. Exit and install manually")
-        print("3. Continue anyway (may cause errors)")
+        print("\nInstallation options:")
+        print("  1. Auto-install missing packages (requires pip)")
+        print("  2. Exit and install manually")
+        print("  3. Continue anyway (may cause errors)")
 
         if not _is_interactive_stdin():
             print(
-                "\nError: Non-interactive environment detected. "
-                "Unable to prompt for input."
-            )
-            print(
-                "Set PCILEECH_AUTO_INSTALL=1 to auto-install or "
-                "run in an interactive terminal."
+                "\nError: Non-interactive environment detected.\n"
+                "Set PCILEECH_AUTO_INSTALL=1 to auto-install or run in an interactive terminal."
             )
             sys.exit(1)
 
@@ -116,12 +112,11 @@ def check_and_install_requirements():
         install = choice == "1"
 
         if choice == "2":
-            print("\nTo install manually:")
-            print(f"pip install -r {requirements_file}")
-            print("\nOr set PCILEECH_AUTO_INSTALL=1 to auto-install next time")
+            print(f"\nTo install manually:\n  pip install -r {requirements_file}")
+            print("\nTip: Set PCILEECH_AUTO_INSTALL=1 to auto-install next time")
             sys.exit(1)
         elif choice == "3":
-            print("⚠️  Continuing without installing dependencies...")
+            print("Warning: Continuing without installing dependencies")
             return False
 
     if install:
@@ -158,7 +153,7 @@ def is_package_available(package_name):
     try:
         importlib.import_module(import_name)
         return True
-    except ImportError:
+    except (ImportError, ModuleNotFoundError, ValueError):
         # Try alternative import patterns
         alternatives = [
             package_name.replace("-", "_"),
@@ -170,7 +165,7 @@ def is_package_available(package_name):
             try:
                 importlib.import_module(alt_name)
                 return True
-            except ImportError:
+            except (ImportError, ModuleNotFoundError, ValueError):
                 continue
 
         return False
@@ -178,7 +173,7 @@ def is_package_available(package_name):
 
 def install_requirements(requirements_file):
     """Install requirements using pip."""
-    print(f"\n📦 Installing requirements from {requirements_file}...")
+    print(f"\nInstalling requirements from {requirements_file}...")
 
     try:
         # Use current Python interpreter to ensure we install to the right environment
@@ -190,28 +185,18 @@ def install_requirements(requirements_file):
         )
 
         if in_venv:
-            print("🐍 Detected virtual environment")
+            print("Detected virtual environment")
         else:
             print(
-                "⚠️  Installing to system Python "
-                "(consider using a virtual environment)"
-            )
-            print(
-                "\nNote: On Python 3.12+/Debian 12+, "
-                "you may see 'externally-managed-environment' errors."
-            )
-            print(
-                "Solution: Use a virtual environment or "
-                "see docs/installation-python312.md"
+                "Warning: Installing to system Python (consider using a virtual environment)\n"
+                "Note: Python 3.12+/Debian 12+ may show 'externally-managed-environment' errors.\n"
+                "See docs/installation-python312.md for details."
             )
 
             # Ask for confirmation for system-wide install
             if os.getenv("PCILEECH_AUTO_INSTALL") != "1":
                 if not _is_interactive_stdin():
-                    print(
-                        "\nNon-interactive shell; "
-                        "refusing to install to system Python."
-                    )
+                    print("Non-interactive shell; refusing to install to system Python.")
                     return False
                 confirm = (
                     input("\nInstall to system Python anyway? [y/N]: ")
@@ -220,17 +205,12 @@ def install_requirements(requirements_file):
                 )
                 if confirm not in ("y", "yes"):
                     print(
-                        "\nAborted. Please use a virtual environment "
-                        "or install manually:"
+                        "\nAborted. Recommended setup:\n"
+                        f"  python3 -m venv ~/.pcileech-venv\n"
+                        f"  source ~/.pcileech-venv/bin/activate\n"
+                        f"  pip install -r {requirements_file}\n"
+                        f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
                     )
-                    print(f"  python3 -m venv ~/.pcileech-venv")
-                    print(f"  source ~/.pcileech-venv/bin/activate")
-                    print(f"  pip install -r {requirements_file}")
-                    venv_cmd = (
-                        f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} "
-                        f"{' '.join(sys.argv[1:])}"
-                    )
-                    print(venv_cmd)
                     sys.exit(1)
 
             # Try --user flag, but catch externally-managed-environment errors
@@ -240,48 +220,46 @@ def install_requirements(requirements_file):
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
         if result.returncode == 0:
-            print("✅ Requirements installed successfully")
+            print("Requirements installed successfully")
             return True
         # no-dd-sa:python-best-practices/if-return-no-else
         else:
-            print(f"❌ Failed to install requirements:")
+            print("Failed to install requirements:")
             if result.stderr:
-                print(f"   {result.stderr}")
+                print(f"  {result.stderr}")
 
             # Check for externally-managed-environment error
             if "externally-managed-environment" in result.stderr:
                 print(
-                    "\n⚠️  Python 3.12+ / Debian 12+ detected with PEP 668 protection."
-                )
-                print("\nSolution 1 (Recommended): Use a virtual environment")
-                print(f"  python3 -m venv ~/.pcileech-venv")
-                print(f"  source ~/.pcileech-venv/bin/activate")
-                print(f"  pip install -r {requirements_file}")
-                print(
-                    f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}"
-                )
-
-                print("\nSolution 2: Use pipx")
-                print(f"  pipx install pcileechfwgenerator[tui]")
-                print(f"  sudo $(which pcileech) tui")
-
-                print("\nSolution 3: Override (not recommended)")
-                print(f"  pip install --break-system-packages -r {requirements_file}")
-
-                print(
-                    "\nSee: site/docs/installation-python312.md for detailed instructions"
+                    "\nPython 3.12+ / Debian 12+ detected with PEP 668 protection.\n\n"
+                    "Solution 1 (Recommended): Use a virtual environment\n"
+                    f"  python3 -m venv ~/.pcileech-venv\n"
+                    f"  source ~/.pcileech-venv/bin/activate\n"
+                    f"  pip install -r {requirements_file}\n"
+                    f"  sudo ~/.pcileech-venv/bin/python3 {sys.argv[0]} {' '.join(sys.argv[1:])}\n\n"
+                    "Solution 2: Use pipx\n"
+                    f"  pipx install pcileechfwgenerator[tui]\n"
+                    f"  sudo $(which pcileech) tui\n\n"
+                    "Solution 3: Override (not recommended)\n"
+                    f"  pip install --break-system-packages -r {requirements_file}\n\n"
+                    "See: site/docs/installation-python312.md for detailed instructions"
                 )
             else:
-                print(f"\nTry installing manually:")
-                print(f"   pip install -r {requirements_file}")
+                print(f"\nTry installing manually:\n  pip install -r {requirements_file}")
 
             return False
 
     except FileNotFoundError:
-        print("❌ pip not found. Please install pip first.")
+        print("Error: pip not found. Please install pip first.")
+        return False
+    except subprocess.SubprocessError as e:
+        print(f"Error during installation process: {e}")
+        return False
+    except (OSError, PermissionError) as e:
+        print(f"Error: Cannot write to installation directory: {e}")
         return False
     except Exception as e:
-        print(f"❌ Error installing requirements: {e}")
+        print(f"Unexpected error installing requirements: {e}")
         return False
 
 
@@ -315,13 +293,17 @@ def safe_import_with_fallback(module_name, fallback_msg=None):
     """Safely import a module with a helpful error message."""
     try:
         return importlib.import_module(module_name)
-    except ImportError as e:
+    except (ImportError, ModuleNotFoundError) as e:
         if fallback_msg:
-            print(f"❌ {fallback_msg}")
+            print(f"Error: {fallback_msg}")
         else:
-            print(f"❌ Required module '{module_name}' not available")
-            print(f"   Install with: pip install {module_name}")
-        raise RequirementsError(f"Missing required module: {module_name}") from e
+            print(
+                f"Error: Required module '{module_name}' not available\n"
+                f"  Install with: pip install {module_name}"
+            )
+        raise RequirementsError(
+            f"Missing required module: {module_name}"
+        ) from e
 
 
 # Early requirements check before any other imports
@@ -340,9 +322,11 @@ try:
         safe_format,
     )
     from src.utils.validation_constants import KNOWN_DEVICE_TYPES
-except ImportError as e:
-    print(f"❌ Failed to import PCILeech modules: {e}")
-    print("Make sure you're running from the PCILeech project directory")
+except (ImportError, ModuleNotFoundError) as e:
+    print(
+        f"Error: Failed to import PCILeech modules: {e}\n"
+        "Make sure you're running from the PCILeech project directory"
+    )
     sys.exit(1)
 
 
@@ -353,7 +337,7 @@ def get_available_boards():
 
         boards = list_supported_boards()
         return sorted(boards) if boards else get_fallback_boards()
-    except Exception:
+    except (ImportError, AttributeError, ValueError):
         return get_fallback_boards()
 
 
@@ -370,17 +354,14 @@ def check_sudo():
     if not hasattr(os, "geteuid"):
         # Non-POSIX system (e.g., Windows)
         log_warning_safe(
-            logger, "Non-POSIX OS detected; root check skipped.", prefix="SUDO"
+            logger, "Non-POSIX OS detected; root check skipped", prefix="SUDO"
         )
         return False
     if os.geteuid() != 0:
         log_warning_safe(
             logger,
-            "PCILeech requires root privileges for hardware access.",
+            "Root privileges required for hardware access. Please run with sudo or as root user.",
             prefix="SUDO",
-        )
-        log_warning_safe(
-            logger, "Please run with sudo or as root user.", prefix="SUDO"
         )
         return False
     return True
@@ -394,11 +375,14 @@ def check_vfio_requirements():
         with open("/proc/modules", "r") as f:
             modules = f.read()
             if "vfio " not in modules or "vfio_pci " not in modules:
-                log_warning_safe(logger, "VFIO modules not loaded. Run:", prefix="VFIO")
-                log_warning_safe(logger, "  sudo modprobe vfio vfio-pci", prefix="VFIO")
+                log_warning_safe(
+                    logger,
+                    "VFIO modules not loaded. Run: sudo modprobe vfio vfio-pci",
+                    prefix="VFIO"
+                )
                 return False
-    except FileNotFoundError:
-        # /proc/modules not available, skip check
+    except (FileNotFoundError, PermissionError, OSError):
+        # /proc/modules not available or inaccessible, skip check
         pass
 
     # Always rebuild VFIO constants to ensure they match the current kernel
@@ -461,10 +445,19 @@ def rebuild_vfio_constants():
     except subprocess.TimeoutExpired:
         log_warning_safe(logger, "VFIO constants rebuild timed out", prefix="VFIO")
         return False
-    except Exception as e:
+    except subprocess.SubprocessError as e:
         log_warning_safe(
             logger,
-            safe_format("VFIO constants rebuild error: {error}", error=str(e)),
+            safe_format("VFIO constants rebuild failed: {error}", error=str(e)),
+            prefix="VFIO",
+        )
+        return False
+    except (OSError, PermissionError) as e:
+        log_warning_safe(
+            logger,
+            safe_format(
+                "VFIO constants script execution error: {error}", error=str(e)
+            ),
             prefix="VFIO",
         )
         return False
@@ -711,12 +704,15 @@ def main():
                     print("\nPlease install missing packages and try again.")
                     return 1
         except KeyboardInterrupt:
-            print("\n⚠️  Installation interrupted by user")
+            print("\nInstallation interrupted by user")
             return 1
         except RequirementsError:
             return 1
+        except (OSError, IOError) as e:
+            print(f"Error accessing requirements file: {e}")
+            return 1
         except Exception as e:
-            print(f"❌ Error checking requirements: {e}")
+            print(f"Unexpected error during requirements check: {e}")
             return 1
 
     # Setup logging with our custom configuration
@@ -798,7 +794,7 @@ def handle_build(args):
         valid_boards = set(get_available_boards())
         if args.board not in valid_boards:
             print(
-                f"❌ Unknown board '{args.board}'. "
+                f"Error: Unknown board '{args.board}'\n"
                 f"Valid options: {', '.join(sorted(valid_boards))}"
             )
             return 1
@@ -833,6 +829,16 @@ def handle_build(args):
         # Stage 3: host-side Vivado batch
         return run_host_vivado(args)
 
+    except KeyboardInterrupt:
+        log_error_safe(logger, "Build interrupted by user", prefix="BUILD")
+        return 1
+    except (ImportError, ModuleNotFoundError) as e:
+        log_error_safe(
+            logger,
+            safe_format("Required module not available: {error}", error=str(e)),
+            prefix="BUILD",
+        )
+        return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
         log_error_with_root_cause(logger, "Build failed", e)
@@ -848,10 +854,10 @@ def run_host_collect(args):
     logger = get_logger(__name__)
     try:
         from src.host_collect.collector import HostCollector
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
-            safe_format("Host collector unavailable: {err}", err=str(e)),
+            safe_format("Host collector module not found: {err}", err=str(e)),
             prefix="BUILD",
         )
         return 1
@@ -918,10 +924,10 @@ def _get_image_age_days(runtime: str, tag: str) -> Optional[int]:
                     created = created.replace(tzinfo=timezone.utc)
                 now = datetime.now(timezone.utc)
                 return (now - created).days
-            except ValueError:
+            except (ValueError, AttributeError):
                 continue
         return None
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return None
 
 
@@ -970,10 +976,19 @@ def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -
             cwd=str(project_root),
         )
         return build.returncode == 0
-    except Exception as e:
+    except subprocess.SubprocessError as e:
         log_error_safe(
             logger,
-            safe_format("Container image check/build failed: {err}", err=str(e)),
+            safe_format("Container build process failed: {err}", err=str(e)),
+            prefix="BUILD",
+        )
+        return False
+    except (OSError, FileNotFoundError) as e:
+        log_error_safe(
+            logger,
+            safe_format(
+                "Container runtime or Containerfile not found: {err}", err=str(e)
+            ),
             prefix="BUILD",
         )
         return False
@@ -1082,25 +1097,24 @@ def _choose_container_mode(runtime: str, logger) -> bool:
     print("\n" + "=" * 70)
     print("  Template Generation Mode Selection")
     print("=" * 70)
-    print(f"\nContainer runtime available: {runtime}")
-    print("\nTwo execution modes are available:\n")
+    print(f"\nContainer runtime: {runtime}\n")
     print("  [C] Container mode (recommended)")
-    print("      ✓ Isolated environment")
-    print("      ✓ Reproducible builds")
-    print("      ✓ No system dependency conflicts")
-    print("      ✗ Slightly slower startup\n")
+    print("      • Isolated environment")
+    print("      • Reproducible builds")
+    print("      • No system dependency conflicts")
+    print("      • Slightly slower startup\n")
     print("  [L] Local mode")
-    print("      ✓ Faster execution")
-    print("      ✓ Direct access to system")
-    print("      ✗ May have dependency conflicts")
-    print("      ✗ Less reproducible\n")
-    print("=" * 70)
+    print("      • Faster execution")
+    print("      • Direct access to system")
+    print("      • May have dependency conflicts")
+    print("      • Less reproducible")
+    print("\n" + "=" * 70)
     
     while True:
         try:
             prompt = "\nSelect mode [C/L] (default: Container): "
             choice = input(prompt).strip().upper()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, OSError):
             print("\nDefaulting to container mode")
             return True
         
@@ -1196,10 +1210,10 @@ def run_local_templating(args):
     logger = get_logger(__name__)
     try:
         from src.build import FirmwareBuilder, ConfigurationManager
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
-            safe_format("Local templating unavailable: {err}", err=str(e)),
+            safe_format("Build modules not found: {err}", err=str(e)),
             prefix="BUILD",
         )
         return 1
@@ -1244,10 +1258,10 @@ def run_host_vivado(args):
     logger = get_logger(__name__)
     try:
         from src.vivado_handling import VivadoRunner, find_vivado_installation
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
-            safe_format("Vivado integration unavailable: {err}", err=str(e)),
+            safe_format("Vivado integration modules not found: {err}", err=str(e)),
             prefix="VIVADO",
         )
         return 1
@@ -1307,12 +1321,7 @@ def handle_tui(args):
         if not is_compatible:
             log_error_safe(
                 logger,
-                "OS compatibility error: PCILeech requires Linux",
-                prefix="TUI",
-            )
-            log_error_safe(
-                logger,
-                f"Current platform: {current_os}. PCILeech TUI is only supported on Linux systems.",
+                f"OS compatibility error: PCILeech requires Linux (current: {current_os})",
                 prefix="TUI",
             )
             return 1
@@ -1321,7 +1330,7 @@ def handle_tui(args):
         if not check_sudo():
             log_warning_safe(
                 logger,
-                "Continuing without root privileges - limited functionality.",
+                "Continuing without root privileges - limited functionality",
                 prefix="TUI",
             )
 
@@ -1335,6 +1344,13 @@ def handle_tui(args):
         return 1
     except KeyboardInterrupt:
         log_info_safe(logger, "TUI application interrupted by user", prefix="TUI")
+        return 1
+    except (ImportError, ModuleNotFoundError) as e:
+        log_error_safe(
+            logger,
+            safe_format("TUI module not available: {error}", error=str(e)),
+            prefix="TUI",
+        )
         return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
@@ -1352,10 +1368,7 @@ def handle_flash(args):
         if not firmware_path.exists():
             log_error_safe(
                 logger,
-                safe_format(
-                    "Firmware file not found: {path}",
-                    path=firmware_path,
-                ),
+                safe_format("Firmware file not found: {path}", path=firmware_path),
                 prefix="FLASH",
             )
             return 1
@@ -1402,6 +1415,16 @@ def handle_flash(args):
 
         return 0
 
+    except KeyboardInterrupt:
+        log_info_safe(logger, "Flash operation interrupted by user", prefix="FLASH")
+        return 1
+    except (ImportError, ModuleNotFoundError) as e:
+        log_error_safe(
+            logger,
+            safe_format("Flash module not available: {error}", error=str(e)),
+            prefix="FLASH",
+        )
+        return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
 
@@ -1442,7 +1465,7 @@ def handle_check(args):
             if report.overall == Status.OK:
                 log_info_safe(
                     logger,
-                    "System already VFIO-ready - nothing to do",
+                    "System is VFIO-ready",
                     prefix="CHECK",
                 )
                 return 0
@@ -1462,12 +1485,12 @@ def handle_check(args):
             if args.interactive:
                 confirm = input("Run remediation script now? [y/N]: ").strip().lower()
                 if confirm not in ("y", "yes"):
-                    log_info_safe(logger, "Aborted.", prefix="CHECK")
+                    log_info_safe(logger, "Aborted", prefix="CHECK")
                     return 1
 
             log_info_safe(
                 logger,
-                "Executing remediation script (requires root)...",
+                "Executing remediation script (requires root)",
                 prefix="CHECK",
             )
             try:
@@ -1476,7 +1499,7 @@ def handle_check(args):
                 # Re-run diagnostics after remediation
                 log_info_safe(
                     logger,
-                    "Re-running diagnostics after remediation...",
+                    "Re-running diagnostics after remediation",
                     prefix="CHECK",
                 )
                 new_report = Diagnostics(args.device).run()
@@ -1485,7 +1508,16 @@ def handle_check(args):
             except subprocess.CalledProcessError as e:
                 log_error_safe(
                     logger,
-                    safe_format("Script failed: {error}", error=str(e)),
+                    safe_format("Remediation script failed: {error}", error=str(e)),
+                    prefix="CHECK",
+                )
+                return 1
+            except (OSError, PermissionError) as e:
+                log_error_safe(
+                    logger,
+                    safe_format(
+                        "Cannot execute remediation script: {error}", error=str(e)
+                    ),
                     prefix="CHECK",
                 )
                 return 1
@@ -1493,24 +1525,27 @@ def handle_check(args):
         # Exit with appropriate code
         return 0 if report.can_proceed else 1
 
-    except ImportError as e:
-        log_error_safe(logger, "VFIO diagnostics module not found.", prefix="CHECK")
+    except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
-            "Please ensure you're running this from the PCILeech project directory.",
-            prefix="CHECK",
+            safe_format(
+                "VFIO diagnostics module not found. "
+                "Ensure you're running from the PCILeech project directory. "
+                "Details: {error}",
+                error=str(e)
+            ),
+            prefix="CHECK"
         )
-        log_error_safe(
-            logger, safe_format("Details: {error}", error=str(e)), prefix="CHECK"
-        )
+        return 1
+    except KeyboardInterrupt:
+        log_info_safe(logger, "VFIO check interrupted by user", prefix="CHECK")
         return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
 
         log_error_with_root_cause(logger, "VFIO check failed", e)
-        import traceback
-
         if logger.isEnabledFor(logging.DEBUG):
+            import traceback
             traceback.print_exc()
         return 1
 
@@ -1545,7 +1580,7 @@ def handle_version(args):
             prefix="VERSION",
         )
 
-    except ImportError:
+    except (ImportError, ModuleNotFoundError, AttributeError):
         log_info_safe(logger, get_version(), prefix="VERSION")
 
     log_info_safe(logger, "Copyright (c) 2024 PCILeech Project", prefix="VERSION")
@@ -1561,7 +1596,7 @@ def handle_version(args):
             safe_format("Package version: {version}", version=version),
             prefix="VERSION",
         )
-    except Exception as e:
+    except (ImportError, AttributeError, ValueError) as e:
         # Package version not available (development install or pkg_resources missing)
         log_debug_safe(
             logger,
@@ -1589,28 +1624,30 @@ def handle_donor_template(args):
                 if is_valid:
                     log_info_safe(
                         logger,
-                        safe_format(
-                            "Template file '{file}' is valid", file=args.validate
-                        ),
+                        safe_format("Template file '{file}' is valid", file=args.validate),
                         prefix="DONOR",
                     )
                     return 0
                 else:
                     log_error_safe(
                         logger,
-                        safe_format(
-                            "✗ Template file '{file}' has errors:", file=args.validate
-                        ),
+                        safe_format("Template file '{file}' has validation errors:", file=args.validate),
                         prefix="DONOR",
-                        file=args.validate,
                     )
                     for error in errors:
                         log_error_safe(
                             logger,
-                            safe_format("  - {error}", error=error),
-                            prefix="DONOR",
+                            safe_format("  • {error}", error=error),
+                            prefix="DONOR"
                         )
                     return 1
+            except (OSError, IOError) as e:
+                log_error_safe(
+                    logger,
+                    safe_format("Cannot read template file: {error}", error=str(e)),
+                    prefix="DONOR",
+                )
+                return 1
             except Exception as e:
                 from src.error_utils import log_error_with_root_cause
 
@@ -1624,9 +1661,7 @@ def handle_donor_template(args):
         if args.bdf:
             log_info_safe(
                 logger,
-                safe_format(
-                    "Generating template with device info from {bdf}...", bdf=args.bdf
-                ),
+                safe_format("Generating template with device info from {bdf}", bdf=args.bdf),
                 prefix="DONOR",
             )
             try:
@@ -1636,21 +1671,30 @@ def handle_donor_template(args):
                     log_error_safe(
                         logger,
                         safe_format(
-                            "Failed to read device information from {bdf}", bdf=args.bdf
+                            "Failed to read device information from {bdf}. Possible causes: device does not exist, insufficient permissions (try sudo), or lspci unavailable",
+                            bdf=args.bdf
                         ),
                         prefix="DONOR",
                     )
-                    log_error_safe(logger, "Possible causes:", prefix="DONOR")
-                    log_error_safe(logger, "  - Device does not exist", prefix="DONOR")
-                    log_error_safe(
-                        logger,
-                        "  - Insufficient permissions (try with sudo)",
-                        prefix="DONOR",
-                    )
-                    log_error_safe(
-                        logger, "  - lspci command not available", prefix="DONOR"
-                    )
                     return 1
+            except subprocess.SubprocessError as e:
+                log_error_safe(
+                    logger,
+                    safe_format(
+                        "Device query command failed: {error}", error=str(e)
+                    ),
+                    prefix="DONOR",
+                )
+                return 1
+            except (OSError, PermissionError) as e:
+                log_error_safe(
+                    logger,
+                    safe_format(
+                        "Cannot access device information: {error}", error=str(e)
+                    ),
+                    prefix="DONOR",
+                )
+                return 1
             except Exception as e:
                 from src.error_utils import log_error_with_root_cause
 
@@ -1660,7 +1704,7 @@ def handle_donor_template(args):
             # Generate minimal template
             template = generator.generate_minimal_template()
             log_info_safe(
-                logger, "Generating minimal donor info template...", prefix="DONOR"
+                logger, "Generating minimal donor info template", prefix="DONOR"
             )
         else:
             # Generate full template
@@ -1672,38 +1716,35 @@ def handle_donor_template(args):
         )
         log_info_safe(
             logger,
-            "✓ Donor info template saved to: {file}",
+            safe_format("Donor info template saved to: {file}", file=args.save_to),
             prefix="DONOR",
-            file=args.save_to,
         )
 
         if args.bdf:
             log_info_safe(
-                logger, "Template pre-filled with device information.", prefix="DONOR"
-            )
-            log_info_safe(
-                logger, "Please review and complete any missing fields.", prefix="DONOR"
+                logger, "Template pre-filled with device information. Review and complete missing fields.", prefix="DONOR"
             )
         else:
-            log_info_safe(logger, "Next steps:", prefix="DONOR")
             log_info_safe(
                 logger,
-                "1. Fill in the device-specific values in the template",
-                prefix="DONOR",
-            )
-            log_info_safe(
-                logger,
-                "2. Run behavioral profiling to capture timing data",
-                prefix="DONOR",
-            )
-            log_info_safe(
-                logger,
-                "3. Use the completed template for advanced device cloning",
+                "Next steps: (1) Fill device-specific values, (2) Run behavioral profiling, (3) Use template for device cloning",
                 prefix="DONOR",
             )
 
         return 0
 
+    except KeyboardInterrupt:
+        log_info_safe(
+            logger, "Donor template generation interrupted by user", prefix="DONOR"
+        )
+        return 1
+    except (OSError, IOError, PermissionError) as e:
+        log_error_safe(
+            logger,
+            safe_format("Cannot write template file: {error}", error=str(e)),
+            prefix="DONOR",
+        )
+        return 1
     except Exception as e:
         from src.error_utils import log_error_with_root_cause
 

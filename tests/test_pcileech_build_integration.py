@@ -361,6 +361,178 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 2)
         integration._copy_ip_files.assert_called_once()
 
+    def test_unified_build_script_sets_working_directory(self):
+        """Test that build_all.tcl changes to board directory for path resolution."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        
+        # Mock the prepare_build_environment to return minimal data
+        integration.prepare_build_environment = MagicMock(return_value={
+            "board_name": "artix7",
+            "board_config": self.sample_boards["artix7"],
+            "output_dir": self.output_dir / "artix7",
+            "src_files": [self.output_dir / "artix7" / "src" / "test.sv"],
+            "xdc_files": [self.output_dir / "artix7" / "constraints" / "test.xdc"],
+            "ip_files": [self.output_dir / "artix7" / "ip" / "test.xci"],
+        })
+        
+        # Mock write_text to capture the content without actual file write
+        with patch("pathlib.Path.write_text") as mock_write:
+            # Create the build script
+            script_path = integration.create_unified_build_script("artix7")
+            
+            # Get the content that was written
+            self.assertTrue(mock_write.called, "write_text should have been called")
+            script_content = mock_write.call_args[0][0]
+        
+        # Verify the script changes to board directory
+        self.assertIn("cd [file dirname [info script]]", script_content,
+                     "Script should change to board directory for path resolution")
+        self.assertIn('puts "Working directory: [pwd]"', script_content,
+                     "Script should print working directory for debugging")
+
+    def test_unified_build_script_uses_relative_paths_for_sources(self):
+        """Test that source files use relative paths, not absolute paths."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        
+        # Create test paths
+        board_dir = self.output_dir / "artix7"
+        src_file = board_dir / "src" / "test_module.sv"
+        
+        # Mock the prepare_build_environment
+        integration.prepare_build_environment = MagicMock(return_value={
+            "board_name": "artix7",
+            "board_config": self.sample_boards["artix7"],
+            "output_dir": board_dir,
+            "src_files": [src_file],
+            "xdc_files": [],
+            "ip_files": [],
+        })
+        
+        # Mock write_text to capture the content
+        with patch("pathlib.Path.write_text") as mock_write:
+            script_path = integration.create_unified_build_script("artix7")
+            script_content = mock_write.call_args[0][0]
+        
+        # Verify relative path is used, not absolute path
+        self.assertIn('add_files -norecurse "src/test_module.sv"', script_content,
+                     "Source files should use relative paths from board directory")
+        # Ensure absolute paths are NOT used
+        self.assertNotIn(str(src_file), script_content,
+                        "Source files should not use absolute paths")
+
+    def test_unified_build_script_uses_relative_paths_for_constraints(self):
+        """Test that constraint files use relative paths, not absolute paths."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        
+        # Create test paths
+        board_dir = self.output_dir / "artix7"
+        xdc_file = board_dir / "constraints" / "timing.xdc"
+        
+        # Mock the prepare_build_environment
+        integration.prepare_build_environment = MagicMock(return_value={
+            "board_name": "artix7",
+            "board_config": self.sample_boards["artix7"],
+            "output_dir": board_dir,
+            "src_files": [],
+            "xdc_files": [xdc_file],
+            "ip_files": [],
+        })
+        
+        # Mock write_text to capture the content
+        with patch("pathlib.Path.write_text") as mock_write:
+            script_path = integration.create_unified_build_script("artix7")
+            script_content = mock_write.call_args[0][0]
+        
+        # Verify relative path is used
+        self.assertIn('add_files -fileset constrs_1 -norecurse "constraints/timing.xdc"', 
+                     script_content,
+                     "Constraint files should use relative paths from board directory")
+        # Ensure absolute paths are NOT used
+        self.assertNotIn(str(xdc_file), script_content,
+                        "Constraint files should not use absolute paths")
+
+    def test_unified_build_script_uses_relative_ip_directory(self):
+        """Test that IP files directory uses relative path after cd command."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        
+        # Mock the prepare_build_environment
+        integration.prepare_build_environment = MagicMock(return_value={
+            "board_name": "pcileech_100t484_x1",
+            "board_config": self.sample_boards["artix7"],
+            "output_dir": self.output_dir / "pcileech_100t484_x1",
+            "src_files": [],
+            "xdc_files": [],
+            "ip_files": [self.output_dir / "pcileech_100t484_x1" / "ip" / "test.xci"],
+        })
+        
+        # Mock write_text to capture the content
+        with patch("pathlib.Path.write_text") as mock_write:
+            script_path = integration.create_unified_build_script("pcileech_100t484_x1")
+            script_content = mock_write.call_args[0][0]
+        
+        # After cd to board directory, IP path should be relative
+        self.assertIn('set ip_dir [file normalize "./ip"]', script_content,
+                     "IP directory should use relative path './ip' after cd to board directory")
+        
+        # Should NOT use board name in path since we're already in board directory
+        self.assertNotIn('./pcileech_100t484_x1/ip', script_content,
+                        "IP path should not include board name after cd to board directory")
+
+    def test_unified_build_script_path_resolution_integration(self):
+        """Integration test: verify complete path resolution in build script."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        
+        # Create realistic test paths
+        board_name = "pcileech_100t484_x1"
+        board_dir = self.output_dir / board_name
+        
+        # Mock the prepare_build_environment with realistic paths
+        integration.prepare_build_environment = MagicMock(return_value={
+            "board_name": board_name,
+            "board_config": {
+                "name": board_name,
+                "fpga_part": "xc7a100tfgg484-1",
+                "fpga_family": "7series",
+                "pcie_ip_type": "pcie_7x",
+            },
+            "output_dir": board_dir,
+            "src_files": [
+                board_dir / "src" / "pcileech_100t484_x1_top.sv",
+                board_dir / "src" / "pcileech_com.sv",
+            ],
+            "xdc_files": [
+                board_dir / "constraints" / "pcileech_100t484_x1_captaindma_100t.xdc",
+            ],
+            "ip_files": [
+                board_dir / "ip" / "fifo_64_64_clk2_comrx.xci",
+                board_dir / "ip" / "pcie_7x_0.xci",
+            ],
+        })
+        
+        # Mock write_text to capture the content
+        with patch("pathlib.Path.write_text") as mock_write:
+            script_path = integration.create_unified_build_script(board_name)
+            script_content = mock_write.call_args[0][0]
+        
+        # Verify all path resolution aspects
+        assertions = [
+            ("cd [file dirname [info script]]", "Must change to board directory first"),
+            ('set ip_dir [file normalize "./ip"]', "IP dir must be relative after cd"),
+            ('"src/pcileech_100t484_x1_top.sv"', "Source files must use relative paths"),
+            ('"src/pcileech_com.sv"', "All source files must be relative"),
+            ('"constraints/pcileech_100t484_x1_captaindma_100t.xdc"', 
+             "Constraint files must use relative paths"),
+        ]
+        
+        for expected_text, error_msg in assertions:
+            self.assertIn(expected_text, script_content, error_msg)
+        
+        # Verify NO absolute paths are used (common mistake that caused the bug)
+        self.assertNotIn("/root/", script_content,
+                        "Script must not contain absolute container paths")
+        self.assertNotIn("/tmp/", script_content,
+                        "Script must not contain absolute test paths")
+
     
 
 
