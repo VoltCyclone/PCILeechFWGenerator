@@ -106,10 +106,19 @@ BOARD_PARTS = {
     "pcileech_35t325_x1": "xc7a35tcsg324-2",
     # CaptainDMA 100T x1 board: Artix-7 100T, FFG484 package, -1 speed grade.
     "pcileech_100t484_x1": "xc7a100tfgg484-1",
+    # Artix-7 100T x4 board (ZDMA-style): PCIe Gen2 x4 for 1000 MB/s transfer speeds
+    "pcileech_100t484_x4": "xc7a100tfgg484-1",
     # Other boards
     "pcileech_enigma_x1": "xc7a75tfgg484-2",
     "pcileech_squirrel": "xc7a35tfgg484-2",
     "pcileech_pciescreamer_xc7a35": "xc7a35tcsg324-2",
+    # Commercial PCILeech boards
+    "pcileech_gbox": "xc7a35tfgg484-2",
+    "pcileech_netv2_35t": "xc7a35tfgg484-2",
+    "pcileech_netv2_100t": "xc7a100tfgg484-1",
+    "pcileech_screamer_m2": "xc7a35tcsg324-2",
+    # Development boards
+    "pcileech_ac701": "xc7a200tfbg676-2",
 }
 
 # Canonical fallback board list (used when dynamic discovery fails)
@@ -119,9 +128,15 @@ BOARD_FALLBACKS: Final[List[str]] = [
     "pcileech_35t484_x1",
     "pcileech_75t484_x1",
     "pcileech_100t484_x1",
+    "pcileech_100t484_x4",
     "pcileech_enigma_x1",
     "pcileech_squirrel",
     "pcileech_pciescreamer_xc7a35",
+    "pcileech_gbox",
+    "pcileech_netv2_35t",
+    "pcileech_netv2_100t",
+    "pcileech_screamer_m2",
+    "pcileech_ac701",
 ]
 
 # Default FPGA part for unknown boards

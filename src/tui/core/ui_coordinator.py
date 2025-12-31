@@ -102,58 +102,10 @@ class UICoordinator:
     def update_device_table(self) -> None:
         """Update the device table with current filtered devices"""
         device_table = self.app.query_one("#device-table")
-        device_table.clear()
-
-        # Use the app's filtered_devices property which uses app_state
-        for device in self.app.filtered_devices:
-            try:
-                # Safely access device attributes with fallbacks
-                status = getattr(device, "status_indicator", "❓")
-                bdf = getattr(device, "bdf", "Unknown")
-                name = f"{getattr(device, 'vendor_name', 'Unknown')} {getattr(device, 'device_name', 'Unknown')}"[
-                    :40
-                ]
-
-                # Get compact status with error handling
-                try:
-                    status_text = getattr(device, "compact_status", "N/A")
-                except Exception:
-                    try:
-                        score = float(getattr(device, "suitability_score", 0.0))
-                        status_text = f"Score: {score:.2f}"
-                    except (ValueError, TypeError):
-                        status_text = "Score: N/A"
-
-                # Get driver with fallback
-                driver = getattr(device, "driver", None) or "None"
-
-                # Safe conversion for IOMMU group
-                try:
-                    iommu = str(getattr(device, "iommu_group", "N/A"))
-                except Exception:
-                    iommu = "N/A"
-
-                device_table.add_row(
-                    status,
-                    bdf,
-                    name,
-                    status_text,
-                    driver,
-                    iommu,
-                    key=bdf,
-                )
-            except Exception as e:
-                # Fallback for any unexpected errors
-                print(f"Error adding device to table: {e}")
-                device_table.add_row(
-                    "❌",
-                    getattr(device, "bdf", "Unknown"),
-                    "Error displaying device",
-                    "N/A",
-                    "N/A",
-                    "N/A",
-                    key=getattr(device, "bdf", f"error_{id(device)}"),
-                )
+        
+        # Use VirtualDeviceTable's set_data method for proper virtualization
+        # The VirtualDeviceTable will handle clearing and rendering efficiently
+        device_table.set_data(self.app.filtered_devices)
 
     def _update_device_panel_title(self) -> None:
         """Update the device panel title with device count"""
