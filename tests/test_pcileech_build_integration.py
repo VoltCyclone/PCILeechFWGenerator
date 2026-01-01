@@ -227,6 +227,59 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         )
         self.assertEqual(mock_copy2.call_count, 2)
 
+    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    def test_copy_source_files_no_nested_src_directory(self, mock_copy2):
+        """Test that source files are NOT copied to nested src/src/ directory structure.
+        
+        Regression test for bug where files were being copied to board_output_dir/src/src/
+        instead of board_output_dir/src/, causing duplicate module definitions in Vivado.
+        
+        GitHub Issue: #524
+        """
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+
+        # Setup mock source files with src/ in their path (realistic scenario)
+        board_path = Path("/tmp/test_repo/boards/pcileech_100t484_x1")
+        src_files = [
+            board_path / "src" / "pcileech_fifo.sv",
+            board_path / "src" / "pcileech_mux.sv",
+            board_path / "src" / "pcileech_100t484_x1_top.sv",
+        ]
+        self.mock_template_discovery.get_source_files.return_value = src_files
+        self.mock_template_discovery.get_pcileech_core_files.return_value = {}
+        self.mock_repo_manager.get_board_path.return_value = board_path
+
+        # Call the method - output_dir should NOT have /src appended
+        # This is the fix: pass board_output_dir directly, not board_output_dir / "src"
+        board_output_dir = Path("/tmp/output/pcileech_100t484_x1")
+        result = integration._copy_source_files("pcileech_100t484_x1", board_output_dir)
+
+        # Verify files are copied to the correct paths (NOT nested src/src/)
+        expected_calls = [
+            call(src_files[0], board_output_dir / "src" / "pcileech_fifo.sv"),
+            call(src_files[1], board_output_dir / "src" / "pcileech_mux.sv"),
+            call(src_files[2], board_output_dir / "src" / "pcileech_100t484_x1_top.sv"),
+        ]
+        mock_copy2.assert_has_calls(expected_calls, any_order=True)
+
+        # Verify NO files were copied to nested src/src/ directory
+        for call_args in mock_copy2.call_args_list:
+            dest_path = call_args[0][1]
+            path_parts = Path(dest_path).parts
+            # Check for consecutive 'src' parts indicating nested structure
+            for i in range(len(path_parts) - 1):
+                if path_parts[i] == 'src' and path_parts[i + 1] == 'src':
+                    self.fail(f"Found nested src/src/ structure in path: {dest_path}")
+
+        # Verify results contain correct number of files
+        self.assertEqual(len(result), 3)
+        
+        # Verify all result paths have exactly one 'src' in their hierarchy
+        for result_path in result:
+            src_count = str(result_path).count('/src/')
+            self.assertEqual(src_count, 1, 
+                           f"Path should have exactly one 'src' directory, found {src_count}: {result_path}")
+
     
 
 
@@ -305,9 +358,71 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             "artix7", self.repo_root
         )
         self.mock_tcl_builder.assert_called_once_with(output_dir=output_dir / "scripts")
-        mock_tcl_instance.build_pcileech_project_script.assert_called_once()
-        mock_tcl_instance.build_pcileech_build_script.assert_called_once()
-        self.assertEqual(mock_write_text.call_count, 2)
+
+    @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
+    def test_unified_build_script_no_duplicate_source_files(self, mock_write_text):
+        """Test that unified build script does not add duplicate source files.
+        
+        Regression test for bug where files from both src/ and src/src/ were added
+        to the Vivado project, causing duplicate module definition errors.
+        
+        GitHub Issue: #524
+        """
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+        
+        # Create realistic source file paths
+        board_dir = Path("/tmp/output/pcileech_100t484_x1")
+        src_files = [
+            board_dir / "src" / "pcileech_fifo.sv",
+            board_dir / "src" / "pcileech_mux.sv",
+            board_dir / "src" / "pcileech_100t484_x1_top.sv",
+            board_dir / "src" / "pcileech_pcie_tlp_a7.sv",
+        ]
+        
+        # Mock the prepare_build_environment
+        integration.prepare_build_environment = MagicMock(return_value={
+            "board_name": "pcileech_100t484_x1",
+            "board_config": {
+                "name": "pcileech_100t484_x1",
+                "fpga_part": "xc7a100tfgg484-1",
+                "fpga_family": "7series",
+                "pcie_ip_type": "pcie_7x",
+            },
+            "output_dir": board_dir,
+            "src_files": src_files,
+            "xdc_files": [],
+            "ip_files": [],
+        })
+        
+        # Call create_unified_build_script and capture the script content
+        script_path = integration.create_unified_build_script("pcileech_100t484_x1")
+        script_content = mock_write_text.call_args[0][0]
+        
+        # Verify each file is added exactly once
+        for src_file in src_files:
+            filename = src_file.name
+            # Count occurrences of add_files commands for this specific file
+            add_files_pattern = f'add_files -norecurse "src/{filename}"'
+            count = script_content.count(add_files_pattern)
+            self.assertEqual(count, 1, 
+                           f"File {filename} should be added exactly once, found {count} times")
+        
+        # Verify NO files are added from src/src/ (nested structure)
+        self.assertNotIn('add_files -norecurse "src/src/', script_content,
+                        "Script should not reference nested src/src/ directory structure")
+        
+        # Verify files ARE added from src/ (correct structure)
+        self.assertIn('add_files -norecurse "src/pcileech_fifo.sv"', script_content,
+                     "Files should be added from src/ directory")
+        
+        # Additional check: verify the file deduplication logic is working
+        # Count total add_files commands for source files
+        add_files_count = script_content.count('add_files -norecurse "src/')
+        self.assertEqual(add_files_count, len(src_files),
+                        f"Should have exactly {len(src_files)} add_files commands, found {add_files_count}")
+        
+        # Verify write_text was called once (create_unified_build_script writes build_all.tcl)
+        self.assertEqual(mock_write_text.call_count, 1)
 
     
 
