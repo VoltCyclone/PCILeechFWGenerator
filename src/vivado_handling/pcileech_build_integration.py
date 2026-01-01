@@ -103,8 +103,9 @@ class PCILeechBuildIntegration:
             board_name, board_output_dir / "constraints"
         )
 
-        # Copy source files from repository
-        src_files = self._copy_source_files(board_name, board_output_dir / "src")
+        # Copy source files from repository  
+        # Don't append "src" to output_dir as it will be preserved from the board path
+        src_files = self._copy_source_files(board_name, board_output_dir)
 
         # Copy IP definition files (.xci/.coe) if present - required for Vivado to import IP cores.
         ip_files = self._copy_ip_files(board_name, board_output_dir / "ip")
