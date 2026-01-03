@@ -203,17 +203,19 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             core_files
         )
 
-        # Setup mock board path
-        self.mock_repo_manager.get_board_path.return_value = Path(
-            "/tmp/test_repo/boards/artix7"
-        )
-
-        # Call the method
-        output_dir = Path("/tmp/output/src")
+        # Call the method - pass base output dir, files will go to output_dir/src/
+        output_dir = Path("/tmp/output")
         result = integration._copy_source_files("artix7", output_dir)
 
-        # Check results
+        # Check results - should have 2 files (1 source + 1 core)
         self.assertEqual(len(result), 2)
+
+        # Verify files are copied to src/ subdirectory with flat structure
+        expected_calls = [
+            call(src_files[0], output_dir / "src" / "top.v"),
+            call(core_files["pcileech_core.v"], output_dir / "src" / "pcileech_core.v"),
+        ]
+        mock_copy2.assert_has_calls(expected_calls, any_order=True)
 
         # Verify method calls (class methods now)
         self.mock_template_discovery.get_source_files.assert_called_once_with(
@@ -222,9 +224,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.mock_template_discovery.get_pcileech_core_files.assert_called_once_with(
             self.repo_root
         )
-        self.mock_repo_manager.get_board_path.assert_called_once_with(
-            "artix7", repo_root=self.repo_root
-        )
+        # Note: get_board_path is no longer called with flat structure design
         self.assertEqual(mock_copy2.call_count, 2)
 
     @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
@@ -280,8 +280,113 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             self.assertEqual(src_count, 1, 
                            f"Path should have exactly one 'src' directory, found {src_count}: {result_path}")
 
-    
+    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    def test_copy_source_files_filename_collision(self, mock_copy2):
+        """Test that files with same name from different paths overwrite correctly.
+        
+        Edge case: When repository has files with identical names in different directories,
+        the flat structure means the last one wins (proper behavior for flat deduplication).
+        """
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
 
+        # Setup files with same name from different source paths
+        src_files = [
+            Path("/tmp/test_repo/boards/board1/src/common.sv"),
+            Path("/tmp/test_repo/boards/board1/rtl/common.sv"),  # Same filename
+        ]
+        self.mock_template_discovery.get_source_files.return_value = src_files
+        self.mock_template_discovery.get_pcileech_core_files.return_value = {}
+
+        board_output_dir = Path("/tmp/output/board1")
+        result = integration._copy_source_files("board1", board_output_dir)
+
+        # Both files should be copied (last one overwrites)
+        self.assertEqual(len(result), 2)
+        
+        # Both should target the same destination path
+        expected_dest = board_output_dir / "src" / "common.sv"
+        for call_args in mock_copy2.call_args_list:
+            dest_path = call_args[0][1]
+            self.assertEqual(dest_path, expected_dest,
+                           "All files with same name should map to same destination")
+
+    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    def test_copy_source_files_with_manifest_tracker_duplicate_prevention(self, mock_copy2):
+        """Test that manifest tracker prevents actual duplicate file copies."""
+        # Create a mock manifest tracker that rejects the second file
+        mock_manifest = MagicMock()
+        mock_manifest.add_copy_operation.side_effect = [True, False]  # Accept first, reject second
+        
+        integration = PCILeechBuildIntegration(
+            self.output_dir, 
+            self.repo_root,
+            manifest_tracker=mock_manifest
+        )
+
+        src_files = [
+            Path("/tmp/test_repo/boards/board1/src/file1.sv"),
+            Path("/tmp/test_repo/boards/board1/src/file2.sv"),
+        ]
+        self.mock_template_discovery.get_source_files.return_value = src_files
+        self.mock_template_discovery.get_pcileech_core_files.return_value = {}
+
+        result = integration._copy_source_files("board1", Path("/tmp/output/board1"))
+
+        # Only first file should be copied (second rejected by manifest)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(mock_copy2.call_count, 1)
+        self.assertEqual(result[0].name, "file1.sv")
+
+    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    def test_copy_source_files_empty_source_list(self, mock_copy2):
+        """Test graceful handling when no source files are found."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+
+        # Setup empty source and core file lists
+        self.mock_template_discovery.get_source_files.return_value = []
+        self.mock_template_discovery.get_pcileech_core_files.return_value = {}
+
+        board_output_dir = Path("/tmp/output/empty_board")
+        result = integration._copy_source_files("empty_board", board_output_dir)
+
+        # Should return empty list without errors
+        self.assertEqual(len(result), 0)
+        mock_copy2.assert_not_called()
+
+    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    def test_copy_source_files_io_error_continues(self, mock_copy2):
+        """Test that IO errors on individual files don't stop the entire copy operation."""
+        integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
+
+        src_files = [
+            Path("/tmp/test_repo/boards/board1/src/good_file.sv"),
+            Path("/tmp/test_repo/boards/board1/src/bad_file.sv"),
+            Path("/tmp/test_repo/boards/board1/src/another_good.sv"),
+        ]
+        
+        # Make second file fail, others succeed
+        def copy_side_effect(src, dst):
+            if "bad_file" in str(src):
+                raise IOError("Permission denied")
+            return None
+        
+        mock_copy2.side_effect = copy_side_effect
+        
+        self.mock_template_discovery.get_source_files.return_value = src_files
+        self.mock_template_discovery.get_pcileech_core_files.return_value = {}
+
+        board_output_dir = Path("/tmp/output/board1")
+        result = integration._copy_source_files("board1", board_output_dir)
+
+        # Should have copied 2 out of 3 files (skipping the failed one)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(mock_copy2.call_count, 3)  # All attempted
+        
+        # Verify the successful files are in results
+        result_names = {path.name for path in result}
+        self.assertIn("good_file.sv", result_names)
+        self.assertIn("another_good.sv", result_names)
+        self.assertNotIn("bad_file.sv", result_names)
 
     @patch("src.vivado_handling.pcileech_build_integration.Path.read_text")
     @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
