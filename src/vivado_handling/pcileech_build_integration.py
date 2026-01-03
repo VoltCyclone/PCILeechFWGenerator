@@ -15,8 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..file_management.board_discovery import BoardDiscovery, get_board_config
 from ..file_management.repo_manager import RepoManager
 from ..file_management.template_discovery import TemplateDiscovery
-from ..string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                            safe_format)
+from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+                            log_warning_safe, safe_format)
 from ..templating.tcl_builder import BuildContext, TCLBuilder
 
 logger = logging.getLogger(__name__)
@@ -103,8 +103,9 @@ class PCILeechBuildIntegration:
             board_name, board_output_dir / "constraints"
         )
 
-        # Copy source files from repository
-        src_files = self._copy_source_files(board_name, board_output_dir / "src")
+        # Copy source files from repository  
+        # Don't append "src" to output_dir as it will be preserved from the board path
+        src_files = self._copy_source_files(board_name, board_output_dir)
 
         # Copy IP definition files (.xci/.coe) if present - required for Vivado to import IP cores.
         ip_files = self._copy_ip_files(board_name, board_output_dir / "ip")
@@ -181,8 +182,24 @@ class PCILeechBuildIntegration:
         return copied_files
 
     def _copy_source_files(self, board_name: str, output_dir: Path) -> List[Path]:
-        """Copy source files from the repository."""
-        output_dir.mkdir(parents=True, exist_ok=True)
+        """
+        Copy source files from the repository to a standardized output structure.
+        
+        Design principle: All source files land in output_dir/src/ with a flat structure,
+        regardless of their location in the repository. This ensures:
+        1. Predictable paths for build scripts
+        2. No nested src/src/ directories
+        3. Single source of truth for file locations
+        
+        Args:
+            board_name: Name of the board
+            output_dir: Base output directory (files will be placed in output_dir/src/)
+            
+        Returns:
+            List of copied file paths
+        """
+        src_output_dir = output_dir / "src"
+        src_output_dir.mkdir(parents=True, exist_ok=True)
         copied_files = []
 
         # Get source files from template discovery
@@ -192,12 +209,9 @@ class PCILeechBuildIntegration:
 
         for src_file in src_files:
             try:
-                # Preserve directory structure
-                board_path = RepoManager.get_board_path(
-                    board_name, repo_root=self.repo_root
-                )
-                relative_path = src_file.relative_to(board_path)
-                dest_path = output_dir / relative_path
+                # Always place files directly in src/ directory with flat structure
+                # This prevents nested src/src/ issues regardless of repository structure
+                dest_path = src_output_dir / src_file.name
 
                 # Use manifest tracker if available to prevent duplicates
                 if self.file_manifest:
@@ -207,9 +221,18 @@ class PCILeechBuildIntegration:
                     if not added:
                         continue  # Skip duplicate
 
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dest_path)
                 copied_files.append(dest_path)
+                
+                log_debug_safe(
+                    logger,
+                    safe_format(
+                        "Copied {src} -> {dest}",
+                        src=src_file.name,
+                        dest=dest_path.relative_to(output_dir),
+                    ),
+                    prefix=self.prefix,
+                )
 
             except Exception as e:
                 log_warning_safe(
@@ -222,10 +245,10 @@ class PCILeechBuildIntegration:
                     prefix=self.prefix,
                 )
 
-        # Also copy core PCILeech files
+        # Also copy core PCILeech files to the same src/ directory
         core_files = TemplateDiscovery.get_pcileech_core_files(self.repo_root)
         for filename, filepath in core_files.items():
-            dest_path = output_dir / filename
+            dest_path = src_output_dir / filename
             try:
                 # Use manifest tracker if available to prevent duplicates
                 if self.file_manifest:
@@ -252,6 +275,16 @@ class PCILeechBuildIntegration:
                     ),
                     prefix=self.prefix,
                 )
+
+        log_info_safe(
+            logger,
+            safe_format(
+                "Copied {count} source files to {dest}",
+                count=len(copied_files),
+                dest=src_output_dir.relative_to(output_dir),
+            ),
+            prefix=self.prefix,
+        )
 
         return copied_files
 
