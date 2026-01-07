@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import re
 from enum import Enum
 
-from string_utils import log_debug_safe, log_info_safe, log_warning_safe, safe_format
+from src.string_utils import log_debug_safe, log_info_safe, log_warning_safe, safe_format
 
 from src.utils.validators import get_bdf_validator
 from src.exceptions import (
