@@ -1059,8 +1059,16 @@ class FileManager:
                                             ),
                                             prefix="FILEMGR",
                                         )
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    log_error_safe(
+                                        logger,
+                                        safe_format(
+                                            "Failed to parse device IDs from COE file {file}: {error}",
+                                            file=coe_file,
+                                            error=exc,
+                                        ),
+                                        prefix="FILEMGR",
+                                    )
                     
                     # Copy generated files over templates
                     for coe_file in generated_coe_files:

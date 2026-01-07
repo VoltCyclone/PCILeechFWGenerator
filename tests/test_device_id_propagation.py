@@ -22,16 +22,12 @@ if str(project_root) not in sys.path:
 # Try to import - skip entire module if imports fail
 try:
     from src.host_collect.collector import HostCollector
-    from src.build import BuildConfiguration
-    from src.build import FirmwareBuilder
     imports_available = True
 except ImportError as e:
     imports_available = False
     import_error_msg = str(e)
     # Create dummy classes to allow test collection
     HostCollector = None
-    BuildConfiguration = None
-    FirmwareBuilder = None
 
 # Skip all tests in this module if imports failed
 pytestmark = pytest.mark.skipif(

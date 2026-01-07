@@ -986,7 +986,7 @@ def test_bug528_multiple_coe_files_all_overwritten(
     with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
-        copied_files = file_manager.copy_ip_files(board="CaptainDMA_75t")
+        file_manager.copy_ip_files(board="CaptainDMA_75t")
         
         # Both .coe files should exist in output/ip/
         assert (output_dir / "ip" / "pcileech_cfgspace.coe").exists()

@@ -803,18 +803,6 @@ def integrate_pcileech_build(
     """
     integration = PCILeechBuildIntegration(output_dir, repo_root)
 
-    # Extract device IDs from config if provided
-    vendor_id = None
-    device_id = None
-    if device_config:
-        vendor_id = device_config.get("vendor_id")
-        device_id = device_config.get("device_id")
-        # Also try nested paths
-        if vendor_id is None and "identification" in device_config:
-            vendor_id = device_config["identification"].get("vendor_id")
-        if device_id is None and "identification" in device_config:
-            device_id = device_config["identification"].get("device_id")
-
     # Validate compatibility if device config provided
     if device_config:
         is_compatible, warnings = integration.validate_board_compatibility(

@@ -49,8 +49,8 @@ def format_class_rev(data: int) -> str:
 
 # PCIe Configuration Space Header (first 16 DWORDs / 64 bytes)
 PCIE_CONFIG_SPACE: dict[int, RegisterDef] = {
-    0x00: RegisterDef("Device/Vendor ID", lambda d: format_split_dword(d)),
-    0x04: RegisterDef("Status/Command", lambda d: format_split_dword(d)),
+    0x00: RegisterDef("Device/Vendor ID", format_split_dword),
+    0x04: RegisterDef("Status/Command", format_split_dword),
     0x08: RegisterDef("Class/Revision", format_class_rev),
     0x0C: RegisterDef("BIST/Hdr/Lat/Cache", lambda d: f"0x{d:08X}"),
     0x10: RegisterDef("BAR0", lambda d: f"0x{d:08X}"),
@@ -60,7 +60,7 @@ PCIE_CONFIG_SPACE: dict[int, RegisterDef] = {
     0x20: RegisterDef("BAR4", lambda d: f"0x{d:08X}"),
     0x24: RegisterDef("BAR5", lambda d: f"0x{d:08X}"),
     0x28: RegisterDef("Cardbus CIS", lambda d: f"0x{d:08X}"),
-    0x2C: RegisterDef("Subsystem ID/Vendor", lambda d: format_split_dword(d)),
+    0x2C: RegisterDef("Subsystem ID/Vendor", format_split_dword),
     0x30: RegisterDef("ROM Base Addr", lambda d: f"0x{d:08X}"),
     0x34: RegisterDef("Rsvd/Cap Ptr", lambda d: f"0x{(d>>8)&0xFFFFFF:06X}:0x{d&0xFF:02X}"),
     0x38: RegisterDef("Reserved", lambda d: f"0x{d:08X}"),
@@ -228,6 +228,7 @@ def decode_pcie_capability(data: list[int], cap_offset: int) -> Optional[str]:
         device_type_str = PCIE_DEVICE_TYPE_NAMES.get(
             device_type, f"Unknown (0x{device_type:X})"
         )
+        version_str = f"PCIe Cap v{pcie_cap_version}"
         
         # Read Link Capabilities (offset + 0x0C)
         if cap_offset + 0x0C < len(data) * 4:
@@ -242,11 +243,12 @@ def decode_pcie_capability(data: list[int], cap_offset: int) -> Optional[str]:
             )
             
             return (
+                f"{version_str} | "
                 f"{device_type_str} | "
                 f"Max Link: x{max_link_width} @ {speed_str}"
             )
         else:
-            return device_type_str
+            return f"{version_str} | {device_type_str}"
             
     except (IndexError, KeyError):
         return None
