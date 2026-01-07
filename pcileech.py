@@ -1202,7 +1202,21 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         safe_format("Executing in container using {rt}", rt=runtime),
         prefix="BUILD",
     )
-    return subprocess.call(cmd)
+    result = subprocess.call(cmd)
+    
+    # Generate COE visualization report after container build completes successfully
+    if result == 0:
+        try:
+            from src.utils.coe_report import generate_coe_report_if_enabled
+            generate_coe_report_if_enabled(output_dir, logger=logger)
+        except Exception as e:
+            log_debug_safe(
+                logger,
+                safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
+                prefix="BUILD",
+            )
+    
+    return result
 
 
 def run_local_templating(args):
@@ -1250,6 +1264,18 @@ def run_local_templating(args):
         safe_format("Templating complete; artifacts: {n}", n=len(artifacts)),
         prefix="BUILD",
     )
+    
+    # Generate COE visualization report
+    try:
+        from src.utils.coe_report import generate_coe_report_if_enabled
+        generate_coe_report_if_enabled(output_dir, logger=logger)
+    except Exception as e:
+        log_debug_safe(
+            logger,
+            safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
+            prefix="BUILD",
+        )
+    
     return 0
 
 

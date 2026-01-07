@@ -2637,6 +2637,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Display summary
         _display_summary(artifacts, config.output_dir, logger=logger)
+        
+        # Generate COE visualization report (failsafe - never fails build)
+        try:
+            from src.utils.coe_report import generate_coe_report_if_enabled
+            generate_coe_report_if_enabled(config.output_dir, logger=logger)
+        except Exception as e:
+            # Absolute failsafe: catch any exception from visualization
+            # This should never happen due to internal error handling, but adding
+            # an extra layer of protection to guarantee build stability
+            log_debug_safe(
+                logger,
+                "COE visualization skipped due to unexpected error (non-fatal): {err}",
+                err=str(e)
+            )
 
         return 0
 

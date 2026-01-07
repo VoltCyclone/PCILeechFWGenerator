@@ -59,7 +59,9 @@ install-dev:
 	python3 -m pip install -e ".[dev,test,tui]"
 
 test:
-	pytest tests/ --cov=src --cov-report=term-missing
+	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	pytest tests/ --cov=src --cov-report=term-missing --cache-clear
 
 test-tui:
 	pytest tests/test_tui_integration.py -v -m tui

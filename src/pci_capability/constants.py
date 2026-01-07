@@ -91,6 +91,40 @@ STANDARD_CAPABILITY_NAMES = {
     0x11: "MSI-X",
     0x12: "SATA Data Index Conf",
     0x13: "Advanced Features",
+    0x14: "Enhanced Allocation",
+}
+
+# Common PCI Vendor Names (for display/debugging purposes)
+VENDOR_NAMES = {
+    0x10EE: "Xilinx",
+    0x10EC: "Realtek",
+    0x8086: "Intel",
+    0x1022: "AMD",
+    0x10DE: "NVIDIA",
+    0x1002: "AMD/ATI",
+}
+
+# PCIe Device/Port Type Names (from PCIe Capability Device Type field)
+PCIE_DEVICE_TYPE_NAMES = {
+    0x0: "PCIe Endpoint",
+    0x1: "Legacy PCIe Endpoint",
+    0x4: "Root Port",
+    0x5: "Upstream Switch Port",
+    0x6: "Downstream Switch Port",
+    0x7: "PCIe-to-PCI Bridge",
+    0x8: "PCI-to-PCIe Bridge",
+    0x9: "Root Complex Integrated Endpoint",
+    0xA: "Root Complex Event Collector",
+}
+
+# PCIe Link Speed Names (from Link Capabilities/Status Max Link Speed field)
+PCIE_LINK_SPEED_NAMES = {
+    0x1: "2.5 GT/s (Gen 1)",
+    0x2: "5.0 GT/s (Gen 2)",
+    0x3: "8.0 GT/s (Gen 3)",
+    0x4: "16.0 GT/s (Gen 4)",
+    0x5: "32.0 GT/s (Gen 5)",
+    0x6: "64.0 GT/s (Gen 6)",
 }
 
 # Extended Capability Names Mapping

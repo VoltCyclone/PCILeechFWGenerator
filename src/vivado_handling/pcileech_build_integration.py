@@ -57,7 +57,10 @@ class PCILeechBuildIntegration:
             self._boards_cache = BoardDiscovery.discover_boards(self.repo_root)
         return self._boards_cache
 
-    def prepare_build_environment(self, board_name: str) -> Dict[str, Any]:
+    def prepare_build_environment(
+        self,
+        board_name: str
+    ) -> Dict[str, Any]:
         """
         Prepare the build environment for a specific board.
 
@@ -447,7 +450,7 @@ class PCILeechBuildIntegration:
 
         Args:
             board_name: Name of the board
-            device_config: Optional device-specific configuration
+            device_config: Optional device-specific configuration (unused, kept for backwards compatibility)
 
         Returns:
             Path to the unified build script
