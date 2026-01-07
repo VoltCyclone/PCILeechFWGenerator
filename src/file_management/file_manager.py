@@ -973,7 +973,9 @@ class FileManager:
         """Copy IP files (.coe, .xci) from voltcyclone-fpga submodule to output.
         
         This method copies IP files from the lib/voltcyclone-fpga submodule
-        to support Vivado builds that reference these files.
+        to support Vivado builds that reference these files. If generated .coe
+        files exist in output/src/ (with device-specific configuration), they
+        will overwrite the template files from the submodule.
         
         Args:
             board: Board name (e.g., 'pcileech_squirrel')
@@ -1020,10 +1022,65 @@ class FileManager:
                                 prefix="FILEMGR",
                             )
                 
+                # CRITICAL FIX: Overwrite template .coe files with generated ones
+                # The generator creates device-specific .coe files in output/src/
+                # These must replace the template .coe files to inject device IDs
+                src_dir = self.output_dir / "src"
+                if src_dir.exists():
+                    generated_coe_files = list(src_dir.glob("*.coe"))
+                    if generated_coe_files:
+                        log_info_safe(
+                            logger,
+                            "Injecting device IDs into IP configuration files",
+                            prefix="FILEMGR",
+                        )
+                        
+                        # Extract and display device IDs from config space file
+                        for coe_file in generated_coe_files:
+                            if "cfgspace" in coe_file.name and "writemask" not in coe_file.name:
+                                try:
+                                    content = coe_file.read_text()
+                                    import re
+                                    match = re.search(
+                                        r'^\s*([0-9a-fA-F]{8})', 
+                                        content, 
+                                        re.MULTILINE
+                                    )
+                                    if match:
+                                        hex_value = match.group(1)
+                                        vendor_id = hex_value[4:8].upper()
+                                        device_id = hex_value[0:4].upper()
+                                        log_info_safe(
+                                            logger,
+                                            safe_format(
+                                                "Device: 0x{device}  Vendor: 0x{vendor}",
+                                                device=device_id,
+                                                vendor=vendor_id
+                                            ),
+                                            prefix="FILEMGR",
+                                        )
+                                except Exception:
+                                    pass
+                    
+                    # Copy generated files over templates
+                    for coe_file in generated_coe_files:
+                        dest_file = ip_dir / coe_file.name
+                        shutil.copy2(coe_file, dest_file)
+                        
+                        log_info_safe(
+                            logger,
+                            safe_format("✓ {ip_name}", ip_name=coe_file.name),
+                            prefix="FILEMGR",
+                        )
+                        
+                        # Add to copied files if not already there
+                        if dest_file not in copied_files:
+                            copied_files.append(dest_file)
+                
                 log_info_safe(
                     logger,
                     safe_format(
-                        "Successfully copied {count} IP files",
+                        "Successfully prepared {count} IP files",
                         count=len(copied_files)
                     ),
                     prefix="FILEMGR",

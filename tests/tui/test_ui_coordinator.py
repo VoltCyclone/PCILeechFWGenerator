@@ -52,6 +52,10 @@ class DummyApp:
 
             def update(self, *_a, **_k):
                 pass
+            
+            def set_data(self, data):
+                # no-op for tests - used by VirtualDeviceTable
+                pass
 
             @property
             def value(self):
@@ -93,6 +97,10 @@ async def test_scan_devices_updates_state(tmp_path, monkeypatch):
 
         def set_devices(self, devices):
             self._app._state["devices"] = devices
+        
+        def set_filters(self, filters):
+            # No-op for test - filters are handled elsewhere
+            pass
 
     app.app_state = SimpleState(app)
 

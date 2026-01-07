@@ -2637,6 +2637,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Display summary
         _display_summary(artifacts, config.output_dir, logger=logger)
+        
+        # Generate COE visualization report
+        from src.utils.coe_report import generate_coe_report_if_enabled
+        generate_coe_report_if_enabled(config.output_dir, logger=logger)
 
         return 0
 

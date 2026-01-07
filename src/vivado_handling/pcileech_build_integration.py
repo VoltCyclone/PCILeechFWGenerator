@@ -57,7 +57,10 @@ class PCILeechBuildIntegration:
             self._boards_cache = BoardDiscovery.discover_boards(self.repo_root)
         return self._boards_cache
 
-    def prepare_build_environment(self, board_name: str) -> Dict[str, Any]:
+    def prepare_build_environment(
+        self,
+        board_name: str
+    ) -> Dict[str, Any]:
         """
         Prepare the build environment for a specific board.
 
@@ -447,7 +450,7 @@ class PCILeechBuildIntegration:
 
         Args:
             board_name: Name of the board
-            device_config: Optional device-specific configuration
+            device_config: Optional device-specific configuration (unused, kept for backwards compatibility)
 
         Returns:
             Path to the unified build script
@@ -799,6 +802,18 @@ def integrate_pcileech_build(
         Path to the unified build script
     """
     integration = PCILeechBuildIntegration(output_dir, repo_root)
+
+    # Extract device IDs from config if provided
+    vendor_id = None
+    device_id = None
+    if device_config:
+        vendor_id = device_config.get("vendor_id")
+        device_id = device_config.get("device_id")
+        # Also try nested paths
+        if vendor_id is None and "identification" in device_config:
+            vendor_id = device_config["identification"].get("vendor_id")
+        if device_id is None and "identification" in device_config:
+            device_id = device_config["identification"].get("device_id")
 
     # Validate compatibility if device config provided
     if device_config:

@@ -38,6 +38,8 @@ from .string_utils import (generate_hex_header_comment, log_error_safe,
 from .templating import AdvancedSVGenerator, TCLBuilder, TemplateRenderer
 # Vivado handling
 from .vivado_handling import VivadoErrorReporter
+# Build module
+from .build import BuildConfiguration, FirmwareBuilder
 
 __all__ = [
     # Version
@@ -88,4 +90,7 @@ __all__ = [
     "RepoManager",
     # Vivado
     "VivadoErrorReporter",
+    # Build
+    "BuildConfiguration",
+    "FirmwareBuilder",
 ]
