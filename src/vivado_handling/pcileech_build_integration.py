@@ -646,7 +646,7 @@ puts "Adding source files..."
             "}\n"
         )
 
-        # Ensure all .sv files are treated as SystemVerilog
+        # Ensure all .sv and .svh files are treated as SystemVerilog
         script_content += "\n# Set SystemVerilog file types\n"
         script_content += (
             "set sv_in_proj "
@@ -655,6 +655,13 @@ puts "Adding source files..."
             '    puts "Setting SystemVerilog type for '
             '[llength $sv_in_proj] files"\n'
             "    set_property file_type SystemVerilog $sv_in_proj\n"
+            "}\n"
+            "set svh_in_proj "
+            "[get_files -of_objects [get_filesets sources_1] *.svh]\n"
+            "if {[llength $svh_in_proj] > 0} {\n"
+            '    puts "Setting SystemVerilog Header type for '
+            '[llength $svh_in_proj] files"\n'
+            "    set_property file_type {Verilog Header} $svh_in_proj\n"
             "}\n"
         )
 
