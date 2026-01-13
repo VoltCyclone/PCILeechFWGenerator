@@ -22,12 +22,15 @@ if str(project_root) not in sys.path:
 # Try to import - skip entire module if imports fail
 try:
     from src.host_collect.collector import HostCollector
+    from src.build import BuildConfiguration, FirmwareBuilder
     imports_available = True
 except ImportError as e:
     imports_available = False
     import_error_msg = str(e)
     # Create dummy classes to allow test collection
     HostCollector = None
+    BuildConfiguration = None
+    FirmwareBuilder = None
 
 # Skip all tests in this module if imports failed
 pytestmark = pytest.mark.skipif(
@@ -254,9 +257,6 @@ class TestBuildUsesCollectedDeviceIDs:
         
         # Set environment variable to point to our test file
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
-            from src.build import BuildConfiguration
-            from src.build import FirmwareBuilder
-            
             config = BuildConfiguration(
                 bdf="0000:00:1f.3",
                 board="pcileech_100t484_x1",
@@ -297,9 +297,6 @@ class TestBuildUsesCollectedDeviceIDs:
             json.dump(device_context, f)
         
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
-            from src.build import BuildConfiguration
-            from src.build import FirmwareBuilder
-            
             config = BuildConfiguration(
                 bdf="0000:03:00.0",
                 board="pcileech_100t484_x1",
@@ -443,9 +440,6 @@ class TestBackwardCompatibility:
             json.dump(old_format_context, f)
         
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
-            from src.build import BuildConfiguration
-            from src.build import FirmwareBuilder
-            
             config = BuildConfiguration(
                 bdf="0000:00:1f.3",
                 board="pcileech_100t484_x1",
