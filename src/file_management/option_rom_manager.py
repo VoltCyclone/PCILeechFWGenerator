@@ -8,6 +8,7 @@ and prepare it for inclusion in the FPGA firmware.
 
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -198,8 +199,6 @@ class OptionROMManager:
         Returns:
             Tuple of (success, rom_path)
         """
-        import re
-
         # Validate BDF format
         bdf_pattern = re.compile(
             r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"

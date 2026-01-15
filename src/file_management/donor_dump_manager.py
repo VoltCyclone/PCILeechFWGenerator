@@ -14,6 +14,8 @@ import os
 
 import random
 
+import re
+
 import subprocess
 
 import sys
@@ -701,8 +703,6 @@ class DonorDumpManager:
             True if load succeeded
         """
         # Validate BDF format
-        import re
-
         bdf_pattern = re.compile(
             r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"
         )

@@ -9,6 +9,7 @@ All values in the generated template are blank for users to fill out.
 
 import json
 import logging
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -571,8 +572,6 @@ class DonorInfoTemplateGenerator:
             for line in lines:
                 # Extract vendor and device IDs
                 if "[" in line and "]" in line and bdf in line:
-                    import re
-
                     # Look for [vendor:device] pattern
                     match = re.search(r"\[([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\]", line)
                     if match:
