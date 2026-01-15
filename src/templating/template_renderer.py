@@ -8,6 +8,7 @@ the string formatting and concatenation currently used in build.py.
 
 import logging
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -201,8 +202,6 @@ class TemplateRenderer:
             # Try SystemVerilog literal first: <width>'<base><digits>
             # base: h/H (hex), d/D (decimal), b/B (binary), o/O (octal)
             # allow underscores in digits
-            import re
-
             sv_match = re.match(
                 r"^(?P<width>\d+)?'(?P<base>[hHbBdDoO])(?P<digits>[0-9a-fA-F_xXzZ]+)$",
                 s,
@@ -303,8 +302,6 @@ class TemplateRenderer:
 
         def sv_identifier(name: str) -> str:
             """Convert to valid SystemVerilog identifier."""
-            import re
-
             s = re.sub(r"[^a-zA-Z0-9_]", "_", name)
             if not re.match(r"^[a-zA-Z_]", s):
                 s = "_" + s

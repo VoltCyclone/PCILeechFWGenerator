@@ -11,6 +11,8 @@ import hashlib
 
 import logging
 
+import re
+
 import shutil
 
 import time
@@ -1040,7 +1042,6 @@ class FileManager:
                             if "cfgspace" in coe_file.name and "writemask" not in coe_file.name:
                                 try:
                                     content = coe_file.read_text()
-                                    import re
                                     match = re.search(
                                         r'^\s*([0-9a-fA-F]{8})', 
                                         content, 

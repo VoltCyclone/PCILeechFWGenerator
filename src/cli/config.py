@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Configuration dataclass for PCILeech firmware generation."""
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -48,8 +49,6 @@ class BuildConfig:
         """Validate configuration after initialization."""
 
         # Validate BDF format
-        import re
-
         bdf_pattern = re.compile(
             r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$"
         )

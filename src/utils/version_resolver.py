@@ -7,6 +7,7 @@ eliminating duplication across the codebase.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -104,7 +105,6 @@ def _try_importlib_metadata() -> Optional[str]:
 def _try_git_describe() -> Optional[str]:
     """Try to get version from git describe."""
     try:
-        import re
         import subprocess
 
         project_root = Path(__file__).parent.parent.parent

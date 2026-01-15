@@ -11,7 +11,7 @@ experience with better error messages and diagnostic information.
 """
 
 import logging
-
+import re
 import time
 
 from contextlib import contextmanager
@@ -253,8 +253,6 @@ class TemplateDiagnostics:
         Returns:
             List of likely missing variable names
         """
-        import re
-
         # Common patterns for missing variables in Jinja2 errors
         patterns = [
             r"'(\w+)' is undefined",
