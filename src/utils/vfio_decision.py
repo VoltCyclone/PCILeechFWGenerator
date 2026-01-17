@@ -12,7 +12,7 @@ import platform
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.string_utils import log_info_safe, log_debug_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, log_debug_safe, safe_format
 
 
 @dataclass(frozen=True)

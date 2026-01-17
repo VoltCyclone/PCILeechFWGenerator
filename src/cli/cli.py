@@ -30,8 +30,8 @@ try:
     from shell import Shell
 except ImportError:
     # Fallback to absolute import (when run as a script)
-    from src.log_config import get_logger, setup_logging
-    from src.shell import Shell
+    from pcileechfwgenerator.log_config import get_logger, setup_logging
+    from pcileechfwgenerator.shell import Shell
 
 from ..string_utils import log_error_safe, log_info_safe, log_warning_safe, safe_format
 from .build_constants import (
@@ -89,7 +89,7 @@ def choose_device() -> Dict[str, str]:
 
 
 # Use dynamic board discovery for supported boards
-from src.device_clone.board_config import list_supported_boards
+from pcileechfwgenerator.device_clone.board_config import list_supported_boards
 
 
 def get_supported_boards():

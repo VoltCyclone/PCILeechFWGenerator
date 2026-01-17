@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.device_clone.behavior_profiler import (BehaviorProfile,
+from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
                                                 BehaviorProfiler,
                                                 RegisterAccess, TimingPattern,
                                                 check_linux_requirement,

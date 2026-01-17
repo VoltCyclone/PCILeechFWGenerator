@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-from src.string_utils import log_debug_safe, safe_format
+from pcileechfwgenerator.string_utils import log_debug_safe, safe_format
 
 
 @dataclass

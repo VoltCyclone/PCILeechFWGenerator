@@ -21,8 +21,8 @@ if str(project_root) not in sys.path:
 
 # Try to import - skip entire module if imports fail
 try:
-    from src.host_collect.collector import HostCollector
-    from src.build import BuildConfiguration, FirmwareBuilder
+    from pcileechfwgenerator.host_collect.collector import HostCollector
+    from pcileechfwgenerator.build import BuildConfiguration, FirmwareBuilder
     imports_available = True
 except ImportError as e:
     imports_available = False
@@ -106,7 +106,7 @@ class TestHostCollectorDeviceIDExtraction:
     
     def test_extract_device_ids_audio_controller(self, audio_controller_config_space):
         """Test extraction of device IDs from audio controller config space."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         collector = HostCollector(
             bdf="0000:00:1f.3",
@@ -125,7 +125,7 @@ class TestHostCollectorDeviceIDExtraction:
     
     def test_extract_device_ids_network_controller(self, network_controller_config_space):
         """Test extraction of device IDs from network controller config space."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         collector = HostCollector(
             bdf="0000:03:00.0",
@@ -142,7 +142,7 @@ class TestHostCollectorDeviceIDExtraction:
     
     def test_extract_device_ids_short_config_space(self):
         """Test that extraction handles short config space gracefully."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         collector = HostCollector(
             bdf="0000:00:00.0",
@@ -164,7 +164,7 @@ class TestHostCollectorSavesDeviceIDs:
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that device_context.json includes extracted device IDs."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         # Monkeypatch _read_config_space to return our test data
         monkeypatch.setattr(
@@ -205,7 +205,7 @@ class TestHostCollectorSavesDeviceIDs:
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that subsystem IDs are also saved."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         monkeypatch.setattr(
             HostCollector,
@@ -345,7 +345,7 @@ class TestNoRegressionToDefaultValues:
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that default vendor ID (0x10ec) is NOT used when real ID is collected."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         monkeypatch.setattr(
             HostCollector,
@@ -371,7 +371,7 @@ class TestNoRegressionToDefaultValues:
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that default device ID (0x8168) is NOT used when real ID is collected."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         monkeypatch.setattr(
             HostCollector,
@@ -397,7 +397,7 @@ class TestNoRegressionToDefaultValues:
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that generic class code (0x000000) is NOT used when real class is collected."""
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
         
         monkeypatch.setattr(
             HostCollector,

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from src.tui.utils.loading_manager import LoadingManager
+from pcileechfwgenerator.tui.utils.loading_manager import LoadingManager
 
 
 class FakeAppNoScheduler:

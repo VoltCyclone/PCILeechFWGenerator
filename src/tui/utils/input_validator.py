@@ -4,7 +4,7 @@ from typing import Tuple, List, Optional, Dict, Any
 from pathlib import Path
 import re
 
-from src.utils.validators import (
+from pcileechfwgenerator.utils.validators import (
     get_bdf_validator, 
     RangeValidator,
     ValidationResult
@@ -204,7 +204,7 @@ class InputValidator:
             A tuple containing (is_valid, error_message).
             If valid, error_message will be empty.
         """
-        from src.utils.validators import validate_device_config
+        from pcileechfwgenerator.utils.validators import validate_device_config
         
         result = validate_device_config(config)
         if result.valid:
@@ -228,7 +228,7 @@ class InputValidator:
             A tuple containing (is_valid, error_message).
             If valid, error_message will be empty.
         """
-        from src.utils.validators import HexValidator
+        from pcileechfwgenerator.utils.validators import HexValidator
         
         validator = HexValidator(length=length, field_name=field_name)
         result = validator.validate(value)

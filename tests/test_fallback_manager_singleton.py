@@ -1,6 +1,6 @@
 import pytest
 
-from src.device_clone.fallback_manager import (FallbackManager,
+from pcileechfwgenerator.device_clone.fallback_manager import (FallbackManager,
                                                get_global_fallback_manager,
                                                set_global_fallback_manager)
 

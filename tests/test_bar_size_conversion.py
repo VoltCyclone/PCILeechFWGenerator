@@ -9,8 +9,8 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.device_clone.bar_size_converter import BarSizeConverter
-from src.device_clone.constants import BAR_SIZE_CONSTANTS
+from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
+from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
 
 
 def test_size_to_encoding():

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.file_management.option_rom_manager import (
+from pcileechfwgenerator.file_management.option_rom_manager import (
     OptionROMError,
     OptionROMExtractionError,
     OptionROMManager,

@@ -3,7 +3,7 @@
 
 import pytest
 
-from src.templating.device_signature_validator import (
+from pcileechfwgenerator.templating.device_signature_validator import (
     ensure_valid_device_signature, validate_device_signature)
 
 

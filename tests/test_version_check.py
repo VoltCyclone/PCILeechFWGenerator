@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.__version__ import __version__
-from src.cli.version_checker import (check_and_notify, check_for_updates,
+from pcileechfwgenerator.__version__ import __version__
+from pcileechfwgenerator.cli.version_checker import (check_and_notify, check_for_updates,
                                      fetch_latest_version, is_newer_version,
                                      parse_version)
 
@@ -104,7 +104,7 @@ class TestNonBlockingBehavior:
 
     def test_cache_write_failure_does_not_block(self):
         """Test that cache write failures don't block execution."""
-        from src.cli.version_checker import save_cache
+        from pcileechfwgenerator.cli.version_checker import save_cache
 
         # Mock the CACHE_FILE to raise permission error
         with patch("src.cli.version_checker.CACHE_FILE") as mock_cache_file:

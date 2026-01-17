@@ -6,9 +6,9 @@ from pathlib import Path
 import importlib
 
 
-import src.cli.build_wrapper as build_wrapper
+import pcileechfwgenerator.cli.build_wrapper as build_wrapper
 
-import src.cli.build_wrapper as build_wrapper
+import pcileechfwgenerator.cli.build_wrapper as build_wrapper
 
 
 def make_dummy_build_module(fullname: str = 'src.build'):

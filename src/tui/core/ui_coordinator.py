@@ -364,14 +364,14 @@ class UICoordinator:
 
             # Prefer build module's generation if available, but keep a device_clone fallback
             try:
-                from src.build import FirmwareBuilder  # noqa: F401
-                from src.device_clone.donor_info_template import \
+                from pcileechfwgenerator.build import FirmwareBuilder  # noqa: F401
+                from pcileechfwgenerator.device_clone.donor_info_template import \
                     DonorInfoTemplateGenerator
 
                 output_path = Path("donor_info_template.json")
                 DonorInfoTemplateGenerator.save_template(output_path, pretty=True)
             except Exception:
-                from src.device_clone.donor_info_template import \
+                from pcileechfwgenerator.device_clone.donor_info_template import \
                     DonorInfoTemplateGenerator
 
                 output_path = Path("donor_info_template.json")
@@ -400,7 +400,7 @@ class UICoordinator:
         """Check donor dump kernel module status and return status dict."""
         try:
             try:
-                from src.file_management.donor_dump_manager import \
+                from pcileechfwgenerator.file_management.donor_dump_manager import \
                     DonorDumpManager
             except Exception:
                 from file_management.donor_dump_manager import DonorDumpManager
@@ -495,7 +495,7 @@ class UICoordinator:
 
         try:
             # Import here to avoid circular import
-            from src.tui.utils.ui_helpers import (format_build_mode,
+            from pcileechfwgenerator.tui.utils.ui_helpers import (format_build_mode,
                                                   safely_update_static)
 
             # Update board type

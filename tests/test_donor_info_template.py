@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.device_clone.donor_info_template import DonorInfoTemplateGenerator
-from src.exceptions import DeviceConfigError, ValidationError
+from pcileechfwgenerator.device_clone.donor_info_template import DonorInfoTemplateGenerator
+from pcileechfwgenerator.exceptions import DeviceConfigError, ValidationError
 
 
 class TestDonorInfoTemplateGenerator:

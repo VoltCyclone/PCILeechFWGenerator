@@ -76,7 +76,7 @@ class MediaFunctionAnalyzer(BaseFunctionAnalyzer):
         device_upper = (self.device_id >> 8) & 0xFF
 
         # Import vendor ID constants
-        from src.device_clone.constants import (VENDOR_ID_AMD, VENDOR_ID_INTEL,
+        from pcileechfwgenerator.device_clone.constants import (VENDOR_ID_AMD, VENDOR_ID_INTEL,
                                                 VENDOR_ID_NVIDIA)
 
         # Vendor-specific patterns

@@ -16,13 +16,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.build import (BUFFER_SIZE, DEFAULT_OUTPUT_DIR,
+from pcileechfwgenerator.build import (BUFFER_SIZE, DEFAULT_OUTPUT_DIR,
                        DEFAULT_PROFILE_DURATION, MAX_PARALLEL_FILE_WRITES,
                        REQUIRED_MODULES, SPECIAL_FILE_EXTENSIONS,
                        SYSTEMVERILOG_EXTENSION, BuildConfiguration,
                        DeviceConfiguration, FirmwareBuilder, ModuleChecker,
                        MSIXData, _as_int, _optional_int)
-from src.exceptions import (ConfigurationError, FileOperationError,
+from pcileechfwgenerator.exceptions import (ConfigurationError, FileOperationError,
                             MSIXPreloadError, PCILeechBuildError,
                             VivadoIntegrationError)
 

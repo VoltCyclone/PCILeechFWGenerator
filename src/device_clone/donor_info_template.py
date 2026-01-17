@@ -15,8 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from src.exceptions import DeviceConfigError, ValidationError
-from src.string_utils import (log_error_safe, log_info_safe, safe_format,
+from pcileechfwgenerator.exceptions import DeviceConfigError, ValidationError
+from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, safe_format,
                               safe_log_format)
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class DonorInfoTemplateGenerator:
         Returns:
             Dict containing the complete template structure with blank/null values
         """
-        from src.utils.metadata import build_generation_metadata
+        from pcileechfwgenerator.utils.metadata import build_generation_metadata
 
         safe_log_format(
             logger, logging.INFO, "Generating blank donor info template", prefix="DONOR"
@@ -317,7 +317,7 @@ class DonorInfoTemplateGenerator:
         Returns:
             Dict containing the minimal template structure
         """
-        from src.utils.metadata import build_generation_metadata
+        from pcileechfwgenerator.utils.metadata import build_generation_metadata
 
         safe_log_format(
             logger,

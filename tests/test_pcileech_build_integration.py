@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, call, patch
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.vivado_handling.pcileech_build_integration import (
+from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
     PCILeechBuildIntegration, integrate_pcileech_build)
 
 

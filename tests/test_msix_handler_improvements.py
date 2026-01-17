@@ -10,11 +10,11 @@ from unittest.mock import patch
 
 import pytest
 
-from src.pci_capability.core import ConfigSpace
+from pcileechfwgenerator.pci_capability.core import ConfigSpace
 
-from src.pci_capability.msix import MSIXCapabilityHandler
+from pcileechfwgenerator.pci_capability.msix import MSIXCapabilityHandler
 
-from src.pci_capability.types import (CapabilityInfo, CapabilityType,
+from pcileechfwgenerator.pci_capability.types import (CapabilityInfo, CapabilityType,
                                       PCICapabilityID)
 
 

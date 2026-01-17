@@ -7,7 +7,7 @@ import fcntl
 import logging
 import os
 
-from src.string_utils import safe_format
+from pcileechfwgenerator.string_utils import safe_format
 
 from ..string_utils import (
     log_debug_safe,

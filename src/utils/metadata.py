@@ -9,9 +9,9 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from src.log_config import get_logger
-from src.string_utils import log_debug_safe, utc_timestamp
-from src.utils.version_resolver import get_package_version
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import log_debug_safe, utc_timestamp
+from pcileechfwgenerator.utils.version_resolver import get_package_version
 
 # Internal package version resolution to avoid cyclic imports
 

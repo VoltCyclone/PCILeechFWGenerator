@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-import src.cli.vfio_diagnostics as vd
-from src.cli.vfio_diagnostics import Boot, Check, Diagnostics, Report, Status
+import pcileechfwgenerator.cli.vfio_diagnostics as vd
+from pcileechfwgenerator.cli.vfio_diagnostics import Boot, Check, Diagnostics, Report, Status
 
 
 # -----------------------------

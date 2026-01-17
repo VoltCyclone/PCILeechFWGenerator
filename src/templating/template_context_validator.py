@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
@@ -614,7 +614,7 @@ class TemplateContextValidator:
                     prefix=logger_prefix,
                 )
                 return
-            from src.utils.unified_context import TemplateObject  # Lazy import
+            from pcileechfwgenerator.utils.unified_context import TemplateObject  # Lazy import
             source = (
                 validated_context.get("device_config")
                 or validated_context.get("config_space")

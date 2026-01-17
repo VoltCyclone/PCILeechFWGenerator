@@ -10,7 +10,7 @@ from unittest import mock
 
 import pytest
 
-from src.device_clone.pcileech_generator import (
+from pcileechfwgenerator.device_clone.pcileech_generator import (
     PCILeechGenerationConfig,
     PCILeechGenerationError,
     PCILeechGenerator,

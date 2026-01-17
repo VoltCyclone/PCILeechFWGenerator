@@ -8,8 +8,8 @@ string and never the incorrect FFG package variant which Vivado rejects.
 
 import re
 
-from src.device_clone import constants
-from src.file_management.board_discovery import BoardDiscovery
+from pcileechfwgenerator.device_clone import constants
+from pcileechfwgenerator.file_management.board_discovery import BoardDiscovery
 
 
 def test_constants_100t_part_is_fgg_484():
@@ -36,7 +36,7 @@ def test_board_discovery_captain_dma_100t_uses_fgg(monkeypatch, tmp_path):
     boards_root.mkdir(parents=True, exist_ok=True)
 
     # Monkeypatch RepoManager.ensure_repo to return our fake repo
-    from src.file_management import repo_manager
+    from pcileechfwgenerator.file_management import repo_manager
 
     def _ensure_repo_stub():
         return repo_root

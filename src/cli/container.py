@@ -487,7 +487,7 @@ def run_local_build(cfg: BuildConfig) -> None:
         # Try alternative import path
         sys.path.insert(0, str(Path(__file__).parent.parent.parent))
         try:
-            from src.build import main as build_main
+            from pcileechfwgenerator.build import main as build_main
         except ImportError:
             log_error_safe(
                 logger,

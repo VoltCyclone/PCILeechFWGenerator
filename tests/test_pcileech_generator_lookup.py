@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.device_clone.pcileech_generator import (PCILeechGenerationConfig,
+from pcileechfwgenerator.device_clone.pcileech_generator import (PCILeechGenerationConfig,
                                                  PCILeechGenerator)
 
 

@@ -3,10 +3,10 @@
 import logging
 from typing import Any, Dict, List, Union
 
-from src.device_clone.identifier_normalizer import IdentifierNormalizer
-from src.device_clone.overlay_utils import compute_sparse_hash_table_size
-from src.string_utils import log_error_safe, log_warning_safe, safe_format
-from src.utils.validation_constants import SV_FILE_HEADER
+from pcileechfwgenerator.device_clone.identifier_normalizer import IdentifierNormalizer
+from pcileechfwgenerator.device_clone.overlay_utils import compute_sparse_hash_table_size
+from pcileechfwgenerator.string_utils import log_error_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
 from ..utils.unified_context import (
     DEFAULT_TIMING_CONFIG,
@@ -999,4 +999,4 @@ class SVContextBuilder:
 
 
 # Import at the end to avoid circular dependency
-from src.device_clone.device_config import DeviceClass, DeviceType
+from pcileechfwgenerator.device_clone.device_config import DeviceClass, DeviceType

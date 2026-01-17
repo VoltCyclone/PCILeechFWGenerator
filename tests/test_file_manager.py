@@ -14,7 +14,7 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.file_management.file_manager import FileManager
+from pcileechfwgenerator.file_management.file_manager import FileManager
 
 # ============================================================================
 # Fixtures
@@ -559,7 +559,7 @@ def test_copy_pcileech_sources_success(temp_dir):
     xdc_file = constraints_dir / "board.xdc"
     xdc_file.write_text("create_clock")
 
-    from src.file_management import file_manager as fm_module
+    from pcileechfwgenerator.file_management import file_manager as fm_module
 
     local_pcileech_dir = (
         Path(fm_module.__file__).resolve().parent.parent.parent / "pcileech"

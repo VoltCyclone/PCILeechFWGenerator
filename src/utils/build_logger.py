@@ -9,7 +9,7 @@ import logging
 
 from typing import Optional
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,

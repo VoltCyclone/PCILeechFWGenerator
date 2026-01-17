@@ -25,7 +25,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from __version__ import __url__, __version__
     from log_config import get_logger
-    from src.string_utils import log_info_safe, log_warning_safe
+    from pcileechfwgenerator.string_utils import log_info_safe, log_warning_safe
 
 logger = get_logger(__name__)
 

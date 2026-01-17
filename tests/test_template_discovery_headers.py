@@ -10,7 +10,7 @@ import pytest
 from pathlib import Path
 from unittest import mock
 
-from src.file_management.template_discovery import TemplateDiscovery
+from pcileechfwgenerator.file_management.template_discovery import TemplateDiscovery
 
 
 @pytest.fixture

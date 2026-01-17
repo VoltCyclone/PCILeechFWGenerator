@@ -16,8 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-import src.cli.container as container
-from src.cli.container import (
+import pcileechfwgenerator.cli.container as container
+from pcileechfwgenerator.cli.container import (
     BuildConfig,
     _build_podman_command,
     build_image,
@@ -28,7 +28,7 @@ from src.cli.container import (
     run_build,
     run_local_build,
 )
-from src.exceptions import BuildError, ConfigurationError
+from pcileechfwgenerator.exceptions import BuildError, ConfigurationError
 
 
 class DummyShell:
@@ -206,7 +206,7 @@ def test_run_local_build_success(monkeypatch, tmp_path: Path):
         return 0
 
     fake_build.main = fake_main
-    # Make relative import from src.cli.container work
+    # Make relative import from pcileechfwgenerator.cli.container work
     import sys
 
     sys.modules["src.build"] = fake_build

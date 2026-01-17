@@ -4,8 +4,8 @@ Centralized normalization and validation utilities for PCILeech identifiers and 
 """
 from typing import Any, Optional
 
-from src.string_utils import safe_format
-from src.utils.validators import (
+from pcileechfwgenerator.string_utils import safe_format
+from pcileechfwgenerator.utils.validators import (
     HexValidator,
     get_class_code_validator,
     get_device_id_validator,
@@ -34,7 +34,7 @@ class IdentifierNormalizer:
         value: Any, length: int, field_name: str = "identifier"
     ) -> str:
         """Validate and normalize identifier, raising ContextError if invalid."""
-        from src.exceptions import ContextError
+        from pcileechfwgenerator.exceptions import ContextError
 
         # Check for empty or None
         if not value or str(value).strip() == "":
@@ -69,7 +69,7 @@ class IdentifierNormalizer:
     @staticmethod
     def validate_all_identifiers(identifiers: dict) -> dict:
         """Validate and normalize all required identifiers in a dict."""
-        from src.exceptions import ContextError
+        from pcileechfwgenerator.exceptions import ContextError
         
         result = {}
         

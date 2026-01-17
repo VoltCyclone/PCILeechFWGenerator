@@ -11,7 +11,7 @@ Validates:
 """
 
 import pytest
-from src.templating.systemverilog_generator import (
+from pcileechfwgenerator.templating.systemverilog_generator import (
     SystemVerilogGenerator,
     SVConstants,
     SVTemplates,
@@ -25,10 +25,10 @@ class TestImportConsistency:
 
     def test_sv_constants_singleton(self):
         """Ensure SVConstants references are consistent."""
-        from src.templating.systemverilog_generator import (
+        from pcileechfwgenerator.templating.systemverilog_generator import (
             SVConstants as SVConstants1,
         )
-        from src.templating.systemverilog_generator import (
+        from pcileechfwgenerator.templating.systemverilog_generator import (
             SVConstants as SVConstants2,
         )
 
@@ -41,10 +41,10 @@ class TestImportConsistency:
 
     def test_sv_templates_singleton(self):
         """Ensure SVTemplates references are consistent."""
-        from src.templating.systemverilog_generator import (
+        from pcileechfwgenerator.templating.systemverilog_generator import (
             SVTemplates as SVTemplates1,
         )
-        from src.templating.systemverilog_generator import (
+        from pcileechfwgenerator.templating.systemverilog_generator import (
             SVTemplates as SVTemplates2,
         )
 

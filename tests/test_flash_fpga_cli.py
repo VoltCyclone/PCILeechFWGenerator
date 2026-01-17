@@ -24,7 +24,7 @@ def test_flash_fpga_happy_path(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    from src.flash_fpga import main
+    from pcileechfwgenerator.flash_fpga import main
 
     monkeypatch.setattr(builtins, "print", lambda *a, **k: None)
     monkeypatch.setattr(__import__("sys"), "argv", ["flash_fpga.py", str(bit)])

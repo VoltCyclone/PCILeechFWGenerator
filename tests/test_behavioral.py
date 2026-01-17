@@ -5,17 +5,17 @@ import pytest
 from typing import Dict, Any
 from unittest.mock import Mock, MagicMock
 
-from src.behavioral.base import (
+from pcileechfwgenerator.behavioral.base import (
     BehavioralSpec,
     BehavioralRegister,
     BehavioralCounter,
     BehaviorType
 )
-from src.behavioral.network_behavioral import NetworkBehavioralAnalyzer
-from src.behavioral.storage_behavioral import StorageBehavioralAnalyzer
-from src.behavioral.media_behavioral import MediaBehavioralAnalyzer
-from src.behavioral.analyzer import BehavioralAnalyzerFactory
-from src.utils.behavioral_context import build_behavioral_context
+from pcileechfwgenerator.behavioral.network_behavioral import NetworkBehavioralAnalyzer
+from pcileechfwgenerator.behavioral.storage_behavioral import StorageBehavioralAnalyzer
+from pcileechfwgenerator.behavioral.media_behavioral import MediaBehavioralAnalyzer
+from pcileechfwgenerator.behavioral.analyzer import BehavioralAnalyzerFactory
+from pcileechfwgenerator.utils.behavioral_context import build_behavioral_context
 
 
 class TestBehavioralBase:

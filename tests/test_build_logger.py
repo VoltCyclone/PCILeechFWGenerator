@@ -5,7 +5,7 @@ import logging
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.utils.build_logger import BuildLogger, get_build_logger
+from pcileechfwgenerator.utils.build_logger import BuildLogger, get_build_logger
 
 
 class TestBuildLogger:

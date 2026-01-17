@@ -12,24 +12,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Import project logging and string utilities
 
-from src.log_config import get_logger
+from pcileechfwgenerator.log_config import get_logger
 
-from src.string_utils import (format_kv_table, format_raw_bar_table,
+from pcileechfwgenerator.string_utils import (format_kv_table, format_raw_bar_table,
                               log_debug_safe, log_error_safe, log_info_safe,
                               log_warning_safe, safe_format, safe_print_format)
 
 # Import PCI capability infrastructure for extended capabilities support
-from src.pci_capability.compat import find_cap as pci_find_cap
+from pcileechfwgenerator.pci_capability.compat import find_cap as pci_find_cap
 
-from src.pci_capability.compat import find_ext_cap
+from pcileechfwgenerator.pci_capability.compat import find_ext_cap
 
-from src.pci_capability.types import CapabilityType
+from pcileechfwgenerator.pci_capability.types import CapabilityType
 
 # Import template renderer
-from src.templating.template_renderer import TemplateRenderer
+from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
 # Import BAR size constants
-from src.device_clone.constants import BAR_SIZE_CONSTANTS
+from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
 
 logger = get_logger(__name__)
 
@@ -539,7 +539,7 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
         - is_64bit: Whether this is a 64-bit BAR
         - prefetchable: Whether the BAR is prefetchable
     """
-    from src.device_clone.bar_parser import parse_bar_info_as_dicts
+    from pcileechfwgenerator.device_clone.bar_parser import parse_bar_info_as_dicts
     return parse_bar_info_as_dicts(cfg)
 
 

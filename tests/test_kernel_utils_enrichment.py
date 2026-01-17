@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import the helper directly
-from src.scripts import kernel_utils
-from src.utils.unified_context import TemplateObject, UnifiedContextBuilder
+from pcileechfwgenerator.scripts import kernel_utils
+from pcileechfwgenerator.utils.unified_context import TemplateObject, UnifiedContextBuilder
 
 
 def _make_base_context(vendor: str = "8086", device: str = "1234") -> TemplateObject:

@@ -14,14 +14,14 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
 )
 
-from src.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 
 # Constants
 CONFIG_SPACE_PATH_TEMPLATE = "/sys/bus/pci/devices/{}/config"
@@ -49,7 +49,7 @@ class MSIXManager:
             logger: Optional logger instance
         """
         self.bdf = bdf
-        from src.log_config import get_logger
+        from pcileechfwgenerator.log_config import get_logger
 
         self.logger = logger or get_logger(self.__class__.__name__)
 

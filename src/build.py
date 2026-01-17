@@ -38,7 +38,7 @@ from pathlib import Path
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
@@ -46,12 +46,12 @@ from src.string_utils import (
     safe_format,
 )
 
-from src.templating.template_context_validator import clear_global_template_cache
+from pcileechfwgenerator.templating.template_context_validator import clear_global_template_cache
 
-from src.utils.build_logger import get_build_logger
-from src.utils.file_manifest import create_manifest_tracker
-from src.utils.template_validator import create_template_validator
-from src.utils.vfio_decision import make_vfio_decision
+from pcileechfwgenerator.utils.build_logger import get_build_logger
+from pcileechfwgenerator.utils.file_manifest import create_manifest_tracker
+from pcileechfwgenerator.utils.template_validator import create_template_validator
+from pcileechfwgenerator.utils.vfio_decision import make_vfio_decision
 
 # Import board functions from the correct module
 from .device_clone.constants import PRODUCTION_DEFAULTS
@@ -2036,7 +2036,7 @@ class FirmwareBuilder:
 
         # Inject config space hex/COE into template context if missing
         try:
-            from src.device_clone.hex_formatter import ConfigSpaceHexFormatter
+            from pcileechfwgenerator.device_clone.hex_formatter import ConfigSpaceHexFormatter
 
             config_space_bytes = None
             # Try to get config space bytes from result
@@ -2115,7 +2115,7 @@ class FirmwareBuilder:
             )
             return
         try:
-            from src.cli.vfio_helpers import ensure_device_vfio_binding
+            from pcileechfwgenerator.cli.vfio_helpers import ensure_device_vfio_binding
         except ImportError:
             # Helper module not available (expected in some environments)
             log_debug_safe(
@@ -2221,7 +2221,7 @@ class FirmwareBuilder:
         # Ensure RTL and constraints from the PCILeech submodule are available
         # for Vivado by copying them into the output structure
         try:
-            from src.file_management.file_manager import FileManager as _FM
+            from pcileechfwgenerator.file_management.file_manager import FileManager as _FM
 
             fm = _FM(self.config.output_dir)
             # Ensure src/ and ip/ directories exist
@@ -2316,7 +2316,7 @@ class FirmwareBuilder:
 
     def _run_post_build_validation(self, result: Dict[str, Any]) -> None:
         """Run post-build validation checks for driver compatibility."""
-        from src.utils.post_build_validator import (
+        from pcileechfwgenerator.utils.post_build_validator import (
             PostBuildValidator,
             PostBuildValidationCheck
         )
@@ -2640,7 +2640,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         
         # Generate COE visualization report (failsafe - never fails build)
         try:
-            from src.utils.coe_report import generate_coe_report_if_enabled
+            from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
             generate_coe_report_if_enabled(config.output_dir, logger=logger)
         except Exception as e:
             # Absolute failsafe: catch any exception from visualization
@@ -2833,7 +2833,7 @@ def _maybe_emit_issue_report(
         repro_cmd = _build_reproduction_command(args)
 
     try:
-        from src.error_utils import (
+        from pcileechfwgenerator.error_utils import (
             build_issue_report,
             format_issue_report_human_hint,
             write_issue_report,

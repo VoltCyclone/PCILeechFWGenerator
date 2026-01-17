@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.string_utils import (FormatConfig, build_device_info_string,
+from pcileechfwgenerator.string_utils import (FormatConfig, build_device_info_string,
                               build_file_size_string, build_progress_string,
                               format_bar_summary_table, format_bar_table,
                               format_padded_message, format_raw_bar_table,

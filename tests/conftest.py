@@ -19,7 +19,7 @@ import pytest
 def sample_pci_device():
     """Sample PCIDevice for testing"""
     try:
-        from src.tui.models.device import PCIDevice
+        from pcileechfwgenerator.tui.models.device import PCIDevice
     except ImportError:
         pytest.skip("TUI models not available")
 
@@ -46,7 +46,7 @@ def sample_pci_device():
 def config_dialog():
     """Mock configuration dialog for testing"""
     try:
-        from src.tui.main import ConfigurationDialog
+        from pcileechfwgenerator.tui.main import ConfigurationDialog
     except ImportError:
         pytest.skip("TUI main module not available")
 
@@ -81,7 +81,7 @@ def explicit_config_dir():
     This prevents insecure generic firmware generation.
     """
     try:
-        import src.device_clone.device_config as dc
+        import pcileechfwgenerator.device_clone.device_config as dc
     except Exception:
         # If import fails, nothing to configure
         yield

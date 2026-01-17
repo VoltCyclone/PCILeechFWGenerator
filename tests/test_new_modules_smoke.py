@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.utils.vfio_decision import (
+from pcileechfwgenerator.utils.vfio_decision import (
     VFIODecision,
     VFIODecisionMaker,
     make_vfio_decision)
-from src.utils.build_logger import BuildLogger, get_build_logger
-from src.utils.file_manifest import create_manifest_tracker
+from pcileechfwgenerator.utils.build_logger import BuildLogger, get_build_logger
+from pcileechfwgenerator.utils.file_manifest import create_manifest_tracker
 
 
 class TestVFIODecisionSmoke:

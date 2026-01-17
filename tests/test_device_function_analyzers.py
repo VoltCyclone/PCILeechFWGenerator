@@ -12,15 +12,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import the modules under test
-from src.pci_capability.base_function_analyzer import (
+from pcileechfwgenerator.pci_capability.base_function_analyzer import (
     BaseFunctionAnalyzer, create_function_capabilities)
-from src.pci_capability.media_functions import (
+from pcileechfwgenerator.pci_capability.media_functions import (
     MediaFunctionAnalyzer, create_media_function_capabilities)
-from src.pci_capability.network_functions import (
+from pcileechfwgenerator.pci_capability.network_functions import (
     NetworkFunctionAnalyzer, create_network_function_capabilities)
-from src.pci_capability.storage_functions import (
+from pcileechfwgenerator.pci_capability.storage_functions import (
     StorageFunctionAnalyzer, create_storage_function_capabilities)
-from src.pci_capability.usb_functions import (USBFunctionAnalyzer,
+from pcileechfwgenerator.pci_capability.usb_functions import (USBFunctionAnalyzer,
                                               create_usb_function_capabilities)
 
 

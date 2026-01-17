@@ -14,20 +14,20 @@ from enum import Enum
 from types import SimpleNamespace
 from typing import Any, Dict, List, Mapping, Optional, Set
 
-from src.error_utils import extract_root_cause
-from src.string_utils import (
+from pcileechfwgenerator.error_utils import extract_root_cause
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
 )
-from src.utils.context_error_messages import (
+from pcileechfwgenerator.utils.context_error_messages import (
     MISSING_IDENTIFIERS,
     STRICT_MODE_MISSING,
     TEMPLATE_CONTEXT_VALIDATION_FAILED,
 )
-from src.utils.version_resolver import get_package_version
+from pcileechfwgenerator.utils.version_resolver import get_package_version
 
 from .validation_constants import (
     CORE_DEVICE_IDS,
@@ -446,7 +446,7 @@ class UnifiedDeviceConfig:
                 raise ValueError(f"Invalid hex value for {field_name}: {value}")
 
 
-from src.exceptions import ConfigurationError
+from pcileechfwgenerator.exceptions import ConfigurationError
 
 
 class ContextBuilderConfig:
@@ -864,7 +864,7 @@ class UnifiedContextBuilder:
 
     def create_power_management_config(self, **kwargs) -> TemplateObject:
         """Create power management configuration for templates."""
-        from src.templating.sv_constants import SV_CONSTANTS
+        from pcileechfwgenerator.templating.sv_constants import SV_CONSTANTS
 
         config = dict(self.config.power_defaults)
 
@@ -956,7 +956,7 @@ class UnifiedContextBuilder:
     ) -> Dict[str, Any]:
         """Create the base context structure."""
         # Import centralized vendor ID constants
-        from src.device_clone.constants import get_fallback_vendor_id
+        from pcileechfwgenerator.device_clone.constants import get_fallback_vendor_id
 
         # Parse integer values
         vendor_id_int = self.parse_hex_to_int(vendor_id, get_fallback_vendor_id())
@@ -1023,9 +1023,9 @@ class UnifiedContextBuilder:
         )
 
         # Build base context
-        from src.templating.sv_constants import SV_CONSTANTS
+        from pcileechfwgenerator.templating.sv_constants import SV_CONSTANTS
 
-        from src.utils.validation_constants import SV_FILE_HEADER
+        from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
         context = {
             "header": SV_FILE_HEADER,
@@ -1167,7 +1167,7 @@ class UnifiedContextBuilder:
         # -----------------------------------------------------------------
         if device_config.enable_advanced_features:
             try:
-                from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+                from pcileechfwgenerator.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
 
                 aer_ctx = {
                     # Store as integers; template will format as 8-hex digits
@@ -1607,7 +1607,7 @@ class UnifiedContextBuilder:
     def _add_behavioral_context(self, context: Dict[str, Any], **kwargs) -> None:
         """Add behavioral simulation context if enabled."""
         try:
-            from src.utils.behavioral_context import build_behavioral_context
+            from pcileechfwgenerator.utils.behavioral_context import build_behavioral_context
             
             # Create mock device config from context
             device_config = SimpleNamespace(
@@ -1722,7 +1722,7 @@ class UnifiedContextBuilder:
         # even if empty or partial.
         try:
             # Import from shared driver enrichment module to avoid cyclic dependency
-            from src.utils.context_driver_enrichment import enrich_context_with_driver
+            from pcileechfwgenerator.utils.context_driver_enrichment import enrich_context_with_driver
 
             enrich_context_with_driver(
                 template_context,

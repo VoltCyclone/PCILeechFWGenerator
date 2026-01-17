@@ -123,7 +123,7 @@ class TestBuildWrapperPathSetup:
 
             try:
                 # First attempt
-                import src.build
+                import pcileechfwgenerator.build
             except ImportError:
                 try:
                     # Fallback attempt
@@ -144,7 +144,7 @@ class TestBuildWrapperPathSetup:
         ), mock.patch("sys.exit") as mock_exit:
 
             try:
-                import src.build
+                import pcileechfwgenerator.build
             except ImportError:
                 try:
                     import build

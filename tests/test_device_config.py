@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.device_clone.device_config import (ActiveDeviceConfig,
+from pcileechfwgenerator.device_clone.device_config import (ActiveDeviceConfig,
                                             DeviceCapabilities, DeviceClass,
                                             DeviceConfigManager,
                                             DeviceConfiguration,
@@ -32,7 +32,7 @@ from src.device_clone.device_config import (ActiveDeviceConfig,
                                             generate_device_state_machine,
                                             get_config_manager,
                                             get_device_config, validate_hex_id)
-from src.device_clone.payload_size_config import (PayloadSizeConfig,
+from pcileechfwgenerator.device_clone.payload_size_config import (PayloadSizeConfig,
                                                   PayloadSizeError)
 
 

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.device_clone.pcileech_context import require
+from pcileechfwgenerator.device_clone.pcileech_context import require
 
 
 class TestRequireValidation:

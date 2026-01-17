@@ -10,8 +10,8 @@ from typing import Any, List
 
 import pytest
 
-from src.tui.core.protocols import DeviceScanner
-from src.tui.models.device import PCIDevice
+from pcileechfwgenerator.tui.core.protocols import DeviceScanner
+from pcileechfwgenerator.tui.models.device import PCIDevice
 
 
 # Mock TUI App for testing, no UI dependencies

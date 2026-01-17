@@ -28,15 +28,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.device_clone.manufacturing_variance import (
+from pcileechfwgenerator.device_clone.manufacturing_variance import (
     DeviceClass,
     ManufacturingVarianceSimulator,
 )
-from src.error_utils import extract_root_cause
-from src.exceptions import PlatformCompatibilityError
-from src.log_config import get_logger
-from src.scripts.kernel_utils import setup_debugfs
-from src.string_utils import (
+from pcileechfwgenerator.error_utils import extract_root_cause
+from pcileechfwgenerator.exceptions import PlatformCompatibilityError
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.scripts.kernel_utils import setup_debugfs
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,

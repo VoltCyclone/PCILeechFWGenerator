@@ -15,10 +15,10 @@ from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 
-from src.device_clone.behavior_profiler import (BehaviorProfile,
+from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
                                                 RegisterAccess, TimingPattern)
-from src.device_clone.manufacturing_variance import DeviceClass, VarianceModel
-from src.device_clone.variance_manager import VarianceManager
+from pcileechfwgenerator.device_clone.manufacturing_variance import DeviceClass, VarianceModel
+from pcileechfwgenerator.device_clone.variance_manager import VarianceManager
 
 
 class TestVarianceManagerInitialization:

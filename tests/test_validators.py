@@ -3,7 +3,7 @@ Unit tests for the generic validation framework.
 """
 
 import pytest
-from src.utils.validators import (
+from pcileechfwgenerator.utils.validators import (
     BaseValidator,
     CompositeValidator,
     HexValidator,

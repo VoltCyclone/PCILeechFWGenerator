@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from src.string_utils import log_info_safe, safe_format
-from src.templating.advanced_sv_perf import (
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
+from pcileechfwgenerator.templating.advanced_sv_perf import (
     DeviceType,
     PerformanceCounterConfig,
     PerformanceCounterGenerator,

@@ -24,7 +24,7 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
+from pcileechfwgenerator.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
     BUFFER_SIZE,
     CONFIG_SPACE_PATH_TEMPLATE,
     DEFAULT_OUTPUT_DIR,
@@ -50,7 +50,7 @@ from src.build import (  # Exception classes; Data classes; Manager classes; Mai
     main,
     parse_args,
 )
-from src.error_utils import build_issue_report
+from pcileechfwgenerator.error_utils import build_issue_report
 
 # ============================================================================
 # Fixtures
@@ -271,7 +271,7 @@ def test_build_issue_report_basic():
 def test_reproduction_command_basic():
     """Reproduction command includes core args; omits issue-report flags."""
     # Local import to avoid circular import during test collection
-    from src.build import _build_reproduction_command
+    from pcileechfwgenerator.build import _build_reproduction_command
 
     args = argparse.Namespace(
         bdf="0000:03:00.0",
@@ -313,7 +313,7 @@ def test_reproduction_command_basic():
 
 def test_reproduction_command_defaults_minimal():
     """Ensure defaults omitted; msix preload enabled doesn't add extra flag."""
-    from src.build import _build_reproduction_command
+    from pcileechfwgenerator.build import _build_reproduction_command
 
     args = argparse.Namespace(
         bdf="0000:04:00.0",
@@ -347,7 +347,7 @@ def test_reproduction_command_defaults_minimal():
 
 def test_reproduction_command_suppressed(mock_logger):
     """Ensure reproduction hint is not logged when --no-repro-hint flag is set."""
-    from src.build import _maybe_emit_issue_report
+    from pcileechfwgenerator.build import _maybe_emit_issue_report
 
     args = argparse.Namespace(
         bdf="0000:05:00.0",

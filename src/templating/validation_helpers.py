@@ -8,9 +8,9 @@ Consolidates duplicate validation logic from multiple generator modules.
 import logging
 from typing import Any, Dict
 
-from src.exceptions import TemplateRenderError
+from pcileechfwgenerator.exceptions import TemplateRenderError
 
-from src.string_utils import log_error_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, safe_format
 
 
 def validate_device_identifiers(

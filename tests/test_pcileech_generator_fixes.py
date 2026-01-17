@@ -17,7 +17,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 
 import pytest
 
-from src.device_clone.pcileech_generator import (
+from pcileechfwgenerator.device_clone.pcileech_generator import (
     PCILeechGenerationConfig,
     PCILeechGenerator,
     PCILeechGenerationError,
@@ -518,7 +518,7 @@ def test_bar_coercion_handles_attribute_based_format(generator):
 
 def test_future_annotations_import():
     """Test that future annotations import is present for Python 3.8 compat."""
-    import src.device_clone.pcileech_generator as module
+    import pcileechfwgenerator.device_clone.pcileech_generator as module
     import sys
     
     # Check if __future__ annotations are enabled
@@ -530,7 +530,7 @@ def test_future_annotations_import():
 
 def test_contextmanager_import_at_module_level():
     """Test that contextmanager is imported at module level."""
-    import src.device_clone.pcileech_generator as module
+    import pcileechfwgenerator.device_clone.pcileech_generator as module
     
     # Should be able to access contextmanager without errors
     # The _generation_step method should work
@@ -539,7 +539,7 @@ def test_contextmanager_import_at_module_level():
 
 def test_log_debug_safe_imported():
     """Test that log_debug_safe is properly imported."""
-    from src.device_clone.pcileech_generator import log_debug_safe
+    from pcileechfwgenerator.device_clone.pcileech_generator import log_debug_safe
     
     assert log_debug_safe is not None
     assert callable(log_debug_safe)

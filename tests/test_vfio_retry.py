@@ -5,7 +5,7 @@ from typing import List
 
 import pytest
 
-from src.utils.vfio_retry import retry_vfio_call
+from pcileechfwgenerator.utils.vfio_retry import retry_vfio_call
 
 
 class SleepRecorder:

@@ -14,11 +14,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.string_utils import log_error_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, safe_format
 
-from src.templating.sv_overlay_generator import SVOverlayGenerator
+from pcileechfwgenerator.templating.sv_overlay_generator import SVOverlayGenerator
 
-from src.templating.template_renderer import (
+from pcileechfwgenerator.templating.template_renderer import (
     TemplateRenderer,
     TemplateRenderError,
 )

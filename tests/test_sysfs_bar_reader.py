@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.device_clone.sysfs_bar_reader import BarInfo, SysfsBarReader
+from pcileechfwgenerator.device_clone.sysfs_bar_reader import BarInfo, SysfsBarReader
 
 
 class TestBarInfo:

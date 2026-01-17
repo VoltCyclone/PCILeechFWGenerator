@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
-from src.device_clone.config_space_manager import (BarInfo, ConfigSpaceError,
+from pcileechfwgenerator.device_clone.config_space_manager import (BarInfo, ConfigSpaceError,
                                                    ConfigSpaceManager,
                                                    SysfsError, VFIOError)
 

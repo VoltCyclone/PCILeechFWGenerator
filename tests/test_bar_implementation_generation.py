@@ -19,9 +19,9 @@ import pytest
 from pathlib import Path  # noqa: F401
 from unittest.mock import Mock, patch, MagicMock  # noqa: F401
 
-from src.templating.sv_overlay_generator import SVOverlayGenerator
-from src.templating.template_renderer import TemplateRenderer
-from src.device_clone.bar_model_loader import BarModel, RegisterSpec
+from pcileechfwgenerator.templating.sv_overlay_generator import SVOverlayGenerator
+from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
+from pcileechfwgenerator.device_clone.bar_model_loader import BarModel, RegisterSpec
 
 
 class TestBarImplementationGeneration:
@@ -79,7 +79,7 @@ class TestBarImplementationGeneration:
     @pytest.fixture
     def serialized_bar_model(self, sample_bar_model):
         """Provide serialized BAR model."""
-        from src.device_clone.bar_model_loader import serialize_bar_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
         return serialize_bar_model(sample_bar_model)
 
     @pytest.fixture
@@ -241,7 +241,7 @@ class TestBarImplementationGeneration:
 
     def test_bar_model_serialization_in_context(self, sample_bar_model):
         """Test that BAR models are properly serialized in context."""
-        from src.device_clone.bar_model_loader import serialize_bar_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
         
         serialized = serialize_bar_model(sample_bar_model)
         
@@ -282,7 +282,7 @@ class TestBarModelContextIntegration:
 
     def test_bar_models_stored_in_bar_config(self, mock_bar_models):
         """Test that BAR models are stored in bar_config during build."""
-        from src.device_clone.bar_model_loader import serialize_bar_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
         
         # Simulate the context building process
         config = {"bars": [{"size": 4096, "index": 0}]}
@@ -302,7 +302,7 @@ class TestBarModelContextIntegration:
     @patch('src.device_clone.pcileech_context.log_info_safe')
     def test_bar_model_logging(self, mock_log, mock_bar_models):
         """Test that BAR model storage is properly logged."""
-        from src.device_clone.bar_model_loader import serialize_bar_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
         
         serialized_models = {}
         for bar_idx, model in mock_bar_models.items():
@@ -468,7 +468,7 @@ class TestBarImplementationEdgeCases:
     )
     def test_multiple_bar_models_selects_primary(self, overlay_generator):
         """Test that primary BAR is selected from multiple models."""
-        from src.device_clone.bar_model_loader import serialize_bar_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
         
         model = BarModel(
             size=4096,

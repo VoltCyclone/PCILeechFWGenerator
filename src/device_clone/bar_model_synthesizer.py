@@ -8,10 +8,10 @@ for deterministic BAR content generation.
 from collections import defaultdict
 from typing import Dict, List
 
-from src.device_clone.bar_model_loader import BarModel, RegisterSpec
-from src.device_clone.mmio_tracer import MmioAccess, MmioTrace
-from src.log_config import get_logger
-from src.string_utils import log_debug_safe, log_info_safe, safe_format
+from pcileechfwgenerator.device_clone.bar_model_loader import BarModel, RegisterSpec
+from pcileechfwgenerator.device_clone.mmio_tracer import MmioAccess, MmioTrace
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import log_debug_safe, log_info_safe, safe_format
 
 logger = get_logger(__name__)
 

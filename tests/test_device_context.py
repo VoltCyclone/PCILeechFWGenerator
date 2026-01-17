@@ -15,10 +15,10 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.pci_capability.core import CapabilityWalker, ConfigSpace
-from src.pci_capability.processor import CapabilityProcessor
-from src.pci_capability.rules import RuleEngine
-from src.pci_capability.types import CapabilityInfo, CapabilityType
+from pcileechfwgenerator.pci_capability.core import CapabilityWalker, ConfigSpace
+from pcileechfwgenerator.pci_capability.processor import CapabilityProcessor
+from pcileechfwgenerator.pci_capability.rules import RuleEngine
+from pcileechfwgenerator.pci_capability.types import CapabilityInfo, CapabilityType
 
 
 class TestDynamicDeviceContext:
@@ -396,7 +396,7 @@ class TestDynamicDeviceContext:
     def test_integration_with_capability_processor(self):
         """Test integration with CapabilityProcessor."""
         # Process capabilities with MODIFY action
-        from src.pci_capability.types import PruningAction
+        from pcileechfwgenerator.pci_capability.types import PruningAction
 
         results = self.processor.process_capabilities([PruningAction.MODIFY])
 

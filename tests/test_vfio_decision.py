@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from src.utils.vfio_decision import (
+from pcileechfwgenerator.utils.vfio_decision import (
     VFIODecision,
     VFIODecisionMaker,
     make_vfio_decision

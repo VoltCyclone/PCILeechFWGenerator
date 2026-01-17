@@ -55,7 +55,7 @@ The container does **NOT** access VFIO devices - it only performs templating usi
 - **Containerized Build Pipeline**: Podman-based synthesis environment with automated VFIO setup
 - **USB-JTAG Flashing**: Direct firmware deployment to DMA boards via integrated flash utilities
 
- **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)** |  **[Overlay Architecture](https://pcileechfwgenerator.voltcyclone.info/overlay-architecture)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
+ **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)** |  **[Template Architecture](https://pcileechfwgenerator.voltcyclone.info/template-architecture)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
 
 ## Quick Start
 
@@ -83,7 +83,7 @@ VFIO requires root. Use the venv's Python directly with sudo:
 
 ```bash
 # Add this alias to ~/.bashrc for convenience:
-echo "alias pcileech-sudo='sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech'" >> ~/.bashrc
+echo "alias pcileech-sudo='sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech_main'" >> ~/.bashrc
 source ~/.bashrc
 
 # Load VFIO modules

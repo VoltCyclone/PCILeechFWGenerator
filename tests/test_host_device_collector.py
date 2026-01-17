@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from src.device_clone.msix import MSIXData
-from src.cli.host_device_collector import HostDeviceCollector
+from pcileechfwgenerator.device_clone.msix import MSIXData
+from pcileechfwgenerator.cli.host_device_collector import HostDeviceCollector
 
 
 class _DummyBinder:
@@ -59,7 +59,7 @@ def logger():
 
 def test_collect_device_context_success(monkeypatch, tmp_path: Path, logger, caplog):
     # Patch heavy dependencies with fakes
-    import src.cli.host_device_collector as hdc
+    import pcileechfwgenerator.cli.host_device_collector as hdc
 
     monkeypatch.setattr(hdc, "VFIOBinder", _DummyBinder)
     monkeypatch.setattr(hdc, "ConfigSpaceManager", _FakeConfigSpaceManager)
@@ -96,7 +96,7 @@ def test_collect_device_context_success(monkeypatch, tmp_path: Path, logger, cap
 def test_collect_device_context_failure_raises_build_error(
     monkeypatch, tmp_path: Path, logger, caplog
 ):
-    import src.cli.host_device_collector as hdc
+    import pcileechfwgenerator.cli.host_device_collector as hdc
 
     class _BoomConfigManager(_FakeConfigSpaceManager):
         def read_vfio_config_space(self) -> bytes:
@@ -111,7 +111,7 @@ def test_collect_device_context_failure_raises_build_error(
         collector.collect_device_context(tmp_path)
 
     # Ensure BuildError surface
-    from src.exceptions import BuildError
+    from pcileechfwgenerator.exceptions import BuildError
 
     assert isinstance(exc.value, BuildError)
     assert any("Failed to collect device context" in r.message for r in caplog.records)

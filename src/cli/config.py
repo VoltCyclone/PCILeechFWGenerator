@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from src.string_utils import safe_format
+from pcileechfwgenerator.string_utils import safe_format
 
 
 @dataclass

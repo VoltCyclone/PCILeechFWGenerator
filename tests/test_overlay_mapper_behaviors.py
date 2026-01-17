@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.device_clone.overlay_mapper import OverlayMapper
+from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper
 
 
 def _make_config_and_caps():

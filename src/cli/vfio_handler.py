@@ -11,10 +11,10 @@ from dataclasses import dataclass
 import re
 from enum import Enum
 
-from src.string_utils import log_debug_safe, log_info_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.string_utils import log_debug_safe, log_info_safe, log_warning_safe, safe_format
 
-from src.utils.validators import get_bdf_validator
-from src.exceptions import (
+from pcileechfwgenerator.utils.validators import get_bdf_validator
+from pcileechfwgenerator.exceptions import (
     VFIOBindError,
     VFIOPermissionError,
     VFIOGroupError,
@@ -33,7 +33,7 @@ class BindingState(Enum):
 HAS_PRIVILEGE_MANAGER = False
 PrivilegeManager = None
 try:
-    from src.tui.utils.privilege_manager import PrivilegeManager
+    from pcileechfwgenerator.tui.utils.privilege_manager import PrivilegeManager
 
     HAS_PRIVILEGE_MANAGER = True
 except ImportError:

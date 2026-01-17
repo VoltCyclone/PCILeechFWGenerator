@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
-from src.tui.core.device_manager import (BAR_TYPE_IO, BAR_TYPE_MEMORY,
+from pcileechfwgenerator.tui.core.device_manager import (BAR_TYPE_IO, BAR_TYPE_MEMORY,
                                          DeviceManager)
-from src.tui.models.device import PCIDevice
+from pcileechfwgenerator.tui.models.device import PCIDevice
 
 
 @pytest.fixture

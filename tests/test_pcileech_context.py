@@ -29,19 +29,19 @@ from unittest.mock import MagicMock, Mock, PropertyMock, call, mock_open, patch
 
 import pytest
 
-from src.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
+from pcileechfwgenerator.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
                                     VFIO_GROUP_GET_DEVICE_FD,
                                     VFIO_REGION_INFO_FLAG_MMAP,
                                     VFIO_REGION_INFO_FLAG_READ,
                                     VFIO_REGION_INFO_FLAG_WRITE,
                                     VfioRegionInfo)
-from src.device_clone.behavior_profiler import (BehaviorProfile,
+from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
                                                 RegisterAccess, TimingPattern)
-from src.device_clone.config_space_manager import BarInfo
-from src.device_clone.fallback_manager import (FallbackManager,
+from pcileechfwgenerator.device_clone.config_space_manager import BarInfo
+from pcileechfwgenerator.device_clone.fallback_manager import (FallbackManager,
                                                get_global_fallback_manager)
-from src.device_clone.overlay_mapper import OverlayMapper
-from src.device_clone.pcileech_context import (BarConfiguration, ContextError,
+from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper
+from pcileechfwgenerator.device_clone.pcileech_context import (BarConfiguration, ContextError,
                                                DeviceIdentifiers,
                                                PCILeechContextBuilder,
                                                TemplateContext,
@@ -65,7 +65,7 @@ class TestDataFactory:
         num_interrupt_sources: int = 8,
     ):
         """Create a mock DeviceCapabilities object with sensible defaults."""
-        from src.device_clone.device_config import DeviceCapabilities
+        from pcileechfwgenerator.device_clone.device_config import DeviceCapabilities
 
         capabilities_mock = Mock(spec=DeviceCapabilities)
         capabilities_mock.ext_cfg_cap_ptr = ext_cfg_cap_ptr

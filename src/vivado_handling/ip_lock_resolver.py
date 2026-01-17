@@ -7,8 +7,8 @@ from pathlib import Path
 from stat import S_IWGRP, S_IWOTH, S_IWUSR
 from typing import Dict, List
 
-from src.log_config import get_logger
-from src.string_utils import (
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_info_safe,
     log_warning_safe,

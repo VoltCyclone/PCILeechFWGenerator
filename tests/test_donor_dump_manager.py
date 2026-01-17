@@ -23,7 +23,7 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.file_management.donor_dump_manager import (DonorDumpError,
+from pcileechfwgenerator.file_management.donor_dump_manager import (DonorDumpError,
                                                     DonorDumpManager,
                                                     DonorDumpModuleError,
                                                     DonorDumpPermissionError,

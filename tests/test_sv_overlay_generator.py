@@ -9,9 +9,9 @@ This test suite validates that we generate ONLY overlay configuration files
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from src.templating.sv_overlay_generator import SVOverlayGenerator
-from src.templating.template_renderer import TemplateRenderError
-from src.exceptions import PCILeechGenerationError
+from pcileechfwgenerator.templating.sv_overlay_generator import SVOverlayGenerator
+from pcileechfwgenerator.templating.template_renderer import TemplateRenderError
+from pcileechfwgenerator.exceptions import PCILeechGenerationError
 
 
 @pytest.fixture

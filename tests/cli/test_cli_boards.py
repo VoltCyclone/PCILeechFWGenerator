@@ -1,6 +1,6 @@
 import pytest
 
-from src.cli import cli
+from pcileechfwgenerator.cli import cli
 
 
 def test_get_supported_boards_returns_list():
@@ -13,7 +13,7 @@ def test_get_supported_boards_returns_list():
 def test_board_choices_match_discovery():
     boards_from_func = set(cli.get_supported_boards())
     # Import direct from board_config for ground truth
-    from src.device_clone.board_config import list_supported_boards
+    from pcileechfwgenerator.device_clone.board_config import list_supported_boards
 
     boards_from_config = set(list_supported_boards())
     assert boards_from_func == boards_from_config

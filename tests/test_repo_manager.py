@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.file_management import repo_manager
+from pcileechfwgenerator.file_management import repo_manager
 
 
 def _seed_minimal_submodule(root: Path) -> None:

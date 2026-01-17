@@ -10,10 +10,10 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.tui.core.protocols import BuildOrchestrator, ConfigManager
-from src.tui.models.config import BuildConfiguration, BuildProgress
-from src.tui.utils.graceful_degradation import GracefulDegradation
-from src.tui.utils.input_validator import InputValidator
+from pcileechfwgenerator.tui.core.protocols import BuildOrchestrator, ConfigManager
+from pcileechfwgenerator.tui.models.config import BuildConfiguration, BuildProgress
+from pcileechfwgenerator.tui.utils.graceful_degradation import GracefulDegradation
+from pcileechfwgenerator.tui.utils.input_validator import InputValidator
 
 # Set up logging
 logger = logging.getLogger(__name__)

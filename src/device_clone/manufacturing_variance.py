@@ -27,7 +27,7 @@ from enum import Enum
 
 from typing import Any, Dict, List, Optional, Tuple, Union, TypedDict
 
-from src.string_utils import log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 
 # Configure module logger
 logger = logging.getLogger(__name__)

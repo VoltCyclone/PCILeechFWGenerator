@@ -1,11 +1,11 @@
 import pytest
 
-from src.device_clone.device_config import (DeviceCapabilities, DeviceClass,
+from pcileechfwgenerator.device_clone.device_config import (DeviceCapabilities, DeviceClass,
                                             DeviceConfiguration,
                                             DeviceIdentification, DeviceType,
                                             PCIeRegisters)
-from src.templating.template_renderer import TemplateRenderer
-from src.utils.unified_context import (UnifiedContextBuilder,
+from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
+from pcileechfwgenerator.utils.unified_context import (UnifiedContextBuilder,
                                        ensure_template_compatibility)
 
 

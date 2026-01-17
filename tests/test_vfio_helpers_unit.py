@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.cli.vfio_helpers as vh
+import pcileechfwgenerator.cli.vfio_helpers as vh
 
 
 class TestCheckVfioPrerequisites:

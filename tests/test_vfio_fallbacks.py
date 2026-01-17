@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.device_clone.pcileech_context import (
+from pcileechfwgenerator.device_clone.pcileech_context import (
     PCILeechContextBuilder,
     VFIODeviceManager,
     BarConfiguration,
@@ -17,7 +17,7 @@ def test_logger():
 
 def test_vfio_manager_normalizes_negative_fds(monkeypatch, test_logger):
     # Patch VFIO open to return invalid FDs
-    import src.cli.vfio_helpers as vfio_helpers
+    import pcileechfwgenerator.cli.vfio_helpers as vfio_helpers
 
     monkeypatch.setattr(vfio_helpers, "get_device_fd", lambda _: (-1, -1))
     # ensure_device_vfio_binding may get called but should be non-fatal; no-op
@@ -42,7 +42,7 @@ def test_vfio_manager_normalizes_negative_fds(monkeypatch, test_logger):
 
 
 def test_vfio_manager_invalid_container_fd(monkeypatch, test_logger):
-    import src.cli.vfio_helpers as vfio_helpers
+    import pcileechfwgenerator.cli.vfio_helpers as vfio_helpers
 
     monkeypatch.setattr(vfio_helpers, "get_device_fd", lambda _: (10, -1))
     monkeypatch.setattr(

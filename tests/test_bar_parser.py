@@ -3,12 +3,12 @@
 
 import pytest
 
-from src.device_clone.bar_parser import (
+from pcileechfwgenerator.device_clone.bar_parser import (
     UnifiedBarParser,
     parse_bar_info_from_config_space,
     parse_bar_info_as_dicts
 )
-from src.device_clone.config_space_manager import BarInfo
+from pcileechfwgenerator.device_clone.config_space_manager import BarInfo
 
 
 class TestUnifiedBarParser:

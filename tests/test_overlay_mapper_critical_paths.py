@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.device_clone.overlay_mapper import OverlayMapper, RegisterType
+from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper, RegisterType
 
 
 class TestCalculateBarMaskCriticalPaths:

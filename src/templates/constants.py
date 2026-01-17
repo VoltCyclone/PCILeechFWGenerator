@@ -2,7 +2,7 @@
 """
 Template constants - exposes centralized constants to templates.
 """
-from src.device_clone.constants import (
+from pcileechfwgenerator.device_clone.constants import (
     DEVICE_ID_GENERIC,
     DEVICE_ID_INTEL_ETH,
     DEVICE_ID_INTEL_NVME,

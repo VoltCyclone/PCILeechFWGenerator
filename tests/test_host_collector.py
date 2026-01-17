@@ -11,7 +11,7 @@ def test_host_collector_writes_datastore(tmp_path, monkeypatch):
     cfg_bytes = bytes(range(256))
 
     # Import the collector
-    from src.host_collect.collector import HostCollector
+    from pcileechfwgenerator.host_collect.collector import HostCollector
 
     # Monkeypatch _read_config_space to avoid touching /sys
     monkeypatch.setattr(HostCollector, "_read_config_space", lambda self: cfg_bytes)

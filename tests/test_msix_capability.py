@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.device_clone.msix_capability import (
+from pcileechfwgenerator.device_clone.msix_capability import (
     BAR_IO_DEFAULT_SIZE, BAR_MEM_DEFAULT_SIZE, BAR_MEM_MIN_SIZE, find_cap,
     generate_msix_capability_registers, generate_msix_table_sv, hex_to_bytes,
     is_valid_offset, msix_size, parse_bar_info_from_config_space,

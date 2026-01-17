@@ -11,21 +11,21 @@ class TestTemplateRenderError:
 
     def test_basic_error_creation(self):
         """Test basic error functionality."""
-        from src.templating.template_renderer import TemplateRenderError
+        from pcileechfwgenerator.templating.template_renderer import TemplateRenderError
 
         error = TemplateRenderError("Test message")
         assert "Test message" in str(error)
 
     def test_error_inheritance(self):
         """Test error inheritance."""
-        from src.templating.template_renderer import TemplateRenderError
+        from pcileechfwgenerator.templating.template_renderer import TemplateRenderError
 
         error = TemplateRenderError("Test")
         assert isinstance(error, Exception)
 
     def test_error_in_context(self):
         """Test error works in exception context."""
-        from src.templating.template_renderer import TemplateRenderError
+        from pcileechfwgenerator.templating.template_renderer import TemplateRenderError
 
         with pytest.raises(TemplateRenderError):
             raise TemplateRenderError("Test error")

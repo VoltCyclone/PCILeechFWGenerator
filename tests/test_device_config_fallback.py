@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import src.device_clone.device_config as dc
+import pcileechfwgenerator.device_clone.device_config as dc
 
 
 def test_get_device_config_returns_none_when_missing():

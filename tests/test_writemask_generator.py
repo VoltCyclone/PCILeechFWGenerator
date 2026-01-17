@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict
 from unittest.mock import MagicMock, patch
 
-from src.device_clone.writemask_generator import (
+from pcileechfwgenerator.device_clone.writemask_generator import (
     WritemaskGenerator,
     CFG_SPACE_DWORDS,
     visualize_writemask_terminal,

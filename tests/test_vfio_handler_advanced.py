@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
-from src.cli.vfio_handler import (
+from pcileechfwgenerator.cli.vfio_handler import (
     DeviceInfo,
     VFIOBinder,
     VFIOPathManager,
@@ -27,7 +27,7 @@ from src.cli.vfio_handler import (
 )
 
 # Import exceptions from the exceptions module
-from src.exceptions import (
+from pcileechfwgenerator.exceptions import (
     VFIOBindError,
     VFIOGroupError,
     VFIOPermissionError,
@@ -429,7 +429,7 @@ class TestVFIODiagnosticsAndDebugging:
 
     def test_comprehensive_vfio_diagnostics(self, valid_bdf):
         """Test comprehensive VFIO diagnostics collection."""
-        from src.cli.vfio_handler import run_diagnostics
+        from pcileechfwgenerator.cli.vfio_handler import run_diagnostics
 
         # Mock various system states for diagnostic collection
         with patch("pathlib.Path.exists", return_value=True):
@@ -442,7 +442,7 @@ class TestVFIODiagnosticsAndDebugging:
 
     def test_diagnostic_information_completeness(self, valid_bdf):
         """Test that diagnostic information is complete and useful."""
-        from src.cli.vfio_handler import render_pretty
+        from pcileechfwgenerator.cli.vfio_handler import render_pretty
 
         device_info = DeviceInfo(
             bdf=valid_bdf,

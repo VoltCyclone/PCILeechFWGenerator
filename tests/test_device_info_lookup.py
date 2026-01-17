@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, mock_open, patch
 
-from src.device_clone.device_info_lookup import (DeviceInfoLookup,
+from pcileechfwgenerator.device_clone.device_info_lookup import (DeviceInfoLookup,
                                                  lookup_device_info)
 
 

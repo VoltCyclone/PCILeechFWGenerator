@@ -989,7 +989,7 @@ class FileManager:
             FileNotFoundError: If IP files are not found
         """
         try:
-            from src.file_management.repo_manager import RepoManager
+            from pcileechfwgenerator.file_management.repo_manager import RepoManager
             
             # Get board path from repo manager
             board_path = RepoManager.get_board_path(board)

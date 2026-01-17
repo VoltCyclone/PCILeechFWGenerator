@@ -3,7 +3,7 @@ Unit tests for BAR content visualization functionality.
 """
 
 import pytest
-from src.device_clone.bar_content_generator import (
+from pcileechfwgenerator.device_clone.bar_content_generator import (
     BarContentGenerator,
     BarContentType,
 )
