@@ -572,13 +572,13 @@ def test_copy_pcileech_sources_success(temp_dir):
         return original_exists(self)
 
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         return_value=repo_root,
     ), mock.patch(
-        "src.file_management.repo_manager.RepoManager.get_board_path",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
         return_value=board_path,
     ), mock.patch(
-        "src.file_management.repo_manager.RepoManager.get_xdc_files",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_xdc_files",
         return_value=[xdc_file],
     ), mock.patch(
         "pathlib.Path.exists", new=fake_exists
@@ -605,7 +605,7 @@ def test_copy_pcileech_sources_repo_import_error(temp_dir):
     manager = FileManager(output_dir=temp_dir)
 
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         side_effect=ImportError("No repo manager"),
     ):
         result = manager.copy_pcileech_sources("vc707")
@@ -619,7 +619,7 @@ def test_copy_pcileech_sources_copy_error(temp_dir):
     manager = FileManager(output_dir=temp_dir)
 
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         side_effect=Exception("Repo error"),
     ):
         result = manager.copy_pcileech_sources("vc707")
@@ -736,7 +736,7 @@ def test_print_final_output_info_banner_render_error(temp_dir):
 
     # Mock format_kv_table to raise exception
     with mock.patch(
-        "src.file_management.file_manager.format_kv_table",
+        "pcileechfwgenerator.file_management.file_manager.format_kv_table",
         side_effect=Exception("Render error"),
     ):
         # Should not raise exception
@@ -859,7 +859,7 @@ def test_bug528_coe_files_overwrite_template_with_device_ids(
     file_manager = FileManager(output_dir=output_dir)
     
     # Mock RepoManager to return our mock repository
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         # Execute: Copy IP files (this should copy templates then overwrite with generated)
@@ -895,7 +895,7 @@ def test_bug528_coe_files_copied_to_ip_directory_not_just_src(
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
     
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         file_manager.copy_ip_files(board="CaptainDMA_75t")
@@ -921,7 +921,7 @@ def test_bug528_xci_files_copied_but_not_overwritten(
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
     
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         file_manager.copy_ip_files(board="CaptainDMA_75t")
@@ -950,7 +950,7 @@ def test_bug528_behavior_when_no_generated_coe_files_exist(
     
     # Don't create generated .coe files - output/src/ is empty
     
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         copied_files = file_manager.copy_ip_files(board="CaptainDMA_75t")
@@ -983,7 +983,7 @@ def test_bug528_multiple_coe_files_all_overwritten(
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
     
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         file_manager.copy_ip_files(board="CaptainDMA_75t")
@@ -1005,7 +1005,7 @@ def test_bug528_generated_coe_files_not_lost_after_ip_copy(
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
     
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         # Store original content
@@ -1030,7 +1030,7 @@ def test_bug528_device_ids_byte_order_preserved(
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
     
-    with mock.patch("src.file_management.repo_manager.RepoManager") as mock_repo_manager:
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
         mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         # Store original generated content

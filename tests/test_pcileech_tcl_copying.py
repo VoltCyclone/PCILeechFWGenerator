@@ -38,7 +38,7 @@ def test_copy_tcl_scripts_success(generator: PCILeechGenerator, tmp_path: Path):
     
     # Mock FileManager
     with mock.patch(
-        "src.file_management.file_manager.FileManager"
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
     ) as mock_fm_cls:
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm
@@ -76,7 +76,7 @@ def test_copy_tcl_scripts_uses_board_fallback(
     }
     
     with mock.patch(
-        "src.file_management.file_manager.FileManager"
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
     ) as mock_fm_cls:
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm
@@ -117,7 +117,7 @@ def test_copy_tcl_scripts_file_manager_error(
     }
     
     with mock.patch(
-        "src.file_management.file_manager.FileManager"
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
     ) as mock_fm_cls:
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm
@@ -145,7 +145,7 @@ def test_copy_tcl_scripts_uses_output_dir_from_context(
     }
     
     with mock.patch(
-        "src.file_management.file_manager.FileManager"
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
     ) as mock_fm_cls:
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm
@@ -167,7 +167,7 @@ def test_copy_tcl_scripts_falls_back_to_config_output_dir(
     }
     
     with mock.patch(
-        "src.file_management.file_manager.FileManager"
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
     ) as mock_fm_cls:
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm
@@ -202,7 +202,7 @@ def test_firmware_components_includes_tcl_scripts(
     ), mock.patch.object(
         generator, "_generate_writemask_coe", return_value=None
     ), mock.patch(
-        "src.file_management.file_manager.FileManager"
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
     ) as mock_fm_cls:
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm

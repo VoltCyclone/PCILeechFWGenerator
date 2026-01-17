@@ -83,9 +83,9 @@ FILE_WRITE_TIMEOUT = 30  # seconds
 
 # Required modules for production
 REQUIRED_MODULES = [
-    "src.device_clone.pcileech_generator",
-    "src.device_clone.behavior_profiler",
-    "src.templating.tcl_builder",
+    "pcileechfwgenerator.device_clone.pcileech_generator",
+    "pcileechfwgenerator.device_clone.behavior_profiler",
+    "pcileechfwgenerator.templating.tcl_builder",
 ]
 
 # File extension mappings
@@ -2892,7 +2892,7 @@ def _build_reproduction_command(args: argparse.Namespace) -> str:
     Sensitive values are kept because reproduction requires them; users can
     manually redact if desired. Output paths are normalized.
     """
-    parts: List[str] = ["python3", "-m", "src.build"]
+    parts: List[str] = ["python3", "-m", "pcileechfwgenerator.build"]
 
     def _add(flag: str, value: Optional[str]) -> None:
         if value is None:

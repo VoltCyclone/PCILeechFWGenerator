@@ -213,7 +213,7 @@ class MockBuilder:
 @contextmanager
 def mock_vfio_operations(device_fd: int = 10, container_fd: int = 11):
     """Context manager for mocking VFIO operations."""
-    with patch("src.cli.vfio_helpers.get_device_fd") as mock_get_fd, patch(
+    with patch("pcileechfwgenerator.cli.vfio_helpers.get_device_fd") as mock_get_fd, patch(
         "os.close"
     ) as mock_close, patch("fcntl.ioctl") as mock_ioctl:
 
@@ -224,7 +224,7 @@ def mock_vfio_operations(device_fd: int = 10, container_fd: int = 11):
 @contextmanager
 def mock_overlay_mapper(overlay_entries: int = 2):
     """Context manager for mocking OverlayMapper."""
-    with patch("src.device_clone.pcileech_context.OverlayMapper") as mock_overlay:
+    with patch("pcileechfwgenerator.device_clone.pcileech_context.OverlayMapper") as mock_overlay:
         mock_instance = Mock()
         mock_instance.generate_overlay_map.return_value = {
             "OVERLAY_MAP": [(i * 4, 0xFFFFFFFF >> i) for i in range(overlay_entries)],
@@ -695,7 +695,7 @@ class TestVFIOOperations:
     )
     def test_get_vfio_region_info_errors(self, mock_config, error_type, error_msg):
         """Test VFIO region info error handling."""
-        with patch("src.cli.vfio_helpers.get_device_fd") as mock_get_fd:
+        with patch("pcileechfwgenerator.cli.vfio_helpers.get_device_fd") as mock_get_fd:
             mock_get_fd.side_effect = error_type
 
             builder = PCILeechContextBuilder(
@@ -793,7 +793,7 @@ class TestTimingConfiguration:
         builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
 
         # Mock get_device_config to return None so we fall through to class-specific logic
-        with patch("src.device_clone.pcileech_context.get_device_config", return_value=None):
+        with patch("pcileechfwgenerator.device_clone.pcileech_context.get_device_config", return_value=None):
             # _build_timing_config is the new method that handles timing
             timing = builder._build_timing_config(None, identifiers)
 

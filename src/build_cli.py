@@ -46,7 +46,7 @@ def main():
             prefix="CLI",
         )
         log_info_safe(
-            logger, "Try: sudo -E python3 -m src.build_cli", prefix="CLI"
+            logger, "Try: sudo -E python3 -m pcileechfwgenerator.build_cli", prefix="CLI"
         )
         return 1
     except KeyboardInterrupt:

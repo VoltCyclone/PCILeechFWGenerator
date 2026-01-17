@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 def test_run_local_templating_monkeypatched(tmp_path, monkeypatch):
     # Build a fake src.build module
-    fake_build = types.ModuleType('src.build')
+    fake_build = types.ModuleType('pcileechfwgenerator.build')
 
     class FakeConfigurationManager:
         def create_from_args(self, cfg_args):
@@ -33,7 +33,7 @@ def test_run_local_templating_monkeypatched(tmp_path, monkeypatch):
     fake_build.FirmwareBuilder = FakeFirmwareBuilder
 
     # Inject fake module so pcileech.run_local_templating imports it
-    sys.modules['src.build'] = fake_build
+    sys.modules['pcileechfwgenerator.build'] = fake_build
 
     # Import function under test
     import pcileech

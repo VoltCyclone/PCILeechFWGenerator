@@ -64,10 +64,10 @@ def test_discover_templates_finds_header_files(mock_board_structure):
     repo_root = mock_board_structure["repo_root"]
     
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         return_value=repo_root,
     ), mock.patch(
-        "src.file_management.repo_manager.RepoManager.get_board_path",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
         return_value=board_path,
     ):
         templates = TemplateDiscovery.discover_templates(
@@ -101,10 +101,10 @@ def test_get_source_files_includes_headers(mock_board_structure):
     repo_root = mock_board_structure["repo_root"]
     
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         return_value=repo_root,
     ), mock.patch(
-        "src.file_management.repo_manager.RepoManager.get_board_path",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
         return_value=board_path,
     ):
         source_files = TemplateDiscovery.get_source_files(
@@ -124,7 +124,7 @@ def test_get_pcileech_core_files_includes_header():
     """Test that get_pcileech_core_files includes pcileech_header.svh."""
     # Create a mock repo structure
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo"
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo"
     ) as mock_ensure:
         repo_root = Path("/tmp/mock_repo")
         mock_ensure.return_value = repo_root
@@ -178,10 +178,10 @@ def test_header_files_in_nested_directories(tmp_path):
     (hdl_dir / "hdl_header.svh").write_text("`define HDL_HEADER")
     
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         return_value=repo_root,
     ), mock.patch(
-        "src.file_management.repo_manager.RepoManager.get_board_path",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
         return_value=board_path,
     ):
         templates = TemplateDiscovery.discover_templates(
@@ -204,10 +204,10 @@ def test_header_files_have_correct_extensions(mock_board_structure):
     repo_root = mock_board_structure["repo_root"]
     
     with mock.patch(
-        "src.file_management.repo_manager.RepoManager.ensure_repo",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
         return_value=repo_root,
     ), mock.patch(
-        "src.file_management.repo_manager.RepoManager.get_board_path",
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
         return_value=board_path,
     ):
         templates = TemplateDiscovery.discover_templates(

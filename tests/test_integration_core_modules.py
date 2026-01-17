@@ -111,7 +111,7 @@ def test_board_config_integration(monkeypatch):
         }
     }
     monkeypatch.setattr(
-        "src.device_clone.board_config._ensure_board_cache",
+        "pcileechfwgenerator.device_clone.board_config._ensure_board_cache",
         lambda repo_root=None: fake_board,
     )
     assert get_fpga_part("testboard") == "xc7a35t"

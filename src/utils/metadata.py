@@ -65,7 +65,7 @@ def build_generation_metadata(
     # centralized utc override via BUILD_TIMESTAMP. If BUILD_TIMESTAMP is set we
     # trust it exactly (tests can also use it). Otherwise prefer the local
     # datetime.now().isoformat() so existing patches like
-    # patch("src.utils.metadata.datetime") continue to work.
+    # patch("pcileechfwgenerator.utils.metadata.datetime") continue to work.
     ts_override = os.getenv("BUILD_TIMESTAMP")
     if ts_override:
         gen_ts = ts_override

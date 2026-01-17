@@ -295,7 +295,7 @@ class TestPCILeechIntegration(unittest.TestCase):
         self.assertIn("xc7a35tcsg324-2", adapted)
         self.assertIn("test_board", adapted)
 
-    @patch("src.file_management.repo_manager.RepoManager.ensure_repo")
+    @patch("pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo")
     def test_repository_error_handling(self, mock_ensure_repo):
         """Test error handling when repository operations fail."""
         # Simulate repository error

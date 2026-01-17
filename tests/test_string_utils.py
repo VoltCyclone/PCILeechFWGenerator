@@ -147,19 +147,19 @@ class TestPaddedMessage:
 
     def test_info_message_padding(self):
         """Test INFO level message padding."""
-        with patch("src.string_utils.get_short_timestamp", return_value="14:23:45"):
+        with patch("pcileechfwgenerator.string_utils.get_short_timestamp", return_value="14:23:45"):
             result = format_padded_message("Test message", "INFO")
             assert result == "  14:23:45 │  INFO  │ Test message"
 
     def test_warning_message_padding(self):
         """Test WARNING level message padding."""
-        with patch("src.string_utils.get_short_timestamp", return_value="14:23:45"):
+        with patch("pcileechfwgenerator.string_utils.get_short_timestamp", return_value="14:23:45"):
             result = format_padded_message("Warning message", "WARNING")
             assert result == "  14:23:45 │ WARNING│ Warning message"
 
     def test_error_message_padding(self):
         """Test ERROR level message padding."""
-        with patch("src.string_utils.get_short_timestamp", return_value="14:23:45"):
+        with patch("pcileechfwgenerator.string_utils.get_short_timestamp", return_value="14:23:45"):
             result = format_padded_message("Error message", "ERROR")
             assert result == "  14:23:45 │ ERROR  │ Error message"
 
@@ -492,7 +492,7 @@ class TestTimestampFunction:
 
     def test_timestamp_format(self):
         """Test timestamp format."""
-        with patch("src.string_utils.datetime") as mock_datetime:
+        with patch("pcileechfwgenerator.string_utils.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2025, 7, 23, 14, 23, 45)
             result = get_short_timestamp()
             assert result == "14:23:45"
@@ -503,7 +503,7 @@ class TestTimestampFunction:
         original_format = config.timestamp_format
         try:
             config.timestamp_format = "%H:%M"
-            with patch("src.string_utils.datetime") as mock_datetime:
+            with patch("pcileechfwgenerator.string_utils.datetime") as mock_datetime:
                 mock_datetime.now.return_value = datetime(2025, 7, 23, 14, 23, 45)
                 result = get_short_timestamp()
                 assert result == "14:23"

@@ -53,7 +53,7 @@ def mock_logger():
 @pytest.fixture
 def donor_dump_manager(temp_dir, mock_logger):
     """Create a DonorDumpManager instance with mocked logger."""
-    with mock.patch("src.file_management.donor_dump_manager.logger", mock_logger):
+    with mock.patch("pcileechfwgenerator.file_management.donor_dump_manager.logger", mock_logger):
         manager = DonorDumpManager(module_source_dir=temp_dir)
         return manager
 
@@ -61,7 +61,7 @@ def donor_dump_manager(temp_dir, mock_logger):
 @pytest.fixture(autouse=True)
 def stub_device_clone_constants():
     """Provide a lightweight constants module to avoid heavy dependencies."""
-    module_name = "src.device_clone.constants"
+    module_name = "pcileechfwgenerator.device_clone.constants"
     stub_module = types.ModuleType(module_name)
     setattr(stub_module, "VENDOR_ID_INTEL", 0x8086)
     setattr(stub_module, "VENDOR_ID_REALTEK", 0x10EC)
@@ -79,7 +79,7 @@ def stub_device_clone_constants():
 def mock_subprocess():
     """Mock subprocess module for testing."""
     with mock.patch(
-        "src.file_management.donor_dump_manager.subprocess", autospec=True
+        "pcileechfwgenerator.file_management.donor_dump_manager.subprocess", autospec=True
     ) as mock_subp:
         mock_subp.CalledProcessError = subprocess.CalledProcessError
         mock_subp.CompletedProcess = subprocess.CompletedProcess
@@ -90,7 +90,7 @@ def mock_subprocess():
 @pytest.fixture
 def mock_os_path():
     """Mock os.path for testing."""
-    with mock.patch("src.file_management.donor_dump_manager.os.path") as mock_path:
+    with mock.patch("pcileechfwgenerator.file_management.donor_dump_manager.os.path") as mock_path:
         yield mock_path
 
 
@@ -293,7 +293,7 @@ def test_detect_linux_distribution_debian(mock_os_path):
 
     with mock.patch("builtins.open", mock.mock_open(read_data="ID=debian\n")):
         with mock.patch(
-            "src.file_management.donor_dump_manager.os.path.exists"
+            "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists"
         ) as mock_exists:
             mock_exists.return_value = True
             distro = manager._detect_linux_distribution()
@@ -306,7 +306,7 @@ def test_detect_linux_distribution_ubuntu(mock_os_path):
 
     with mock.patch("builtins.open", mock.mock_open(read_data="ID=ubuntu\n")):
         with mock.patch(
-            "src.file_management.donor_dump_manager.os.path.exists"
+            "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists"
         ) as mock_exists:
             mock_exists.return_value = True
             distro = manager._detect_linux_distribution()
@@ -319,7 +319,7 @@ def test_detect_linux_distribution_fallback(mock_os_path):
 
     # Test debian version file fallback
     with mock.patch(
-        "src.file_management.donor_dump_manager.os.path.exists"
+        "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists"
     ) as mock_exists:
         mock_exists.side_effect = lambda path: path == "/etc/debian_version"
         distro = manager._detect_linux_distribution()
@@ -331,10 +331,10 @@ def test_detect_linux_distribution_lsb_release(mock_os_path):
     manager = DonorDumpManager()
 
     with mock.patch(
-        "src.file_management.donor_dump_manager.os.path.exists", return_value=False
+        "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists", return_value=False
     ):
         with mock.patch(
-            "src.file_management.donor_dump_manager.subprocess.run"
+            "pcileechfwgenerator.file_management.donor_dump_manager.subprocess.run"
         ) as mock_run:
             mock_run.return_value = mock.MagicMock(stdout="Distributor ID:\tUbuntu\n")
             distro = manager._detect_linux_distribution()
@@ -346,10 +346,10 @@ def test_detect_linux_distribution_unknown():
     manager = DonorDumpManager()
 
     with mock.patch(
-        "src.file_management.donor_dump_manager.os.path.exists", return_value=False
+        "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists", return_value=False
     ):
         with mock.patch(
-            "src.file_management.donor_dump_manager.subprocess.run"
+            "pcileechfwgenerator.file_management.donor_dump_manager.subprocess.run"
         ) as mock_run:
             mock_run.side_effect = Exception("Command failed")
             distro = manager._detect_linux_distribution()
@@ -633,11 +633,11 @@ def test_load_module_force_reload():
         with mock.patch.object(manager, "unload_module") as mock_unload:
             with mock.patch.object(manager, "build_module") as mock_build:
                 with mock.patch(
-                    "src.file_management.donor_dump_manager.os.path.exists",
+                    "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists",
                     return_value=True,
                 ):
                     with mock.patch(
-                        "src.file_management.donor_dump_manager.subprocess.run"
+                        "pcileechfwgenerator.file_management.donor_dump_manager.subprocess.run"
                     ) as mock_run:
                         mock_run.return_value = mock.MagicMock(returncode=0)
 
@@ -659,7 +659,7 @@ def test_load_module_build_required(temp_dir, mock_subprocess):
     ) as mock_is_loaded:
         with mock.patch.object(manager, "build_module", return_value=True):
             with mock.patch(
-                "src.file_management.donor_dump_manager.os.path.exists",
+                "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists",
                 return_value=True,
             ):
                 mock_subprocess.run.return_value = mock.MagicMock(returncode=0)
@@ -681,7 +681,7 @@ def test_load_module_insmod_failure(temp_dir, mock_subprocess):
     with mock.patch.object(manager, "is_module_loaded", return_value=False):
         with mock.patch.object(manager, "build_module", return_value=True):
             with mock.patch(
-                "src.file_management.donor_dump_manager.os.path.exists",
+                "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists",
                 return_value=True,
             ):
                 mock_subprocess.run.side_effect = subprocess.CalledProcessError(
@@ -707,7 +707,7 @@ def test_load_module_proc_file_missing(temp_dir, mock_subprocess):
     ) as mock_is_loaded:
         with mock.patch.object(manager, "build_module", return_value=True):
             with mock.patch(
-                "src.file_management.donor_dump_manager.os.path.exists"
+                "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists"
             ) as mock_exists:
                 mock_exists.side_effect = lambda path: path != "/proc/donor_dump"
                 mock_subprocess.run.return_value = mock.MagicMock(returncode=0)
@@ -763,7 +763,7 @@ def test_read_device_info_success(temp_dir):
     proc_content = "vendor_id: 0x1234\ndevice_id: 0x5678\nbar_size: 0x1000\n"
 
     with mock.patch(
-        "src.file_management.donor_dump_manager.os.path.exists", return_value=True
+        "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists", return_value=True
     ):
         with mock.patch("builtins.open", mock.mock_open(read_data=proc_content)):
             result = manager.read_device_info()
@@ -781,7 +781,7 @@ def test_read_device_info_proc_file_missing():
     manager = DonorDumpManager()
 
     with mock.patch(
-        "src.file_management.donor_dump_manager.os.path.exists", return_value=False
+        "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists", return_value=False
     ):
         with pytest.raises(DonorDumpError, match="/proc/donor_dump not available"):
             manager.read_device_info()
@@ -792,7 +792,7 @@ def test_read_device_info_io_error():
     manager = DonorDumpManager()
 
     with mock.patch(
-        "src.file_management.donor_dump_manager.os.path.exists", return_value=True
+        "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists", return_value=True
     ):
         with mock.patch("builtins.open", side_effect=IOError("Read failed")):
             with pytest.raises(DonorDumpError, match="Failed to read device info"):
@@ -814,7 +814,7 @@ def test_get_module_status(temp_dir):
     ):
         with mock.patch.object(manager, "is_module_loaded", return_value=True):
             with mock.patch(
-                "src.file_management.donor_dump_manager.os.path.exists",
+                "pcileechfwgenerator.file_management.donor_dump_manager.os.path.exists",
                 return_value=True,
             ):
                 status = manager.get_module_status()
@@ -834,7 +834,7 @@ def test_generate_donor_info_generic():
     manager = DonorDumpManager()
 
     with mock.patch(
-        "src.file_management.donor_dump_manager.random.random", return_value=0.3
+        "pcileechfwgenerator.file_management.donor_dump_manager.random.random", return_value=0.3
     ):
         info = manager.generate_donor_info("generic")
 

@@ -198,7 +198,7 @@ def test_run_local_build_success(monkeypatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
 
     # Provide a fake build module with main returning 0
-    fake_build = cast(Any, types.ModuleType("src.build"))
+    fake_build = cast(Any, types.ModuleType("pcileechfwgenerator.build"))
 
     def fake_main(args):
         # Expect bdf/board flags present
@@ -209,7 +209,7 @@ def test_run_local_build_success(monkeypatch, tmp_path: Path):
     # Make relative import from pcileechfwgenerator.cli.container work
     import sys
 
-    sys.modules["src.build"] = fake_build
+    sys.modules["pcileechfwgenerator.build"] = fake_build
 
     cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
     run_local_build(cfg)
@@ -218,11 +218,11 @@ def test_run_local_build_success(monkeypatch, tmp_path: Path):
 
 def test_run_local_build_failure(monkeypatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
-    fake_build = cast(Any, types.ModuleType("src.build"))
+    fake_build = cast(Any, types.ModuleType("pcileechfwgenerator.build"))
     fake_build.main = lambda args: 5  # non-zero exit
     import sys
 
-    sys.modules["src.build"] = fake_build
+    sys.modules["pcileechfwgenerator.build"] = fake_build
     cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
     with pytest.raises(BuildError):
         run_local_build(cfg)
@@ -323,7 +323,7 @@ def test_run_build_restores_driver_on_success(monkeypatch, tmp_path: Path):
     import sys
     fake_module = types.ModuleType('host_device_collector')
     fake_module.HostDeviceCollector = FakeHostDeviceCollector
-    monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
+    monkeypatch.setitem(sys.modules, 'pcileechfwgenerator.cli.host_device_collector', fake_module)
 
     # Mock _get_iommu_group
     monkeypatch.setattr(container, "_get_iommu_group", lambda bdf: 12)
@@ -392,7 +392,7 @@ def test_run_build_restores_driver_on_failure(monkeypatch, tmp_path: Path):
     import sys
     fake_module = types.ModuleType('host_device_collector')
     fake_module.HostDeviceCollector = FakeFailingCollector
-    monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
+    monkeypatch.setitem(sys.modules, 'pcileechfwgenerator.cli.host_device_collector', fake_module)
 
     # Mock build_image to prevent it from being called
 
@@ -447,7 +447,7 @@ def test_run_build_skips_restore_when_no_original_driver(
     import sys
     fake_module = types.ModuleType('host_device_collector')
     fake_module.HostDeviceCollector = FakeHostDeviceCollector
-    monkeypatch.setitem(sys.modules, 'src.cli.host_device_collector', fake_module)
+    monkeypatch.setitem(sys.modules, 'pcileechfwgenerator.cli.host_device_collector', fake_module)
 
     # Mock _get_iommu_group
     monkeypatch.setattr(container, "_get_iommu_group", lambda bdf: 12)

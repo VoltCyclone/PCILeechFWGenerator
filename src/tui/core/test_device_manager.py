@@ -123,7 +123,7 @@ async def test_scan_devices(device_manager, sample_raw_devices):
 @pytest.mark.asyncio
 async def test_get_raw_devices(device_manager, sample_raw_devices):
     with patch(
-        "src.tui.core.device_manager.list_pci_devices", return_value=sample_raw_devices
+        "pcileechfwgenerator.tui.core.device_manager.list_pci_devices", return_value=sample_raw_devices
     ):
         devices = await device_manager._get_raw_devices()
 
@@ -153,13 +153,13 @@ async def test_get_device_driver(device_manager):
     bdf = "0000:00:01.0"
 
     # Test successful retrieval
-    with patch("src.tui.core.device_manager.get_current_driver", return_value="e1000e"):
+    with patch("pcileechfwgenerator.tui.core.device_manager.get_current_driver", return_value="e1000e"):
         driver = await device_manager._get_device_driver(bdf)
         assert driver == "e1000e"
 
     # Test error handling
     with patch(
-        "src.tui.core.device_manager.get_current_driver",
+        "pcileechfwgenerator.tui.core.device_manager.get_current_driver",
         side_effect=Exception("Driver error"),
     ):
         driver = await device_manager._get_device_driver(bdf)
@@ -345,7 +345,7 @@ async def test_check_vfio_compatibility(device_manager):
 
     # Test VFIO available and compatible
     with patch("os.path.exists", side_effect=lambda path: True):
-        with patch("src.tui.core.device_manager.check_vfio_prerequisites"):
+        with patch("pcileechfwgenerator.tui.core.device_manager.check_vfio_prerequisites"):
             with patch("builtins.open", mock_open(read_data="0x020000")):
                 is_compatible = await device_manager._check_vfio_compatibility(bdf)
                 assert is_compatible is True
@@ -360,7 +360,7 @@ async def test_check_vfio_compatibility(device_manager):
         "os.path.exists", side_effect=lambda path: path.startswith("/sys/module")
     ):
         with patch(
-            "src.tui.core.device_manager.check_vfio_prerequisites",
+            "pcileechfwgenerator.tui.core.device_manager.check_vfio_prerequisites",
             side_effect=Exception("VFIO error"),
         ):
             is_compatible = await device_manager._check_vfio_compatibility(bdf)
@@ -368,7 +368,7 @@ async def test_check_vfio_compatibility(device_manager):
 
     # Test device in excluded class
     with patch("os.path.exists", return_value=True):
-        with patch("src.tui.core.device_manager.check_vfio_prerequisites"):
+        with patch("pcileechfwgenerator.tui.core.device_manager.check_vfio_prerequisites"):
             with patch("builtins.open", mock_open(read_data="0x060000")):  # Host bridge
                 is_compatible = await device_manager._check_vfio_compatibility(bdf)
                 assert is_compatible is False
@@ -382,7 +382,7 @@ async def test_check_iommu_status(device_manager):
     # Test IOMMU properly configured
     with patch("os.path.exists", return_value=True):
         with patch("os.listdir", return_value=["0000:00:01.0"]):
-            with patch("src.tui.core.device_manager.check_iommu_group_binding"):
+            with patch("pcileechfwgenerator.tui.core.device_manager.check_iommu_group_binding"):
                 is_enabled = await device_manager._check_iommu_status(bdf, iommu_group)
                 assert is_enabled is True
 

@@ -299,7 +299,7 @@ class TestBarModelContextIntegration:
         assert 0 in config["bar_models"]
         assert config["bar_models"][0]["size"] == 4096
 
-    @patch('src.device_clone.pcileech_context.log_info_safe')
+    @patch('pcileechfwgenerator.device_clone.pcileech_context.log_info_safe')
     def test_bar_model_logging(self, mock_log, mock_bar_models):
         """Test that BAR model storage is properly logged."""
         from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model

@@ -134,7 +134,7 @@ class TestVFIOConstants:
         # This test passes if we get here without import errors
         import pcileechfwgenerator.cli.vfio_constants
 
-        assert src.cli.vfio_constants is not None
+        assert pcileechfwgenerator.cli.vfio_constants is not None
 
     def test_all_exports(self):
         """Test that __all__ exports are properly defined."""

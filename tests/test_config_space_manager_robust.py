@@ -29,7 +29,7 @@ class TestConfigSpaceManagerRobustness:
         """Test the VFIO to sysfs fallback chain when VFIO fails."""
         # Mock VFIO import failure, should fall back to sysfs
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             side_effect=ImportError("VFIO not available"),
         ):
             with patch.object(
@@ -44,7 +44,7 @@ class TestConfigSpaceManagerRobustness:
     def test_vfio_strict_mode_error_propagation(self, manager):
         """Test strict mode error propagation when VFIO fails."""
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             side_effect=ImportError("VFIO not available"),
         ):
             with pytest.raises(VFIOError) as exc_info:
@@ -271,7 +271,7 @@ class TestErrorRecoveryScenarios:
         mock_vfio_binder.__exit__.return_value = None
 
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             return_value=mock_vfio_binder,
         ):
             with patch.object(
@@ -481,7 +481,7 @@ class TestVFIODiagnosticsIntegration:
     def test_vfio_diagnostics_on_failure(self, manager):
         """Test VFIO diagnostics when operations fail."""
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             side_effect=ImportError("VFIO not available"),
         ):
             # Should include diagnostic information in error
@@ -493,7 +493,7 @@ class TestVFIODiagnosticsIntegration:
     def test_fallback_diagnostic_logging(self, manager):
         """Test diagnostic logging during fallback operations."""
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             side_effect=ImportError("VFIO not available"),
         ):
             with patch.object(manager, "_read_sysfs_config_space") as mock_sysfs:

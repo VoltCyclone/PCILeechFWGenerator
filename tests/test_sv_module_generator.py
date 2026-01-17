@@ -706,7 +706,7 @@ if __name__ == "__main__":
             assert result["data_size"] == 4
             assert "name" in result
 
-    @patch('src.templating.sv_module_generator.log_error_safe')
+    @patch('pcileechfwgenerator.templating.sv_module_generator.log_error_safe')
     def test_device_identifier_validation_logging(self, mock_log, sv_generator, valid_context):
         """Test that device identifier validation logs correctly."""
         self.validate_test_contract(valid_context)

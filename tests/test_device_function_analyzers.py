@@ -396,7 +396,7 @@ class TestFactoryFunctions:
         assert config["device_id"] == 0x1E00
         assert config["generated_by"] == "USBFunctionAnalyzer"
 
-    @patch("src.pci_capability.base_function_analyzer.log_error_safe")
+    @patch("pcileechfwgenerator.pci_capability.base_function_analyzer.log_error_safe")
     def test_factory_function_error_handling(self, mock_log_error):
         """Test factory function error handling."""
 

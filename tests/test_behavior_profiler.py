@@ -43,7 +43,7 @@ class TestPlatformDetection:
         mock_system.return_value = "linux"
         assert is_linux() is True
 
-    @patch("src.device_clone.behavior_profiler.is_linux")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.is_linux")
     def test_check_linux_requirement_success(self, mock_is_linux):
         """Test check_linux_requirement succeeds on Linux."""
         mock_is_linux.return_value = True
@@ -51,7 +51,7 @@ class TestPlatformDetection:
         # Should not raise an exception
         check_linux_requirement("test operation")
 
-    @patch("src.device_clone.behavior_profiler.is_linux")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.is_linux")
     def test_check_linux_requirement_failure(self, mock_is_linux):
         """Test check_linux_requirement fails on non-Linux."""
         mock_is_linux.return_value = False
@@ -189,7 +189,7 @@ class TestBehaviorProfilerInit:
         with pytest.raises(ValueError, match="Invalid BDF format"):
             BehaviorProfiler("0000:03:00.8")
 
-    @patch("src.device_clone.behavior_profiler.ManufacturingVarianceSimulator")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.ManufacturingVarianceSimulator")
     def test_init_with_variance_enabled(self, mock_simulator_class):
         """Test initialization with variance simulation enabled."""
         mock_simulator = MagicMock()
@@ -199,7 +199,7 @@ class TestBehaviorProfilerInit:
         assert profiler.enable_variance is True
         assert profiler.variance_simulator == mock_simulator
 
-    @patch("src.device_clone.behavior_profiler.ManufacturingVarianceSimulator")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.ManufacturingVarianceSimulator")
     def test_init_with_variance_disabled(self, mock_simulator_class):
         """Test initialization with variance simulation disabled."""
         profiler = BehaviorProfiler("0000:03:00.0", enable_variance=False)
@@ -216,7 +216,7 @@ class TestBehaviorProfilerSetup:
         """Set up test fixtures."""
         self.profiler = BehaviorProfiler("0000:03:00.0")
 
-    @patch("src.device_clone.behavior_profiler.is_linux")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.is_linux")
     @patch("subprocess.run")
     def test_setup_monitoring_success(self, mock_subprocess, mock_is_linux):
         """Test successful monitoring setup."""
@@ -227,7 +227,7 @@ class TestBehaviorProfilerSetup:
         result = self.profiler._setup_monitoring()
         assert result is True
 
-    @patch("src.device_clone.behavior_profiler.is_linux")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.is_linux")
     @patch("subprocess.run")
     def test_setup_monitoring_device_not_found(self, mock_subprocess, mock_is_linux):
         """Test monitoring setup when device is not found."""
@@ -238,7 +238,7 @@ class TestBehaviorProfilerSetup:
         result = self.profiler._setup_monitoring()
         assert result is False
 
-    @patch("src.device_clone.behavior_profiler.is_linux")
+    @patch("pcileechfwgenerator.device_clone.behavior_profiler.is_linux")
     def test_setup_monitoring_non_linux(self, mock_is_linux):
         """Test monitoring setup fails on non-Linux platforms."""
         mock_is_linux.return_value = False

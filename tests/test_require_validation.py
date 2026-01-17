@@ -68,7 +68,7 @@ class TestRequireValidation:
 
         assert exc_info.value.code == 2
 
-    @patch("src.device_clone.pcileech_context.log_error_safe")
+    @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_logs_error_message_on_failure(self, mock_log):
         """Test require() logs error message with safe formatting on failure."""
         with pytest.raises(SystemExit):
@@ -86,7 +86,7 @@ class TestRequireValidation:
         assert "Test error message" in message
         assert "Build aborted" in message
 
-    @patch("src.device_clone.pcileech_context.log_error_safe")
+    @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_includes_context_in_error_message(self, mock_log):
         """Test require() includes context kwargs in error message."""
         with pytest.raises(SystemExit):
@@ -105,7 +105,7 @@ class TestRequireValidation:
         # Verify context is in message
         assert "vendor_id" in message or "0x10de" in message
 
-    @patch("src.device_clone.pcileech_context.log_error_safe")
+    @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_uses_pcil_prefix(self, mock_log):
         """Test require() uses PCIL prefix for log messages."""
         with pytest.raises(SystemExit):
@@ -212,7 +212,7 @@ class TestRequireValidation:
                 "All identifiers must be present",
             )
 
-    @patch("src.device_clone.pcileech_context.log_error_safe")
+    @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_handles_context_with_special_characters(self, mock_log):
         """Test require() safely handles context with special characters."""
         with pytest.raises(SystemExit):
@@ -227,7 +227,7 @@ class TestRequireValidation:
         # Should not raise formatting errors
         assert mock_log.called
 
-    @patch("src.device_clone.pcileech_context.log_error_safe")
+    @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_handles_unicode_in_message(self, mock_log):
         """Test require() safely handles Unicode characters in messages."""
         with pytest.raises(SystemExit):

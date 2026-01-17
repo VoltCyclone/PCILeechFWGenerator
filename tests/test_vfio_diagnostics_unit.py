@@ -41,27 +41,27 @@ class TestCmdHelpers:
         assert "quiet" in out and "splash" in out
         assert "intel_iommu=on" in out and "iommu=pt" in out
 
-    @patch("src.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUBBY)
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUBBY)
     def test_cmds_for_args_grubby(self, mock_detect):
         cmds = vd._cmds_for_args(("intel_iommu=on", "iommu=pt"))
         assert any("grubby" in c for c in cmds)
         assert cmds[-1] == "sudo reboot"
 
-    @patch("src.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUB2_MODERN)
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUB2_MODERN)
     def test_cmds_for_args_grub2_modern(self, mock_detect):
         cmds = vd._cmds_for_args(("intel_iommu=on",))
         assert any("/etc/default/grub" in c for c in cmds)
         assert any("grub2-mkconfig" in c for c in cmds)
         assert cmds[-1] == "sudo reboot"
 
-    @patch("src.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUB2_LEGACY)
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUB2_LEGACY)
     def test_cmds_for_args_grub2_legacy(self, mock_detect):
         cmds = vd._cmds_for_args(("amd_iommu=on",))
         assert any("/etc/default/grub" in c for c in cmds)
         assert any("grub-mkconfig" in c for c in cmds)
         assert cmds[-1] == "sudo reboot"
 
-    @patch("src.cli.vfio_diagnostics._detect_boot", return_value=Boot.SYSTEMD_BOOT)
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics._detect_boot", return_value=Boot.SYSTEMD_BOOT)
     def test_cmds_for_args_systemd_boot_append(self, mock_detect):
         with patch(
             "pathlib.Path.exists",
@@ -72,7 +72,7 @@ class TestCmdHelpers:
                 assert any("/etc/kernel/cmdline" in c for c in cmds)
                 assert any("kernelstub" in c or "bootctl update" in c for c in cmds)
 
-    @patch("src.cli.vfio_diagnostics._detect_boot", return_value=Boot.UNKNOWN)
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics._detect_boot", return_value=Boot.UNKNOWN)
     def test_cmds_for_args_unknown(self, mock_detect):
         cmds = vd._cmds_for_args(("iommu=pt",))
         assert cmds[0].startswith("# Unknown boot loader")
@@ -80,7 +80,7 @@ class TestCmdHelpers:
 
     def test_kernel_param_command_helpers(self):
         # smoke tests, just ensure non-empty sensible commands
-        with patch("src.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUBBY):
+        with patch("pcileechfwgenerator.cli.vfio_diagnostics._detect_boot", return_value=Boot.GRUBBY):
             cmds = vd._kernel_param_commands()
             assert any("grubby" in c for c in cmds)
             cmds_acs = vd._kernel_param_commands_with_acs()
@@ -314,8 +314,8 @@ class TestReportAndCLI:
         ns = vd.parse_args(["script", "--quiet"])  # type: ignore[arg-type]
         assert ns.cmd == "script" and ns.quiet is True
 
-    @patch("src.cli.vfio_diagnostics.parse_args")
-    @patch("src.cli.vfio_diagnostics.Diagnostics")
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics.parse_args")
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics.Diagnostics")
     def test_main_json_path(self, mock_diag_cls, mock_parse, capsys):
         fake_report = Report(
             overall=Status.OK, checks=[], device_bdf=None, can_proceed=True

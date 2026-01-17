@@ -132,7 +132,7 @@ def test_collect_msix_found(monkeypatch, logger):
         }
 
     monkeypatch.setattr(
-        "src.cli.host_device_collector.parse_msix_capability", _fake_parse
+        "pcileechfwgenerator.cli.host_device_collector.parse_msix_capability", _fake_parse
     )
 
     collector = HostDeviceCollector("0000:03:00.0", logger=logger)
@@ -149,7 +149,7 @@ def test_collect_msix_found(monkeypatch, logger):
 def test_collect_msix_not_found(monkeypatch, logger):
     # Return None -> treated as absent capability
     monkeypatch.setattr(
-        "src.cli.host_device_collector.parse_msix_capability",
+        "pcileechfwgenerator.cli.host_device_collector.parse_msix_capability",
         lambda cfg_hex: None,
     )
     collector = HostDeviceCollector("0000:03:00.0", logger=logger)
@@ -166,7 +166,7 @@ def test_collect_msix_exception_logs_and_recovers(monkeypatch, logger, caplog):
     def _boom(_cfg_hex: str):
         raise ValueError("parse error")
 
-    monkeypatch.setattr("src.cli.host_device_collector.parse_msix_capability", _boom)
+    monkeypatch.setattr("pcileechfwgenerator.cli.host_device_collector.parse_msix_capability", _boom)
     collector = HostDeviceCollector("0000:03:00.0", logger=logger)
     with caplog.at_level(logging.WARNING):
         data = collector._collect_msix_data_vfio(

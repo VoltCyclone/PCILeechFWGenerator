@@ -467,7 +467,7 @@ class TestPostBuildValidator:
         validator.results = []
         
         # Should not raise and should log that there are no results
-        with patch('src.utils.post_build_validator.log_info_safe') as mock_log:
+        with patch('pcileechfwgenerator.utils.post_build_validator.log_info_safe') as mock_log:
             validator.print_validation_report()
             assert mock_log.called
 
@@ -483,8 +483,8 @@ class TestPostBuildValidator:
         ]
         
         # Should log both info (summary) and errors
-        with patch('src.utils.post_build_validator.log_error_safe') as mock_error, \
-             patch('src.utils.post_build_validator.log_info_safe') as mock_info:
+        with patch('pcileechfwgenerator.utils.post_build_validator.log_error_safe') as mock_error, \
+             patch('pcileechfwgenerator.utils.post_build_validator.log_info_safe') as mock_info:
             validator.print_validation_report()
             assert mock_error.called
             assert mock_info.called
@@ -501,8 +501,8 @@ class TestPostBuildValidator:
         ]
         
         # Should log both info (summary) and warnings
-        with patch('src.utils.post_build_validator.log_warning_safe') as mock_warn, \
-             patch('src.utils.post_build_validator.log_info_safe') as mock_info:
+        with patch('pcileechfwgenerator.utils.post_build_validator.log_warning_safe') as mock_warn, \
+             patch('pcileechfwgenerator.utils.post_build_validator.log_info_safe') as mock_info:
             validator.print_validation_report()
             assert mock_warn.called
             assert mock_info.called

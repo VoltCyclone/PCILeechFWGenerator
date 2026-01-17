@@ -153,7 +153,7 @@ class TestPerformanceCounterGenerator:
     def test_init_with_defaults(self):
         """Test initialization with default parameters."""
         with patch(
-            "src.templating.template_renderer.TemplateRenderer"
+            "pcileechfwgenerator.templating.template_renderer.TemplateRenderer"
         ) as mock_template_renderer:
             mock_template_renderer.return_value = self.mock_renderer
 
@@ -691,7 +691,7 @@ class TestErrorHandling:
     def test_renderer_import_error_handling(self):
         """Test handling when TemplateRenderer import fails."""
         with patch(
-            "src.templating.template_renderer.TemplateRenderer"
+            "pcileechfwgenerator.templating.template_renderer.TemplateRenderer"
         ) as mock_template_renderer:
             mock_template_renderer.side_effect = ImportError(
                 "Template renderer not available"

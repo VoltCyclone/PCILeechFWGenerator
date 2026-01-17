@@ -32,17 +32,17 @@ def test_generator_invokes_device_info_lookup():
 
     with (
         patch(
-            "src.device_clone.config_space_manager.ConfigSpaceManager"
+            "pcileechfwgenerator.device_clone.config_space_manager.ConfigSpaceManager"
             ".read_vfio_config_space",
             return_value=sample_cfg_bytes,
         ),
         patch(
-            "src.device_clone.config_space_manager.ConfigSpaceManager"
+            "pcileechfwgenerator.device_clone.config_space_manager.ConfigSpaceManager"
             ".extract_device_info",
             return_value=base_extract,
         ),
         patch(
-            "src.device_clone.pcileech_generator.lookup_device_info",
+            "pcileechfwgenerator.device_clone.pcileech_generator.lookup_device_info",
             return_value={
                 "vendor_id": 0x8086,
                 "device_id": 0x1234,
