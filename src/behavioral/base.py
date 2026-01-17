@@ -21,6 +21,7 @@ class BehaviorType(Enum):
     PATTERN = "pattern"                # Pattern-based generation
     TRIGGERED = "triggered"            # State change on trigger
     PERIODIC = "periodic"              # Periodic value changes
+    MIXED = "mixed"                    # Mixed RW/RO bits (e.g., status with RW1C)
 
 
 @dataclass
