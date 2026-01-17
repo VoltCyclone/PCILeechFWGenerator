@@ -7,13 +7,13 @@ from collections import Counter
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, Optional
 
-from src.string_utils import log_info_safe, safe_format
-from src.exceptions import ConfigSpaceError
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
+from pcileechfwgenerator.exceptions import ConfigSpaceError
 
-from src.log_config import get_logger
+from pcileechfwgenerator.log_config import get_logger
 
 if TYPE_CHECKING:
-    from src.device_clone.bar_model_loader import BarModel
+    from pcileechfwgenerator.device_clone.bar_model_loader import BarModel
 
 logger = get_logger(__name__)
 
@@ -220,7 +220,7 @@ class BarContentGenerator:
         Raises:
             ValueError: If size < model.size or invalid register specs
         """
-        from src.device_clone.bar_model_loader import BarModel
+        from pcileechfwgenerator.device_clone.bar_model_loader import BarModel
 
         if not isinstance(model, BarModel):
             raise ValueError("model parameter must be a BarModel instance")

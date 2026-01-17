@@ -12,12 +12,12 @@ from typing import Dict
 import pytest
 
 
-from src.pci_capability._pruning import (
+from pcileechfwgenerator.pci_capability._pruning import (
     apply_pruning_actions,
     generate_capability_patches,
 )
-from src.pci_capability.core import ConfigSpace
-from src.pci_capability.constants import (
+from pcileechfwgenerator.pci_capability.core import ConfigSpace
+from pcileechfwgenerator.pci_capability.constants import (
     PCI_CAPABILITIES_POINTER,
     PCI_STATUS_CAP_LIST,
     PCI_STATUS_REGISTER,
@@ -26,7 +26,7 @@ from src.pci_capability.constants import (
     PCIE_CAP_DEVICE_CONTROL2_OFFSET,
     RBAR_CAPABILITY_REGISTER_OFFSET,
 )
-from src.pci_capability.types import (
+from pcileechfwgenerator.pci_capability.types import (
     CapabilityType,
     PCICapabilityID,
     PCIExtCapabilityID,

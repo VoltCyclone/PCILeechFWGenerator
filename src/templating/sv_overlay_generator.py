@@ -14,9 +14,9 @@ import logging
 
 from typing import Any, Dict, Optional
 
-from src.exceptions import PCILeechGenerationError
+from pcileechfwgenerator.exceptions import PCILeechGenerationError
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
     log_error_safe,
@@ -226,7 +226,7 @@ class SVOverlayGenerator:
         from pathlib import Path
         from tempfile import NamedTemporaryFile
 
-        from src.device_clone.writemask_generator import WritemaskGenerator
+        from pcileechfwgenerator.device_clone.writemask_generator import WritemaskGenerator
         
         log_info_safe(
             self.logger,

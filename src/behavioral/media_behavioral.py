@@ -4,7 +4,7 @@
 import logging
 from typing import Dict, Any, Optional
 
-from src.string_utils import log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 from .base import (
     BehavioralSpec,
     BehavioralRegister,
@@ -250,7 +250,7 @@ class MediaBehavioralAnalyzer:
         
         # Validate and return
         if not spec.validate():
-            from src.string_utils import log_error_safe
+            from pcileechfwgenerator.string_utils import log_error_safe
             log_error_safe(logger, "Failed to validate media behavioral spec")
             return None
             

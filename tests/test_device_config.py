@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.device_clone.device_config import (ActiveDeviceConfig,
+from pcileechfwgenerator.device_clone.device_config import (ActiveDeviceConfig,
                                             DeviceCapabilities, DeviceClass,
                                             DeviceConfigManager,
                                             DeviceConfiguration,
@@ -32,7 +32,7 @@ from src.device_clone.device_config import (ActiveDeviceConfig,
                                             generate_device_state_machine,
                                             get_config_manager,
                                             get_device_config, validate_hex_id)
-from src.device_clone.payload_size_config import (PayloadSizeConfig,
+from pcileechfwgenerator.device_clone.payload_size_config import (PayloadSizeConfig,
                                                   PayloadSizeError)
 
 
@@ -63,7 +63,7 @@ class TestDeviceType:
     def test_device_type_validation_mismatch(self):
         """Test validation catches enum/constant mismatches."""
         with patch(
-            "src.device_clone.device_config.KNOWN_DEVICE_TYPES",
+            "pcileechfwgenerator.device_clone.device_config.KNOWN_DEVICE_TYPES",
             {"audio", "graphics", "test"},
         ):
             with pytest.raises(ValueError, match="DeviceType enum.*mismatch"):
@@ -356,7 +356,7 @@ class TestDeviceCapabilities:
         assert caps.ext_cfg_xp_cap_ptr == 0x300
         assert caps.active_device.enabled is False
 
-    @patch("src.device_clone.payload_size_config.PayloadSizeConfig")
+    @patch("pcileechfwgenerator.device_clone.payload_size_config.PayloadSizeConfig")
     def test_device_capabilities_validation_valid(self, mock_payload_config):
         """Test DeviceCapabilities validation with valid values."""
         mock_payload_config.return_value.validate.return_value = None
@@ -406,7 +406,7 @@ class TestDeviceCapabilities:
         with pytest.raises(ValueError, match="must be 4-byte aligned"):
             caps.validate()
 
-    @patch("src.device_clone.payload_size_config.PayloadSizeConfig")
+    @patch("pcileechfwgenerator.device_clone.payload_size_config.PayloadSizeConfig")
     def test_get_cfg_force_mps(self, mock_payload_config):
         """Test get_cfg_force_mps method."""
         mock_instance = MagicMock()
@@ -418,7 +418,7 @@ class TestDeviceCapabilities:
         assert result == 3
         mock_payload_config.assert_called_once_with(256)
 
-    @patch("src.device_clone.payload_size_config.PayloadSizeConfig")
+    @patch("pcileechfwgenerator.device_clone.payload_size_config.PayloadSizeConfig")
     def test_check_tiny_pcie_issues(self, mock_payload_config):
         """Test check_tiny_pcie_issues method."""
         mock_instance = MagicMock()
@@ -612,7 +612,7 @@ class TestDeviceConfigManager:
         # Should have loaded default profiles (empty dict in this case)
         assert isinstance(manager.profiles, dict)
 
-    @patch("src.device_clone.device_config.yaml")
+    @patch("pcileechfwgenerator.device_clone.device_config.yaml")
     def test_load_config_file_yaml(self, mock_yaml):
         """Test loading YAML configuration file."""
         mock_yaml.safe_load.return_value = {
@@ -670,7 +670,7 @@ class TestDeviceConfigManager:
         finally:
             temp_file.unlink()
 
-    @patch("src.device_clone.device_config.json")
+    @patch("pcileechfwgenerator.device_clone.device_config.json")
     def test_load_config_file_json(self, mock_json):
         """Test loading JSON configuration file."""
         mock_json.load.return_value = {
@@ -985,7 +985,7 @@ identification:
             assert "json_profile" in profiles
             assert profiles == sorted(profiles)  # Should be sorted
 
-    @patch("src.device_clone.device_config.yaml")
+    @patch("pcileechfwgenerator.device_clone.device_config.yaml")
     def test_save_profile_with_config_dir(self, mock_yaml):
         """Test saving profile with config directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1010,7 +1010,7 @@ identification:
             yaml_file = config_dir / "save_test.yaml"
             assert yaml_file.exists()
 
-    @patch("src.device_clone.device_config.yaml")
+    @patch("pcileechfwgenerator.device_clone.device_config.yaml")
     def test_save_profile_with_custom_path(self, mock_yaml):
         """Test saving profile with custom file path."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1049,7 +1049,7 @@ identification:
         with pytest.raises(ValueError, match="No config_dir set"):
             manager.save_profile(config)
 
-    @patch("src.device_clone.device_config.YAML_AVAILABLE", False)
+    @patch("pcileechfwgenerator.device_clone.device_config.YAML_AVAILABLE", False)
     def test_save_profile_no_yaml_support(self):
         """Test saving profile without YAML support."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1078,7 +1078,7 @@ class TestGlobalFunctions:
         manager2 = get_config_manager()
         assert manager1 is manager2
 
-    @patch("src.device_clone.device_config._config_manager", None)
+    @patch("pcileechfwgenerator.device_clone.device_config._config_manager", None)
     def test_get_config_manager_creates_new_instance(self):
         """Test get_config_manager creates new instance when None."""
         manager = get_config_manager()
@@ -1142,7 +1142,7 @@ class TestGenerateDeviceStateMachine:
         assert result["states"] == ["IDLE"]
         assert result["registers"] == []
 
-    @patch("src.device_clone.device_config.logger")
+    @patch("pcileechfwgenerator.device_clone.device_config.logger")
     def test_generate_device_state_machine_exception(self, mock_logger):
         """Test generating state machine with exception handling."""
         # Create a register that will cause an exception

@@ -1,8 +1,8 @@
 import pytest
 
-from src.templating.template_renderer import (TemplateRenderer,
+from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
                                               TemplateRenderError)
-from src.utils.unified_context import UnifiedContextBuilder
+from pcileechfwgenerator.utils.unified_context import UnifiedContextBuilder
 
 
 def test_render_all_templates_with_baseline_context():

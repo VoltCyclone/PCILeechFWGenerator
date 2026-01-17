@@ -21,7 +21,7 @@ def get_parser(*args, **kwargs):
     """Get the CLI parser (forwarded to cli module)."""
     import importlib
 
-    cli = importlib.import_module(".cli", package="src.cli")
+    cli = importlib.import_module(".cli", package="pcileechfwgenerator.cli")
     return cli.get_parser(*args, **kwargs)
 
 
@@ -29,6 +29,6 @@ def main(*args, **kwargs):
     """Main CLI entry point (forwarded to cli module)."""
     import importlib
 
-    cli = importlib.import_module(".cli", package="src.cli")
+    cli = importlib.import_module(".cli", package="pcileechfwgenerator.cli")
     return cli.main(*args, **kwargs)
 

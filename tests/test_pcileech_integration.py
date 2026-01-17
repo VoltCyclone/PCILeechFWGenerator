@@ -12,11 +12,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.file_management.board_discovery import (BoardDiscovery,
+from pcileechfwgenerator.file_management.board_discovery import (BoardDiscovery,
                                                  discover_all_boards)
-from src.file_management.repo_manager import RepoManager
-from src.file_management.template_discovery import TemplateDiscovery
-from src.vivado_handling.pcileech_build_integration import \
+from pcileechfwgenerator.file_management.repo_manager import RepoManager
+from pcileechfwgenerator.file_management.template_discovery import TemplateDiscovery
+from pcileechfwgenerator.vivado_handling.pcileech_build_integration import \
     PCILeechBuildIntegration
 
 
@@ -295,7 +295,7 @@ class TestPCILeechIntegration(unittest.TestCase):
         self.assertIn("xc7a35tcsg324-2", adapted)
         self.assertIn("test_board", adapted)
 
-    @patch("src.file_management.repo_manager.RepoManager.ensure_repo")
+    @patch("pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo")
     def test_repository_error_handling(self, mock_ensure_repo):
         """Test error handling when repository operations fail."""
         # Simulate repository error
@@ -336,7 +336,7 @@ class TestBoardConfigIntegration(unittest.TestCase):
 
     def test_board_config_dynamic_loading(self):
         """Test that board configurations are loaded dynamically."""
-        from src.device_clone.board_config import (get_fpga_part,
+        from pcileechfwgenerator.device_clone.board_config import (get_fpga_part,
                                                    list_supported_boards,
                                                    validate_board)
 
@@ -358,7 +358,7 @@ class TestBoardConfigIntegration(unittest.TestCase):
 
     def test_board_recommendations(self):
         """Test board recommendation system."""
-        from src.device_clone.board_config import \
+        from pcileechfwgenerator.device_clone.board_config import \
             list_boards_with_recommendations
 
         recommendations = list_boards_with_recommendations()

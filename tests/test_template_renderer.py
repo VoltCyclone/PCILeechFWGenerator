@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.templating.template_renderer import (TemplateRenderer,
+from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
                                               TemplateRenderError)
 
 
@@ -73,7 +73,7 @@ def test_render_many(tmp_path):
 
 
 def test_context_validation_missing_required_key():
-    from src.utils.unified_context import (UnifiedContextBuilder,
+    from pcileechfwgenerator.utils.unified_context import (UnifiedContextBuilder,
                                            ensure_template_compatibility)
 
     builder = UnifiedContextBuilder()
@@ -98,7 +98,7 @@ def test_context_validation_missing_required_key():
 
 
 def test_context_validation_none_value():
-    from src.utils.unified_context import ensure_template_compatibility
+    from pcileechfwgenerator.utils.unified_context import ensure_template_compatibility
 
     # Context with None for a critical key
     context = {"vendor_id": None, "device_id": "0x1234", "device_signature": "sig"}
@@ -123,7 +123,7 @@ def test_context_validation_none_value():
 
 
 def test_template_renderer_critical_path_failure():
-    from src.templating.template_renderer import (TemplateRenderer,
+    from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
                                                   TemplateRenderError)
 
     renderer = TemplateRenderer(strict=True)
@@ -135,7 +135,7 @@ def test_template_renderer_critical_path_failure():
 
 
 def test_enforce_donor_uniqueness_missing_signature():
-    from src.string_utils import safe_format
+    from pcileechfwgenerator.string_utils import safe_format
 
     # Simulate context missing device_signature
     context = {
@@ -155,7 +155,7 @@ def test_enforce_donor_uniqueness_missing_signature():
 
 
 def test_enforce_donor_uniqueness_invalid_bar():
-    from src.string_utils import safe_format
+    from pcileechfwgenerator.string_utils import safe_format
 
     # Simulate context with no valid MMIO BARs
     context = {
@@ -184,7 +184,7 @@ def test_enforce_donor_uniqueness_invalid_bar():
 
 
 def test_template_renderer_multiple_templates(tmp_path):
-    from src.templating.template_renderer import TemplateRenderer
+    from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
     renderer = TemplateRenderer(template_dir=tmp_path)
     (tmp_path / "a.j2").write_text("A={{ val }}")
@@ -196,7 +196,7 @@ def test_template_renderer_multiple_templates(tmp_path):
 
 
 def test_template_renderer_conditional_logic(tmp_path):
-    from src.templating.template_renderer import TemplateRenderer
+    from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
     renderer = TemplateRenderer(template_dir=tmp_path)
     template_file = tmp_path / "cond.j2"
@@ -206,7 +206,7 @@ def test_template_renderer_conditional_logic(tmp_path):
 
 
 def test_template_renderer_integration_complex(tmp_path):
-    from src.templating.template_renderer import TemplateRenderer
+    from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
     renderer = TemplateRenderer(template_dir=tmp_path)
     # Simulate integration with context, filters, and error handling
@@ -218,7 +218,7 @@ def test_template_renderer_integration_complex(tmp_path):
 
 
 def test_template_renderer_fallback_logic(tmp_path):
-    from src.templating.template_renderer import (TemplateRenderer,
+    from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
                                                   TemplateRenderError)
 
     renderer = TemplateRenderer(template_dir=tmp_path)

@@ -79,7 +79,7 @@ class NetworkFunctionAnalyzer(BaseFunctionAnalyzer):
         device_upper = (self.device_id >> 8) & 0xFF
 
         # Import vendor ID constants
-        from src.device_clone.constants import (VENDOR_ID_INTEL,
+        from pcileechfwgenerator.device_clone.constants import (VENDOR_ID_INTEL,
                                                 VENDOR_ID_REALTEK)
 
         # Vendor-specific patterns
@@ -148,7 +148,7 @@ class NetworkFunctionAnalyzer(BaseFunctionAnalyzer):
     def _supports_sriov(self) -> bool:
         """Check if device likely supports SR-IOV based on patterns."""
         # Import vendor ID constants
-        from src.device_clone.constants import VENDOR_ID_INTEL
+        from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL
 
         # Convert enum to int if needed
         intel_vendor_id = int(VENDOR_ID_INTEL) if hasattr(VENDOR_ID_INTEL, 'value') else VENDOR_ID_INTEL

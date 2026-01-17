@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.build import (
+from pcileechfwgenerator.build import (
     BuildConfiguration,
     ConfigurationManager,
     FirmwareBuilder,

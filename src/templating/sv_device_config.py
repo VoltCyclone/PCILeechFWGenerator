@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from src.device_clone.device_config import DeviceClass, DeviceType
-from src.string_utils import safe_format
+from pcileechfwgenerator.device_clone.device_config import DeviceClass, DeviceType
+from pcileechfwgenerator.string_utils import safe_format
 
 
 @dataclass

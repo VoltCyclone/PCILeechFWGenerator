@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add the src directory to the path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from src.tui.utils.input_validator import InputValidator
-from src.tui.utils.privilege_manager import PrivilegeManager
+from pcileechfwgenerator.tui.utils.input_validator import InputValidator
+from pcileechfwgenerator.tui.utils.privilege_manager import PrivilegeManager
 
 
 class TestInputValidator(unittest.TestCase):

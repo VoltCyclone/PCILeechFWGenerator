@@ -12,9 +12,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.__version__ import __version__
-from src.error_utils import format_user_friendly_error
-from src.string_utils import (
+from pcileechfwgenerator.__version__ import __version__
+from pcileechfwgenerator.error_utils import format_user_friendly_error
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,

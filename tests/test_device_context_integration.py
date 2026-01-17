@@ -16,10 +16,10 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.pci_capability.core import CapabilityWalker, ConfigSpace
-from src.pci_capability.processor import CapabilityProcessor
-from src.pci_capability.rules import RuleEngine
-from src.pci_capability.types import (CapabilityInfo, CapabilityType,
+from pcileechfwgenerator.pci_capability.core import CapabilityWalker, ConfigSpace
+from pcileechfwgenerator.pci_capability.processor import CapabilityProcessor
+from pcileechfwgenerator.pci_capability.rules import RuleEngine
+from pcileechfwgenerator.pci_capability.types import (CapabilityInfo, CapabilityType,
                                       EmulationCategory, PruningAction)
 
 

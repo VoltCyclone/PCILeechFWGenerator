@@ -9,7 +9,7 @@ from unittest.mock import Mock, mock_open, patch
 
 import pytest
 
-from src.cli.version_checker import (CACHE_FILE, check_for_updates,
+from pcileechfwgenerator.cli.version_checker import (CACHE_FILE, check_for_updates,
                                      fetch_latest_version_github,
                                      fetch_latest_version_pypi,
                                      get_cached_check, is_newer_version,
@@ -97,7 +97,7 @@ class TestCaching:
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_file = Path(tmpdir) / "version_check.json"
 
-            with patch("src.cli.version_checker.CACHE_FILE", cache_file):
+            with patch("pcileechfwgenerator.cli.version_checker.CACHE_FILE", cache_file):
                 save_cache("0.6.0", True)
 
                 assert cache_file.exists()
@@ -113,7 +113,7 @@ class TestCaching:
 class TestFetching:
     """Test fetching latest version from APIs."""
 
-    @patch("src.cli.version_checker.urlopen")
+    @patch("pcileechfwgenerator.cli.version_checker.urlopen")
     def test_fetch_latest_version_github_success(self, mock_urlopen):
         """Test successful GitHub API fetch."""
         mock_response = Mock()
@@ -125,7 +125,7 @@ class TestFetching:
         result = fetch_latest_version_github()
         assert result == "0.6.0"
 
-    @patch("src.cli.version_checker.urlopen")
+    @patch("pcileechfwgenerator.cli.version_checker.urlopen")
     def test_fetch_latest_version_github_failure(self, mock_urlopen):
         """Test GitHub API fetch failure."""
         mock_urlopen.side_effect = Exception("Network error")
@@ -133,7 +133,7 @@ class TestFetching:
         result = fetch_latest_version_github()
         assert result is None
 
-    @patch("src.cli.version_checker.urlopen")
+    @patch("pcileechfwgenerator.cli.version_checker.urlopen")
     def test_fetch_latest_version_pypi_success(self, mock_urlopen):
         """Test successful PyPI API fetch."""
         mock_response = Mock()
@@ -161,7 +161,7 @@ class TestUpdateChecking:
             result = check_for_updates()
             assert result is None
 
-    @patch("src.cli.version_checker.get_cached_check")
+    @patch("pcileechfwgenerator.cli.version_checker.get_cached_check")
     @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_check_for_updates_from_cache(self, mock_cache):
         """Test getting update info from cache."""
@@ -172,28 +172,28 @@ class TestUpdateChecking:
             result = check_for_updates(force=False)
             assert result == ("0.6.0", True)
 
-    @patch("src.cli.version_checker.fetch_latest_version")
-    @patch("src.cli.version_checker.save_cache")
-    @patch("src.cli.version_checker.get_cached_check")
+    @patch("pcileechfwgenerator.cli.version_checker.fetch_latest_version")
+    @patch("pcileechfwgenerator.cli.version_checker.save_cache")
+    @patch("pcileechfwgenerator.cli.version_checker.get_cached_check")
     @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_check_for_updates_fresh_check(self, mock_cache, mock_save, mock_fetch):
         """Test fresh update check."""
         mock_cache.return_value = None
         mock_fetch.return_value = "0.6.0"
 
-        with patch("src.cli.version_checker.__version__", "0.5.8"):
+        with patch("pcileechfwgenerator.cli.version_checker.__version__", "0.5.8"):
             result = check_for_updates(force=True)
             assert result == ("0.6.0", True)
             mock_save.assert_called_once_with("0.6.0", True)
 
-    @patch("src.cli.version_checker.fetch_latest_version")
-    @patch("src.cli.version_checker.save_cache")
+    @patch("pcileechfwgenerator.cli.version_checker.fetch_latest_version")
+    @patch("pcileechfwgenerator.cli.version_checker.save_cache")
     @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_check_for_updates_no_update_needed(self, mock_save, mock_fetch):
         """Test when no update is needed."""
         mock_fetch.return_value = "0.5.8"
 
-        with patch("src.cli.version_checker.__version__", "0.5.8"):
+        with patch("pcileechfwgenerator.cli.version_checker.__version__", "0.5.8"):
             result = check_for_updates(force=True)
             assert result == ("0.5.8", False)
             mock_save.assert_called_once_with("0.5.8", False)

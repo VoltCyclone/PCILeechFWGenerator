@@ -9,7 +9,7 @@ import ctypes
 
 import pytest
 
-from src.cli.vfio_constants import (VFIO_CHECK_EXTENSION,
+from pcileechfwgenerator.cli.vfio_constants import (VFIO_CHECK_EXTENSION,
                                     VFIO_DEVICE_GET_REGION_INFO,
                                     VFIO_DEVICE_NAME_MAX_LENGTH,
                                     VFIO_GET_API_VERSION,
@@ -132,13 +132,13 @@ class TestVFIOConstants:
     def test_module_imports_without_errors(self):
         """Test that the module can be imported without any errors."""
         # This test passes if we get here without import errors
-        import src.cli.vfio_constants
+        import pcileechfwgenerator.cli.vfio_constants
 
-        assert src.cli.vfio_constants is not None
+        assert pcileechfwgenerator.cli.vfio_constants is not None
 
     def test_all_exports(self):
         """Test that __all__ exports are properly defined."""
-        from src.cli import vfio_constants
+        from pcileechfwgenerator.cli import vfio_constants
 
         # Check that __all__ is defined
         assert hasattr(vfio_constants, "__all__")
@@ -160,7 +160,7 @@ class TestVFIOConstants:
         import os
 
         # Get the path to the vfio_constants module
-        import src.cli.vfio_constants as vfio_constants
+        import pcileechfwgenerator.cli.vfio_constants as vfio_constants
 
         source_file = inspect.getfile(vfio_constants)
 

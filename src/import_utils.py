@@ -10,7 +10,7 @@ import importlib
 import sys
 from typing import Any, Optional
 
-from src.string_utils import safe_format
+from pcileechfwgenerator.string_utils import safe_format
 
 
 def safe_import(module_name: str, relative_name: Optional[str] = None) -> Any:

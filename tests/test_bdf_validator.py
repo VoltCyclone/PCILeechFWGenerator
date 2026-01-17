@@ -1,6 +1,6 @@
 """Unit tests for BDF validator."""
 import pytest
-from src.utils.validators import BDFValidator, get_bdf_validator
+from pcileechfwgenerator.utils.validators import BDFValidator, get_bdf_validator
 
 
 class TestBDFValidator:

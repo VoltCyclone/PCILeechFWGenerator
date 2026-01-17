@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.cli.device_prioritizer import (CLIDevicePrioritizer,
+from pcileechfwgenerator.cli.device_prioritizer import (CLIDevicePrioritizer,
                                         format_device_with_priority)
 
 

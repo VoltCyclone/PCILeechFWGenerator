@@ -26,7 +26,7 @@ from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
 module_logger = logging.getLogger(__name__)
 
 # Project string utilities (no fallbacks – central source of truth)
-from src.string_utils import log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 
 logger = logging.getLogger(__name__)
 

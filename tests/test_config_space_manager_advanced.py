@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
-from src.device_clone.config_space_manager import (BarInfo, ConfigSpaceError,
+from pcileechfwgenerator.device_clone.config_space_manager import (BarInfo, ConfigSpaceError,
                                                    ConfigSpaceManager,
                                                    SysfsError, VFIOError)
 
@@ -35,7 +35,7 @@ class TestConfigSpaceManagerAdvanced:
         """Test complete VFIO to sysfs fallback chain."""
         # Mock VFIO import failure, should fall back to sysfs
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             side_effect=ImportError("VFIO not available"),
         ):
             with patch.object(
@@ -50,7 +50,7 @@ class TestConfigSpaceManagerAdvanced:
     def test_vfio_strict_mode_error_propagation(self, strict_manager):
         """Test error propagation in strict VFIO mode."""
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             side_effect=Exception("VFIO binding failed"),
         ):
             with pytest.raises(VFIOError, match="VFIO config space reading failed"):
@@ -331,7 +331,7 @@ class TestErrorRecoveryScenarios:
         mock_vfio_binder.__exit__.return_value = None
 
         with patch(
-            "src.cli.vfio_handler.VFIOBinder",
+            "pcileechfwgenerator.cli.vfio_handler.VFIOBinder",
             return_value=mock_vfio_binder,
         ):
             with patch.object(

@@ -1,6 +1,6 @@
 """Unit tests for BAR size validator."""
 import pytest
-from src.utils.validators import BARSizeValidator, get_bar_size_validator
+from pcileechfwgenerator.utils.validators import BARSizeValidator, get_bar_size_validator
 
 
 class TestBARSizeValidator:

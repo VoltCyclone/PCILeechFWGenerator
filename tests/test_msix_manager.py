@@ -4,8 +4,8 @@ import sys
 
 import pytest
 
-from src.build import BuildConfiguration
-from src.device_clone.msix import MSIXData, MSIXManager
+from pcileechfwgenerator.build import BuildConfiguration
+from pcileechfwgenerator.device_clone.msix import MSIXData, MSIXManager
 
 
 def _in_container() -> bool:
@@ -110,7 +110,7 @@ import os
 
 import pytest
 
-from src.device_clone.msix import MSIXManager
+from pcileechfwgenerator.device_clone.msix import MSIXManager
 
 
 def make_entry(addr_low: int, addr_high: int, data: int, ctrl: int) -> bytes:
@@ -149,11 +149,11 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
         container_fd = os.open(str(table_file), os.O_RDWR)
         return fd, container_fd
 
-    monkeypatch.setattr("src.cli.vfio_helpers.get_device_fd", fake_get_device_fd)
+    monkeypatch.setattr("pcileechfwgenerator.cli.vfio_helpers.get_device_fd", fake_get_device_fd)
     # The code now calls ensure_device_vfio_binding before opening the device fds;
     # mock it to return a fake IOMMU group string so preload remains unit-testable.
     monkeypatch.setattr(
-        "src.cli.vfio_helpers.ensure_device_vfio_binding", lambda bdf: "1"
+        "pcileechfwgenerator.cli.vfio_helpers.ensure_device_vfio_binding", lambda bdf: "1"
     )
 
     # Monkeypatch os.path.exists to allow the config path check to pass
@@ -171,7 +171,7 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
             "function_mask": False,
         }
 
-    monkeypatch.setattr("src.build.parse_msix_capability", fake_parse_msix_capability)
+    monkeypatch.setattr("pcileechfwgenerator.build.parse_msix_capability", fake_parse_msix_capability)
 
     mgr = MSIXManager("0000:00:00.0")
     # Avoid attempting to open the real sysfs config path; return dummy bytes

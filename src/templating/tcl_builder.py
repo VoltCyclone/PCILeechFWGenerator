@@ -15,14 +15,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Import exceptions and utilities - these should be in the package structure
-from src.device_clone.fallback_manager import get_global_fallback_manager
-from src.exceptions import (
+from pcileechfwgenerator.device_clone.fallback_manager import get_global_fallback_manager
+from pcileechfwgenerator.exceptions import (
     DeviceConfigError,
     TCLBuilderError,
     TemplateNotFoundError,
     XDCConstraintError,
 )
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     generate_tcl_header_comment,
     get_project_name,
     log_debug_safe,
@@ -462,7 +462,7 @@ class BuildContext:
         }
 
         # Import TemplateObject for template compatibility
-        from src.utils.unified_context import TemplateObject
+        from pcileechfwgenerator.utils.unified_context import TemplateObject
 
         # Derive and validate PCIe link speed/width enums from donor/IP context
         def _map_speed(code: Optional[int], ip_type: str, strict: bool) -> str:
@@ -755,7 +755,7 @@ class ConstraintManager:
         """
         try:
             # Import repo_manager functions directly
-            from src.file_management.repo_manager import (
+            from pcileechfwgenerator.file_management.repo_manager import (
                 get_xdc_files,
                 is_repository_accessible,
             )
@@ -1002,7 +1002,7 @@ class TCLBuilder:
     def _init_build_helpers(self):
         """Initialize build helpers with fallback handling."""
         try:
-            from src.build_helpers import (
+            from pcileechfwgenerator.build_helpers import (
                 batch_write_tcl_files,
                 create_fpga_strategy_selector,
                 validate_fpga_part,
@@ -1017,7 +1017,7 @@ class TCLBuilder:
     def _init_constants(self):
         """Initialize constants with fallback values."""
         try:
-            import src.device_clone.constants as constants
+            import pcileechfwgenerator.device_clone.constants as constants
 
             self.BOARD_PARTS = constants.BOARD_PARTS
             self.DEFAULT_FPGA_PART = constants.DEFAULT_FPGA_PART

@@ -10,8 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.log_config import get_logger
-from src.string_utils import log_error_safe, log_info_safe, safe_format
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import log_error_safe, log_info_safe, safe_format
 
 logger = get_logger(__name__)
 

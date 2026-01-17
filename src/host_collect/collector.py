@@ -7,17 +7,17 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_info_safe,
     log_error_safe,
     log_warning_safe,
     log_debug_safe,
     safe_format,
 )
-from src.log_config import get_logger
+from pcileechfwgenerator.log_config import get_logger
 
 # Reuse existing MSI-X parser
-from src.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 
 CONFIG_PATH_TEMPLATE = "/sys/bus/pci/devices/{bdf}/config"
 

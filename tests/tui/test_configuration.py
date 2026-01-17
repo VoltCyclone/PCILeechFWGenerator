@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.tui.models.configuration import VALID_BOARD_TYPES, BuildConfiguration
-from src.tui.plugins.plugin_base import PCILeechPlugin, SimplePlugin
-from src.tui.plugins.plugin_manager import PluginManager
+from pcileechfwgenerator.tui.models.configuration import VALID_BOARD_TYPES, BuildConfiguration
+from pcileechfwgenerator.tui.plugins.plugin_base import PCILeechPlugin, SimplePlugin
+from pcileechfwgenerator.tui.plugins.plugin_manager import PluginManager
 
 
 class TestBuildConfiguration:

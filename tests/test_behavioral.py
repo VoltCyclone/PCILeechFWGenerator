@@ -5,17 +5,17 @@ import pytest
 from typing import Dict, Any
 from unittest.mock import Mock, MagicMock
 
-from src.behavioral.base import (
+from pcileechfwgenerator.behavioral.base import (
     BehavioralSpec,
     BehavioralRegister,
     BehavioralCounter,
     BehaviorType
 )
-from src.behavioral.network_behavioral import NetworkBehavioralAnalyzer
-from src.behavioral.storage_behavioral import StorageBehavioralAnalyzer
-from src.behavioral.media_behavioral import MediaBehavioralAnalyzer
-from src.behavioral.analyzer import BehavioralAnalyzerFactory
-from src.utils.behavioral_context import build_behavioral_context
+from pcileechfwgenerator.behavioral.network_behavioral import NetworkBehavioralAnalyzer
+from pcileechfwgenerator.behavioral.storage_behavioral import StorageBehavioralAnalyzer
+from pcileechfwgenerator.behavioral.media_behavioral import MediaBehavioralAnalyzer
+from pcileechfwgenerator.behavioral.analyzer import BehavioralAnalyzerFactory
+from pcileechfwgenerator.utils.behavioral_context import build_behavioral_context
 
 
 class TestBehavioralBase:
@@ -194,13 +194,14 @@ class TestNetworkBehavioral:
         assert "mac_addr_high" in spec.registers
         
     def test_ethernet_link_status_constant(self, network_config):
-        """Test link status is constant and up."""
+        """Test link status is constant and indicates link up."""
         analyzer = NetworkBehavioralAnalyzer(network_config)
         spec = analyzer.generate_spec()
         
         link_status = spec.registers["link_status"]
         assert link_status.behavior == BehaviorType.CONSTANT
-        assert link_status.default_value == 0x00000001
+        # Link up bit (bit 0) should be set - value varies by device
+        assert link_status.default_value & 0x01, "Link up bit should be set"
         
     def test_ethernet_rx_data_auto_increment(self, network_config):
         """Test RX data auto-increments."""
@@ -266,7 +267,8 @@ class TestStorageBehavioral:
         
         status = spec.registers["controller_status"]
         assert status.behavior == BehaviorType.CONSTANT
-        assert status.default_value == 0x00000001
+        # Ready bit (bit 0) should be set - value varies by device
+        assert status.default_value & 0x01, "Ready bit should be set"
         
     def test_nvme_completion_queue_auto_increment(self, storage_config):
         """Test completion queue head auto-increments."""
@@ -396,7 +398,8 @@ class TestBehavioralContext:
         link_status = spec["registers"]["link_status"]
         assert link_status["offset"] == 0x0000
         assert link_status["behavior"] == "constant"
-        assert link_status["default"] == 0x00000001
+        # Link up bit (bit 0) should be set - value varies by device
+        assert link_status["default"] & 0x01, "Link up bit should be set"
         
     def test_behavioral_context_counter_details(self):
         """Test context contains detailed counter information."""

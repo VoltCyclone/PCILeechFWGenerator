@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from src.__version__ import __version__
-from src.exceptions import TemplateRenderError
-from src.string_utils import (
+from pcileechfwgenerator.__version__ import __version__
+from pcileechfwgenerator.exceptions import TemplateRenderError
+from pcileechfwgenerator.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
     log_error_safe,
@@ -23,8 +23,8 @@ from src.string_utils import (
     log_warning_safe,
     safe_format,
 )
-from src.templates.template_mapping import update_template_path
-from src.utils.unified_context import ensure_template_compatibility
+from pcileechfwgenerator.templates.template_mapping import update_template_path
+from pcileechfwgenerator.utils.unified_context import ensure_template_compatibility
 
 from .sv_constants import SV_CONSTANTS
 
@@ -450,7 +450,7 @@ class TemplateRenderer:
 
                 # Add template constants to the context
                 try:
-                    from src.templates.constants import get_template_constants
+                    from pcileechfwgenerator.templates.constants import get_template_constants
 
                     template_constants = get_template_constants()
                     for key, value in template_constants.items():
@@ -480,7 +480,7 @@ class TemplateRenderer:
             # to ensure optional defaults (e.g., constraint_files) are present
             # across all templates, without relaxing required keys.
             try:
-                from src.templating.template_context_validator import (
+                from pcileechfwgenerator.templating.template_context_validator import (
                     validate_template_context,
                 )
 
@@ -683,7 +683,7 @@ class TemplateRenderer:
         try:
             # Try to use the centralized validator if available, but don't fail if it's not
             try:
-                from src.templating.template_context_validator import (
+                from pcileechfwgenerator.templating.template_context_validator import (
                     validate_template_context,
                 )
 
@@ -750,7 +750,7 @@ class TemplateRenderer:
 
         # Clear template context validator cache
         try:
-            from src.templating.template_context_validator import (
+            from pcileechfwgenerator.templating.template_context_validator import (
                 clear_global_template_cache,
             )
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from src.pci_capability.msix_bar_validator import (
+from pcileechfwgenerator.pci_capability.msix_bar_validator import (
     _validate_bar_configuration_for_msix, _validate_basic_bar_configuration,
     _validate_driver_compatibility, _validate_msix_capability_structure,
     _validate_msix_memory_layout, _validate_performance_considerations,

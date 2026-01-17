@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.__version__ import __version__
-from src.cli.version_checker import (check_and_notify, check_for_updates,
+from pcileechfwgenerator.__version__ import __version__
+from pcileechfwgenerator.cli.version_checker import (check_and_notify, check_for_updates,
                                      fetch_latest_version, is_newer_version,
                                      parse_version)
 
@@ -60,7 +60,7 @@ class TestVersionComparison:
 class TestNonBlockingBehavior:
     """Test that version checking never blocks the main program."""
 
-    @patch("src.cli.version_checker.fetch_latest_version")
+    @patch("pcileechfwgenerator.cli.version_checker.fetch_latest_version")
     def test_network_failure_does_not_block(self, mock_fetch):
         """Test that network failures don't block execution."""
         mock_fetch.side_effect = Exception("Network error")
@@ -69,7 +69,7 @@ class TestNonBlockingBehavior:
         result = check_for_updates(force=True)
         assert result is None
 
-    @patch("src.cli.version_checker.urlopen")
+    @patch("pcileechfwgenerator.cli.version_checker.urlopen")
     def test_timeout_does_not_block(self, mock_urlopen):
         """Test that timeouts don't block execution."""
         mock_urlopen.side_effect = TimeoutError("Request timed out")
@@ -78,8 +78,8 @@ class TestNonBlockingBehavior:
         result = fetch_latest_version()
         assert result is None
 
-    @patch("src.cli.version_checker.check_for_updates")
-    @patch("src.cli.version_checker.prompt_for_update")
+    @patch("pcileechfwgenerator.cli.version_checker.check_for_updates")
+    @patch("pcileechfwgenerator.cli.version_checker.prompt_for_update")
     def test_check_and_notify_handles_errors(self, mock_prompt, mock_check):
         """Test that check_and_notify handles all errors gracefully."""
         # Test with various error scenarios
@@ -104,10 +104,10 @@ class TestNonBlockingBehavior:
 
     def test_cache_write_failure_does_not_block(self):
         """Test that cache write failures don't block execution."""
-        from src.cli.version_checker import save_cache
+        from pcileechfwgenerator.cli.version_checker import save_cache
 
         # Mock the CACHE_FILE to raise permission error
-        with patch("src.cli.version_checker.CACHE_FILE") as mock_cache_file:
+        with patch("pcileechfwgenerator.cli.version_checker.CACHE_FILE") as mock_cache_file:
             mock_cache_file.parent.mkdir.side_effect = PermissionError("No permission")
 
             # Should handle gracefully without raising
@@ -121,7 +121,7 @@ class TestNonBlockingBehavior:
 class TestIntegration:
     """Integration tests for version checking."""
 
-    @patch("src.cli.version_checker.fetch_latest_version")
+    @patch("pcileechfwgenerator.cli.version_checker.fetch_latest_version")
     @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_update_available_flow(self, mock_fetch):
         """Test the flow when an update is available."""
@@ -133,7 +133,7 @@ class TestIntegration:
         assert latest_version == "99.0.0"
         assert update_available is True
 
-    @patch("src.cli.version_checker.fetch_latest_version")
+    @patch("pcileechfwgenerator.cli.version_checker.fetch_latest_version")
     @patch.dict(os.environ, {"CI": "", "PCILEECH_DISABLE_UPDATE_CHECK": ""}, clear=True)
     def test_no_update_needed_flow(self, mock_fetch):
         """Test the flow when no update is needed."""

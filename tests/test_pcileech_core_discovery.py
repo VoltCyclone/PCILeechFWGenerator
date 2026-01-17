@@ -65,7 +65,7 @@ def test_discover_pcileech_files_board(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "src.device_clone.board_config.get_pcileech_board_config",
+        "pcileechfwgenerator.device_clone.board_config.get_pcileech_board_config",
         dummy_get_pcileech_board_config,
     )
     monkeypatch.setattr(
@@ -111,7 +111,7 @@ def test_discover_pcileech_files_board_config_error(monkeypatch):
         raise ImportError("fail")
 
     monkeypatch.setattr(
-        "src.device_clone.board_config.get_pcileech_board_config", raise_import_error
+        "pcileechfwgenerator.device_clone.board_config.get_pcileech_board_config", raise_import_error
     )
     monkeypatch.setattr(
         pcileech_core_discovery, "_enhanced_file_search", lambda repo, fname: None
@@ -140,7 +140,7 @@ def test_discover_pcileech_files_board_path_error(monkeypatch):
         return DummyBoardConfig({"fpga_family": "ultrascale"})
 
     monkeypatch.setattr(
-        "src.device_clone.board_config.get_pcileech_board_config",
+        "pcileechfwgenerator.device_clone.board_config.get_pcileech_board_config",
         dummy_get_pcileech_board_config,
     )
 

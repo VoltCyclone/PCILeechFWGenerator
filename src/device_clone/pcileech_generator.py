@@ -31,31 +31,31 @@ from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
 # Import existing infrastructure components
-from src.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
+from pcileechfwgenerator.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
 
-from src.device_clone.config_space_manager import ConfigSpaceManager
+from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
 
-from src.device_clone.constants import DEFAULT_FPGA_PART
+from pcileechfwgenerator.device_clone.constants import DEFAULT_FPGA_PART
 
-from src.device_clone.device_info_lookup import lookup_device_info
+from pcileechfwgenerator.device_clone.device_info_lookup import lookup_device_info
 
-from src.device_clone.msix_capability import (
+from pcileechfwgenerator.device_clone.msix_capability import (
     parse_msix_capability,
     validate_msix_configuration,
 )
 
-from src.device_clone.pcileech_context import PCILeechContextBuilder, VFIODeviceManager
+from pcileechfwgenerator.device_clone.pcileech_context import PCILeechContextBuilder, VFIODeviceManager
 
-from src.device_clone.writemask_generator import WritemaskGenerator
+from pcileechfwgenerator.device_clone.writemask_generator import WritemaskGenerator
 
-from src.error_utils import extract_root_cause
+from pcileechfwgenerator.error_utils import extract_root_cause
 
-from src.exceptions import PCILeechGenerationError, PlatformCompatibilityError
+from pcileechfwgenerator.exceptions import PCILeechGenerationError, PlatformCompatibilityError
 
-from src.pci_capability.msix_bar_validator import validate_msix_bar_configuration
+from pcileechfwgenerator.pci_capability.msix_bar_validator import validate_msix_bar_configuration
 
 # Import from centralized locations
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
@@ -64,9 +64,9 @@ from src.string_utils import (
     utc_timestamp,
 )
 
-from src.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
+from pcileechfwgenerator.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
 
-from src.templating.tcl_builder import format_hex_id
+from pcileechfwgenerator.templating.tcl_builder import format_hex_id
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ class PCILeechGenerator:
         self.logger = logging.getLogger(__name__)
 
         # Initialize shared/global fallback manager
-        from src.device_clone.fallback_manager import get_global_fallback_manager
+        from pcileechfwgenerator.device_clone.fallback_manager import get_global_fallback_manager
 
         self.fallback_manager = get_global_fallback_manager(
             mode=config.fallback_mode, allowed_fallbacks=config.allowed_fallbacks
@@ -1055,8 +1055,8 @@ class PCILeechGenerator:
             PCILeechGenerationError: If constraint file copying fails
         """
         try:
-            from src.file_management.file_manager import FileManager
-            from src.file_management.repo_manager import RepoManager
+            from pcileechfwgenerator.file_management.file_manager import FileManager
+            from pcileechfwgenerator.file_management.repo_manager import RepoManager
             
             # Get board name from context
             board = template_context.get(
@@ -1267,8 +1267,8 @@ class PCILeechGenerator:
             PCILeechGenerationError: If TCL copying fails
         """
         try:
-            from src.file_management.file_manager import FileManager
-            from src.file_management.repo_manager import RepoManager
+            from pcileechfwgenerator.file_management.file_manager import FileManager
+            from pcileechfwgenerator.file_management.repo_manager import RepoManager
             
             # Get board name from context
             board = template_context.get("board_name") or template_context.get("board")
@@ -1491,7 +1491,7 @@ class PCILeechGenerator:
 
         try:
             # Import hex formatter
-            from src.device_clone.hex_formatter import ConfigSpaceHexFormatter
+            from pcileechfwgenerator.device_clone.hex_formatter import ConfigSpaceHexFormatter
 
             # Resolve raw configuration space bytes via centralized helper
             raw_config_space = self._extract_raw_config_space(template_context)
@@ -1750,7 +1750,7 @@ class PCILeechGenerator:
 
     def _build_generation_metadata(self) -> Dict[str, Any]:
         """Build metadata about the generation process."""
-        from src.utils.metadata import build_config_metadata
+        from pcileechfwgenerator.utils.metadata import build_config_metadata
 
         return build_config_metadata(
             device_bdf=self.config.device_bdf,
@@ -2019,7 +2019,7 @@ class PCILeechGenerator:
                 return None
 
         except Exception as e:
-            from src.error_utils import extract_root_cause
+            from pcileechfwgenerator.error_utils import extract_root_cause
             root_cause = extract_root_cause(e)
             log_warning_safe(
                 self.logger,
@@ -2077,7 +2077,7 @@ class PCILeechGenerator:
             table_bir = int(msix_data.get("table_bir", 0))
             table_offset = int(msix_data.get("table_offset", 0))
         except Exception as e:
-            from src.error_utils import extract_root_cause
+            from pcileechfwgenerator.error_utils import extract_root_cause
             root_cause = extract_root_cause(e)
             log_warning_safe(
                 self.logger,

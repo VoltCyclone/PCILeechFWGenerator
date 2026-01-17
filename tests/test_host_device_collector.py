@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from src.device_clone.msix import MSIXData
-from src.cli.host_device_collector import HostDeviceCollector
+from pcileechfwgenerator.device_clone.msix import MSIXData
+from pcileechfwgenerator.cli.host_device_collector import HostDeviceCollector
 
 
 class _DummyBinder:
@@ -59,7 +59,7 @@ def logger():
 
 def test_collect_device_context_success(monkeypatch, tmp_path: Path, logger, caplog):
     # Patch heavy dependencies with fakes
-    import src.cli.host_device_collector as hdc
+    import pcileechfwgenerator.cli.host_device_collector as hdc
 
     monkeypatch.setattr(hdc, "VFIOBinder", _DummyBinder)
     monkeypatch.setattr(hdc, "ConfigSpaceManager", _FakeConfigSpaceManager)
@@ -96,7 +96,7 @@ def test_collect_device_context_success(monkeypatch, tmp_path: Path, logger, cap
 def test_collect_device_context_failure_raises_build_error(
     monkeypatch, tmp_path: Path, logger, caplog
 ):
-    import src.cli.host_device_collector as hdc
+    import pcileechfwgenerator.cli.host_device_collector as hdc
 
     class _BoomConfigManager(_FakeConfigSpaceManager):
         def read_vfio_config_space(self) -> bytes:
@@ -111,7 +111,7 @@ def test_collect_device_context_failure_raises_build_error(
         collector.collect_device_context(tmp_path)
 
     # Ensure BuildError surface
-    from src.exceptions import BuildError
+    from pcileechfwgenerator.exceptions import BuildError
 
     assert isinstance(exc.value, BuildError)
     assert any("Failed to collect device context" in r.message for r in caplog.records)
@@ -132,7 +132,7 @@ def test_collect_msix_found(monkeypatch, logger):
         }
 
     monkeypatch.setattr(
-        "src.cli.host_device_collector.parse_msix_capability", _fake_parse
+        "pcileechfwgenerator.cli.host_device_collector.parse_msix_capability", _fake_parse
     )
 
     collector = HostDeviceCollector("0000:03:00.0", logger=logger)
@@ -149,7 +149,7 @@ def test_collect_msix_found(monkeypatch, logger):
 def test_collect_msix_not_found(monkeypatch, logger):
     # Return None -> treated as absent capability
     monkeypatch.setattr(
-        "src.cli.host_device_collector.parse_msix_capability",
+        "pcileechfwgenerator.cli.host_device_collector.parse_msix_capability",
         lambda cfg_hex: None,
     )
     collector = HostDeviceCollector("0000:03:00.0", logger=logger)
@@ -166,7 +166,7 @@ def test_collect_msix_exception_logs_and_recovers(monkeypatch, logger, caplog):
     def _boom(_cfg_hex: str):
         raise ValueError("parse error")
 
-    monkeypatch.setattr("src.cli.host_device_collector.parse_msix_capability", _boom)
+    monkeypatch.setattr("pcileechfwgenerator.cli.host_device_collector.parse_msix_capability", _boom)
     collector = HostDeviceCollector("0000:03:00.0", logger=logger)
     with caplog.at_level(logging.WARNING):
         data = collector._collect_msix_data_vfio(

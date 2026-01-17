@@ -13,7 +13,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.templating.tcl_builder import (
+from pcileechfwgenerator.templating.tcl_builder import (
     BuildContext,
     TCLBuilder,
     PCIE_SPEED_CODES,
@@ -165,7 +165,7 @@ class TestImportResilience(unittest.TestCase):
     def test_tcl_builder_imports(self):
         """Test that TCL builder can be imported."""
         try:
-            from src.templating.tcl_builder import TCLBuilder
+            from pcileechfwgenerator.templating.tcl_builder import TCLBuilder
 
             self.assertTrue(True)
         except ImportError as e:
@@ -175,7 +175,7 @@ class TestImportResilience(unittest.TestCase):
         """Test that SystemVerilog generator module can be imported."""
         try:
             # Just test that the module itself can be imported
-            import src.templating.systemverilog_generator
+            import pcileechfwgenerator.templating.systemverilog_generator
 
             self.assertTrue(True)
         except ImportError as e:

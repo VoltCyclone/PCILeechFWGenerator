@@ -5,8 +5,8 @@ from typing import Optional, List, Tuple, Dict, Any
 import logging
 from pathlib import Path
 
-from src.device_clone.hex_formatter import HexFormatter
-from src.utils.validators import get_bdf_validator
+from pcileechfwgenerator.device_clone.hex_formatter import HexFormatter
+from pcileechfwgenerator.utils.validators import get_bdf_validator
 
 # Configure logger
 logger = logging.getLogger(__name__)

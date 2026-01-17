@@ -21,9 +21,9 @@ import pytest
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.string_utils import log_error_safe, log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, log_info_safe, safe_format
 
-from src.templating.template_renderer import (
+from pcileechfwgenerator.templating.template_renderer import (
     MappingFileSystemLoader,
     TemplateRenderer,
     TemplateRenderError,
@@ -266,7 +266,7 @@ class TestContextValidation:
 
     def test_template_compatibility_conversion(self, tmp_path):
         """Test ensure_template_compatibility converts context properly."""
-        from src.utils.unified_context import ensure_template_compatibility
+        from pcileechfwgenerator.utils.unified_context import ensure_template_compatibility
 
         # Context with nested objects
         context = {

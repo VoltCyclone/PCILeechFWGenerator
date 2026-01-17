@@ -365,13 +365,40 @@ FFFFFFFF,
 ; =====================================================================
 ; Extended Configuration Space ({{ EXTENDED_CFG_START }}-{{ EXTENDED_CFG_END - 1 }})
 ; =====================================================================
-; Mostly zeros for basic implementation
+; Clone extended capabilities from donor device when available
+; This includes: AER, ACS, ARI, SR-IOV, LTR, DPC, PTM, etc.
+{% set ext_config_hex = (config_space.raw_data if config_space is defined and config_space.raw_data is defined else "") %}
+{% set ext_config_len = ext_config_hex | length // 2 %}
+{% set has_ext_config = ext_config_len >= EXTENDED_CFG_END %}
+{% if has_ext_config %}
+; Using donor device extended configuration space
+{% for i in range(EXTENDED_CFG_START, EXTENDED_CFG_END, 4) %}
+{% if loop.index % 16 == 1 %}
+; Offset {{ "%03X" % (i | safe_int(0)) }} - Extended Capabilities
+{% endif %}
+{#- Extract 4 bytes (8 hex chars) at offset i, reverse for little-endian DWORD -#}
+{% set byte0 = ext_config_hex[i*2:(i*2)+2] | default("00", true) %}
+{% set byte1 = ext_config_hex[(i*2)+2:(i*2)+4] | default("00", true) %}
+{% set byte2 = ext_config_hex[(i*2)+4:(i*2)+6] | default("00", true) %}
+{% set byte3 = ext_config_hex[(i*2)+6:(i*2)+8] | default("00", true) %}
+{#- COE format is DWORD in hex, bytes already in memory order from config space dump -#}
+{{ byte3 }}{{ byte2 }}{{ byte1 }}{{ byte0 }}{% if not loop.last %},{% endif %}
+{% endfor %}
+{% else %}
+; No extended config space data from donor - using minimal structure
+; First DWORD at 0x100 indicates "no next capability" (capability ID = 0)
 {% for i in range(EXTENDED_CFG_START, EXTENDED_CFG_END, 4) %}
 {% if loop.index % 16 == 1 %}
 ; Offset {{ "%03X" % (i | safe_int(0)) }}
 {% endif %}
+{% if i == EXTENDED_CFG_START %}
+{#- Extended capability header with ID=0 (null terminator) to avoid fingerprinting -#}
 00000000{% if not loop.last %},{% endif %}
-{% endfor %};
+{% else %}
+00000000{% if not loop.last %},{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %};
 
 ; =====================================================================
 ; PCILeech-Specific Configuration Metadata

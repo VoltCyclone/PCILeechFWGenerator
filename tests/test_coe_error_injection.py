@@ -2,7 +2,7 @@ import re
 from copy import deepcopy
 from pathlib import Path
 
-from src.templating.sv_constants import SVTemplates
+from pcileechfwgenerator.templating.sv_constants import SVTemplates
 
 
 def _render_cfgspace_coe(context: dict) -> str:
@@ -12,7 +12,7 @@ def _render_cfgspace_coe(context: dict) -> str:
     comment logic for error injection while still exercising the real template
     (strict mode) with a minimally valid context.
     """
-    from src.templating.template_renderer import TemplateRenderer
+    from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
     tr = TemplateRenderer()
     return tr.render_template(SVTemplates.PCILEECH_CFGSPACE, context)

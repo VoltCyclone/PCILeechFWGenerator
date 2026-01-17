@@ -12,15 +12,15 @@ from typing import Any, Dict
 
 import pytest
 
-from src.templating.template_renderer import (
+from pcileechfwgenerator.templating.template_renderer import (
     TemplateRenderer,
     TemplateRenderError,
 )
-from src.utils.unified_context import (
+from pcileechfwgenerator.utils.unified_context import (
     UnifiedContextBuilder,
     ensure_template_compatibility,
 )
-from src.utils.validation_constants import REQUIRED_CONTEXT_SECTIONS
+from pcileechfwgenerator.utils.validation_constants import REQUIRED_CONTEXT_SECTIONS
 
 
 def _context_to_dict(obj: Any) -> Dict[str, Any]:

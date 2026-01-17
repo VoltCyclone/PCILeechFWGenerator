@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from src.error_utils import (format_user_friendly_error,
+from pcileechfwgenerator.error_utils import (format_user_friendly_error,
                              log_error_with_root_cause)
 
 from ..log_config import get_logger

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.shell import Shell
+from pcileechfwgenerator.shell import Shell
 
 
 def test_run_success(monkeypatch):

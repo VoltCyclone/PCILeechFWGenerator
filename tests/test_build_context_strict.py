@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.templating.tcl_builder import (
+from pcileechfwgenerator.templating.tcl_builder import (
     BuildContext,
     format_hex_id,
     PCIE_SPEED_CODES,

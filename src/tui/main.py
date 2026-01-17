@@ -30,7 +30,7 @@ from textual.widgets import (
     Static,
 )
 
-from src.device_clone.board_config import list_supported_boards
+from pcileechfwgenerator.device_clone.board_config import list_supported_boards
 
 from .core.app_state import AppState
 from .core.background_monitor import BackgroundMonitor
@@ -755,7 +755,7 @@ class PCILeechTUI(App):
                 return
 
             # Import here to avoid circular import
-            from src.tui.utils.ui_helpers import (format_status_messages,
+            from pcileechfwgenerator.tui.utils.ui_helpers import (format_status_messages,
                                                   safely_update_static)
 
             try:
@@ -810,7 +810,7 @@ class PCILeechTUI(App):
         )
 
         # Import here to avoid circular import and preserve runtime behavior
-        from src.tui.utils.ui_helpers import safely_update_static
+        from pcileechfwgenerator.tui.utils.ui_helpers import safely_update_static
 
         safely_update_static(self, selector, text)
 
@@ -1130,7 +1130,7 @@ class PCILeechTUI(App):
 if __name__ == "__main__":
     import asyncio
 
-    from src.utils.system_status import check_root_access, check_vfio_support
+    from pcileechfwgenerator.utils.system_status import check_root_access, check_vfio_support
 
     # Check OS compatibility and VFIO support
     vfio_status = asyncio.run(check_vfio_support())

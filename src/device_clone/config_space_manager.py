@@ -21,12 +21,12 @@ from pathlib import Path
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.exceptions import (
+from pcileechfwgenerator.exceptions import (
     ConfigSpaceError,
     VFIOConfigSpaceError,
     SysfsConfigSpaceError,
 )
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
@@ -146,7 +146,7 @@ class BarInfo:
     def get_size_encoding(self) -> int:
         """Get the size encoding for this BAR, computing it if necessary."""
         if self.size_encoding is None:
-            from src.device_clone.bar_size_converter import BarSizeConverter
+            from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
 
             self.size_encoding = BarSizeConverter.size_to_encoding(
                 self.size, self.bar_type, self.is_64bit, self.prefetchable
@@ -185,7 +185,7 @@ class BarInfo:
 
 
 # ConfigSpaceError, VFIOConfigSpaceError, and SysfsConfigSpaceError
-# are now imported from src.exceptions for consistency across the codebase.
+# are now imported from pcileechfwgenerator.exceptions for consistency across the codebase.
 # Legacy aliases maintained for backward compatibility:
 VFIOError = VFIOConfigSpaceError
 SysfsError = SysfsConfigSpaceError
@@ -289,7 +289,7 @@ class ConfigSpaceManager:
     def _read_vfio_strict(self) -> bytes:
         """Read configuration space in strict VFIO mode."""
         try:
-            from src.cli.vfio_handler import VFIOBinder
+            from pcileechfwgenerator.cli.vfio_handler import VFIOBinder
 
             log_info_safe(
                 logger,
@@ -1004,7 +1004,7 @@ class ConfigSpaceManager:
 
     def _extract_bar_info(self, config_space: bytes) -> List[BarInfo]:
         """Extract BAR information using the unified BAR parser."""
-        from src.device_clone.bar_parser import parse_bar_info_from_config_space
+        from pcileechfwgenerator.device_clone.bar_parser import parse_bar_info_from_config_space
         
         log_info_safe(
             logger,
@@ -1035,7 +1035,7 @@ class ConfigSpaceManager:
                 bar.size = size_from_sysfs
                 
                 # Generate proper encoding for the size
-                from src.device_clone.bar_size_converter import BarSizeConverter
+                from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
                 try:
                     bar.size_encoding = BarSizeConverter.size_to_encoding(
                         size_from_sysfs, bar.bar_type, bar.is_64bit, bar.prefetchable

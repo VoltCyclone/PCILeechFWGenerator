@@ -5,7 +5,7 @@ import logging
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.utils.build_logger import BuildLogger, get_build_logger
+from pcileechfwgenerator.utils.build_logger import BuildLogger, get_build_logger
 
 
 class TestBuildLogger:
@@ -23,7 +23,7 @@ class TestBuildLogger:
         build_logger = BuildLogger()
         assert build_logger.logger is not None
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_info_with_prefix(self, mock_log_info):
         """Test info logging with prefix."""
         mock_logger = MagicMock()
@@ -35,7 +35,7 @@ class TestBuildLogger:
             mock_logger, "Test info", prefix="BUILD"
         )
 
-    @patch('src.utils.build_logger.log_warning_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_warning_safe')
     def test_warning_with_prefix(self, mock_log_warning):
         """Test warning logging with prefix."""
         mock_logger = MagicMock()
@@ -47,7 +47,7 @@ class TestBuildLogger:
             mock_logger, "Test warning", prefix="WARN"
         )
 
-    @patch('src.utils.build_logger.log_error_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_error_safe')
     def test_error_with_prefix(self, mock_log_error):
         """Test error logging with prefix."""
         mock_logger = MagicMock()
@@ -59,7 +59,7 @@ class TestBuildLogger:
             mock_logger, "Test error", prefix="ERROR"
         )
 
-    @patch('src.utils.build_logger.log_debug_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_debug_safe')
     def test_debug_with_prefix(self, mock_log_debug):
         """Test debug logging with prefix."""
         mock_logger = MagicMock()
@@ -71,7 +71,7 @@ class TestBuildLogger:
             mock_logger, "Test debug", prefix="DEBUG"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_vfio_info(self, mock_log_info):
         """Test VFIO info logging."""
         mock_logger = MagicMock()
@@ -83,7 +83,7 @@ class TestBuildLogger:
             mock_logger, "Device found", prefix="VFIO"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_host_cfg_info(self, mock_log_info):
         """Test host config info logging."""
         mock_logger = MagicMock()
@@ -95,7 +95,7 @@ class TestBuildLogger:
             mock_logger, "Loading context", prefix="HOST_CFG"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_filemgr_info(self, mock_log_info):
         """Test file manager info logging."""
         mock_logger = MagicMock()
@@ -107,7 +107,7 @@ class TestBuildLogger:
             mock_logger, "Copying file", prefix="FILEMGR"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_template_info(self, mock_log_info):
         """Test template info logging."""
         mock_logger = MagicMock()
@@ -119,7 +119,7 @@ class TestBuildLogger:
             mock_logger, "Rendering template", prefix="TEMPLATE"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_vivado_info(self, mock_log_info):
         """Test Vivado info logging."""
         mock_logger = MagicMock()
@@ -131,7 +131,7 @@ class TestBuildLogger:
             mock_logger, "Starting synthesis", prefix="VIVADO"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_device_info(self, mock_log_info):
         """Test device info logging."""
         mock_logger = MagicMock()
@@ -143,7 +143,7 @@ class TestBuildLogger:
             mock_logger, "Device detected", prefix="DEVICE"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_validation_info(self, mock_log_info):
         """Test validation info logging."""
         mock_logger = MagicMock()
@@ -155,7 +155,7 @@ class TestBuildLogger:
             mock_logger, "Validating config", prefix="VALID"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_msix_info(self, mock_log_info):
         """Test MSI-X info logging."""
         mock_logger = MagicMock()
@@ -167,7 +167,7 @@ class TestBuildLogger:
             mock_logger, "MSI-X capability found", prefix="MSIX"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_bar_info(self, mock_log_info):
         """Test BAR info logging."""
         mock_logger = MagicMock()
@@ -179,7 +179,7 @@ class TestBuildLogger:
             mock_logger, "BAR0 size: 4KB", prefix="BAR"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_pcil_info(self, mock_log_info):
         """Test PCILeech generator info logging."""
         mock_logger = MagicMock()
@@ -191,7 +191,7 @@ class TestBuildLogger:
             mock_logger, "Generating firmware", prefix="PCIL"
         )
 
-    @patch('src.utils.build_logger.log_info_safe')
+    @patch('pcileechfwgenerator.utils.build_logger.log_info_safe')
     def test_repo_info(self, mock_log_info):
         """Test repository info logging."""
         mock_logger = MagicMock()

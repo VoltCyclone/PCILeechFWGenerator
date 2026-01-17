@@ -18,8 +18,8 @@ from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
-from src.cli.vfio_handler import VFIOBinder, VFIOPathManager
-from src.exceptions import VFIOBindError, VFIOGroupError
+from pcileechfwgenerator.cli.vfio_handler import VFIOBinder, VFIOPathManager
+from pcileechfwgenerator.exceptions import VFIOBindError, VFIOGroupError
 
 
 class TestVFIOContainerHardening:

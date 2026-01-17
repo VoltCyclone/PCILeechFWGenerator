@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from src.string_utils import log_error_safe, log_debug_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, log_debug_safe, safe_format
 
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ class BehaviorType(Enum):
     PATTERN = "pattern"                # Pattern-based generation
     TRIGGERED = "triggered"            # State change on trigger
     PERIODIC = "periodic"              # Periodic value changes
+    MIXED = "mixed"                    # Mixed RW/RO bits (e.g., status with RW1C)
 
 
 @dataclass

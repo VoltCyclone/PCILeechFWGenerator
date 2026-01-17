@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, call, patch
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.vivado_handling.pcileech_build_integration import (
+from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
     PCILeechBuildIntegration, integrate_pcileech_build)
 
 
@@ -23,16 +23,16 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
 
         # Common patches
         self.board_discovery_patch = patch(
-            "src.vivado_handling.pcileech_build_integration.BoardDiscovery"
+            "pcileechfwgenerator.vivado_handling.pcileech_build_integration.BoardDiscovery"
         )
         self.template_discovery_patch = patch(
-            "src.vivado_handling.pcileech_build_integration.TemplateDiscovery"
+            "pcileechfwgenerator.vivado_handling.pcileech_build_integration.TemplateDiscovery"
         )
         self.repo_manager_patch = patch(
-            "src.vivado_handling.pcileech_build_integration.RepoManager"
+            "pcileechfwgenerator.vivado_handling.pcileech_build_integration.RepoManager"
         )
         self.tcl_builder_patch = patch(
-            "src.vivado_handling.pcileech_build_integration.TCLBuilder"
+            "pcileechfwgenerator.vivado_handling.pcileech_build_integration.TCLBuilder"
         )
         self.path_mkdir_patch = patch("pathlib.Path.mkdir")
 
@@ -81,8 +81,8 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.tcl_builder_patch.stop()
         self.path_mkdir_patch.stop()
 
-    @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.Path.write_text")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_init(self, mock_copy2, mock_write_text):
         """Test initialization of PCILeechBuildIntegration."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -122,7 +122,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
 
         self.assertIn("Board 'nonexistent_board' not found", str(context.exception))
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_prepare_build_environment_valid_board(self, mock_copy2):
         """Test preparing build environment with valid board."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -162,7 +162,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
     
 
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_xdc_files(self, mock_copy2):
         """Test copying XDC files."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -188,7 +188,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
     
 
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files(self, mock_copy2):
         """Test copying source files."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -227,7 +227,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         # Note: get_board_path is no longer called with flat structure design
         self.assertEqual(mock_copy2.call_count, 2)
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files_no_nested_src_directory(self, mock_copy2):
         """Test that source files are NOT copied to nested src/src/ directory structure.
         
@@ -280,7 +280,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             self.assertEqual(src_count, 1, 
                            f"Path should have exactly one 'src' directory, found {src_count}: {result_path}")
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files_filename_collision(self, mock_copy2):
         """Test that files with same name from different paths overwrite correctly.
         
@@ -310,7 +310,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             self.assertEqual(dest_path, expected_dest,
                            "All files with same name should map to same destination")
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files_with_manifest_tracker_duplicate_prevention(self, mock_copy2):
         """Test that manifest tracker prevents actual duplicate file copies."""
         # Create a mock manifest tracker that rejects the second file
@@ -337,7 +337,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertEqual(mock_copy2.call_count, 1)
         self.assertEqual(result[0].name, "file1.sv")
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files_empty_source_list(self, mock_copy2):
         """Test graceful handling when no source files are found."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -353,7 +353,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertEqual(len(result), 0)
         mock_copy2.assert_not_called()
 
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files_io_error_continues(self, mock_copy2):
         """Test that IO errors on individual files don't stop the entire copy operation."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -388,9 +388,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         self.assertIn("another_good.sv", result_names)
         self.assertNotIn("bad_file.sv", result_names)
 
-    @patch("src.vivado_handling.pcileech_build_integration.Path.read_text")
-    @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
-    @patch("src.vivado_handling.pcileech_build_integration.shutil.copy2")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.Path.read_text")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.Path.write_text")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_prepare_build_scripts_existing(
         self, mock_copy2, mock_write_text, mock_read_text
     ):
@@ -434,7 +434,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
     
 
 
-    @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.Path.write_text")
     def test_prepare_build_scripts_generated(self, mock_write_text):
         """Test preparing build scripts with generated scripts."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -464,7 +464,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
         )
         self.mock_tcl_builder.assert_called_once_with(output_dir=output_dir / "scripts")
 
-    @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.Path.write_text")
     def test_unified_build_script_no_duplicate_source_files(self, mock_write_text):
         """Test that unified build script does not add duplicate source files.
         
@@ -532,7 +532,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
     
 
 
-    @patch("src.vivado_handling.pcileech_build_integration.Path.write_text")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.Path.write_text")
     def test_create_unified_build_script(self, mock_write_text):
         """Test creating unified build script."""
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
@@ -762,7 +762,7 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
 
         # Mock get_board_config
         with patch(
-            "src.vivado_handling.pcileech_build_integration.get_board_config"
+            "pcileechfwgenerator.vivado_handling.pcileech_build_integration.get_board_config"
         ) as mock_get_board_config:
             mock_get_board_config.return_value = self.sample_boards["artix7"]
 
@@ -805,12 +805,12 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
     
 
 
-    @patch("src.vivado_handling.pcileech_build_integration.logger")
+    @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.logger")
     def test_integrate_pcileech_build(self, mock_logger):
         """Test integrate_pcileech_build function."""
         # Mock PCILeechBuildIntegration
         with patch(
-            "src.vivado_handling.pcileech_build_integration.PCILeechBuildIntegration"
+            "pcileechfwgenerator.vivado_handling.pcileech_build_integration.PCILeechBuildIntegration"
         ) as mock_integration_class:
             mock_integration = mock_integration_class.return_value
             mock_integration.create_unified_build_script.return_value = Path(

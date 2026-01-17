@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.utils.attribute_access import (copy_attrs, get_attr_or_raise,
+from pcileechfwgenerator.utils.attribute_access import (copy_attrs, get_attr_or_raise,
                                         get_multiple_attrs, has_attr,
                                         require_attrs, safe_get_attr,
                                         safe_get_nested)

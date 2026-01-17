@@ -22,11 +22,11 @@ import subprocess
 import tarfile
 from typing import Any, Dict, List, Optional, Union
 
-from src.log_config import get_logger
+from pcileechfwgenerator.log_config import get_logger
 # Project logging & safe string formatting utilities (mandatory per repo style)
-from src.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
+from pcileechfwgenerator.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
                               log_warning_safe, safe_format)
-from src.utils.unified_context import \
+from pcileechfwgenerator.utils.unified_context import \
     TemplateObject  # For context compatibility
 
 logger = get_logger(__name__)
@@ -421,7 +421,7 @@ def find_driver_sources(
 
 
 # Expose enrich_context_with_driver for test and module compatibility
-from src.utils.context_driver_enrichment import enrich_context_with_driver
+from pcileechfwgenerator.utils.context_driver_enrichment import enrich_context_with_driver
 
 # Retain the usage wrapper for legacy/internal use if needed
 

@@ -9,7 +9,7 @@ to prevent driver errors and hardware conflicts.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.pci_capability.constants import (BAR_INDEX_MAX, BAR_INDEX_MIN,
+from pcileechfwgenerator.pci_capability.constants import (BAR_INDEX_MAX, BAR_INDEX_MIN,
                                           CACHELINE_OPTIMAL, DWORD_SIZE_BYTES,
                                           EXCESSIVE_VECTOR_THRESHOLD_LOWEND,
                                           INTEL_VECTOR_WARNING_THRESHOLD,
@@ -378,7 +378,7 @@ def _validate_driver_compatibility(
     vendor_id = device_info.get("vendor_id", 0)
 
     # Import vendor ID constants
-    from src.device_clone.constants import VENDOR_ID_INTEL, VENDOR_ID_NVIDIA
+    from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL, VENDOR_ID_NVIDIA
 
     if vendor_id == VENDOR_ID_INTEL:  # Intel
         if table_size > INTEL_VECTOR_WARNING_THRESHOLD:
@@ -652,7 +652,7 @@ if __name__ == "__main__":
     ]
 
     # Import vendor ID constant for sample
-    from src.device_clone.constants import VENDOR_ID_INTEL
+    from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL
 
     sample_device = {"vendor_id": VENDOR_ID_INTEL, "device_id": 0x1572}
 

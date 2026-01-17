@@ -14,23 +14,23 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     safe_format,
     log_info_safe,
     log_warning_safe,
     log_error_safe,
 )
 
-from src.device_clone.config_space_manager import ConfigSpaceManager
+from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
 
-from src.device_clone.device_info_lookup import DeviceInfoLookup
-from src.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.device_clone.device_info_lookup import DeviceInfoLookup
+from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 
-from src.device_clone.msix import MSIXManager, MSIXData
+from pcileechfwgenerator.device_clone.msix import MSIXManager, MSIXData
 
-from src.cli.vfio_handler import VFIOBinder
+from pcileechfwgenerator.cli.vfio_handler import VFIOBinder
 
-from src.exceptions import BuildError
+from pcileechfwgenerator.exceptions import BuildError
 
 
 class HostDeviceCollector:
@@ -248,7 +248,7 @@ class HostDeviceCollector:
             Dict mapping BAR index to serialized BarModel, or None on failure
         """
         try:
-            from src.device_clone.bar_model_synthesizer import (
+            from pcileechfwgenerator.device_clone.bar_model_synthesizer import (
                 synthesize_bar_models,
             )
 
@@ -284,7 +284,7 @@ class HostDeviceCollector:
 
             if bar_models:
                 # Serialize models for JSON storage
-                from src.device_clone.bar_model_loader import (
+                from pcileechfwgenerator.device_clone.bar_model_loader import (
                     serialize_bar_model,
                 )
 

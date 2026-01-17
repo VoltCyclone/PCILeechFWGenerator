@@ -117,8 +117,8 @@ class BuildManager:
 
             # do this inside the function to avoid circular imports
             try:
-                from src.build import BuildConfiguration as CoreBuildConfig
-                from src.build import FirmwareBuilder
+                from pcileechfwgenerator.build import BuildConfiguration as CoreBuildConfig
+                from pcileechfwgenerator.build import FirmwareBuilder
             except ImportError as e:
                 build_progress.add_error(f"Failed to import build system: {str(e)}")
                 return False, f"Build system import failed: {str(e)}"

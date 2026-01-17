@@ -16,11 +16,11 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
+from pcileechfwgenerator.utils.unified_context import (TemplateObject, UnifiedContextBuilder,
                                        UnifiedDeviceConfig,
                                        convert_to_template_object,
                                        ensure_template_compatibility)
-from src.utils.version_resolver import get_package_version
+from pcileechfwgenerator.utils.version_resolver import get_package_version
 
 
 class TestGetPackageVersion:
@@ -35,7 +35,7 @@ class TestGetPackageVersion:
             version_file = tmp_path / "__version__.py"
             version_file.write_text('__version__ = "2.5.0"')
 
-            with patch("src.utils.version_resolver.Path") as mock_path:
+            with patch("pcileechfwgenerator.utils.version_resolver.Path") as mock_path:
                 # Mock the path resolution
                 mock_version_file = MagicMock()
                 mock_version_file.exists.return_value = True
@@ -58,11 +58,11 @@ class TestGetPackageVersion:
         # Force version file miss and hit setuptools_scm fallback
         # without requiring the external package.
         with patch(
-            "src.utils.version_resolver._try_version_file",
+            "pcileechfwgenerator.utils.version_resolver._try_version_file",
             return_value=None,
         ):
             with patch(
-                "src.utils.version_resolver._try_setuptools_scm",
+                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
                 return_value="1.2.3",
             ):
                 version = get_package_version()
@@ -71,15 +71,15 @@ class TestGetPackageVersion:
     def test_get_version_importlib_fallback(self):
         """Test fallback to importlib.metadata."""
         with patch(
-            "src.utils.version_resolver._try_version_file",
+            "pcileechfwgenerator.utils.version_resolver._try_version_file",
             return_value=None,
         ):
             with patch(
-                "src.utils.version_resolver._try_setuptools_scm",
+                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
                 return_value=None,
             ):
                 with patch(
-                    "src.utils.version_resolver._try_importlib_metadata",
+                    "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
                     return_value="3.4.5",
                 ):
                     version = get_package_version()
@@ -88,19 +88,19 @@ class TestGetPackageVersion:
     def test_get_version_final_fallback(self):
         """Test final fallback to default version."""
         with patch(
-            "src.utils.version_resolver._try_version_file",
+            "pcileechfwgenerator.utils.version_resolver._try_version_file",
             return_value=None,
         ):
             with patch(
-                "src.utils.version_resolver._try_setuptools_scm",
+                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
                 return_value=None,
             ):
                 with patch(
-                    "src.utils.version_resolver._try_importlib_metadata",
+                    "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
                     return_value=None,
                 ):
                     with patch(
-                        "src.utils.version_resolver._try_git_describe",
+                        "pcileechfwgenerator.utils.version_resolver._try_git_describe",
                         return_value=None,
                     ):
                         version = get_package_version()
@@ -111,19 +111,19 @@ class TestGetPackageVersion:
         # Force exceptions inside helpers (caught internally) and ensure
         # we return the safe fallback without requiring external packages.
         with patch(
-            "src.utils.version_resolver.Path",
+            "pcileechfwgenerator.utils.version_resolver.Path",
             side_effect=Exception("Test error"),
         ):
             with patch(
-                "src.utils.version_resolver._try_setuptools_scm",
+                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
                 return_value=None,
             ):
                 with patch(
-                    "src.utils.version_resolver._try_importlib_metadata",
+                    "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
                     return_value=None,
                 ):
                     with patch(
-                        "src.utils.version_resolver._try_git_describe",
+                        "pcileechfwgenerator.utils.version_resolver._try_git_describe",
                         return_value=None,
                     ):
                         version = get_package_version()
@@ -360,7 +360,7 @@ class TestUnifiedContextBuilder:
 
     def test_create_generation_metadata(self):
         """Test creating generation metadata."""
-        with patch("src.utils.metadata.datetime") as mock_datetime:
+        with patch("pcileechfwgenerator.utils.metadata.datetime") as mock_datetime:
             mock_datetime.now.return_value.isoformat.return_value = (
                 "2023-01-01T12:00:00"
             )

@@ -2,7 +2,7 @@ import types
 
 import pytest
 
-import src.cli.vfio as vfio
+import pcileechfwgenerator.cli.vfio as vfio
 
 
 class FakeResolved:

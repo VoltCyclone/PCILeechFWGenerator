@@ -27,7 +27,7 @@ sys.path.insert(0, str(project_root / "src"))
 def get_version():
     """Get the current version from the centralized version resolver."""
     try:
-        from src.utils.version_resolver import get_version_info
+        from pcileechfwgenerator.utils.version_resolver import get_version_info
 
         version_info = get_version_info()
         title = version_info.get("title", "PCILeech Firmware Generator")
@@ -313,15 +313,15 @@ if __name__ == "__main__":
 
 # Import our custom utilities (after requirements check)
 try:
-    from src.log_config import get_logger, setup_logging
-    from src.string_utils import (
+    from pcileechfwgenerator.log_config import get_logger, setup_logging
+    from pcileechfwgenerator.string_utils import (
         log_debug_safe,
         log_error_safe,
         log_info_safe,
         log_warning_safe,
         safe_format,
     )
-    from src.utils.validation_constants import KNOWN_DEVICE_TYPES
+    from pcileechfwgenerator.utils.validation_constants import KNOWN_DEVICE_TYPES
 except (ImportError, ModuleNotFoundError) as e:
     print(
         f"Error: Failed to import PCILeech modules: {e}\n"
@@ -333,7 +333,7 @@ except (ImportError, ModuleNotFoundError) as e:
 def get_available_boards():
     """Get list of available board configurations."""
     try:
-        from src.device_clone.board_config import list_supported_boards
+        from pcileechfwgenerator.device_clone.board_config import list_supported_boards
 
         boards = list_supported_boards()
         return sorted(boards) if boards else get_fallback_boards()
@@ -343,7 +343,7 @@ def get_available_boards():
 
 def get_fallback_boards():
     """Get fallback board list when discovery fails."""
-    from src.device_clone.constants import BOARD_FALLBACKS
+    from pcileechfwgenerator.device_clone.constants import BOARD_FALLBACKS
 
     return sorted(list(BOARD_FALLBACKS))
 
@@ -840,7 +840,7 @@ def handle_build(args):
         )
         return 1
     except Exception as e:
-        from src.error_utils import log_error_with_root_cause
+        from pcileechfwgenerator.error_utils import log_error_with_root_cause
         log_error_with_root_cause(logger, "Build failed", e)
         return 1
 
@@ -853,7 +853,7 @@ def run_host_collect(args):
     """Stage 1: probe device and write datastore on the host."""
     logger = get_logger(__name__)
     try:
-        from src.host_collect.collector import HostCollector
+        from pcileechfwgenerator.host_collect.collector import HostCollector
     except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
@@ -1207,7 +1207,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     # Generate COE visualization report after container build completes successfully
     if result == 0:
         try:
-            from src.utils.coe_report import generate_coe_report_if_enabled
+            from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
             generate_coe_report_if_enabled(output_dir, logger=logger)
         except Exception as e:
             log_debug_safe(
@@ -1223,7 +1223,7 @@ def run_local_templating(args):
     """Stage 2b: run templating locally (no container)."""
     logger = get_logger(__name__)
     try:
-        from src.build import FirmwareBuilder, ConfigurationManager
+        from pcileechfwgenerator.build import FirmwareBuilder, ConfigurationManager
     except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
@@ -1267,7 +1267,7 @@ def run_local_templating(args):
     
     # Generate COE visualization report
     try:
-        from src.utils.coe_report import generate_coe_report_if_enabled
+        from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
         generate_coe_report_if_enabled(output_dir, logger=logger)
     except Exception as e:
         log_debug_safe(
@@ -1283,7 +1283,7 @@ def run_host_vivado(args):
     """Stage 3: host-side Vivado batch run using generated artifacts."""
     logger = get_logger(__name__)
     try:
-        from src.vivado_handling import VivadoRunner, find_vivado_installation
+        from pcileechfwgenerator.vivado_handling import VivadoRunner, find_vivado_installation
     except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
@@ -1338,7 +1338,7 @@ def handle_tui(args):
         # Import TUI components
         import platform
 
-        from src.tui.main import PCILeechTUI
+        from pcileechfwgenerator.tui.main import PCILeechTUI
 
         # Check OS compatibility first - PCILeech only supports Linux
         current_os = platform.system()
@@ -1379,7 +1379,7 @@ def handle_tui(args):
         )
         return 1
     except Exception as e:
-        from src.error_utils import log_error_with_root_cause
+        from pcileechfwgenerator.error_utils import log_error_with_root_cause
 
         log_error_with_root_cause(logger, "TUI failed", e)
         return 1
@@ -1407,7 +1407,7 @@ def handle_flash(args):
 
         # Try to use the flash utility
         try:
-            from src.cli.flash import flash_firmware
+            from pcileechfwgenerator.cli.flash import flash_firmware
 
             flash_firmware(firmware_path)
         except ImportError:
@@ -1452,7 +1452,7 @@ def handle_flash(args):
         )
         return 1
     except Exception as e:
-        from src.error_utils import log_error_with_root_cause
+        from pcileechfwgenerator.error_utils import log_error_with_root_cause
 
         log_error_with_root_cause(logger, "Flash failed", e)
         return 1
@@ -1463,7 +1463,7 @@ def handle_check(args):
     logger = get_logger(__name__)
     try:
         # Import the VFIO diagnostics functionality
-        from src.cli.vfio_diagnostics import (
+        from pcileechfwgenerator.cli.vfio_diagnostics import (
             Diagnostics,
             Status,
             remediation_script,
@@ -1567,7 +1567,7 @@ def handle_check(args):
         log_info_safe(logger, "VFIO check interrupted by user", prefix="CHECK")
         return 1
     except Exception as e:
-        from src.error_utils import log_error_with_root_cause
+        from pcileechfwgenerator.error_utils import log_error_with_root_cause
 
         log_error_with_root_cause(logger, "VFIO check failed", e)
         if logger.isEnabledFor(logging.DEBUG):
@@ -1582,7 +1582,7 @@ def handle_version(args):
 
     # Use centralized version resolver
     try:
-        from src.utils.version_resolver import get_version_info
+        from pcileechfwgenerator.utils.version_resolver import get_version_info
 
         version_info = get_version_info()
         version = version_info.get("version", "unknown")
@@ -1640,7 +1640,7 @@ def handle_donor_template(args):
     """Handle donor template generation."""
     logger = get_logger(__name__)
     try:
-        from src.device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from pcileechfwgenerator.device_clone.donor_info_template import DonorInfoTemplateGenerator
 
         # If validate flag is set, validate the file instead
         if args.validate:
@@ -1675,7 +1675,7 @@ def handle_donor_template(args):
                 )
                 return 1
             except Exception as e:
-                from src.error_utils import log_error_with_root_cause
+                from pcileechfwgenerator.error_utils import log_error_with_root_cause
 
                 log_error_with_root_cause(logger, "Error validating template", e)
                 return 1
@@ -1722,7 +1722,7 @@ def handle_donor_template(args):
                 )
                 return 1
             except Exception as e:
-                from src.error_utils import log_error_with_root_cause
+                from pcileechfwgenerator.error_utils import log_error_with_root_cause
 
                 log_error_with_root_cause(logger, "Could not read device info", e)
                 return 1
@@ -1772,7 +1772,7 @@ def handle_donor_template(args):
         )
         return 1
     except Exception as e:
-        from src.error_utils import log_error_with_root_cause
+        from pcileechfwgenerator.error_utils import log_error_with_root_cause
 
         log_error_with_root_cause(logger, "Failed to generate donor template", e)
         return 1

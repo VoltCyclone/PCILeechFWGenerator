@@ -848,7 +848,7 @@ def run_vivado_with_error_reporting(
         import importlib
 
         vivado_utils_module = importlib.import_module(
-            ".vivado_utils", package="src.vivado_handling"
+            ".vivado_utils", package="pcileechfwgenerator.vivado_handling"
         )
         get_vivado_executable = getattr(vivado_utils_module, "get_vivado_executable")
 

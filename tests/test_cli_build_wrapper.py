@@ -117,13 +117,13 @@ class TestBuildWrapperPathSetup:
             mock_build_module = mock.MagicMock()
             mock_build_module.main = mock.MagicMock()
             mock_import.side_effect = [
-                ImportError("src.build not found"),
+                ImportError("pcileechfwgenerator.build not found"),
                 mock_build_module,  # Successful fallback
             ]
 
             try:
                 # First attempt
-                import src.build
+                import pcileechfwgenerator.build
             except ImportError:
                 try:
                     # Fallback attempt
@@ -144,7 +144,7 @@ class TestBuildWrapperPathSetup:
         ), mock.patch("sys.exit") as mock_exit:
 
             try:
-                import src.build
+                import pcileechfwgenerator.build
             except ImportError:
                 try:
                     import build

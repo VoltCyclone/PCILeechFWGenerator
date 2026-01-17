@@ -11,8 +11,8 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.device_clone.config_space_manager import ConfigSpaceConstants
-from src.device_clone.device_config import (DeviceCapabilities, DeviceClass,
+from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceConstants
+from pcileechfwgenerator.device_clone.device_config import (DeviceCapabilities, DeviceClass,
                                             DeviceConfigManager,
                                             DeviceConfiguration,
                                             DeviceIdentification, DeviceType)

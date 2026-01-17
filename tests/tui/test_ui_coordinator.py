@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tui.core.ui_coordinator import UICoordinator
+from pcileechfwgenerator.tui.core.ui_coordinator import UICoordinator
 
 
 class DummyDevice:

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.device_clone.msix_capability import (
+from pcileechfwgenerator.device_clone.msix_capability import (
     BAR_IO_DEFAULT_SIZE, BAR_MEM_DEFAULT_SIZE, BAR_MEM_MIN_SIZE, find_cap,
     generate_msix_capability_registers, generate_msix_table_sv, hex_to_bytes,
     is_valid_offset, msix_size, parse_bar_info_from_config_space,
@@ -91,7 +91,7 @@ class TestCapabilityFinding:
         result = find_cap(config_hex, 0x11)
         assert result == 0x40
 
-    @patch("src.device_clone.msix_capability.pci_find_cap")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.pci_find_cap")
     def test_find_cap_with_pci_infrastructure_success(self, mock_pci_find_cap):
         """Test finding capability using PCI infrastructure."""
         mock_pci_find_cap.return_value = 0x50
@@ -102,8 +102,8 @@ class TestCapabilityFinding:
         assert result == 0x50
         mock_pci_find_cap.assert_called_once_with(config_space, 0x11)
 
-    @patch("src.device_clone.msix_capability.pci_find_cap")
-    @patch("src.device_clone.msix_capability.find_ext_cap")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.pci_find_cap")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.find_ext_cap")
     def test_find_cap_extended_capability_success(
         self, mock_find_ext_cap, mock_pci_find_cap
     ):
@@ -118,8 +118,8 @@ class TestCapabilityFinding:
         mock_pci_find_cap.assert_called_once_with(config_space, 0x11)
         mock_find_ext_cap.assert_called_once_with(config_space, 0x11)
 
-    @patch("src.device_clone.msix_capability.pci_find_cap")
-    @patch("src.device_clone.msix_capability.find_ext_cap")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.pci_find_cap")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.find_ext_cap")
     def test_find_cap_not_found_anywhere(self, mock_find_ext_cap, mock_pci_find_cap):
         """Test capability not found in either standard or extended space."""
         mock_pci_find_cap.return_value = None
@@ -132,7 +132,7 @@ class TestCapabilityFinding:
         mock_pci_find_cap.assert_called_once_with(config_space, 0x11)
         mock_find_ext_cap.assert_called_once_with(config_space, 0x11)
 
-    @patch("src.device_clone.msix_capability.pci_find_cap")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.pci_find_cap")
     def test_find_cap_pci_infrastructure_exception_fallback(self, mock_pci_find_cap):
         """Test fallback to local implementation when PCI infrastructure fails."""
         mock_pci_find_cap.side_effect = Exception("PCI infrastructure error")
@@ -153,8 +153,8 @@ class TestCapabilityFinding:
     def test_find_cap_pci_infrastructure_unavailable(self):
         """Test behavior when PCI infrastructure is not available."""
         # Mock the module-level variables to simulate unavailable infrastructure
-        with patch("src.device_clone.msix_capability.pci_find_cap", None), patch(
-            "src.device_clone.msix_capability.find_ext_cap", None
+        with patch("pcileechfwgenerator.device_clone.msix_capability.pci_find_cap", None), patch(
+            "pcileechfwgenerator.device_clone.msix_capability.find_ext_cap", None
         ):
 
             # Create a minimal valid config space with MSI-X capability
@@ -793,7 +793,7 @@ class TestEnhancedMsixValidation:
 class TestSystemVerilogGeneration:
     """Test SystemVerilog code generation."""
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_generate_msix_table_sv_valid(self, mock_renderer_class):
         """Test SystemVerilog generation with valid MSI-X info."""
         mock_renderer = MagicMock()
@@ -816,7 +816,7 @@ class TestSystemVerilogGeneration:
         assert mock_renderer.render_template.call_count >= 1
         assert "Mock SystemVerilog code" in result
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_generate_msix_table_sv_disabled(self, mock_renderer_class):
         """Test SystemVerilog generation with disabled MSI-X."""
         mock_renderer = MagicMock()
@@ -838,7 +838,7 @@ class TestSystemVerilogGeneration:
         # Should still generate valid code
         assert "Disabled MSI-X module" in result
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_generate_msix_table_sv_missing_fields(self, mock_renderer_class):
         """Test SystemVerilog generation with missing required fields."""
         mock_renderer = MagicMock()
@@ -858,7 +858,7 @@ class TestSystemVerilogGeneration:
         ):
             generate_msix_table_sv(msix_info)
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_generate_msix_table_sv_alignment_warning(self, mock_renderer_class):
         """Test SystemVerilog generation with misaligned table offset."""
         mock_renderer = MagicMock()
@@ -885,7 +885,7 @@ class TestSystemVerilogGeneration:
         assert context["alignment_warning"] != ""
         assert "0x1004" in context["alignment_warning"]
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_generate_msix_table_sv_template_error_handling(self, mock_renderer_class):
         """Test handling of template rendering errors."""
         mock_renderer = MagicMock()
@@ -906,7 +906,7 @@ class TestSystemVerilogGeneration:
         with pytest.raises(Exception, match="Template error"):
             generate_msix_table_sv(msix_info)
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_generate_msix_capability_registers(self, mock_renderer_class):
         """Test MSI-X capability register generation."""
         mock_renderer = MagicMock()
@@ -993,7 +993,7 @@ class TestIntegration:
         assert is_valid is True, f"Validation failed with errors: {errors}"
         assert len(errors) == 0
 
-    @patch("src.device_clone.msix_capability.TemplateRenderer")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
     def test_full_pipeline_64bit_bar(self, mock_renderer_class):
         """Test full pipeline with 64-bit BAR.
         
@@ -1249,7 +1249,7 @@ class TestEdgeCasesAndStressTests:
 class TestMSIXAlignmentRegression:
     """Regression tests for MSI-X alignment bug fixes."""
 
-    @patch("src.device_clone.msix_capability.log_warning_safe")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.log_warning_safe")
     def test_alignment_check_uses_offset_not_raw_register(self, mock_log):
         """
         Regression test for MSI-X alignment bug.
@@ -1307,7 +1307,7 @@ class TestMSIXAlignmentRegression:
         # because table_offset=0 is 8-byte aligned
         mock_log.assert_not_called()
 
-    @patch("src.device_clone.msix_capability.log_warning_safe")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.log_warning_safe")
     def test_no_false_positive_alignment_warning_with_bir_bits(self, mock_log):
         """
         Test that BIR bits in the table offset register don't cause false
@@ -1358,7 +1358,7 @@ class TestMSIXAlignmentRegression:
         # Should NOT generate alignment warning since offset is 0 (aligned)
         mock_log.assert_not_called()
 
-    @patch("src.device_clone.msix_capability.log_warning_safe")
+    @patch("pcileechfwgenerator.device_clone.msix_capability.log_warning_safe")
     def test_realtek_rtl8168_specific_case(self, mock_log):
         """
         Test the specific case from the user bug report:

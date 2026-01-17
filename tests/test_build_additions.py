@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.build import BuildConfiguration, FirmwareBuilder
+from pcileechfwgenerator.build import BuildConfiguration, FirmwareBuilder
 
 
 def make_builder(monkeypatch, tmp_path: Path) -> FirmwareBuilder:
@@ -58,7 +58,7 @@ def test_recheck_vfio_bindings_calls_helper(monkeypatch, tmp_path: Path, caplog)
     builder = make_builder(monkeypatch, tmp_path)
 
     # Replace the ensure_device_vfio_binding helper used in vfio_helpers
-    import src.cli.vfio_helpers as vfio_helpers
+    import pcileechfwgenerator.cli.vfio_helpers as vfio_helpers
 
     monkeypatch.setattr(vfio_helpers, "ensure_device_vfio_binding", lambda bdf: "99")
 

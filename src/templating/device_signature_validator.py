@@ -12,7 +12,7 @@ import re
 
 from typing import Any, Dict, Optional, Tuple
 
-from src.string_utils import log_error_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, safe_format
 
 logger = logging.getLogger(__name__)
 

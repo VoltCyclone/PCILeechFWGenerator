@@ -12,9 +12,9 @@ import pytest
 
 # Import from the actual source location following the project structure
 try:
-    from src.tui.models.config import BuildConfiguration
-    from src.tui.models.device import PCIDevice
-    from src.tui.utils import (ConfigurationTemplates, DeviceFilter,
+    from pcileechfwgenerator.tui.models.config import BuildConfiguration
+    from pcileechfwgenerator.tui.models.device import PCIDevice
+    from pcileechfwgenerator.tui.utils import (ConfigurationTemplates, DeviceFilter,
                                ExportManager, KeyboardShortcuts, SystemInfo,
                                ValidationHelper)
 except ImportError:

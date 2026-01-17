@@ -15,7 +15,7 @@ try:
     from ..__version__ import __version__ as PCILEECH_FWGEN_VERSION  # type: ignore
 except Exception:  # pragma: no cover - fallback if package structure differs
     try:
-        from src.__version__ import (
+        from pcileechfwgenerator.__version__ import (
             __version__ as PCILEECH_FWGEN_VERSION,
         )  # type: ignore
     except Exception:
@@ -45,7 +45,7 @@ try:
     from .template_renderer import TemplateRenderer, TemplateRenderError
 except ImportError:
     # Fallback for standalone usage
-    from src.string_utils import (
+    from pcileechfwgenerator.string_utils import (
         generate_sv_header_comment,
         log_debug_safe,
         log_error_safe,
@@ -53,7 +53,7 @@ except ImportError:
         log_warning_safe,
         safe_format,
     )
-    from src.templating.sv_config import (
+    from pcileechfwgenerator.templating.sv_config import (
         AdvancedFeatureConfig,
         ErrorHandlingConfig,
         ErrorType,
@@ -64,7 +64,7 @@ except ImportError:
         PowerState,
         TransitionCycles,
     )
-    from src.templating.template_renderer import (
+    from pcileechfwgenerator.templating.template_renderer import (
         TemplateRenderer,
         TemplateRenderError,
     )

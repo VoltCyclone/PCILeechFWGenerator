@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from src.device_clone.hex_formatter import (ConfigSpaceHexFormatter,
+from pcileechfwgenerator.device_clone.hex_formatter import (ConfigSpaceHexFormatter,
                                             create_config_space_hex_file)
 
 

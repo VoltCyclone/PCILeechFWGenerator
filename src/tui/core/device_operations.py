@@ -9,9 +9,9 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.tui.core.protocols import DeviceManager, DeviceScanner
-from src.tui.models.device import PCIDevice
-from src.tui.utils.graceful_degradation import GracefulDegradation
+from pcileechfwgenerator.tui.core.protocols import DeviceManager, DeviceScanner
+from pcileechfwgenerator.tui.models.device import PCIDevice
+from pcileechfwgenerator.tui.utils.graceful_degradation import GracefulDegradation
 
 # Set up logging
 logger = logging.getLogger(__name__)

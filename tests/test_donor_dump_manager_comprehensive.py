@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 
-from src.file_management.donor_dump_manager import (DonorDumpError,
+from pcileechfwgenerator.file_management.donor_dump_manager import (DonorDumpError,
                                                     KernelHeadersNotFoundError,
                                                     ModuleBuildError)
 

@@ -5,8 +5,8 @@ Tests for PCIe Payload Size Configuration Module
 
 import pytest
 
-from src.device_clone.constants import VALID_MPS_VALUES
-from src.device_clone.payload_size_config import (
+from pcileechfwgenerator.device_clone.constants import VALID_MPS_VALUES
+from pcileechfwgenerator.device_clone.payload_size_config import (
     PayloadSizeConfig, PayloadSizeError, validate_and_configure_payload_size)
 
 
@@ -152,7 +152,7 @@ class TestIntegrationWithDeviceConfig:
 
     def test_device_capabilities_methods(self):
         """Test that DeviceCapabilities methods work correctly."""
-        from src.device_clone.device_config import DeviceCapabilities
+        from pcileechfwgenerator.device_clone.device_config import DeviceCapabilities
 
         # Test with default payload size
         caps = DeviceCapabilities()
@@ -172,7 +172,7 @@ class TestIntegrationWithDeviceConfig:
 
     def test_device_capabilities_validation(self):
         """Test that DeviceCapabilities validation uses PayloadSizeConfig."""
-        from src.device_clone.device_config import DeviceCapabilities
+        from pcileechfwgenerator.device_clone.device_config import DeviceCapabilities
 
         # Valid payload size
         caps = DeviceCapabilities(max_payload_size=1024)

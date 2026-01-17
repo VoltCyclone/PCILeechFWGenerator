@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.device_clone.bar_model_loader import (
+from pcileechfwgenerator.device_clone.bar_model_loader import (
     BarModel,
     RegisterSpec,
     load_bar_model,

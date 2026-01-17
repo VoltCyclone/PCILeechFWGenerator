@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.device_clone.overlay_mapper import OverlayMapper, RegisterType
+from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper, RegisterType
 
 
 class TestCalculateBarMaskCriticalPaths:
@@ -53,7 +53,7 @@ class TestCalculateBarMaskCriticalPaths:
         config_space = {4: 0x0000FC01}  # I/O BAR at offset 0x10
 
         patch_path = (
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size"
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size"
         )
         with patch(patch_path, return_value=None):
             mask = mapper._calculate_bar_mask(config_space, 0x10)
@@ -67,7 +67,7 @@ class TestCalculateBarMaskCriticalPaths:
         config_space = {4: 0x0000FC01}  # I/O BAR
 
         with patch(
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
             return_value=0,
         ):
             mask = mapper._calculate_bar_mask(config_space, 0x10)
@@ -79,7 +79,7 @@ class TestCalculateBarMaskCriticalPaths:
         config_space = {4: 0xFE000000}  # Memory BAR (32-bit) at offset 0x10
 
         with patch(
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
             return_value=None,
         ):
             mask = mapper._calculate_bar_mask(config_space, 0x10)
@@ -94,7 +94,7 @@ class TestCalculateBarMaskCriticalPaths:
         config_space = {4: 0xFE000000}  # Memory BAR
 
         with patch(
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
             return_value=0,
         ):
             mask = mapper._calculate_bar_mask(config_space, 0x10)
@@ -109,7 +109,7 @@ class TestCalculateBarMaskCriticalPaths:
 
         # Mock converter to return 16MB size
         with patch(
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
             return_value=0x01000000,
         ):
             mask = mapper._calculate_bar_mask(config_space, 0x10)
@@ -126,7 +126,7 @@ class TestCalculateBarMaskCriticalPaths:
 
         # Mock converter to return 256-byte I/O size
         with patch(
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
             return_value=0x100,
         ):
             mask = mapper._calculate_bar_mask(config_space, 0x10)
@@ -145,7 +145,7 @@ class TestCalculateBarMaskCriticalPaths:
         # Offset 0x18 (dword 6) should not be treated as 64-bit upper dword
         # because previous BAR (0x14) is not 64-bit
         with patch(
-            "src.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
+            "pcileechfwgenerator.device_clone.overlay_mapper.BarSizeConverter.address_to_size",
             return_value=None,
         ):
             mask = mapper._calculate_bar_mask(config_space, 0x18)

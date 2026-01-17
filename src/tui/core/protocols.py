@@ -9,7 +9,7 @@ import asyncio
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 # Import necessary types
-from src.tui.models.device import PCIDevice
+from pcileechfwgenerator.tui.models.device import PCIDevice
 
 
 @runtime_checkable

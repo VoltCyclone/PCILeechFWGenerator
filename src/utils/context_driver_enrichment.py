@@ -1,9 +1,9 @@
 import platform
 from typing import Any, Dict, List, Optional, Union
 
-from src.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
+from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
                               safe_format)
-from src.utils.unified_context import \
+from pcileechfwgenerator.utils.unified_context import \
     TemplateObject  # For context compatibility
 
 
@@ -40,7 +40,7 @@ def enrich_context_with_driver(
             obj[key] = value
 
     # Delayed imports to break cyclic dependency
-    from src.scripts import kernel_utils
+    from pcileechfwgenerator.scripts import kernel_utils
 
     # Dependency injection for testability
     is_linux = _is_linux if _is_linux is not None else kernel_utils.is_linux

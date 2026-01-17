@@ -19,11 +19,11 @@ from enum import IntEnum
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.device_clone.bar_size_converter import BarSizeConverter
+from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
 
-from src.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+from pcileechfwgenerator.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
 
-from src.string_utils import log_debug_safe, safe_format
+from pcileechfwgenerator.string_utils import log_debug_safe, safe_format
 
 
 class RegisterType(IntEnum):

@@ -10,19 +10,19 @@ import logging
 
 from typing import Any, Dict, List, Optional, Union
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_error_safe,
     log_info_safe,
     safe_format,
 )
 
-from src.utils.context_error_messages import (
+from pcileechfwgenerator.utils.context_error_messages import (
     OPTION_ROM_MISSING_SIZE,
     ROM_SIZE_MISMATCH,
     VPD_REQUIRED_MISSING,
 )
 
-from src.utils.validation_constants import (
+from pcileechfwgenerator.utils.validation_constants import (
     DEVICE_ID_FIELD_WIDTHS,
     DEVICE_IDENTIFICATION_FIELDS,
 )
@@ -366,7 +366,7 @@ class SVValidator:
 
         device_config = context["device_config"]
         # Accept both dict and TemplateObject types for device_config
-        from src.utils.unified_context import TemplateObject
+        from pcileechfwgenerator.utils.unified_context import TemplateObject
 
         if not isinstance(device_config, (dict, TemplateObject)):
             raise TemplateRenderError(

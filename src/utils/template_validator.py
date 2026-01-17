@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_info_safe,
     log_warning_safe,
     log_error_safe,

@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Test imports
-from src.utils.coe_report import find_coe_files, generate_coe_report
+from pcileechfwgenerator.utils.coe_report import find_coe_files, generate_coe_report
 
 
 def create_test_coe(path: Path, device_id: int = 0x7024, vendor_id: int = 0x10EE):

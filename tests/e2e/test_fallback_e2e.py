@@ -10,13 +10,13 @@ def test_cli_fallback_returns_success():
         sys.executable,
         '-c',
         (
-            'import src.device_clone.device_config as dc, json;'
+            'import pcileechfwgenerator.device_clone.device_config as dc, json;'
             "m=dc.get_device_config('this_profile_should_not_exist');"
             "print(json.dumps({'result': m is None}))"
         ),
     ]
 
-    # Ensure the subprocess runs from repo root so `import src...` succeeds
+    # Ensure the subprocess runs from repo root so `import pcileechfwgenerator...` succeeds
     repo_root = Path(__file__).resolve().parents[2]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo_root))
     assert proc.returncode == 0

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 # Project-standard logging utilities
-from src.string_utils import (log_error_safe, log_info_safe,
+from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe,
                               log_warning_safe, safe_format)
 
 logger = logging.getLogger(__name__)
@@ -822,7 +822,7 @@ class DonorDumpManager:
         )
 
         # Import vendor ID constants
-        from src.device_clone.constants import (VENDOR_ID_INTEL,
+        from pcileechfwgenerator.device_clone.constants import (VENDOR_ID_INTEL,
                                                 get_fallback_vendor_id)
 
         # Convert to hex string format
@@ -1024,7 +1024,7 @@ class DonorDumpManager:
                 # Optional standardized header (off by default for test parity)
                 if include_header:
                     try:
-                        from src.string_utils import \
+                        from pcileechfwgenerator.string_utils import \
                             generate_hex_header_comment
 
                         header = generate_hex_header_comment(

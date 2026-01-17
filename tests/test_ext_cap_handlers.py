@@ -15,14 +15,14 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.pci_capability.constants import (AER_CAPABILITY_VALUES,
+from pcileechfwgenerator.pci_capability.constants import (AER_CAPABILITY_VALUES,
                                           EXT_CAP_ID_AER, EXT_CAP_ID_ARI,
                                           EXT_CAP_ID_LTR, EXT_CAP_ID_PTM,
                                           EXT_CAP_ID_SRIOV)
-from src.pci_capability.core import ConfigSpace
-from src.pci_capability.processor import CapabilityProcessor
-from src.pci_capability.rules import RuleEngine
-from src.pci_capability.types import PCIExtCapabilityID, PruningAction
+from pcileechfwgenerator.pci_capability.core import ConfigSpace
+from pcileechfwgenerator.pci_capability.processor import CapabilityProcessor
+from pcileechfwgenerator.pci_capability.rules import RuleEngine
+from pcileechfwgenerator.pci_capability.types import PCIExtCapabilityID, PruningAction
 
 
 def _write_bytes(hex_list: List[str], offset: int, value_bytes: bytes) -> None:

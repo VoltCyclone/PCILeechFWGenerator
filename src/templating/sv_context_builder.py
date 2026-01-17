@@ -3,10 +3,10 @@
 import logging
 from typing import Any, Dict, List, Union
 
-from src.device_clone.identifier_normalizer import IdentifierNormalizer
-from src.device_clone.overlay_utils import compute_sparse_hash_table_size
-from src.string_utils import log_error_safe, log_warning_safe, safe_format
-from src.utils.validation_constants import SV_FILE_HEADER
+from pcileechfwgenerator.device_clone.identifier_normalizer import IdentifierNormalizer
+from pcileechfwgenerator.device_clone.overlay_utils import compute_sparse_hash_table_size
+from pcileechfwgenerator.string_utils import log_error_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
 from ..utils.unified_context import (
     DEFAULT_TIMING_CONFIG,
@@ -265,7 +265,11 @@ class SVContextBuilder:
     def _add_device_serial_number(
         self, context: Dict[str, Any], template_context: Dict[str, Any]
     ) -> None:
-        """Extract and normalize the donor device serial number (DSN)."""
+        """Extract and normalize the donor device serial number (DSN).
+        
+        If no DSN is available from the donor device, generates a deterministic
+        unique DSN from device identifiers to avoid the fingerprint of zero DSN.
+        """
 
         serial_candidate = self._extract_device_serial_number(template_context)
         serial_int = self._safe_hex_to_int(serial_candidate)
@@ -274,10 +278,14 @@ class SVContextBuilder:
         serial_int &= 0xFFFFFFFFFFFFFFFF
 
         if serial_int == 0:
+            # Generate deterministic DSN from device identifiers
+            # This avoids the fingerprint of zero DSN while being reproducible
+            serial_int = self._generate_deterministic_dsn(context, template_context)
             log_warning_safe(
                 self.logger,
                 safe_format(
-                    "Device serial number unavailable; cfg_dsn will default to 0"
+                    "Device serial number unavailable; generated deterministic DSN: 0x{dsn:016X}",
+                    dsn=serial_int
                 ),
                 prefix=self.prefix,
             )
@@ -286,13 +294,73 @@ class SVContextBuilder:
         context["device_serial_number_hex"] = safe_format(
             "0x{value:016X}", value=serial_int
         )
-        context["device_serial_number_valid"] = bool(serial_int)
+        context["device_serial_number_valid"] = True  # Always valid now
         context["device_serial_number_hi"] = (serial_int >> 32) & 0xFFFFFFFF
         context["device_serial_number_lo"] = serial_int & 0xFFFFFFFF
 
         # Semantic decomposition of DSN into OUI + serial components
         # Per PCIe spec: DSN lower 32 bits often contain OUI in bits [23:0]
         self._add_dsn_semantic_fields(context, serial_int)
+
+    def _generate_deterministic_dsn(
+        self, context: Dict[str, Any], template_context: Dict[str, Any]
+    ) -> int:
+        """
+        Generate a deterministic DSN when donor device doesn't provide one.
+        
+        The DSN is derived from:
+        - Vendor ID (16 bits) -> forms part of OUI
+        - Device ID (16 bits) -> forms part of serial component
+        - Subsystem IDs if available
+        - A mixing function to spread bits
+        
+        This ensures:
+        1. Same device config always produces same DSN (reproducible builds)
+        2. Different devices produce different DSNs (unique identification)
+        3. Never produces zero (avoids fingerprint)
+        
+        Per PCIe DSN Extended Capability (offset 0x100, Cap ID 0x0003):
+        - Lower 32 bits: Often IEEE OUI in bits [23:0] + extension byte
+        - Upper 32 bits: Device-specific serial number
+        """
+        import hashlib
+        
+        # Gather device identifiers
+        vendor_id = context.get("vendor_id_int", 0)
+        device_id = context.get("device_id_int", 0)
+        
+        # Try to get subsystem IDs for more entropy
+        device_config = template_context.get("device_config", {})
+        if hasattr(device_config, "get"):
+            subsys_vendor = self._safe_hex_to_int(device_config.get("subsystem_vendor_id", "0"))
+            subsys_device = self._safe_hex_to_int(device_config.get("subsystem_device_id", "0"))
+        else:
+            subsys_vendor = getattr(device_config, "subsystem_vendor_id_int", 0) or 0
+            subsys_device = getattr(device_config, "subsystem_device_id_int", 0) or 0
+        
+        # Create a seed string for hashing
+        seed_str = f"PCILeech_DSN_{vendor_id:04X}_{device_id:04X}_{subsys_vendor:04X}_{subsys_device:04X}"
+        
+        # Use SHA-256 for good distribution
+        hash_bytes = hashlib.sha256(seed_str.encode()).digest()
+        
+        # Extract 64 bits from hash
+        dsn_upper = int.from_bytes(hash_bytes[0:4], byteorder='big')
+        dsn_lower = int.from_bytes(hash_bytes[4:8], byteorder='big')
+        
+        # Structure the lower 32 bits per PCIe spec:
+        # Bits [23:0]: OUI derived from vendor ID (padded to 24 bits)
+        # Bits [31:24]: Extension byte from hash
+        oui = (vendor_id & 0xFFFF) | ((hash_bytes[8] & 0xFF) << 16)
+        extension = hash_bytes[9] & 0xFF
+        dsn_lower_structured = (extension << 24) | (oui & 0xFFFFFF)
+        
+        # Ensure non-zero (extremely unlikely with SHA-256, but be safe)
+        dsn_full = (dsn_upper << 32) | dsn_lower_structured
+        if dsn_full == 0:
+            dsn_full = 0x0001000000000001  # Fallback: minimal valid DSN
+        
+        return dsn_full
 
     def _add_dsn_semantic_fields(
         self, context: Dict[str, Any], dsn_value: int
@@ -999,4 +1067,4 @@ class SVContextBuilder:
 
 
 # Import at the end to avoid circular dependency
-from src.device_clone.device_config import DeviceClass, DeviceType
+from pcileechfwgenerator.device_clone.device_config import DeviceClass, DeviceType

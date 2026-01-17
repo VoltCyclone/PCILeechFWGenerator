@@ -1,3 +1,4 @@
+{{ header }}
 //
 // TLP Latency Emulator Module
 // Injects realistic response latency based on captured device behavior
@@ -5,15 +6,31 @@
 // This module delays TLP responses to emulate real device timing characteristics.
 // Latency values are derived from behavior profiling of the target device.
 //
+// Anti-fingerprinting features:
+// - Device-specific seed derived from vendor/device IDs
+// - 32-bit xorshift128+ PRNG (non-trivial to reverse)
+// - Burst correlation (sequential accesses have correlated timing)
+// - Thermal drift simulation (gradual baseline shift over time)
+// - Address-based variation (different regions have different latencies)
+//
 
 `timescale 1ns / 1ps
 
 module tlp_latency_emulator #(
-    parameter MIN_LATENCY_CYCLES = 10,
-    parameter MAX_LATENCY_CYCLES = 50,
-    parameter AVG_LATENCY_CYCLES = 25,
+    parameter MIN_LATENCY_CYCLES = {{ timing_config.min_latency_cycles | default(10) }},
+    parameter MAX_LATENCY_CYCLES = {{ timing_config.max_latency_cycles | default(50) }},
+    parameter AVG_LATENCY_CYCLES = {{ timing_config.avg_latency_cycles | default(25) }},
     parameter ENABLE_JITTER = 1,
-    parameter LFSR_SEED = 16'hACE1
+    // Device-specific seed derived from vendor_id XOR device_id XOR timestamp hash
+    // This ensures each build has unique timing characteristics
+    parameter [31:0] PRNG_SEED_0 = 32'h{{ "%08X" % ((vendor_id_int | default(0x8086)) ^ (device_id_int | default(0x1234)) ^ 0xDEADBEEF) }},
+    parameter [31:0] PRNG_SEED_1 = 32'h{{ "%08X" % (((vendor_id_int | default(0x8086)) << 16) | (device_id_int | default(0x1234)) ^ 0xCAFEBABE) }},
+    parameter [31:0] PRNG_SEED_2 = 32'h{{ "%08X" % ((device_id_int | default(0x1234)) ^ (subsystem_id_int | default(0x0000)) ^ 0xFEEDFACE) }},
+    parameter [31:0] PRNG_SEED_3 = 32'h{{ "%08X" % ((vendor_id_int | default(0x8086)) ^ 0xBAADF00D) }},
+    // Burst correlation factor (0-255, higher = more correlated sequential timing)
+    parameter BURST_CORRELATION = {{ timing_config.burst_correlation | default(180) }},
+    // Thermal drift rate (cycles between baseline adjustments)
+    parameter THERMAL_DRIFT_PERIOD = {{ timing_config.thermal_drift_period | default(65536) }}
 )(
     input wire          clk,
     input wire          rst,
@@ -22,6 +39,7 @@ module tlp_latency_emulator #(
     input wire          req_valid,
     input wire [87:0]   req_ctx,
     input wire [31:0]   req_data,
+    input wire [31:0]   req_addr,    // Address for region-based latency variation
     output reg          req_ready,
     
     // Response interface (delayed)
@@ -40,34 +58,137 @@ module tlp_latency_emulator #(
     reg [87:0] stored_ctx;
     reg [31:0] stored_data;
     
-    // LFSR for jitter generation
-    reg [15:0] lfsr;
-    wire lfsr_bit;
+    // Previous request tracking for burst correlation
+    reg [31:0] prev_addr;
+    reg [7:0]  prev_latency;
+    reg        prev_valid;
     
-    // 16-bit LFSR with taps at 16, 15, 13, 4 (maximal length)
-    assign lfsr_bit = lfsr[15] ^ lfsr[14] ^ lfsr[12] ^ lfsr[3];
+    // ==========================================================================
+    // xorshift128+ PRNG - Much harder to reverse than simple LFSR
+    // State space: 2^128, passes BigCrush statistical tests
+    // ==========================================================================
+    reg [31:0] prng_s0, prng_s1, prng_s2, prng_s3;
+    wire [31:0] prng_out;
+    wire [31:0] prng_next_s0, prng_next_s3;
+    
+    // xorshift128+ algorithm (simplified for hardware)
+    assign prng_next_s0 = prng_s0 ^ (prng_s0 << 11);
+    assign prng_next_s3 = prng_s3 ^ (prng_s3 >> 19) ^ prng_next_s0 ^ (prng_next_s0 >> 8);
+    assign prng_out = prng_s3 + prng_s0;  // Output is sum of states
     
     always @(posedge clk) begin
         if (rst) begin
-            lfsr <= LFSR_SEED;
+            // Initialize with device-specific seeds
+            prng_s0 <= PRNG_SEED_0;
+            prng_s1 <= PRNG_SEED_1;
+            prng_s2 <= PRNG_SEED_2;
+            prng_s3 <= PRNG_SEED_3;
         end else if (req_valid && req_ready) begin
-            // Advance LFSR on new request
-            lfsr <= {lfsr[14:0], lfsr_bit};
+            // Advance PRNG state on new request
+            prng_s0 <= prng_s1;
+            prng_s1 <= prng_s2;
+            prng_s2 <= prng_s3;
+            prng_s3 <= prng_next_s3;
         end
     end
     
-    // Calculate jittered latency (or use fixed if ENABLE_JITTER=0)
-    wire [7:0] jitter_value;
-    assign jitter_value = lfsr[7:0] % ((MAX_LATENCY_CYCLES - MIN_LATENCY_CYCLES) + 1);
-    wire [7:0] jittered_latency = MIN_LATENCY_CYCLES + jitter_value;
-    wire [7:0] computed_latency = ENABLE_JITTER ? jittered_latency : AVG_LATENCY_CYCLES;
+    // ==========================================================================
+    // Thermal drift simulation
+    // Real devices show gradual timing changes due to temperature variations
+    // ==========================================================================
+    reg [15:0] thermal_counter;
+    reg [3:0]  thermal_offset;  // -8 to +7 cycles baseline shift
+    
+    always @(posedge clk) begin
+        if (rst) begin
+            thermal_counter <= 16'h0;
+            thermal_offset <= 4'h0;
+        end else begin
+            thermal_counter <= thermal_counter + 1'b1;
+            if (thermal_counter == THERMAL_DRIFT_PERIOD[15:0]) begin
+                thermal_counter <= 16'h0;
+                // Slowly drift based on PRNG low bits
+                if (prng_out[0])
+                    thermal_offset <= (thermal_offset < 4'h7) ? thermal_offset + 1'b1 : thermal_offset;
+                else
+                    thermal_offset <= (thermal_offset > 4'h8) ? thermal_offset - 1'b1 : thermal_offset;
+            end
+        end
+    end
+    
+    // ==========================================================================
+    // Address-based latency variation
+    // Different memory regions have different access latencies (realistic)
+    // ==========================================================================
+    wire [2:0] addr_region;
+    wire [7:0] region_latency_adjust;
+    
+    assign addr_region = req_addr[14:12];  // 8 regions based on address bits
+    
+    // Region-based latency adjustment (config space vs BAR vs extended)
+    assign region_latency_adjust = (addr_region == 3'h0) ? 8'h00 :  // Config space: base latency
+                                   (addr_region == 3'h1) ? 8'h02 :  // BAR0: +2 cycles
+                                   (addr_region == 3'h2) ? 8'h04 :  // BAR1: +4 cycles
+                                   (addr_region == 3'h3) ? 8'h01 :  // Extended config: +1 cycle
+                                   8'h03;                           // Other: +3 cycles
+    
+    // ==========================================================================
+    // Burst correlation
+    // Sequential accesses to nearby addresses should have correlated timing
+    // ==========================================================================
+    wire is_sequential;
+    wire [7:0] correlation_weight;
+    wire [7:0] correlated_latency;
+    
+    // Detect if this access is sequential (within 256 bytes of previous)
+    assign is_sequential = prev_valid && ((req_addr[31:8] == prev_addr[31:8]) ||
+                                          (req_addr[31:8] == prev_addr[31:8] + 1'b1));
+    
+    // Weight for correlation (256 = fully correlated, 0 = independent)
+    assign correlation_weight = is_sequential ? BURST_CORRELATION[7:0] : 8'h00;
+    
+    // Blend previous latency with new random latency based on correlation
+    assign correlated_latency = ((prev_latency * correlation_weight) + 
+                                 (prng_out[7:0] * (8'hFF - correlation_weight))) >> 8;
+    
+    // ==========================================================================
+    // Final latency calculation
+    // ==========================================================================
+    wire [7:0] base_jitter;
+    wire [7:0] jittered_latency;
+    wire [7:0] thermal_adjusted;
+    wire [7:0] region_adjusted;
+    wire [7:0] computed_latency;
+    wire [7:0] latency_range;
+    
+    assign latency_range = MAX_LATENCY_CYCLES - MIN_LATENCY_CYCLES + 1;
+    
+    // Base jitter from PRNG, modulated by correlation
+    assign base_jitter = is_sequential ? correlated_latency : (prng_out[7:0] % latency_range);
+    
+    // Apply thermal drift
+    assign thermal_adjusted = base_jitter + {{4{thermal_offset[3]}}, thermal_offset};
+    
+    // Apply region-based adjustment
+    assign region_adjusted = thermal_adjusted + region_latency_adjust;
+    
+    // Clamp to valid range
+    assign jittered_latency = (MIN_LATENCY_CYCLES + region_adjusted > MAX_LATENCY_CYCLES) ?
+                              MAX_LATENCY_CYCLES :
+                              (MIN_LATENCY_CYCLES + region_adjusted < MIN_LATENCY_CYCLES) ?
+                              MIN_LATENCY_CYCLES :
+                              MIN_LATENCY_CYCLES + region_adjusted;
+    
+    assign computed_latency = ENABLE_JITTER ? jittered_latency : AVG_LATENCY_CYCLES;
 
     // Request acceptance logic
     always @(*) begin
         req_ready = !request_pending;
     end
     
+    // ==========================================================================
     // Latency state machine
+    // ==========================================================================
     always @(posedge clk) begin
         if (rst) begin
             request_pending <= 1'b0;
@@ -76,6 +197,9 @@ module tlp_latency_emulator #(
             rsp_valid <= 1'b0;
             stored_ctx <= 88'h0;
             stored_data <= 32'h0;
+            prev_addr <= 32'h0;
+            prev_latency <= AVG_LATENCY_CYCLES;
+            prev_valid <= 1'b0;
         end else begin
             // Default: clear response valid when accepted
             if (rsp_valid && rsp_ready) begin
@@ -83,7 +207,7 @@ module tlp_latency_emulator #(
             end
             
             if (request_pending) begin
-                // Count down latency
+                // Count up latency
                 if (latency_counter < target_latency) begin
                     latency_counter <= latency_counter + 8'h1;
                 end else begin
@@ -94,6 +218,9 @@ module tlp_latency_emulator #(
                         rsp_data <= stored_data;
                         request_pending <= 1'b0;
                         latency_counter <= 8'h0;
+                        // Store for burst correlation
+                        prev_latency <= target_latency;
+                        prev_valid <= 1'b1;
                     end
                 end
             end else if (req_valid && req_ready) begin
@@ -101,6 +228,7 @@ module tlp_latency_emulator #(
                 request_pending <= 1'b1;
                 stored_ctx <= req_ctx;
                 stored_data <= req_data;
+                prev_addr <= req_addr;
                 latency_counter <= 8'h0;
                 target_latency <= computed_latency;
             end

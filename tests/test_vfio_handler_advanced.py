@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
-from src.cli.vfio_handler import (
+from pcileechfwgenerator.cli.vfio_handler import (
     DeviceInfo,
     VFIOBinder,
     VFIOPathManager,
@@ -27,7 +27,7 @@ from src.cli.vfio_handler import (
 )
 
 # Import exceptions from the exceptions module
-from src.exceptions import (
+from pcileechfwgenerator.exceptions import (
     VFIOBindError,
     VFIOGroupError,
     VFIOPermissionError,
@@ -47,7 +47,7 @@ class TestVFIOBinderAdvancedErrorHandling:
     def test_vfio_binding_with_kernel_module_issues(self, valid_bdf):
         """Test handling of kernel module loading issues."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 # Simulate vfio-pci module not loaded
@@ -62,7 +62,7 @@ class TestVFIOBinderAdvancedErrorHandling:
     def test_concurrent_device_binding_conflicts(self, valid_bdf):
         """Test handling of concurrent binding conflicts."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 # Simulate EBUSY errors during binding
@@ -86,7 +86,7 @@ class TestVFIOBinderAdvancedErrorHandling:
     def test_file_descriptor_leak_prevention(self, valid_bdf):
         """Test that file descriptors are properly cleaned up on errors."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf, attach=True)
 
                 mock_device_fd = 100
@@ -104,7 +104,7 @@ class TestVFIOBinderAdvancedErrorHandling:
     def test_device_removal_during_binding(self, valid_bdf):
         """Test handling of device removal during binding process."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 # Simulate device disappearing during bind operation
@@ -126,7 +126,7 @@ class TestVFIOBinderAdvancedErrorHandling:
     def test_corrupted_sysfs_data_handling(self, valid_bdf):
         """Test handling of corrupted or malformed sysfs data."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
 
                 # Test corrupted driver symlink
                 with patch("os.readlink", side_effect=OSError("Invalid symlink")):
@@ -136,7 +136,7 @@ class TestVFIOBinderAdvancedErrorHandling:
     def test_vfio_group_state_race_conditions(self, valid_bdf):
         """Test race conditions in VFIO group state management."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 # Simulate group becoming unavailable between checks
@@ -167,7 +167,7 @@ class TestVFIOResourceManagement:
     def test_memory_mapping_edge_cases(self, valid_bdf):
         """Test memory mapping edge cases and error scenarios."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf, attach=True)
 
                 # Test memory mapping with invalid parameters
@@ -184,7 +184,7 @@ class TestVFIOResourceManagement:
     def test_cleanup_on_signal_interruption(self, valid_bdf):
         """Test cleanup behavior when interrupted by signals."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 binder.original_driver = "test_driver"
@@ -212,7 +212,7 @@ class TestVFIOResourceManagement:
         with patch("os.geteuid", return_value=0):
             # Different IOMMU groups for each device
             with patch(
-                "src.cli.vfio_handler._get_iommu_group",
+                "pcileechfwgenerator.cli.vfio_handler._get_iommu_group",
                 side_effect=lambda bdf: str(hash(bdf) % 100),
             ):
 
@@ -240,7 +240,7 @@ class TestVFIOResourceManagement:
     def test_vfio_container_reuse_safety(self, valid_bdf):
         """Test safety of VFIO container reuse scenarios."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
 
                 # Test sequential binding/unbinding cycles
                 for i in range(3):
@@ -279,7 +279,7 @@ class TestVFIOConcurrencyAndThreadSafety:
             try:
                 with patch("os.geteuid", return_value=0):
                     with patch(
-                        "src.cli.vfio_handler._get_iommu_group", return_value="42"
+                        "pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"
                     ):
                         binder = VFIOBinderImpl(valid_bdf)
                         binder.original_driver = "test_driver"
@@ -315,7 +315,7 @@ class TestVFIOConcurrencyAndThreadSafety:
         def worker(thread_id):
             with patch("os.geteuid", return_value=0):
                 with patch(
-                    "src.cli.vfio_handler._get_iommu_group",
+                    "pcileechfwgenerator.cli.vfio_handler._get_iommu_group",
                     return_value=str(thread_id),
                 ):
                     binder = VFIOBinderImpl(valid_bdf)
@@ -350,7 +350,7 @@ class TestVFIODeviceStateComplexity:
     def test_device_state_transition_validation(self, valid_bdf):
         """Test validation of device state transitions."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
 
                 # Test invalid state transitions
                 device_info = DeviceInfo(
@@ -374,7 +374,7 @@ class TestVFIODeviceStateComplexity:
     def test_stale_device_info_handling(self, valid_bdf):
         """Test handling of stale device information."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 # Create stale device info
@@ -403,7 +403,7 @@ class TestVFIODeviceStateComplexity:
     def test_partial_binding_state_recovery(self, valid_bdf):
         """Test recovery from partial binding states."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 # Simulate partial binding state
@@ -429,7 +429,7 @@ class TestVFIODiagnosticsAndDebugging:
 
     def test_comprehensive_vfio_diagnostics(self, valid_bdf):
         """Test comprehensive VFIO diagnostics collection."""
-        from src.cli.vfio_handler import run_diagnostics
+        from pcileechfwgenerator.cli.vfio_handler import run_diagnostics
 
         # Mock various system states for diagnostic collection
         with patch("pathlib.Path.exists", return_value=True):
@@ -442,7 +442,7 @@ class TestVFIODiagnosticsAndDebugging:
 
     def test_diagnostic_information_completeness(self, valid_bdf):
         """Test that diagnostic information is complete and useful."""
-        from src.cli.vfio_handler import render_pretty
+        from pcileechfwgenerator.cli.vfio_handler import render_pretty
 
         device_info = DeviceInfo(
             bdf=valid_bdf,
@@ -470,7 +470,7 @@ class TestVFIODiagnosticsAndDebugging:
     def test_error_context_preservation(self, valid_bdf):
         """Test that error context is preserved for debugging."""
         with patch("os.geteuid", return_value=0):
-            with patch("src.cli.vfio_handler._get_iommu_group", return_value="42"):
+            with patch("pcileechfwgenerator.cli.vfio_handler._get_iommu_group", return_value="42"):
                 binder = VFIOBinderImpl(valid_bdf)
 
                 original_error = OSError(errno.EACCES, "Permission denied")

@@ -9,15 +9,15 @@ including automatic cfg_force_mps parameter calculation and tiny PCIe algorithm 
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from src.device_clone.constants import (
+from pcileechfwgenerator.device_clone.constants import (
     MPS_VALUE_TO_ENCODING,
     PCIE_MPS_CONSTANTS,
     VALID_MPS_VALUES,
 )
 
-from src.exceptions import ContextError
+from pcileechfwgenerator.exceptions import ContextError
 
-from src.string_utils import (log_info_safe, log_warning_safe,
+from pcileechfwgenerator.string_utils import (log_info_safe, log_warning_safe,
                               safe_format)
 
 logger = logging.getLogger(__name__)

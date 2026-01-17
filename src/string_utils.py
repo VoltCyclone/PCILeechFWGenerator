@@ -610,7 +610,7 @@ def generate_sv_header_comment(
         >>> generate_sv_header_comment("PCIe Controller Module")
         '//... PCIe Controller Module ...'
     """
-    from src.utils.validation_constants import SV_FILE_HEADER
+    from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
     # Use the first line of the standardized header as a base (single-line banner)
     header_base = (
@@ -679,7 +679,7 @@ def generate_tcl_header_comment(
         ... )
     '# ... PCILeech Firmware Build Script ...'
     """
-    from src.utils.validation_constants import TCL_FILE_HEADER
+    from pcileechfwgenerator.utils.validation_constants import TCL_FILE_HEADER
 
     # Use the standardized header as a base (single-line banner)
     header_base = (
@@ -749,7 +749,7 @@ def generate_hex_header_comment(
     Returns:
         Formatted HEX header comment block
     """
-    from src.utils.validation_constants import HEX_FILE_HEADER
+    from pcileechfwgenerator.utils.validation_constants import HEX_FILE_HEADER
 
     # First line from standardized header as base
     header_base = (

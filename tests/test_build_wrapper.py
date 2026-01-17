@@ -6,12 +6,12 @@ from pathlib import Path
 import importlib
 
 
-import src.cli.build_wrapper as build_wrapper
+import pcileechfwgenerator.cli.build_wrapper as build_wrapper
 
-import src.cli.build_wrapper as build_wrapper
+import pcileechfwgenerator.cli.build_wrapper as build_wrapper
 
 
-def make_dummy_build_module(fullname: str = 'src.build'):
+def make_dummy_build_module(fullname: str = 'pcileechfwgenerator.build'):
     """Create a lightweight module object with a main() we can observe."""
     mod = types.ModuleType(fullname)
     mod.called = False  # type: ignore[attr-defined]
@@ -62,14 +62,14 @@ def test_path_setup(monkeypatch, container_exists):
 
 
 def test_main_runs_build(monkeypatch):
-    dummy = make_dummy_build_module('src.build')
+    dummy = make_dummy_build_module('pcileechfwgenerator.build')
     # Provide a lightweight 'src' package so 'from src import build' does not
     # import the real package (which has heavy side effects in __init__).
     pkg = types.ModuleType('src')
     pkg.__path__ = []  # mark as package
     pkg.build = dummy  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, 'src', pkg)
-    monkeypatch.setitem(sys.modules, 'src.build', dummy)
+    monkeypatch.setitem(sys.modules, 'pcileechfwgenerator.build', dummy)
     monkeypatch.setattr(build_wrapper, '__name__', '__main__')
     monkeypatch.setattr(build_wrapper, '__file__', __file__)
     # Patch sys.argv
@@ -95,7 +95,7 @@ def test_import_error_fallback(monkeypatch):
     monkeypatch.setattr(build_wrapper, '__file__', __file__)
     sys.argv = ['build_wrapper.py', '--test']
     # Remove src.build
-    sys.modules.pop('src.build', None)
+    sys.modules.pop('pcileechfwgenerator.build', None)
     # Patch importlib
     monkeypatch.setattr(importlib, 'reload', lambda mod: mod)
     # Patch import build fallback

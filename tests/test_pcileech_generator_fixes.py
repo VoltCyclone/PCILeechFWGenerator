@@ -17,7 +17,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 
 import pytest
 
-from src.device_clone.pcileech_generator import (
+from pcileechfwgenerator.device_clone.pcileech_generator import (
     PCILeechGenerationConfig,
     PCILeechGenerator,
     PCILeechGenerationError,
@@ -73,11 +73,11 @@ def generator_config(tmp_path: Path) -> PCILeechGenerationConfig:
 def generator(generator_config, mock_config_space_manager):
     """Create PCILeechGenerator with mocked dependencies."""
     with patch(
-        "src.device_clone.pcileech_generator.ConfigSpaceManager",
+        "pcileechfwgenerator.device_clone.pcileech_generator.ConfigSpaceManager",
         return_value=mock_config_space_manager
     ):
         with patch(
-            "src.device_clone.pcileech_generator.BehaviorProfiler"
+            "pcileechfwgenerator.device_clone.pcileech_generator.BehaviorProfiler"
         ):
             gen = PCILeechGenerator(generator_config)
             gen.config_space_manager = mock_config_space_manager
@@ -166,7 +166,7 @@ def test_writemask_uses_src_directory(generator, tmp_path):
     }
     
     # Mock WritemaskGenerator
-    with patch("src.device_clone.pcileech_generator.WritemaskGenerator") as mock_wm:
+    with patch("pcileechfwgenerator.device_clone.pcileech_generator.WritemaskGenerator") as mock_wm:
         mock_instance = Mock()
         mock_wm.return_value = mock_instance
         mock_instance.generate_writemask = Mock()
@@ -196,7 +196,7 @@ def test_vfio_manager_close_called_on_success(generator, mock_vfio_manager):
     mock_vfio_manager.read_region_slice.return_value = b'\x00' * 64
     
     with patch(
-        "src.device_clone.pcileech_generator.VFIODeviceManager",
+        "pcileechfwgenerator.device_clone.pcileech_generator.VFIODeviceManager",
         return_value=mock_vfio_manager
     ):
         result = generator._capture_msix_table_entries(msix_data)
@@ -218,7 +218,7 @@ def test_vfio_manager_close_called_on_error(generator, mock_vfio_manager):
     mock_vfio_manager.read_region_slice.side_effect = RuntimeError("Read failed")
     
     with patch(
-        "src.device_clone.pcileech_generator.VFIODeviceManager",
+        "pcileechfwgenerator.device_clone.pcileech_generator.VFIODeviceManager",
         return_value=mock_vfio_manager
     ):
         with pytest.raises(RuntimeError):
@@ -241,7 +241,7 @@ def test_vfio_manager_without_close_method(generator):
     mock_manager.read_region_slice.return_value = b'\x00' * 64
     
     with patch(
-        "src.device_clone.pcileech_generator.VFIODeviceManager",
+        "pcileechfwgenerator.device_clone.pcileech_generator.VFIODeviceManager",
         return_value=mock_manager
     ):
         # Should not raise AttributeError
@@ -259,7 +259,7 @@ def test_process_msix_capabilities_guards_none_return(generator):
     }
     
     with patch(
-        "src.device_clone.pcileech_generator.parse_msix_capability",
+        "pcileechfwgenerator.device_clone.pcileech_generator.parse_msix_capability",
         return_value=None
     ):
         result = generator._process_msix_capabilities(config_space_data)
@@ -283,7 +283,7 @@ def test_process_msix_capabilities_guards_zero_table_size(generator):
     }
     
     with patch(
-        "src.device_clone.pcileech_generator.parse_msix_capability",
+        "pcileechfwgenerator.device_clone.pcileech_generator.parse_msix_capability",
         return_value=msix_info
     ):
         result = generator._process_msix_capabilities(config_space_data)
@@ -303,11 +303,11 @@ def test_process_msix_capabilities_uses_get_safely(generator):
     }
     
     with patch(
-        "src.device_clone.pcileech_generator.parse_msix_capability",
+        "pcileechfwgenerator.device_clone.pcileech_generator.parse_msix_capability",
         return_value=partial_msix_info
     ):
         with patch(
-            "src.device_clone.pcileech_generator.validate_msix_configuration",
+            "pcileechfwgenerator.device_clone.pcileech_generator.validate_msix_configuration",
             return_value=(True, [])
         ):
             # Should not raise KeyError
@@ -518,7 +518,7 @@ def test_bar_coercion_handles_attribute_based_format(generator):
 
 def test_future_annotations_import():
     """Test that future annotations import is present for Python 3.8 compat."""
-    import src.device_clone.pcileech_generator as module
+    import pcileechfwgenerator.device_clone.pcileech_generator as module
     import sys
     
     # Check if __future__ annotations are enabled
@@ -530,7 +530,7 @@ def test_future_annotations_import():
 
 def test_contextmanager_import_at_module_level():
     """Test that contextmanager is imported at module level."""
-    import src.device_clone.pcileech_generator as module
+    import pcileechfwgenerator.device_clone.pcileech_generator as module
     
     # Should be able to access contextmanager without errors
     # The _generation_step method should work
@@ -539,7 +539,7 @@ def test_contextmanager_import_at_module_level():
 
 def test_log_debug_safe_imported():
     """Test that log_debug_safe is properly imported."""
-    from src.device_clone.pcileech_generator import log_debug_safe
+    from pcileechfwgenerator.device_clone.pcileech_generator import log_debug_safe
     
     assert log_debug_safe is not None
     assert callable(log_debug_safe)

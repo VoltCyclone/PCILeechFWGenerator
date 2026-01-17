@@ -8,7 +8,7 @@ size estimates, and pruning action mapping.
 
 import pytest
 
-from src.pci_capability.types import (
+from pcileechfwgenerator.pci_capability.types import (
     CapabilityInfo,
     CapabilityType,
     EmulationCategory,
@@ -16,7 +16,7 @@ from src.pci_capability.types import (
     PCIExtCapabilityID,
     PruningAction,
 )
-from src.pci_capability.constants import (
+from pcileechfwgenerator.pci_capability.constants import (
     EXT_CAP_SIZE_ACCESS_CONTROL_SERVICES,
     EXT_CAP_SIZE_ADVANCED_ERROR_REPORTING,
     EXT_CAP_SIZE_DEFAULT,
@@ -28,7 +28,7 @@ from src.pci_capability.constants import (
     STD_CAP_SIZE_PCI_EXPRESS,
     STD_CAP_SIZE_POWER_MANAGEMENT,
 )
-from src.pci_capability import utils as U
+from pcileechfwgenerator.pci_capability import utils as U
 
 
 class TestHeaderHelpers:

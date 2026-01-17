@@ -16,12 +16,12 @@ import pytest
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.string_utils import safe_format
+from pcileechfwgenerator.string_utils import safe_format
 
-from src.templating.sv_validator import SVValidator
-from src.templating.template_renderer import TemplateRenderError
+from pcileechfwgenerator.templating.sv_validator import SVValidator
+from pcileechfwgenerator.templating.template_renderer import TemplateRenderError
 
-from src.utils.unified_context import TemplateObject
+from pcileechfwgenerator.utils.unified_context import TemplateObject
 
 logger = logging.getLogger(__name__)
 

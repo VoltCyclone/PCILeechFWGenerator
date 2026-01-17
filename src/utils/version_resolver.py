@@ -11,8 +11,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from src.log_config import get_logger
-from src.string_utils import log_debug_safe
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import log_debug_safe
 
 # Module logger for consistent logging
 logger = get_logger("version_resolver")

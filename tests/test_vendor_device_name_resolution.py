@@ -4,7 +4,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from src.device_clone.pcileech_context import PCILeechContextBuilder
+from pcileechfwgenerator.device_clone.pcileech_context import PCILeechContextBuilder
 
 
 class TestVendorDeviceNameResolution(unittest.TestCase):

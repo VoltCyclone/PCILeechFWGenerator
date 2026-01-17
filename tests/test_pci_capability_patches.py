@@ -10,9 +10,9 @@ from typing import List, Optional
 
 import pytest
 
-from src.pci_capability.core import ConfigSpace
-from src.pci_capability.patches import BinaryPatch, PatchEngine
-from src.pci_capability.types import PatchInfo
+from pcileechfwgenerator.pci_capability.core import ConfigSpace
+from pcileechfwgenerator.pci_capability.patches import BinaryPatch, PatchEngine
+from pcileechfwgenerator.pci_capability.types import PatchInfo
 
 
 def make_config_space_with_bytes(

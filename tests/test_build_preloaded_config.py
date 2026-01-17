@@ -19,7 +19,7 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.build import BuildConfiguration, FirmwareBuilder
+from pcileechfwgenerator.build import BuildConfiguration, FirmwareBuilder
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ class TestPreloadedConfigSpace:
             )
             
             # Mock PCILeechGenerator at import location within FirmwareBuilder
-            patch_path = "src.device_clone.pcileech_generator.PCILeechGenerator"
+            patch_path = "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
             with mock.patch(patch_path) as MockGenerator:
                 builder = FirmwareBuilder(config)
                 
@@ -215,7 +215,7 @@ class TestPreloadedConfigSpace:
                 output_dir=temp_dir,
             )
             
-            patch_path = "src.device_clone.pcileech_generator.PCILeechGenerator"
+            patch_path = "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
             with mock.patch(patch_path) as MockGenerator:
                 builder = FirmwareBuilder(config)
                 
@@ -332,7 +332,7 @@ class TestPreloadedConfigSpaceIntegration:
             )
             
             # Mock the PCILeechGenerator class
-            patch_path = "src.device_clone.pcileech_generator.PCILeechGenerator"
+            patch_path = "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
             with mock.patch(patch_path) as MockGenerator:
                 mock_gen_instance = mock.MagicMock()
                 MockGenerator.return_value = mock_gen_instance
@@ -374,27 +374,27 @@ def test_host_context_device_config_construction(
         
         # Mock all the necessary components
         with mock.patch(
-            "src.device_clone.pcileech_generator.PCILeechGenerator"
+            "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
         ) as mock_gen_class, mock.patch(
-            "src.build.FirmwareBuilder._validate_board_template"
+            "pcileechfwgenerator.build.FirmwareBuilder._validate_board_template"
         ), mock.patch(
-            "src.build.FirmwareBuilder._generate_firmware"
+            "pcileechfwgenerator.build.FirmwareBuilder._generate_firmware"
         ), mock.patch(
-            "src.build.FirmwareBuilder._write_modules"
+            "pcileechfwgenerator.build.FirmwareBuilder._write_modules"
         ), mock.patch(
-            "src.build.FirmwareBuilder._generate_profile"
+            "pcileechfwgenerator.build.FirmwareBuilder._generate_profile"
         ), mock.patch(
-            "src.build.FirmwareBuilder._generate_tcl_scripts"
+            "pcileechfwgenerator.build.FirmwareBuilder._generate_tcl_scripts"
         ), mock.patch(
-            "src.build.FirmwareBuilder._write_xdc_files"
+            "pcileechfwgenerator.build.FirmwareBuilder._write_xdc_files"
         ), mock.patch(
-            "src.build.FirmwareBuilder._save_device_info"
+            "pcileechfwgenerator.build.FirmwareBuilder._save_device_info"
         ), mock.patch(
-            "src.build.FirmwareBuilder._run_post_build_validation"
+            "pcileechfwgenerator.build.FirmwareBuilder._run_post_build_validation"
         ), mock.patch(
-            "src.build.FirmwareBuilder._save_file_manifest"
+            "pcileechfwgenerator.build.FirmwareBuilder._save_file_manifest"
         ), mock.patch(
-            "src.file_management.file_manager.FileManager"
+            "pcileechfwgenerator.file_management.file_manager.FileManager"
         ) as mock_fm_class:
             
             mock_gen = mock.MagicMock()

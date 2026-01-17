@@ -1,16 +1,16 @@
 import pytest
 
-from src.device_clone.bar_size_converter import BarSizeConverter
-from src.device_clone.behavior_profiler import (BehaviorProfile,
+from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
+from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
                                                 BehaviorProfiler,
                                                 RegisterAccess)
-from src.device_clone.board_config import (get_fpga_family, get_fpga_part,
+from pcileechfwgenerator.device_clone.board_config import (get_fpga_family, get_fpga_part,
                                            get_pcie_ip_type, validate_board)
-from src.device_clone.config_space_manager import BarInfo, ConfigSpaceManager
+from pcileechfwgenerator.device_clone.config_space_manager import BarInfo, ConfigSpaceManager
 
-from src.device_clone.overlay_mapper import OverlayMapper
+from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper
 
-from src.string_utils import safe_format
+from pcileechfwgenerator.string_utils import safe_format
 
 # Integration test for BarSizeConverter
 
@@ -111,7 +111,7 @@ def test_board_config_integration(monkeypatch):
         }
     }
     monkeypatch.setattr(
-        "src.device_clone.board_config._ensure_board_cache",
+        "pcileechfwgenerator.device_clone.board_config._ensure_board_cache",
         lambda repo_root=None: fake_board,
     )
     assert get_fpga_part("testboard") == "xc7a35t"

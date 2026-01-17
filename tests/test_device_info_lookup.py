@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, mock_open, patch
 
-from src.device_clone.device_info_lookup import (DeviceInfoLookup,
+from pcileechfwgenerator.device_clone.device_info_lookup import (DeviceInfoLookup,
                                                  lookup_device_info)
 
 
@@ -57,8 +57,8 @@ class TestDeviceInfoLookup(unittest.TestCase):
         }
         self.assertFalse(self.lookup._has_required_fields(info))
 
-    @patch("src.device_clone.device_info_lookup.Path.exists")
-    @patch("src.device_clone.device_info_lookup.Path.read_text")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.Path.exists")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.Path.read_text")
     def test_get_info_from_sysfs_success(self, mock_read_text, mock_exists):
         """Test successful device info extraction from sysfs."""
         # Mock sysfs file existence and content
@@ -81,7 +81,7 @@ class TestDeviceInfoLookup(unittest.TestCase):
         self.assertEqual(info["subsystem_vendor_id"], 0x8086)
         self.assertEqual(info["subsystem_device_id"], 0xA01F)
 
-    @patch("src.device_clone.device_info_lookup.Path.exists")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.Path.exists")
     def test_get_info_from_sysfs_missing_files(self, mock_exists):
         """Test device info extraction from sysfs when files are missing."""
         mock_exists.return_value = False
@@ -91,7 +91,7 @@ class TestDeviceInfoLookup(unittest.TestCase):
         # Should return empty dict when files don't exist
         self.assertEqual(info, {})
 
-    @patch("src.device_clone.device_info_lookup.subprocess.run")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.subprocess.run")
     def test_get_info_from_lspci_success(self, mock_run):
         """Test successful device info extraction from lspci."""
         # Mock lspci output
@@ -113,7 +113,7 @@ class TestDeviceInfoLookup(unittest.TestCase):
         self.assertEqual(info["subsystem_vendor_id"], 0x8086)
         self.assertEqual(info["subsystem_device_id"], 0xA01F)
 
-    @patch("src.device_clone.device_info_lookup.subprocess.run")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.subprocess.run")
     def test_get_info_from_lspci_failure(self, mock_run):
         """Test device info extraction from lspci when command fails."""
         mock_result = Mock()
@@ -126,7 +126,7 @@ class TestDeviceInfoLookup(unittest.TestCase):
         # Should return empty dict on failure
         self.assertEqual(info, {})
 
-    @patch("src.device_clone.device_info_lookup.subprocess.run")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.subprocess.run")
     def test_get_info_from_lspci_timeout(self, mock_run):
         """Test device info extraction from lspci when command times out."""
         mock_run.side_effect = subprocess.TimeoutExpired("lspci", 5)
@@ -141,7 +141,7 @@ class TestDeviceInfoLookup(unittest.TestCase):
         new_callable=mock_open,
         read_data=b"\x86\x80\xd3\x10" + b"\x00" * 252,
     )
-    @patch("src.device_clone.device_info_lookup.Path.exists")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.Path.exists")
     def test_get_info_from_config_space_success(self, mock_exists, mock_file):
         """Test successful device info extraction from config space."""
         mock_exists.return_value = True
@@ -151,7 +151,7 @@ class TestDeviceInfoLookup(unittest.TestCase):
         self.assertEqual(info["vendor_id"], 0x8086)
         self.assertEqual(info["device_id"], 0x10D3)
 
-    @patch("src.device_clone.device_info_lookup.Path.exists")
+    @patch("pcileechfwgenerator.device_clone.device_info_lookup.Path.exists")
     def test_get_info_from_config_space_no_file(self, mock_exists):
         """Test device info extraction from config space when file doesn't exist."""
         mock_exists.return_value = False

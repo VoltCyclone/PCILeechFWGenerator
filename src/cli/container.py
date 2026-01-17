@@ -414,7 +414,7 @@ def _build_podman_command(
     _image, _tag = cfg.resolve_image_parts()
     cmd.append(f"{_image}:{_tag}")
     # Python module invocation and build args
-    cmd.extend(["-m", "src.build"])  # entrypoint already python3
+    cmd.extend(["-m", "pcileechfwgenerator.build"])  # entrypoint already python3
     cmd.extend(cfg.cmd_args())
     return cmd
 
@@ -487,7 +487,7 @@ def run_local_build(cfg: BuildConfig) -> None:
         # Try alternative import path
         sys.path.insert(0, str(Path(__file__).parent.parent.parent))
         try:
-            from src.build import main as build_main
+            from pcileechfwgenerator.build import main as build_main
         except ImportError:
             log_error_safe(
                 logger,

@@ -7,7 +7,7 @@ variable handling to guard against regressions if TTY logic changes again.
 
 import os
 
-from src.cli import container
+from pcileechfwgenerator.cli import container
 
 
 def test_prompt_skipped_when_no_interactive(monkeypatch):

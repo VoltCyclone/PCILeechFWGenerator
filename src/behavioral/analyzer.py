@@ -4,7 +4,7 @@
 import logging
 from typing import Any, Optional
 
-from src.string_utils import log_info_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, log_warning_safe, safe_format
 from .base import BehavioralSpec
 from .network_behavioral import NetworkBehavioralAnalyzer
 from .storage_behavioral import StorageBehavioralAnalyzer

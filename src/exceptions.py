@@ -8,7 +8,7 @@ error handling and debugging capabilities throughout the application.
 
 from typing import Optional
 
-from src.string_utils import safe_format
+from pcileechfwgenerator.string_utils import safe_format
 
 
 class PCILeechError(Exception):

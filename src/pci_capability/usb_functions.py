@@ -85,7 +85,7 @@ class USBFunctionAnalyzer(BaseFunctionAnalyzer):
         ) & USB_DEVICE_UPPER_MASK
 
         # Import vendor ID constants
-        from src.device_clone.constants import VENDOR_ID_AMD, VENDOR_ID_INTEL
+        from pcileechfwgenerator.device_clone.constants import VENDOR_ID_AMD, VENDOR_ID_INTEL
 
         # Vendor-specific patterns
         if self.vendor_id == VENDOR_ID_INTEL:  # Intel

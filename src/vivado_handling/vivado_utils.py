@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     safe_format,
     log_info_safe,
     log_warning_safe,
@@ -237,7 +237,7 @@ def run_vivado_command(
             import importlib
 
             vivado_error_reporter_module = importlib.import_module(
-                ".vivado_error_reporter", package="src.vivado_handling"
+                ".vivado_error_reporter", package="pcileechfwgenerator.vivado_handling"
             )
             VivadoErrorReporter = getattr(
                 vivado_error_reporter_module, "VivadoErrorReporter"

@@ -16,13 +16,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.build import (BUFFER_SIZE, DEFAULT_OUTPUT_DIR,
+from pcileechfwgenerator.build import (BUFFER_SIZE, DEFAULT_OUTPUT_DIR,
                        DEFAULT_PROFILE_DURATION, MAX_PARALLEL_FILE_WRITES,
                        REQUIRED_MODULES, SPECIAL_FILE_EXTENSIONS,
                        SYSTEMVERILOG_EXTENSION, BuildConfiguration,
                        DeviceConfiguration, FirmwareBuilder, ModuleChecker,
                        MSIXData, _as_int, _optional_int)
-from src.exceptions import (ConfigurationError, FileOperationError,
+from pcileechfwgenerator.exceptions import (ConfigurationError, FileOperationError,
                             MSIXPreloadError, PCILeechBuildError,
                             VivadoIntegrationError)
 
@@ -202,9 +202,9 @@ class TestFirmwareBuilder:
             output_dir=Path("/tmp/test_output"),
         )
 
-    @patch("src.build.MSIXManager")
-    @patch("src.build.FileOperationsManager")
-    @patch("src.build.ConfigurationManager")
+    @patch("pcileechfwgenerator.build.MSIXManager")
+    @patch("pcileechfwgenerator.build.FileOperationsManager")
+    @patch("pcileechfwgenerator.build.ConfigurationManager")
     def test_initialization(
         self, mock_config_mgr, mock_file_mgr, mock_msix_mgr, mock_config
     ):
@@ -214,9 +214,9 @@ class TestFirmwareBuilder:
         assert builder.config == mock_config
         assert builder.logger is not None
 
-    @patch("src.build.MSIXManager")
-    @patch("src.build.FileOperationsManager")
-    @patch("src.build.ConfigurationManager")
+    @patch("pcileechfwgenerator.build.MSIXManager")
+    @patch("pcileechfwgenerator.build.FileOperationsManager")
+    @patch("pcileechfwgenerator.build.ConfigurationManager")
     def test_initialization_with_custom_managers(
         self, mock_config_mgr, mock_file_mgr, mock_msix_mgr, mock_config
     ):
@@ -263,7 +263,7 @@ class TestBuildConstants:
         """Test REQUIRED_MODULES constant is defined."""
         assert isinstance(REQUIRED_MODULES, list)
         assert len(REQUIRED_MODULES) > 0
-        assert "src.device_clone.pcileech_generator" in REQUIRED_MODULES
+        assert "pcileechfwgenerator.device_clone.pcileech_generator" in REQUIRED_MODULES
 
     def test_special_file_extensions_constant(self):
         """Test SPECIAL_FILE_EXTENSIONS constant is defined."""

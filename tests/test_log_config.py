@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.log_config import (
+from pcileechfwgenerator.log_config import (
     FallbackColoredFormatter,
     get_logger,
     setup_logging,

@@ -20,20 +20,20 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from src.exceptions import FileOperationError
+from pcileechfwgenerator.exceptions import FileOperationError
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
 )
-from src.pci_capability.constants import (
+from pcileechfwgenerator.pci_capability.constants import (
     STANDARD_CAPABILITY_NAMES as CAPABILITY_NAMES,
     EXTENDED_CAPABILITY_NAMES,
 )
-from src.device_clone.constants import (
+from pcileechfwgenerator.device_clone.constants import (
     FIXED_SECTION,
     WRITEMASK_DICT,
     WRITE_PROTECTED_BITS_MSI_64_BIT_1,

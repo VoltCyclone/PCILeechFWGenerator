@@ -6,7 +6,7 @@ import hashlib
 
 import pytest
 
-from src.device_clone.bar_content_generator import (BarContentGenerator,
+from pcileechfwgenerator.device_clone.bar_content_generator import (BarContentGenerator,
                                                     BarContentType)
 
 

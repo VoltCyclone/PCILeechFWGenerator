@@ -15,9 +15,9 @@ from unittest.mock import MagicMock, Mock, patch, mock_open
 
 
 # Module path constant for HostCollector to improve maintainability.
-HOST_COLLECTOR_CLASS_PATH = "src.host_collect.collector.HostCollector"
-FIND_VIVADO_INSTALLATION_PATH = "src.vivado_handling.find_vivado_installation"
-VIVADO_RUNNER_PATH = "src.vivado_handling.VivadoRunner"
+HOST_COLLECTOR_CLASS_PATH = "pcileechfwgenerator.host_collect.collector.HostCollector"
+FIND_VIVADO_INSTALLATION_PATH = "pcileechfwgenerator.vivado_handling.find_vivado_installation"
+VIVADO_RUNNER_PATH = "pcileechfwgenerator.vivado_handling.VivadoRunner"
 
 
 class TestHostCollect:
@@ -256,8 +256,8 @@ class TestLocalTemplating:
         mock_builder = MagicMock()
         mock_builder.build.return_value = ["artifact1", "artifact2"]
 
-        with patch("src.build.FirmwareBuilder", return_value=mock_builder):
-            with patch("src.build.ConfigurationManager") as mock_cfg_mgr:
+        with patch("pcileechfwgenerator.build.FirmwareBuilder", return_value=mock_builder):
+            with patch("pcileechfwgenerator.build.ConfigurationManager") as mock_cfg_mgr:
                 mock_cfg = MagicMock()
                 mock_cfg_mgr.return_value.create_from_args.return_value = mock_cfg
 

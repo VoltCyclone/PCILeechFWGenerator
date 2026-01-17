@@ -7,11 +7,11 @@ import statistics
 
 from unittest.mock import Mock, patch
 
-from src.string_utils import log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 
 import pytest
 
-from src.device_clone.manufacturing_variance import (
+from pcileechfwgenerator.device_clone.manufacturing_variance import (
     DeviceClass, ManufacturingVarianceSimulator, TimingDatum, VarianceModel,
     VarianceParameters, VarianceType, clamp)
 

@@ -6,14 +6,14 @@ from unittest.mock import Mock, mock_open, patch
 
 import pytest
 
-from src.device_clone.config_space_manager import (
+from pcileechfwgenerator.device_clone.config_space_manager import (
     BarInfo,
     ConfigSpaceConstants,
     ConfigSpaceManager,
     VFIOError,
     SysfsError,
 )
-from src.exceptions import ConfigSpaceError, VFIOConfigSpaceError, SysfsConfigSpaceError
+from pcileechfwgenerator.exceptions import ConfigSpaceError, VFIOConfigSpaceError, SysfsConfigSpaceError
 
 
 class TestBarInfo:
@@ -453,7 +453,7 @@ class TestBarSizeDetection:
         assert bar_info.prefetchable is False
 
         # Test that this is now >= minimum size requirement
-        from src.device_clone.constants import BAR_SIZE_CONSTANTS
+        from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
 
         assert bar_info.size >= BAR_SIZE_CONSTANTS["MIN_MEMORY_SIZE"]  # 128 bytes
 
@@ -463,7 +463,7 @@ class TestBarSizeDetection:
 
     def test_broken_address_to_size_comparison(self):
         """Test that our fix produces correct results vs the broken method."""
-        from src.device_clone.bar_size_converter import BarSizeConverter
+        from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
 
         # Test the address_to_size method
         bar_size = BarSizeConverter.address_to_size(0xF6600000, "memory")
@@ -490,7 +490,7 @@ class TestStringUtilsBarFormatting:
 
     def test_format_bar_table_with_mock_bars(self):
         """Test BAR table formatting with mock BAR data."""
-        from src.string_utils import format_bar_table
+        from pcileechfwgenerator.string_utils import format_bar_table
 
         # Create mock BAR objects
         mock_bar = Mock()
@@ -514,7 +514,7 @@ class TestStringUtilsBarFormatting:
 
     def test_format_bar_table_defensive_getattr(self):
         """Test that BAR table formatting handles missing attributes gracefully."""
-        from src.string_utils import format_bar_table
+        from pcileechfwgenerator.string_utils import format_bar_table
 
         # Create a mock object with all necessary attributes set to proper values
         mock_bar = Mock()

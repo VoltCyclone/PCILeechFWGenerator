@@ -103,7 +103,7 @@ async def check_vivado_status() -> Dict[str, Any]:
     """
     # Import vivado_utils from vivado_handling package
     try:
-        from src.vivado_handling.vivado_utils import find_vivado_installation
+        from pcileechfwgenerator.vivado_handling.vivado_utils import find_vivado_installation
 
         # Use the utility function to find Vivado
         vivado_info = find_vivado_installation()
@@ -233,7 +233,7 @@ async def get_usb_device_count() -> Dict[str, Any]:
     Returns:
         Dictionary with USB device count information
     """
-    from src.cli.flash import list_usb_devices
+    from pcileechfwgenerator.cli.flash import list_usb_devices
 
     devices = await asyncio.get_event_loop().run_in_executor(None, list_usb_devices)
     return {"count": len(devices), "devices": devices[:5]}  # Show first 5

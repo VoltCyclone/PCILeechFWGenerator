@@ -29,7 +29,7 @@ from typing import (
     Union,
 )
 
-from src.string_utils import (
+from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
@@ -349,7 +349,7 @@ class FallbackManager:
             if part not in current:
                 if create_missing:
                     try:
-                        from src.utils.unified_context import TemplateObject
+                        from pcileechfwgenerator.utils.unified_context import TemplateObject
 
                         current[part] = TemplateObject({})
                     except Exception:
@@ -599,7 +599,7 @@ class FallbackManager:
         # consumers still receive TemplateObjects rather than plain dicts.
         if original_was_template_object:
             try:
-                from src.utils.unified_context import ensure_template_compatibility
+                from pcileechfwgenerator.utils.unified_context import ensure_template_compatibility
 
                 return ensure_template_compatibility(context)
             except Exception:

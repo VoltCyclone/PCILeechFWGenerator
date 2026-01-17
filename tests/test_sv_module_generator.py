@@ -14,11 +14,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.string_utils import log_error_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, safe_format
 
-from src.templating.sv_overlay_generator import SVOverlayGenerator
+from pcileechfwgenerator.templating.sv_overlay_generator import SVOverlayGenerator
 
-from src.templating.template_renderer import (
+from pcileechfwgenerator.templating.template_renderer import (
     TemplateRenderer,
     TemplateRenderError,
 )
@@ -706,7 +706,7 @@ if __name__ == "__main__":
             assert result["data_size"] == 4
             assert "name" in result
 
-    @patch('src.templating.sv_module_generator.log_error_safe')
+    @patch('pcileechfwgenerator.templating.sv_module_generator.log_error_safe')
     def test_device_identifier_validation_logging(self, mock_log, sv_generator, valid_context):
         """Test that device identifier validation logs correctly."""
         self.validate_test_contract(valid_context)

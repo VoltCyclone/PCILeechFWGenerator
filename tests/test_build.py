@@ -24,7 +24,7 @@ project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
+from pcileechfwgenerator.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
     BUFFER_SIZE,
     CONFIG_SPACE_PATH_TEMPLATE,
     DEFAULT_OUTPUT_DIR,
@@ -50,7 +50,7 @@ from src.build import (  # Exception classes; Data classes; Manager classes; Mai
     main,
     parse_args,
 )
-from src.error_utils import build_issue_report
+from pcileechfwgenerator.error_utils import build_issue_report
 
 # ============================================================================
 # Fixtures
@@ -271,7 +271,7 @@ def test_build_issue_report_basic():
 def test_reproduction_command_basic():
     """Reproduction command includes core args; omits issue-report flags."""
     # Local import to avoid circular import during test collection
-    from src.build import _build_reproduction_command
+    from pcileechfwgenerator.build import _build_reproduction_command
 
     args = argparse.Namespace(
         bdf="0000:03:00.0",
@@ -313,7 +313,7 @@ def test_reproduction_command_basic():
 
 def test_reproduction_command_defaults_minimal():
     """Ensure defaults omitted; msix preload enabled doesn't add extra flag."""
-    from src.build import _build_reproduction_command
+    from pcileechfwgenerator.build import _build_reproduction_command
 
     args = argparse.Namespace(
         bdf="0000:04:00.0",
@@ -335,7 +335,7 @@ def test_reproduction_command_defaults_minimal():
 
     cmd = _build_reproduction_command(args)
 
-    assert cmd.startswith("python3 -m src.build")
+    assert cmd.startswith("python3 -m pcileechfwgenerator.build")
     assert "--bdf 0000:04:00.0" in cmd
     assert "--board pcileech_35t325_x4" in cmd
     # Default values should not introduce these flags
@@ -347,7 +347,7 @@ def test_reproduction_command_defaults_minimal():
 
 def test_reproduction_command_suppressed(mock_logger):
     """Ensure reproduction hint is not logged when --no-repro-hint flag is set."""
-    from src.build import _maybe_emit_issue_report
+    from pcileechfwgenerator.build import _maybe_emit_issue_report
 
     args = argparse.Namespace(
         bdf="0000:05:00.0",
@@ -562,7 +562,7 @@ def test_msix_manager_preload_data_success(valid_bdf, mock_logger):
     with mock.patch("os.path.exists", return_value=True), mock.patch.object(
         manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
     ), mock.patch(
-        "src.build.parse_msix_capability",
+        "pcileechfwgenerator.build.parse_msix_capability",
         return_value={"table_size": 16},
     ):
 
@@ -595,7 +595,7 @@ def test_msix_manager_preload_data_no_msix(valid_bdf, mock_logger):
     # Mock config space path existence and read_config_space
     with mock.patch("os.path.exists", return_value=True), mock.patch.object(
         manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
-    ), mock.patch("src.build.parse_msix_capability", return_value={"table_size": 0}):
+    ), mock.patch("pcileechfwgenerator.build.parse_msix_capability", return_value={"table_size": 0}):
         result = manager.preload_data()
 
         # New behavior: treat absence of MSI-X capability as not preloaded
@@ -985,8 +985,8 @@ def test_file_operations_manager_parallel_write(temp_dir, mock_logger):
     mock_future = mock.MagicMock(spec=Future)
     mock_future.result.return_value = None
 
-    with mock.patch("src.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
-        "src.build.as_completed", return_value=[mock_future]
+    with mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
+        "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
     ):
 
         mock_executor = mock_executor_cls.return_value.__enter__.return_value
@@ -1018,8 +1018,8 @@ def test_file_operations_manager_parallel_write_error(temp_dir, mock_logger):
     mock_future = mock.MagicMock(spec=Future)
     mock_future.result.side_effect = IOError("Test error")
 
-    with mock.patch("src.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
-        "src.build.as_completed", return_value=[mock_future]
+    with mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
+        "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
     ):
 
         mock_executor = mock_executor_cls.return_value.__enter__.return_value
@@ -1046,8 +1046,8 @@ def test_file_operations_manager_parallel_write_timeout(temp_dir, mock_logger):
     mock_future = mock.MagicMock(spec=Future)
     mock_future.result.side_effect = TimeoutError("Test timeout")
 
-    with mock.patch("src.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
-        "src.build.as_completed", return_value=[mock_future]
+    with mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
+        "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
     ):
 
         mock_executor = mock_executor_cls.return_value.__enter__.return_value
@@ -1235,14 +1235,14 @@ def test_firmware_builder_init_dependency_injection(build_config, mock_logger):
 @pytest.fixture
 def mock_firmware_builder(build_config, mock_logger):
     """Create a FirmwareBuilder with mocked dependencies."""
-    with mock.patch("src.build.MSIXManager") as mock_msix_cls, mock.patch(
-        "src.build.FileOperationsManager"
+    with mock.patch("pcileechfwgenerator.build.MSIXManager") as mock_msix_cls, mock.patch(
+        "pcileechfwgenerator.build.FileOperationsManager"
     ) as mock_file_cls, mock.patch(
-        "src.build.ConfigurationManager"
+        "pcileechfwgenerator.build.ConfigurationManager"
     ) as mock_config_cls, mock.patch(
-        "src.device_clone.pcileech_generator.PCILeechGenerator"
+        "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
     ) as mock_gen_cls, mock.patch(
-        "src.device_clone.behavior_profiler.BehaviorProfiler"
+        "pcileechfwgenerator.device_clone.behavior_profiler.BehaviorProfiler"
     ) as mock_profiler_cls:
 
         mock_msix = mock.MagicMock()
@@ -1408,7 +1408,7 @@ def test_firmware_builder_load_donor_template_success(mock_firmware_builder):
     expected_template = {"test": "data"}
 
     with mock.patch(
-        "src.device_clone.donor_info_template.DonorInfoTemplateGenerator"
+        "pcileechfwgenerator.device_clone.donor_info_template.DonorInfoTemplateGenerator"
     ) as mock_gen_cls:
         mock_gen = mock.MagicMock()
         mock_gen_cls.load_template.return_value = expected_template
@@ -1426,7 +1426,7 @@ def test_firmware_builder_load_donor_template_failure(mock_firmware_builder):
     builder.config.donor_template = "/path/to/template.json"
 
     with mock.patch(
-        "src.device_clone.donor_info_template.DonorInfoTemplateGenerator"
+        "pcileechfwgenerator.device_clone.donor_info_template.DonorInfoTemplateGenerator"
     ) as mock_gen_cls:
         mock_gen_cls.load_template.side_effect = Exception("Load failed")
 
@@ -1570,7 +1570,7 @@ def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
     }
 
     # Mock file manager for TCL copying and source file operations
-    with mock.patch("src.file_management.file_manager.FileManager") as mock_fm_cls:
+    with mock.patch("pcileechfwgenerator.file_management.file_manager.FileManager") as mock_fm_cls:
         from pathlib import Path
         
         mock_fm = mock.MagicMock()
@@ -1625,7 +1625,7 @@ def test_firmware_builder_generate_donor_template(mock_firmware_builder):
     }
 
     with mock.patch(
-        "src.device_clone.donor_info_template.DonorInfoTemplateGenerator"
+        "pcileechfwgenerator.device_clone.donor_info_template.DonorInfoTemplateGenerator"
     ) as mock_gen_cls:
         mock_gen = mock.MagicMock()
         mock_template = {"device_info": {"identification": {}}, "metadata": {}}
@@ -1646,8 +1646,8 @@ def test_firmware_builder_run_vivado_user_path(mock_firmware_builder):
     builder.config.vivado_path = "/custom/vivado/path"
 
     with mock.patch(
-        "src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
-        "src.vivado_handling.find_vivado_installation", return_value=None
+        "pcileechfwgenerator.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
+        "pcileechfwgenerator.vivado_handling.find_vivado_installation", return_value=None
     ), mock.patch("pathlib.Path.exists") as mock_path_exists:
         # Mock Path.exists to return True for vivado executable check
         # The check is: Path(vivado_path) / "bin" / "vivado" -> exists()
@@ -1675,8 +1675,8 @@ def test_firmware_builder_run_vivado_auto_detect(mock_firmware_builder):
 
     vivado_info = {"executable": "/tools/xilinx/vivado/bin/vivado"}
 
-    with mock.patch("src.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
-        "src.vivado_handling.find_vivado_installation", return_value=vivado_info
+    with mock.patch("pcileechfwgenerator.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
+        "pcileechfwgenerator.vivado_handling.find_vivado_installation", return_value=vivado_info
     ):
 
         mock_runner = mock.MagicMock()
@@ -1700,7 +1700,7 @@ def test_firmware_builder_run_vivado_not_found(mock_firmware_builder):
     builder, mocks = mock_firmware_builder
     builder.config.vivado_path = None
 
-    with mock.patch("src.vivado_handling.find_vivado_installation", return_value=None):
+    with mock.patch("pcileechfwgenerator.vivado_handling.find_vivado_installation", return_value=None):
         with pytest.raises(VivadoIntegrationError, match="Vivado not found"):
             builder.run_vivado()
 
@@ -1709,7 +1709,7 @@ def test_firmware_builder_run_vivado_import_error(mock_firmware_builder):
     """Test FirmwareBuilder.run_vivado() when VivadoRunner import fails."""
     builder, mocks = mock_firmware_builder
 
-    with mock.patch.dict("sys.modules", {"src.vivado_handling": None}):
+    with mock.patch.dict("sys.modules", {"pcileechfwgenerator.vivado_handling": None}):
         with pytest.raises(
             VivadoIntegrationError, match="Vivado handling modules not available"
         ):

@@ -1,6 +1,6 @@
 import pytest
 
-from src.device_clone import overlay_utils
+from pcileechfwgenerator.device_clone import overlay_utils
 
 
 class BadLen:

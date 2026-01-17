@@ -15,10 +15,10 @@ from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 
-from src.device_clone.behavior_profiler import (BehaviorProfile,
+from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
                                                 RegisterAccess, TimingPattern)
-from src.device_clone.manufacturing_variance import DeviceClass, VarianceModel
-from src.device_clone.variance_manager import VarianceManager
+from pcileechfwgenerator.device_clone.manufacturing_variance import DeviceClass, VarianceModel
+from pcileechfwgenerator.device_clone.variance_manager import VarianceManager
 
 
 class TestVarianceManagerInitialization:
@@ -44,7 +44,7 @@ class TestVarianceManagerInitialization:
 
             assert manager.fallback_manager == mock_fallback
 
-    @patch("src.device_clone.fallback_manager.get_global_fallback_manager")
+    @patch("pcileechfwgenerator.device_clone.fallback_manager.get_global_fallback_manager")
     def test_initialization_with_global_fallback_manager(self, mock_get_global):
         """Test initialization with global fallback manager."""
         mock_fallback = Mock()
@@ -56,7 +56,7 @@ class TestVarianceManagerInitialization:
             assert manager.fallback_manager == mock_fallback
             mock_get_global.assert_called_once_with(mode="none")
 
-    @patch("src.device_clone.fallback_manager.get_global_fallback_manager")
+    @patch("pcileechfwgenerator.device_clone.fallback_manager.get_global_fallback_manager")
     def test_initialization_fallback_import_error(self, mock_get_global):
         """Test initialization when fallback manager import fails."""
         mock_get_global.side_effect = ImportError("Module not found")
@@ -76,8 +76,8 @@ class TestManufacturingVarianceSimulation:
         with tempfile.TemporaryDirectory() as temp_dir:
             yield VarianceManager("0000:03:00.0", Path(temp_dir))
 
-    @patch("src.device_clone.variance_manager.VarianceModel")
-    @patch("src.device_clone.variance_manager.DeviceClass")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.VarianceModel")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.DeviceClass")
     def test_apply_manufacturing_variance_ethernet_device(
         self, mock_device_class, mock_variance_model, manager
     ):
@@ -122,9 +122,9 @@ class TestManufacturingVarianceSimulation:
         assert "variance_model" in variance_data
         assert variance_data["device_class"] == "enterprise"
 
-    @patch("src.device_clone.variance_manager.json.dump")
-    @patch("src.device_clone.variance_manager.VarianceModel")
-    @patch("src.device_clone.variance_manager.DeviceClass")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.json.dump")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.VarianceModel")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.DeviceClass")
     def test_apply_manufacturing_variance_audio_device(
         self, mock_device_class, mock_variance_model, mock_json_dump, manager
     ):
@@ -159,9 +159,9 @@ class TestManufacturingVarianceSimulation:
 
         assert len(result) == 1
 
-    @patch("src.device_clone.variance_manager.json.dump")
-    @patch("src.device_clone.variance_manager.VarianceModel")
-    @patch("src.device_clone.variance_manager.DeviceClass")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.json.dump")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.VarianceModel")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.DeviceClass")
     def test_apply_manufacturing_variance_other_device(
         self, mock_device_class, mock_variance_model, mock_json_dump, manager
     ):
@@ -201,8 +201,8 @@ class TestManufacturingVarianceSimulation:
         device_info = {"device_id": "0x1234", "class_code": "0x0200"}
 
         # Mock unavailable modules
-        with patch("src.device_clone.variance_manager.DeviceClass", None):
-            with patch("src.device_clone.variance_manager.VarianceModel", None):
+        with patch("pcileechfwgenerator.device_clone.variance_manager.DeviceClass", None):
+            with patch("pcileechfwgenerator.device_clone.variance_manager.VarianceModel", None):
                 result = manager.apply_manufacturing_variance(device_info)
 
         assert result == []
@@ -216,7 +216,7 @@ class TestManufacturingVarianceSimulation:
         mock_fallback.confirm_fallback.return_value = True
         manager.fallback_manager = mock_fallback
 
-        with patch("src.device_clone.variance_manager.DeviceClass", None):
+        with patch("pcileechfwgenerator.device_clone.variance_manager.DeviceClass", None):
             result = manager.apply_manufacturing_variance(device_info)
 
         assert result == []
@@ -228,7 +228,7 @@ class TestManufacturingVarianceSimulation:
 
         # Mock to raise exception
         with patch(
-            "src.device_clone.variance_manager.DeviceClass"
+            "pcileechfwgenerator.device_clone.variance_manager.DeviceClass"
         ) as mock_device_class:
             mock_device_class.side_effect = Exception("Test exception")
 
@@ -246,7 +246,7 @@ class TestBehaviorProfiling:
         with tempfile.TemporaryDirectory() as temp_dir:
             yield VarianceManager("0000:03:00.0", Path(temp_dir))
 
-    @patch("src.device_clone.variance_manager.BehaviorProfiler")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler")
     def test_run_behavior_profiling_success(self, mock_profiler_class, manager):
         """Test successful behavior profiling."""
         # Mock device info
@@ -284,7 +284,7 @@ class TestBehaviorProfiling:
         assert profile_data["capture_duration"] == 30
         assert profile_data["total_accesses"] == 100
 
-    @patch("src.device_clone.variance_manager.BehaviorProfiler")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler")
     def test_run_behavior_profiling_with_detailed_data(
         self, mock_profiler_class, manager
     ):
@@ -344,7 +344,7 @@ class TestBehaviorProfiling:
         """Test behavior profiling when BehaviorProfiler is unavailable."""
         device_info = {"device_id": "0x1234"}
 
-        with patch("src.device_clone.variance_manager.BehaviorProfiler", None):
+        with patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler", None):
             result = manager.run_behavior_profiling(device_info)
 
         assert result is None
@@ -358,13 +358,13 @@ class TestBehaviorProfiling:
         mock_fallback.confirm_fallback.return_value = True
         manager.fallback_manager = mock_fallback
 
-        with patch("src.device_clone.variance_manager.BehaviorProfiler", None):
+        with patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler", None):
             result = manager.run_behavior_profiling(device_info)
 
         assert result is None
         mock_fallback.confirm_fallback.assert_called()
 
-    @patch("src.device_clone.variance_manager.BehaviorProfiler")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler")
     def test_run_behavior_profiling_exception_handling(
         self, mock_profiler_class, manager
     ):
@@ -381,7 +381,7 @@ class TestBehaviorProfiling:
 
         assert result is None
 
-    @patch("src.device_clone.variance_manager.BehaviorProfiler")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler")
     def test_run_behavior_profiling_with_fallback_on_exception(
         self, mock_profiler_class, manager
     ):
@@ -414,7 +414,7 @@ class TestVarianceManagerAvailabilityChecks:
         with tempfile.TemporaryDirectory() as temp_dir:
             yield VarianceManager("0000:03:00.0", Path(temp_dir))
 
-    @patch("src.device_clone.variance_manager.ManufacturingVarianceSimulator")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.ManufacturingVarianceSimulator")
     def test_is_variance_available_true(self, mock_simulator, manager):
         """Test is_variance_available returns True when simulator is available."""
         mock_simulator.return_value = Mock()
@@ -426,13 +426,13 @@ class TestVarianceManagerAvailabilityChecks:
     def test_is_variance_available_false(self, manager):
         """Test is_variance_available returns False when simulator is None."""
         with patch(
-            "src.device_clone.variance_manager.ManufacturingVarianceSimulator", None
+            "pcileechfwgenerator.device_clone.variance_manager.ManufacturingVarianceSimulator", None
         ):
             result = manager.is_variance_available()
 
         assert result is False
 
-    @patch("src.device_clone.variance_manager.BehaviorProfiler")
+    @patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler")
     def test_is_profiling_available_true(self, mock_profiler, manager):
         """Test is_profiling_available returns True when profiler is available."""
         mock_profiler.return_value = Mock()
@@ -443,7 +443,7 @@ class TestVarianceManagerAvailabilityChecks:
 
     def test_is_profiling_available_false(self, manager):
         """Test is_profiling_available returns False when profiler is None."""
-        with patch("src.device_clone.variance_manager.BehaviorProfiler", None):
+        with patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler", None):
             result = manager.is_profiling_available()
 
         assert result is False
@@ -463,13 +463,13 @@ class TestVarianceManagerIntegration:
             }
 
             with patch(
-                "src.device_clone.variance_manager.DeviceClass"
+                "pcileechfwgenerator.device_clone.variance_manager.DeviceClass"
             ) as mock_device_class:
                 with patch(
-                    "src.device_clone.variance_manager.VarianceModel"
+                    "pcileechfwgenerator.device_clone.variance_manager.VarianceModel"
                 ) as mock_variance_model:
                     with patch(
-                        "src.device_clone.variance_manager.BehaviorProfiler"
+                        "pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler"
                     ) as mock_profiler_class:
                         # Mock device class
                         mock_enterprise = Mock()
@@ -530,13 +530,13 @@ class TestVarianceManagerIntegration:
             device_info = {"device_id": "0x1234", "class_code": "0x0200"}
 
             # Test without variance modules
-            with patch("src.device_clone.variance_manager.DeviceClass", None):
-                with patch("src.device_clone.variance_manager.VarianceModel", None):
+            with patch("pcileechfwgenerator.device_clone.variance_manager.DeviceClass", None):
+                with patch("pcileechfwgenerator.device_clone.variance_manager.VarianceModel", None):
                     variance_files = manager.apply_manufacturing_variance(device_info)
                     assert variance_files == []
 
             # Test without behavior profiler
-            with patch("src.device_clone.variance_manager.BehaviorProfiler", None):
+            with patch("pcileechfwgenerator.device_clone.variance_manager.BehaviorProfiler", None):
                 profile_file = manager.run_behavior_profiling(device_info)
                 assert profile_file is None
 

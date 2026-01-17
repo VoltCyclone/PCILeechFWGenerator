@@ -3,7 +3,7 @@ Unit tests for hex constants to ensure they have correct values and types.
 """
 
 import pytest
-from src.device_clone.hex_constants import (
+from pcileechfwgenerator.device_clone.hex_constants import (
     HEX_ZERO_BYTE,
     HEX_ZERO_WORD,
     HEX_ZERO_DWORD,

@@ -52,7 +52,7 @@ def _install_fakes(
 
     def fake_ioctl(fd, req, info, mutate):
         # Late import to align with production code path
-        from src.cli.vfio_constants import VfioRegionInfo
+        from pcileechfwgenerator.cli.vfio_constants import VfioRegionInfo
 
         assert isinstance(info, VfioRegionInfo)
         info.flags = flags
@@ -77,7 +77,7 @@ def _install_fakes(
 
 
 def _make_manager():
-    from src.device_clone.pcileech_context import VFIODeviceManager
+    from pcileechfwgenerator.device_clone.pcileech_context import VFIODeviceManager
 
     mgr = VFIODeviceManager("0000:00:00.0", logging.getLogger(__name__))
     # Avoid calling open(); provide a dummy FD
@@ -86,7 +86,7 @@ def _make_manager():
 
 
 def test_read_region_slice_happy_path_mappable(monkeypatch):
-    from src.cli.vfio_constants import VFIO_REGION_INFO_FLAG_MMAP
+    from pcileechfwgenerator.cli.vfio_constants import VFIO_REGION_INFO_FLAG_MMAP
 
     # Arrange: region with predictable data and mappable flag
     region_size = 0x5000
@@ -141,7 +141,7 @@ def test_read_region_slice_non_mappable_returns_none(monkeypatch):
 
 
 def test_read_region_slice_clamps_to_region_end(monkeypatch):
-    from src.cli.vfio_constants import VFIO_REGION_INFO_FLAG_MMAP
+    from pcileechfwgenerator.cli.vfio_constants import VFIO_REGION_INFO_FLAG_MMAP
 
     # Arrange: request extends past end of region
     region_size = 0x1000
@@ -179,7 +179,7 @@ def test_read_region_slice_zero_size_returns_empty_bytes(monkeypatch):
 
 
 def test_read_region_slice_respects_custom_page_size(monkeypatch):
-    from src.cli.vfio_constants import VFIO_REGION_INFO_FLAG_MMAP
+    from pcileechfwgenerator.cli.vfio_constants import VFIO_REGION_INFO_FLAG_MMAP
 
     # Arrange: force a non-standard page size and verify mmap offset alignment
     region_size = 0x50000

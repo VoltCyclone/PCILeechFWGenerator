@@ -61,7 +61,7 @@ class StorageFunctionAnalyzer(BaseFunctionAnalyzer):
         ) & STORAGE_BIT_MANIPULATION["device_id_upper_mask"]
 
         # Import vendor ID constants
-        from src.device_clone.constants import VENDOR_ID_INTEL
+        from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL
 
         # Vendor-specific patterns
         if self.vendor_id == VENDOR_ID_INTEL:  # Intel

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from typing import Any, Dict, Optional
 
-from src.string_utils import log_info_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, log_warning_safe, safe_format
 
 from ..log_config import get_logger
 
