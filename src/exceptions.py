@@ -14,7 +14,6 @@ from pcileechfwgenerator.string_utils import safe_format
 class PCILeechError(Exception):
     """Base exception for all PCILeech firmware generator errors."""
 
-    pass
 
 
 class TemplateError(PCILeechError):
@@ -156,31 +155,26 @@ class PCILeechBuildError(PCILeechError):
     and inherits from PCILeechError to maintain hierarchy consistency.
     """
 
-    pass
 
 
 class ConfigurationError(PCILeechBuildError):
     """Raised when configuration is invalid or missing."""
 
-    pass
 
 
 class MSIXPreloadError(PCILeechBuildError):
     """Raised when MSI-X data preloading fails."""
 
-    pass
 
 
 class FileOperationError(PCILeechBuildError):
     """Raised when file operations fail."""
 
-    pass
 
 
 class VivadoIntegrationError(PCILeechBuildError):
     """Raised when Vivado integration fails."""
 
-    pass
 
 
 class ValidationError(PCILeechError):
@@ -262,25 +256,21 @@ class PlatformCompatibilityError(PCILeechError):
 class VFIOBindError(Exception):
     """Raised when VFIO binding fails."""
 
-    pass
 
 
 class VFIODeviceNotFoundError(VFIOBindError):
     """Raised when a VFIO device is not found."""
 
-    pass
 
 
 class VFIOPermissionError(VFIOBindError):
     """Raised when VFIO operations lack required permissions."""
 
-    pass
 
 
 class VFIOGroupError(VFIOBindError):
     """Raised when VFIO group operations fail."""
 
-    pass
 
 
 # Configuration Space Exceptions
@@ -304,7 +294,6 @@ class ConfigSpaceError(PCILeechError):
             return f"{base_msg} | Root cause: {self.root_cause}"
         return base_msg
 
-    pass
 
 
 class VFIOConfigSpaceError(ConfigSpaceError):
@@ -314,13 +303,11 @@ class VFIOConfigSpaceError(ConfigSpaceError):
     This exception is for errors reading config space via VFIO after binding.
     """
 
-    pass
 
 
 class SysfsConfigSpaceError(ConfigSpaceError):
     """Raised when sysfs-based config space access fails."""
 
-    pass
 
 
 def is_platform_error(message: str) -> bool:

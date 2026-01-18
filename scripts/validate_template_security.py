@@ -17,18 +17,19 @@ template security issues early in the development lifecycle.
 import argparse
 import ast
 import logging
-import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     from src.templating.template_context_validator import (
-        TemplateContextValidator, analyze_template_variables)
+        TemplateContextValidator,
+        analyze_template_variables,
+    )
 except ImportError:
     print("ERROR: Unable to import template validation modules")
     sys.exit(1)

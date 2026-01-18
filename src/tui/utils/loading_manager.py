@@ -8,7 +8,7 @@ during asynchronous operations.
 import asyncio
 import logging
 import time
-from typing import Any, Awaitable, Callable, Coroutine, Dict, Optional, TypeVar
+from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 # Set up logging
 logger = logging.getLogger(__name__)

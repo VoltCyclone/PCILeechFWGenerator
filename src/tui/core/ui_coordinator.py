@@ -4,10 +4,9 @@ UI Coordinator for PCILeech TUI
 Coordinates UI operations and business logic for the PCILeech TUI application.
 """
 
-import asyncio
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..models.config import BuildConfiguration
 from ..models.device import PCIDevice
@@ -365,14 +364,16 @@ class UICoordinator:
             # Prefer build module's generation if available, but keep a device_clone fallback
             try:
                 from pcileechfwgenerator.build import FirmwareBuilder  # noqa: F401
-                from pcileechfwgenerator.device_clone.donor_info_template import \
-                    DonorInfoTemplateGenerator
+                from pcileechfwgenerator.device_clone.donor_info_template import (
+                    DonorInfoTemplateGenerator,
+                )
 
                 output_path = Path("donor_info_template.json")
                 DonorInfoTemplateGenerator.save_template(output_path, pretty=True)
             except Exception:
-                from pcileechfwgenerator.device_clone.donor_info_template import \
-                    DonorInfoTemplateGenerator
+                from pcileechfwgenerator.device_clone.donor_info_template import (
+                    DonorInfoTemplateGenerator,
+                )
 
                 output_path = Path("donor_info_template.json")
                 DonorInfoTemplateGenerator.save_template(output_path, pretty=True)
@@ -400,8 +401,9 @@ class UICoordinator:
         """Check donor dump kernel module status and return status dict."""
         try:
             try:
-                from pcileechfwgenerator.file_management.donor_dump_manager import \
-                    DonorDumpManager
+                from pcileechfwgenerator.file_management.donor_dump_manager import (
+                    DonorDumpManager,
+                )
             except Exception:
                 from file_management.donor_dump_manager import DonorDumpManager
 
@@ -495,8 +497,10 @@ class UICoordinator:
 
         try:
             # Import here to avoid circular import
-            from pcileechfwgenerator.tui.utils.ui_helpers import (format_build_mode,
-                                                  safely_update_static)
+            from pcileechfwgenerator.tui.utils.ui_helpers import (
+                format_build_mode,
+                safely_update_static,
+            )
 
             # Update board type
             safely_update_static(

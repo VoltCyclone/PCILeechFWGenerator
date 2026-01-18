@@ -14,20 +14,13 @@ capability simulation.
 """
 
 import logging
-
 from enum import Enum
-
 from typing import Any, Dict, Optional
 
-from ..string_utils import (log_debug_safe, log_error_safe,
-                            log_warning_safe, safe_format)
-
+from ..string_utils import log_debug_safe, log_error_safe, log_warning_safe, safe_format
 from .media_functions import create_media_function_capabilities
-
 from .network_functions import create_network_function_capabilities
-
 from .storage_functions import create_storage_function_capabilities
-
 from .usb_functions import create_usb_function_capabilities
 
 logger = logging.getLogger(__name__)

@@ -2,22 +2,19 @@
 """container_build - unified VFIO‑aware Podman build runner"""
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import textwrap
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from ..device_clone.constants import (
+from ..device_clone.constants import (  # Central production feature toggles
     PRODUCTION_DEFAULTS,
-)  # Central production feature toggles
-
+)
 from ..exceptions import (
     BuildError,
     ConfigurationError,
@@ -25,9 +22,7 @@ from ..exceptions import (
     VFIOBindError,
     is_platform_error,
 )
-
 from ..log_config import get_logger
-
 from ..shell import Shell
 
 # Import safe logging functions
@@ -38,7 +33,6 @@ from ..string_utils import (
     log_warning_safe,
     safe_format,
 )
-
 from .build_constants import (
     DEFAULT_ACTIVE_INTERRUPT_MODE,
     DEFAULT_ACTIVE_INTERRUPT_VECTOR,
@@ -46,9 +40,7 @@ from .build_constants import (
     DEFAULT_ACTIVE_TIMER_PERIOD,
     DEFAULT_BEHAVIOR_PROFILE_DURATION,
 )
-
-from .vfio import VFIOBinder  # auto‑fix & diagnostics baked in
-
+from .vfio import VFIOBinder  # noqa: F401 - auto‑fix & diagnostics baked in
 from .vfio import get_current_driver, restore_driver
 
 logger = get_logger(__name__)
@@ -267,6 +259,7 @@ def get_image_age_days(name: str) -> Optional[int]:
         created_str = result.stdout.strip()
         # Parse ISO format timestamp (e.g., "2024-12-01T10:30:00.123456789Z")
         from datetime import datetime, timezone
+
         # Handle formats with nanoseconds - truncate to microseconds
         for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"]:
             try:
@@ -728,7 +721,7 @@ def run_build(cfg: BuildConfig) -> None:
         # Harden preflight: ensure group device exists and group is fully bound
         try:
             from pathlib import Path as _Path
-            
+
             from ..string_utils import log_error_safe as _les
 
             # 1) Verify VFIO container device exists on host
@@ -1011,7 +1004,7 @@ def run_build(cfg: BuildConfig) -> None:
             ),
             prefix="VFIO",
         )
-        from .vfio_diagnostics import Diagnostics, render
+        from .vfio_diagnostics import Diagnostics
 
         # Run diagnostics one more time to ensure user sees the report
         diag = Diagnostics(cfg.bdf)

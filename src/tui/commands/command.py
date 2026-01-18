@@ -5,10 +5,10 @@ This module contains the base Command classes and CommandManager implementation.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
-    from ..main import PCILeechTUI
+    pass
 
 
 class Command(ABC):
@@ -26,7 +26,6 @@ class Command(ABC):
         Returns:
             bool: True if the command was executed successfully, False otherwise.
         """
-        pass
 
     @abstractmethod
     async def undo(self) -> bool:
@@ -36,7 +35,6 @@ class Command(ABC):
         Returns:
             bool: True if the command was undone successfully, False otherwise.
         """
-        pass
 
 
 class CommandManager:

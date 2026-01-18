@@ -1,9 +1,8 @@
 import asyncio
 import datetime
-import os
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import platform
-import re
 import shlex
 import shutil
 import subprocess
@@ -28,7 +27,6 @@ from ..string_utils import (
     log_info_safe,
     log_warning_safe,
     safe_format,
-    safe_print_format,
 )
 from .vfio_handler import VFIOPathManager
 

@@ -9,11 +9,9 @@ Usage:
     python scripts/validate_project_systemverilog.py
 """
 
-import os
 import re
 import sys
 from pathlib import Path
-from typing import List
 
 
 def validate_tcl_templates():

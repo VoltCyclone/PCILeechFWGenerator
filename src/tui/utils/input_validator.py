@@ -1,14 +1,10 @@
 """Input validation utilities for TUI."""
 
-from typing import Tuple, List, Optional, Dict, Any
-from pathlib import Path
 import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from pcileechfwgenerator.utils.validators import (
-    get_bdf_validator, 
-    RangeValidator,
-    ValidationResult
-)
+from pcileechfwgenerator.utils.validators import RangeValidator, get_bdf_validator
 
 
 class InputValidator:
@@ -312,4 +308,4 @@ class InputValidator:
 
 
 # Import required for type hints
-from typing import Dict, Any
+from typing import Any, Dict

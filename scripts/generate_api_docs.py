@@ -8,12 +8,11 @@ and converts it to Markdown format for integration with MkDocs.
 
 import argparse
 import logging
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

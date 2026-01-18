@@ -8,13 +8,16 @@ shadow configuration space and validates sizes against PCIe requirements.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple
 
 from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
-from pcileechfwgenerator.utils.validators import get_bar_size_validator
 from pcileechfwgenerator.exceptions import ContextError
-from pcileechfwgenerator.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_warning_safe,
+    safe_format,
+)
+from pcileechfwgenerator.utils.validators import get_bar_size_validator
 
 logger = logging.getLogger(__name__)
 

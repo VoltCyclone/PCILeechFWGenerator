@@ -14,23 +14,18 @@ from typing import Any, Dict, List, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
-from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     DataTable,
     Footer,
     Header,
     Input,
-    Label,
     ProgressBar,
     RichLog,
-    Select,
     Static,
 )
-
-from pcileechfwgenerator.device_clone.board_config import list_supported_boards
 
 from .core.app_state import AppState
 from .core.background_monitor import BackgroundMonitor
@@ -755,8 +750,10 @@ class PCILeechTUI(App):
                 return
 
             # Import here to avoid circular import
-            from pcileechfwgenerator.tui.utils.ui_helpers import (format_status_messages,
-                                                  safely_update_static)
+            from pcileechfwgenerator.tui.utils.ui_helpers import (
+                format_status_messages,
+                safely_update_static,
+            )
 
             try:
                 # Format all status messages at once
@@ -1130,7 +1127,10 @@ class PCILeechTUI(App):
 if __name__ == "__main__":
     import asyncio
 
-    from pcileechfwgenerator.utils.system_status import check_root_access, check_vfio_support
+    from pcileechfwgenerator.utils.system_status import (
+        check_root_access,
+        check_vfio_support,
+    )
 
     # Check OS compatibility and VFIO support
     vfio_status = asyncio.run(check_vfio_support())

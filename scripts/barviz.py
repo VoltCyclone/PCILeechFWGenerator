@@ -19,8 +19,8 @@ from typing import Iterable, Optional, Tuple
 # -------- Optional Rich detection --------
 _HAVE_RICH = True
 try:
-    from rich.console import Console
     from rich.bar import Bar
+    from rich.console import Console
     from rich.text import Text
     from rich.theme import Theme
 except Exception:

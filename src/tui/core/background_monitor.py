@@ -7,7 +7,7 @@ with different intervals for different types of checks.
 
 import asyncio
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 

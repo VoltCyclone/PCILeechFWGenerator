@@ -4,12 +4,11 @@ Status panel widget for PCILeech TUI application.
 This module defines a widget for displaying status information in the TUI.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 
 from rich.console import RenderableType
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 from textual.reactive import reactive
 from textual.widget import Widget
 

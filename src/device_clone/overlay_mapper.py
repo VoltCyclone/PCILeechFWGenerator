@@ -12,17 +12,12 @@ Overlay RAM is used for registers that have special write behavior:
 """
 
 import logging
-
 from dataclasses import dataclass
-
 from enum import IntEnum
-
 from typing import Any, Dict, List, Optional, Tuple
 
 from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
-
 from pcileechfwgenerator.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
-
 from pcileechfwgenerator.string_utils import log_debug_safe, safe_format
 
 

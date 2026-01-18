@@ -7,7 +7,6 @@ used throughout the PCI capability analysis system.
 """
 
 from enum import Enum, auto
-
 from typing import NamedTuple
 
 

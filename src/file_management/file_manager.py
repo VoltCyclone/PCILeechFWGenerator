@@ -6,29 +6,26 @@ Handles file operations, cleanup, and validation for PCILeech firmware building.
 """
 
 import fnmatch
-
 import hashlib
-
 import logging
-
 import re
-
 import shutil
-
 import time
-
 from pathlib import Path
-
 from typing import Any, Dict, List
 
 from ..__version__ import __version__
-
-from ..device_clone.constants import (PCILEECH_BUILD_SCRIPT,
-                                      PCILEECH_PROJECT_SCRIPT)
-
-from ..string_utils import (format_kv_table, get_project_name, log_debug_safe,
-                            log_error_safe, log_info_safe, log_warning_safe,
-                            safe_format, safe_print_format)
+from ..device_clone.constants import PCILEECH_BUILD_SCRIPT, PCILEECH_PROJECT_SCRIPT
+from ..string_utils import (
+    format_kv_table,
+    get_project_name,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    safe_print_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -874,7 +871,7 @@ class FileManager:
         
         try:
             from ..file_management.repo_manager import RepoManager
-            
+
             # Get repository and board paths
             repo_path = RepoManager.ensure_repo()
             board_path = RepoManager.get_board_path(board, repo_root=repo_path)
@@ -990,7 +987,7 @@ class FileManager:
         """
         try:
             from pcileechfwgenerator.file_management.repo_manager import RepoManager
-            
+
             # Get board path from repo manager
             board_path = RepoManager.get_board_path(board)
             if not board_path:

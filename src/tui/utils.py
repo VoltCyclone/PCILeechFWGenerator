@@ -1,11 +1,9 @@
 """TUI utility functions."""
 
-import re
-from typing import Optional, List, Tuple, Dict, Any
 import logging
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from pcileechfwgenerator.device_clone.hex_formatter import HexFormatter
 from pcileechfwgenerator.utils.validators import get_bdf_validator
 
 # Configure logger
@@ -210,9 +208,9 @@ class TUIUtils:
         Returns:
             Path to config directory
         """
-        from pathlib import Path
         import os
-        
+        from pathlib import Path
+
         # Check XDG_CONFIG_HOME first
         xdg_config = os.environ.get("XDG_CONFIG_HOME")
         if xdg_config:
@@ -232,9 +230,9 @@ class TUIUtils:
         Returns:
             Path to cache directory
         """
-        from pathlib import Path
         import os
-        
+        from pathlib import Path
+
         # Check XDG_CACHE_HOME first
         xdg_cache = os.environ.get("XDG_CACHE_HOME")
         if xdg_cache:

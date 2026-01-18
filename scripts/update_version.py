@@ -5,7 +5,6 @@ Updates version information and build metadata automatically in CI/CD.
 """
 
 import argparse
-import json
 import re
 import subprocess
 import sys

@@ -7,26 +7,22 @@ for extracting PCI device parameters.
 """
 
 import json
-
 import logging
-
 import os
-
 import random
-
 import re
-
 import subprocess
-
 import sys
-
 from pathlib import Path
-
 from typing import Any, Dict, Optional, Tuple
 
 # Project-standard logging utilities
-from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "DONOR_DUMP"
@@ -822,8 +818,10 @@ class DonorDumpManager:
         )
 
         # Import vendor ID constants
-        from pcileechfwgenerator.device_clone.constants import (VENDOR_ID_INTEL,
-                                                get_fallback_vendor_id)
+        from pcileechfwgenerator.device_clone.constants import (
+            VENDOR_ID_INTEL,
+            get_fallback_vendor_id,
+        )
 
         # Convert to hex string format
         intel_vid_str = f"0x{VENDOR_ID_INTEL:04x}"
@@ -1024,8 +1022,9 @@ class DonorDumpManager:
                 # Optional standardized header (off by default for test parity)
                 if include_header:
                     try:
-                        from pcileechfwgenerator.string_utils import \
-                            generate_hex_header_comment
+                        from pcileechfwgenerator.string_utils import (
+                            generate_hex_header_comment,
+                        )
 
                         header = generate_hex_header_comment(
                             title=(

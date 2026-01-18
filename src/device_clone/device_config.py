@@ -7,19 +7,12 @@ throughout the codebase with a flexible, validated configuration system.
 """
 
 import json
-
 import logging
-
 import os
-
 import re
-
 from dataclasses import dataclass, field
-
 from enum import Enum
-
 from pathlib import Path
-
 from typing import Any, Dict, List, Optional, Union
 
 from ..utils.validation_constants import (
@@ -325,7 +318,9 @@ class DeviceCapabilities:
         Returns:
             cfg_force_mps encoding value (0-5)
         """
-        from pcileechfwgenerator.device_clone.payload_size_config import PayloadSizeConfig
+        from pcileechfwgenerator.device_clone.payload_size_config import (
+            PayloadSizeConfig,
+        )
 
         payload_config = PayloadSizeConfig(self.max_payload_size)
         return payload_config.get_cfg_force_mps()
@@ -337,7 +332,9 @@ class DeviceCapabilities:
         Returns:
             Tuple of (has_issues, warning_message)
         """
-        from pcileechfwgenerator.device_clone.payload_size_config import PayloadSizeConfig
+        from pcileechfwgenerator.device_clone.payload_size_config import (
+            PayloadSizeConfig,
+        )
 
         payload_config = PayloadSizeConfig(self.max_payload_size)
         return payload_config.check_tiny_pcie_algo_issues()

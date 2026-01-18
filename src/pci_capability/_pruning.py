@@ -9,22 +9,30 @@ operations, used by the compatibility layer.
 import logging
 from typing import Dict, List
 
-from .constants import (ACS_CONTROL_REGISTER_OFFSET,
-                        DPC_CONTROL_REGISTER_OFFSET, PCI_CAPABILITIES_POINTER,
-                        PCI_EXT_CONFIG_SPACE_END,
-                        PCIE_CAP_DEVICE_CONTROL2_OFFSET,
-                        PCIE_CAP_LINK_CONTROL_OFFSET,
-                        PCIE_DEVICE_CONTROL2_OBFF_LTR_MASK,
-                        PCIE_LINK_CONTROL_ASPM_MASK,
-                        PM_CAP_CAPABILITIES_OFFSET, PM_CAP_D3HOT_SUPPORT,
-                        RBAR_CAPABILITY_REGISTER_OFFSET,
-                        RBAR_SIZE_MASK_ABOVE_128MB,
-                        TWO_BYTE_HEADER_CAPABILITIES)
-
+from .constants import (
+    ACS_CONTROL_REGISTER_OFFSET,
+    DPC_CONTROL_REGISTER_OFFSET,
+    PCI_CAPABILITIES_POINTER,
+    PCI_EXT_CONFIG_SPACE_END,
+    PCIE_CAP_DEVICE_CONTROL2_OFFSET,
+    PCIE_CAP_LINK_CONTROL_OFFSET,
+    PCIE_DEVICE_CONTROL2_OBFF_LTR_MASK,
+    PCIE_LINK_CONTROL_ASPM_MASK,
+    PM_CAP_CAPABILITIES_OFFSET,
+    PM_CAP_D3HOT_SUPPORT,
+    RBAR_CAPABILITY_REGISTER_OFFSET,
+    RBAR_SIZE_MASK_ABOVE_128MB,
+    TWO_BYTE_HEADER_CAPABILITIES,
+)
 from .core import CapabilityWalker, ConfigSpace
-
-from .types import (CapabilityInfo, CapabilityType, PatchInfo, PCICapabilityID,
-                    PCIExtCapabilityID, PruningAction)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    PatchInfo,
+    PCICapabilityID,
+    PCIExtCapabilityID,
+    PruningAction,
+)
 
 logger = logging.getLogger(__name__)
 

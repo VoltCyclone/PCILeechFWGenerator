@@ -10,10 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
-import os
 import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -24,14 +21,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from typing import TYPE_CHECKING
 
-from pcileechfwgenerator.device_clone.fallback_manager import get_global_fallback_manager
+from pcileechfwgenerator.device_clone.fallback_manager import (
+    get_global_fallback_manager,
+)
 from pcileechfwgenerator.log_config import get_logger
 
 if TYPE_CHECKING:
-    from pcileechfwgenerator.device_clone.fallback_manager import FallbackManager
+    pass
 
-from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = get_logger(__name__)
 

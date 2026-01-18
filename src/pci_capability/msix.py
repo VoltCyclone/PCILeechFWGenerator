@@ -11,21 +11,35 @@ MSI-X functionality and provides enhanced categorization through the rule engine
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
-from .constants import (MSIX_BIR_MASK, MSIX_CAPABILITY_SIZE, MSIX_ENABLE_BIT,
-                        MSIX_FUNCTION_MASK_BIT, MSIX_LARGE_TABLE_THRESHOLD,
-                        MSIX_MAX_BIR, MSIX_MAX_TABLE_SIZE,
-                        MSIX_MESSAGE_CONTROL_OFFSET, MSIX_MIN_TABLE_SIZE,
-                        MSIX_OFFSET_ALIGNMENT, MSIX_OFFSET_MASK,
-                        MSIX_PBA_OFFSET_BIR_OFFSET,
-                        MSIX_TABLE_OFFSET_BIR_OFFSET, MSIX_TABLE_SIZE_MASK,
-                        PCI_CAP_ID_OFFSET, PCI_CAP_NEXT_PTR_OFFSET)
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from .constants import (
+    MSIX_BIR_MASK,
+    MSIX_CAPABILITY_SIZE,
+    MSIX_ENABLE_BIT,
+    MSIX_FUNCTION_MASK_BIT,
+    MSIX_LARGE_TABLE_THRESHOLD,
+    MSIX_MAX_BIR,
+    MSIX_MAX_TABLE_SIZE,
+    MSIX_MESSAGE_CONTROL_OFFSET,
+    MSIX_MIN_TABLE_SIZE,
+    MSIX_OFFSET_ALIGNMENT,
+    MSIX_OFFSET_MASK,
+    MSIX_PBA_OFFSET_BIR_OFFSET,
+    MSIX_TABLE_OFFSET_BIR_OFFSET,
+    MSIX_TABLE_SIZE_MASK,
+    PCI_CAP_ID_OFFSET,
+    PCI_CAP_NEXT_PTR_OFFSET,
+)
 from .core import CapabilityWalker, ConfigSpace
 from .patches import BinaryPatch, PatchEngine
 from .rules import RuleEngine
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PCICapabilityID, PruningAction)
+from .types import CapabilityInfo, EmulationCategory, PCICapabilityID, PruningAction
 
 logger = logging.getLogger(__name__)
 

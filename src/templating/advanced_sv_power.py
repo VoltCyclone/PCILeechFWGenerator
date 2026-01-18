@@ -13,7 +13,7 @@ Simplified Power Management feature for the PCILeechFWGenerator project.
 from typing import Any, Dict, Optional
 
 from ..string_utils import generate_sv_header_comment
-from .sv_config import PowerManagementConfig, PowerState, TransitionCycles
+from .sv_config import PowerManagementConfig
 from .sv_constants import SV_CONSTANTS
 from .template_renderer import TemplateRenderer
 

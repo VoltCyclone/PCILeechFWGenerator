@@ -9,18 +9,23 @@ to prevent driver errors and hardware conflicts.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from pcileechfwgenerator.pci_capability.constants import (BAR_INDEX_MAX, BAR_INDEX_MIN,
-                                          CACHELINE_OPTIMAL, DWORD_SIZE_BYTES,
-                                          EXCESSIVE_VECTOR_THRESHOLD_LOWEND,
-                                          INTEL_VECTOR_WARNING_THRESHOLD,
-                                          LARGE_VECTOR_WARNING_THRESHOLD,
-                                          LOW_END_DEVICE_ID_THRESHOLD,
-                                          MSIX_TABLE_ENTRY_SIZE_BYTES,
-                                          NON_STANDARD_BAR_MAX,
-                                          OVERSIZED_BAR_FACTOR, PAGE_SIZE_4K,
-                                          PBA_VECTORS_PER_DWORD,
-                                          RESERVED_REGION_CONTROL_END,
-                                          RESERVED_REGIONS)
+from pcileechfwgenerator.pci_capability.constants import (
+    BAR_INDEX_MAX,
+    BAR_INDEX_MIN,
+    CACHELINE_OPTIMAL,
+    DWORD_SIZE_BYTES,
+    EXCESSIVE_VECTOR_THRESHOLD_LOWEND,
+    INTEL_VECTOR_WARNING_THRESHOLD,
+    LARGE_VECTOR_WARNING_THRESHOLD,
+    LOW_END_DEVICE_ID_THRESHOLD,
+    MSIX_TABLE_ENTRY_SIZE_BYTES,
+    NON_STANDARD_BAR_MAX,
+    OVERSIZED_BAR_FACTOR,
+    PAGE_SIZE_4K,
+    PBA_VECTORS_PER_DWORD,
+    RESERVED_REGION_CONTROL_END,
+    RESERVED_REGIONS,
+)
 
 MSIX_CAP_ID: int = 0x11  # Kept local to avoid circular dependency
 MSIX_MIN_TABLE_ENTRIES: int = 1
@@ -378,7 +383,10 @@ def _validate_driver_compatibility(
     vendor_id = device_info.get("vendor_id", 0)
 
     # Import vendor ID constants
-    from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL, VENDOR_ID_NVIDIA
+    from pcileechfwgenerator.device_clone.constants import (
+        VENDOR_ID_INTEL,
+        VENDOR_ID_NVIDIA,
+    )
 
     if vendor_id == VENDOR_ID_INTEL:  # Intel
         if table_size > INTEL_VECTOR_WARNING_THRESHOLD:

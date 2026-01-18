@@ -5,7 +5,7 @@ This module defines data classes for representing PCI devices in the application
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

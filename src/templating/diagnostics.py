@@ -13,12 +13,14 @@ experience with better error messages and diagnostic information.
 import logging
 import re
 import time
-
 from contextlib import contextmanager
-
 from typing import Any, Dict, List, Optional
 
-from pcileechfwgenerator.string_utils import log_debug_safe, log_error_safe, log_info_safe
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+)
 
 # Create logger for diagnostics
 logger = logging.getLogger(__name__)

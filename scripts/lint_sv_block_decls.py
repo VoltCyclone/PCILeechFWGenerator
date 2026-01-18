@@ -22,10 +22,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-
 import re
 from pathlib import Path
-
 from typing import List, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]

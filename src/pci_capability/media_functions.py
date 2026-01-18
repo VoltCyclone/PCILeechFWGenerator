@@ -11,31 +11,53 @@ to provide production-ready dynamic capability generation.
 """
 
 import logging
-
 from typing import Any, Dict, List, Optional, Set
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
-
-from .base_function_analyzer import (BaseFunctionAnalyzer,
-                                     create_function_capabilities)
-
+from .base_function_analyzer import BaseFunctionAnalyzer, create_function_capabilities
 from .constants import (  # Common PCI Capability IDs; Media class codes; Common device ID masks; Media-specific device ranges; Media device thresholds; Media BAR sizes; Media power management; Media queue counts; Audio specifications; Video specifications; PCIe defaults; Additional vendor IDs
-    AMD_AUDIO_RANGES, BAR_SIZE_AUDIO_REGISTERS, BAR_SIZE_HDAUDIO_REGISTERS,
-    BAR_SIZE_MSIX_TABLE, BAR_SIZE_VIDEO_FRAMEBUFFER, BAR_SIZE_VIDEO_REGISTERS,
-    BIT_DEPTHS_BASIC_AUDIO, BIT_DEPTHS_HDAUDIO, CAP_ID_MSI, CAP_ID_MSIX,
-    CAP_ID_PCIE, CAP_ID_PM, CAP_ID_VENDOR_SPECIFIC, CHANNELS_MULTICHANNEL,
-    CHANNELS_STEREO, DEFAULT_PCIE_MAX_PAYLOAD_SIZE, DEVICE_ID_ENTROPY_MASK,
-    DEVICE_ID_LOWER_MASK, DEVICE_UPPER_HDAUDIO_THRESHOLD,
-    DEVICE_UPPER_VIDEO_THRESHOLD, FRAME_RATES_BASIC, FRAME_RATES_HIGH,
-    HDAUDIO_AUX_CURRENT_MA, HDAUDIO_MULTICHANNEL_THRESHOLD,
-    HIGH_END_DEVICE_THRESHOLD, INTEL_HDAUDIO_RANGES, INTEL_VIDEO_RANGES,
-    MEDIA_CLASS_CODES, NVIDIA_HDMI_AUDIO_RANGES, NVIDIA_VIDEO_RANGES,
-    QUEUE_COUNT_AUDIO, QUEUE_COUNT_HDAUDIO_BASIC, QUEUE_COUNT_HDAUDIO_HIGH,
-    QUEUE_COUNT_MIN, QUEUE_COUNT_VIDEO, SAMPLE_RATES_BASIC_AUDIO,
-    SAMPLE_RATES_HDAUDIO, VENDOR_CAP_DEVICE_THRESHOLD, VENDOR_ID_CMEDIA,
-    VENDOR_ID_CREATIVE, VIDEO_HARDWARE_ENCODING_THRESHOLD,
-    VIDEO_HIGH_FRAMERATE_THRESHOLD)
+    AMD_AUDIO_RANGES,
+    BAR_SIZE_AUDIO_REGISTERS,
+    BAR_SIZE_HDAUDIO_REGISTERS,
+    BAR_SIZE_MSIX_TABLE,
+    BAR_SIZE_VIDEO_FRAMEBUFFER,
+    BAR_SIZE_VIDEO_REGISTERS,
+    BIT_DEPTHS_BASIC_AUDIO,
+    BIT_DEPTHS_HDAUDIO,
+    CAP_ID_MSI,
+    CAP_ID_MSIX,
+    CAP_ID_PCIE,
+    CAP_ID_PM,
+    CAP_ID_VENDOR_SPECIFIC,
+    CHANNELS_MULTICHANNEL,
+    CHANNELS_STEREO,
+    DEFAULT_PCIE_MAX_PAYLOAD_SIZE,
+    DEVICE_ID_ENTROPY_MASK,
+    DEVICE_ID_LOWER_MASK,
+    DEVICE_UPPER_HDAUDIO_THRESHOLD,
+    DEVICE_UPPER_VIDEO_THRESHOLD,
+    FRAME_RATES_BASIC,
+    FRAME_RATES_HIGH,
+    HDAUDIO_AUX_CURRENT_MA,
+    HDAUDIO_MULTICHANNEL_THRESHOLD,
+    HIGH_END_DEVICE_THRESHOLD,
+    INTEL_HDAUDIO_RANGES,
+    INTEL_VIDEO_RANGES,
+    MEDIA_CLASS_CODES,
+    NVIDIA_HDMI_AUDIO_RANGES,
+    NVIDIA_VIDEO_RANGES,
+    QUEUE_COUNT_AUDIO,
+    QUEUE_COUNT_HDAUDIO_BASIC,
+    QUEUE_COUNT_HDAUDIO_HIGH,
+    QUEUE_COUNT_MIN,
+    QUEUE_COUNT_VIDEO,
+    SAMPLE_RATES_BASIC_AUDIO,
+    SAMPLE_RATES_HDAUDIO,
+    VENDOR_CAP_DEVICE_THRESHOLD,
+    VENDOR_ID_CMEDIA,
+    VENDOR_ID_CREATIVE,
+    VIDEO_HARDWARE_ENCODING_THRESHOLD,
+    VIDEO_HIGH_FRAMERATE_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +98,11 @@ class MediaFunctionAnalyzer(BaseFunctionAnalyzer):
         device_upper = (self.device_id >> 8) & 0xFF
 
         # Import vendor ID constants
-        from pcileechfwgenerator.device_clone.constants import (VENDOR_ID_AMD, VENDOR_ID_INTEL,
-                                                VENDOR_ID_NVIDIA)
+        from pcileechfwgenerator.device_clone.constants import (
+            VENDOR_ID_AMD,
+            VENDOR_ID_INTEL,
+            VENDOR_ID_NVIDIA,
+        )
 
         # Vendor-specific patterns
         if self.vendor_id == VENDOR_ID_INTEL:  # Intel

@@ -11,13 +11,15 @@ import json
 import logging
 import re
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from pcileechfwgenerator.exceptions import DeviceConfigError, ValidationError
-from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, safe_format,
-                              safe_log_format)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    safe_format,
+    safe_log_format,
+)
 
 logger = logging.getLogger(__name__)
 

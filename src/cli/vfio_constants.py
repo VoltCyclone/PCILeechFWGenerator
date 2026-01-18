@@ -4,7 +4,6 @@ Provides kernel-compatible VFIO constants and structures.
 """
 
 import ctypes
-import struct
 
 # VFIO IOCTL command generation (Linux kernel style)
 _IOC_NRBITS = 8

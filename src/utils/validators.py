@@ -1,9 +1,9 @@
 """Generic validation framework for PCILeech."""
-from abc import ABC, abstractmethod
-from functools import wraps
-from typing import Any, Callable, List, Optional, Tuple, Union, Dict
 import re
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -53,7 +53,6 @@ class BaseValidator(ABC):
     @abstractmethod
     def validate(self, value: Any) -> ValidationResult:
         """Validate the input value."""
-        pass
     
     def __call__(self, value: Any) -> ValidationResult:
         """Allow validator to be called directly."""

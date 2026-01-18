@@ -8,7 +8,7 @@ import logging
 import os
 import traceback
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Configure logging
 logger = logging.getLogger("pcileech.tui.error_handler")

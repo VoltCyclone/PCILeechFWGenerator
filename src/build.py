@@ -11,31 +11,21 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import glob
-
 import json
-
 import logging
-
 import os
-import platform
-
 import re
-
 import sys
-
 import time
-
 from concurrent.futures import (
     ThreadPoolExecutor,
-    TimeoutError as FutureTimeoutError,
+)
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures import (
     as_completed,
 )
-
 from dataclasses import dataclass
-
 from pathlib import Path
-
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pcileechfwgenerator.string_utils import (
@@ -45,9 +35,9 @@ from pcileechfwgenerator.string_utils import (
     log_warning_safe,
     safe_format,
 )
-
-from pcileechfwgenerator.templating.template_context_validator import clear_global_template_cache
-
+from pcileechfwgenerator.templating.template_context_validator import (
+    clear_global_template_cache,
+)
 from pcileechfwgenerator.utils.build_logger import get_build_logger
 from pcileechfwgenerator.utils.file_manifest import create_manifest_tracker
 from pcileechfwgenerator.utils.template_validator import create_template_validator
@@ -58,7 +48,7 @@ from .device_clone.constants import PRODUCTION_DEFAULTS
 
 # Import msix_capability at the module level to avoid late imports
 from .device_clone.msix_capability import parse_msix_capability
-
+from .exceptions import MSIXPreloadError  # noqa: F401 - needed for a unit test
 from .exceptions import (
     ConfigurationError,
     FileOperationError,
@@ -66,9 +56,7 @@ from .exceptions import (
     PCILeechBuildError,
     PlatformCompatibilityError,
     VivadoIntegrationError,
-    MSIXPreloadError  # needed for a unit test
 )
-
 from .log_config import get_logger, setup_logging
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1539,7 +1527,6 @@ class FirmwareBuilder:
 
     def _init_components(self) -> None:
         """Initialize PCILeech generator and other components."""
-        from .device_clone.board_config import get_pcileech_board_config
 
         from .device_clone.pcileech_generator import (
             PCILeechGenerationConfig,
@@ -2036,7 +2023,9 @@ class FirmwareBuilder:
 
         # Inject config space hex/COE into template context if missing
         try:
-            from pcileechfwgenerator.device_clone.hex_formatter import ConfigSpaceHexFormatter
+            from pcileechfwgenerator.device_clone.hex_formatter import (
+                ConfigSpaceHexFormatter,
+            )
 
             config_space_bytes = None
             # Try to get config space bytes from result
@@ -2221,7 +2210,9 @@ class FirmwareBuilder:
         # Ensure RTL and constraints from the PCILeech submodule are available
         # for Vivado by copying them into the output structure
         try:
-            from pcileechfwgenerator.file_management.file_manager import FileManager as _FM
+            from pcileechfwgenerator.file_management.file_manager import (
+                FileManager as _FM,
+            )
 
             fm = _FM(self.config.output_dir)
             # Ensure src/ and ip/ directories exist
@@ -2316,10 +2307,7 @@ class FirmwareBuilder:
 
     def _run_post_build_validation(self, result: Dict[str, Any]) -> None:
         """Run post-build validation checks for driver compatibility."""
-        from pcileechfwgenerator.utils.post_build_validator import (
-            PostBuildValidator,
-            PostBuildValidationCheck
-        )
+        from pcileechfwgenerator.utils.post_build_validator import PostBuildValidator
 
         validator = PostBuildValidator(self.logger)
 
@@ -2640,7 +2628,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         
         # Generate COE visualization report (failsafe - never fails build)
         try:
-            from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
+            from pcileechfwgenerator.utils.coe_report import (
+                generate_coe_report_if_enabled,
+            )
             generate_coe_report_if_enabled(config.output_dir, logger=logger)
         except Exception as e:
             # Absolute failsafe: catch any exception from visualization

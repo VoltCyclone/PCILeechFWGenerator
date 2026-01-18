@@ -11,20 +11,31 @@ to provide production-ready dynamic capability generation.
 """
 
 import logging
-
 from typing import Any, Dict, List, Optional, Set
 
-from .base_function_analyzer import (BaseFunctionAnalyzer,
-                                     create_function_capabilities)
-
+from .base_function_analyzer import BaseFunctionAnalyzer, create_function_capabilities
 from .constants import (  # Common PCI Capability IDs; Storage class codes; Storage vendor IDs; Storage device ID ranges; Storage device ID thresholds; Storage MSI messages; Storage max payload sizes; Storage base queue counts; Storage BAR sizes; Storage power constants; Storage feature thresholds; Storage device limits; Storage bit manipulation; AER capability values
-    AER_CAPABILITY_VALUES, CAP_ID_MSI, CAP_ID_MSIX, CAP_ID_PCIE, CAP_ID_PM,
-    EXT_CAP_ID_AER, STORAGE_BAR_SIZES, STORAGE_BASE_QUEUE_COUNTS,
-    STORAGE_BIT_MANIPULATION, STORAGE_CLASS_CODES, STORAGE_DEVICE_ID_RANGES,
-    STORAGE_DEVICE_ID_THRESHOLDS, STORAGE_DEVICE_LIMITS,
-    STORAGE_FEATURE_THRESHOLDS, STORAGE_MAX_PAYLOAD_SIZES,
-    STORAGE_MSI_MESSAGES, STORAGE_POWER_CONSTANTS, VENDOR_ID_LSI_BROADCOM,
-    VENDOR_ID_MARVELL, VENDOR_ID_SAMSUNG)
+    AER_CAPABILITY_VALUES,
+    CAP_ID_MSI,
+    CAP_ID_MSIX,
+    CAP_ID_PCIE,
+    CAP_ID_PM,
+    EXT_CAP_ID_AER,
+    STORAGE_BAR_SIZES,
+    STORAGE_BASE_QUEUE_COUNTS,
+    STORAGE_BIT_MANIPULATION,
+    STORAGE_CLASS_CODES,
+    STORAGE_DEVICE_ID_RANGES,
+    STORAGE_DEVICE_ID_THRESHOLDS,
+    STORAGE_DEVICE_LIMITS,
+    STORAGE_FEATURE_THRESHOLDS,
+    STORAGE_MAX_PAYLOAD_SIZES,
+    STORAGE_MSI_MESSAGES,
+    STORAGE_POWER_CONSTANTS,
+    VENDOR_ID_LSI_BROADCOM,
+    VENDOR_ID_MARVELL,
+    VENDOR_ID_SAMSUNG,
+)
 
 logger = logging.getLogger(__name__)
 

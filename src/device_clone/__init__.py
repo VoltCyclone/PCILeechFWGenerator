@@ -15,39 +15,68 @@ The module is organized to provide a clean separation of device cloning
 functionality from the rest of the PCILeech firmware generation system.
 """
 
-from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
-                                                BehaviorProfiler,
-                                                RegisterAccess, TimingPattern)
+from pcileechfwgenerator.device_clone.behavior_profiler import (
+    BehaviorProfile,
+    BehaviorProfiler,
+    RegisterAccess,
+    TimingPattern,
+)
+
 # Core device cloning functionality
-from pcileechfwgenerator.device_clone.board_config import (get_board_info, get_fpga_family,
-                                           get_fpga_part, get_pcie_ip_type,
-                                           get_pcileech_board_config,
-                                           list_supported_boards,
-                                           validate_board)
+from pcileechfwgenerator.device_clone.board_config import (
+    get_board_info,
+    get_fpga_family,
+    get_fpga_part,
+    get_pcie_ip_type,
+    get_pcileech_board_config,
+    list_supported_boards,
+    validate_board,
+)
 from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
-from pcileechfwgenerator.device_clone.constants import *
-from pcileechfwgenerator.device_clone.device_config import (DeviceCapabilities, DeviceClass,
-                                            DeviceConfigManager,
-                                            DeviceConfiguration,
-                                            DeviceIdentification, DeviceType,
-                                            PCIeRegisters, get_config_manager,
-                                            get_device_config, validate_hex_id)
+from pcileechfwgenerator.device_clone.device_config import (
+    DeviceCapabilities,
+    DeviceClass,
+    DeviceConfigManager,
+    DeviceConfiguration,
+    DeviceIdentification,
+    DeviceType,
+    PCIeRegisters,
+    get_config_manager,
+    get_device_config,
+    validate_hex_id,
+)
+
 # Manufacturing variance and behavior profiling
-from pcileechfwgenerator.device_clone.manufacturing_variance import \
-    DeviceClass as VarianceDeviceClass
 from pcileechfwgenerator.device_clone.manufacturing_variance import (
-    ManufacturingVarianceSimulator, VarianceModel, VarianceParameters,
-    VarianceType)
+    DeviceClass as VarianceDeviceClass,
+)
+from pcileechfwgenerator.device_clone.manufacturing_variance import (
+    ManufacturingVarianceSimulator,
+    VarianceModel,
+    VarianceParameters,
+    VarianceType,
+)
 from pcileechfwgenerator.device_clone.msix_capability import (
-    find_cap, generate_msix_capability_registers, generate_msix_table_sv,
-    hex_to_bytes, is_valid_offset, msix_size, parse_msix_capability,
-    read_u16_le, read_u32_le, validate_msix_configuration)
+    find_cap,
+    generate_msix_capability_registers,
+    generate_msix_table_sv,
+    hex_to_bytes,
+    is_valid_offset,
+    msix_size,
+    parse_msix_capability,
+    read_u16_le,
+    read_u32_le,
+    validate_msix_configuration,
+)
+
 # PCILeech generator
-from pcileechfwgenerator.device_clone.pcileech_generator import (PCILeechGenerationConfig,
-                                                 PCILeechGenerator)
+from pcileechfwgenerator.device_clone.pcileech_generator import (
+    PCILeechGenerationConfig,
+    PCILeechGenerator,
+)
 from pcileechfwgenerator.device_clone.variance_manager import VarianceManager
+
 # PCI capability processing
-from pcileechfwgenerator.pci_capability import *
 
 __all__ = [
     # Board configuration

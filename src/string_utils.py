@@ -10,11 +10,9 @@ cause syntax errors when split across lines.
 import logging
 import os
 import re
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
-
 from typing import Any, ClassVar, Dict, Iterable, List, Optional, Tuple
 
 # Define the project name constant locally to avoid circular imports

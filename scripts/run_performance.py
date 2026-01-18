@@ -4,7 +4,6 @@ Small performance probe for CI: measure import time and system info.
 Writes JSON to performance-results.json
 """
 import json
-import sys
 import time
 
 try:
@@ -20,7 +19,7 @@ results["system_info"]["memory_total"] = (
 
 start = time.time()
 try:
-    import src
+    pass
 except Exception:
     pass
 

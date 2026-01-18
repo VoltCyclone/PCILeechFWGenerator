@@ -2,15 +2,16 @@
 """USB device management and firmware flashing utilities."""
 
 import re
-import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from pcileechfwgenerator.error_utils import (format_user_friendly_error,
-                             log_error_with_root_cause)
+from pcileechfwgenerator.error_utils import (
+    format_user_friendly_error,
+    log_error_with_root_cause,
+)
 
 from ..log_config import get_logger
 from ..shell import Shell

@@ -11,7 +11,7 @@ Advanced Error Handling feature for the PCILeechFWGenerator project.
 
 from typing import Optional
 
-from .sv_config import ErrorHandlingConfig, ErrorType
+from .sv_config import ErrorHandlingConfig
 from .template_renderer import TemplateRenderer
 
 

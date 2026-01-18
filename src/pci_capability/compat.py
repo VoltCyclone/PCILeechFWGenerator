@@ -8,18 +8,18 @@ the new modular implementation internally.
 """
 
 import logging
-
 from typing import Dict, List, Optional
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
-
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .core import CapabilityWalker, ConfigSpace
-
 from .processor import CapabilityProcessor
-
 from .rules import RuleEngine
-
 from .types import CapabilityType, EmulationCategory, PatchInfo, PruningAction
 
 logger = logging.getLogger(__name__)
@@ -236,8 +236,7 @@ def determine_pruning_actions(
         )
         cap_infos[offset] = cap_info
 
-    from .utils import \
-        determine_pruning_actions as utils_determine_pruning_actions
+    from .utils import determine_pruning_actions as utils_determine_pruning_actions
 
     return utils_determine_pruning_actions(cap_infos, categories)
 

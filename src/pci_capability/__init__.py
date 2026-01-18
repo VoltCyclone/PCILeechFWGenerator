@@ -26,21 +26,38 @@ Modules:
 """
 
 from .compat import (  # Backward compatibility functions; Enhanced Phase 2 compatibility functions
-    categorize_capabilities, categorize_capabilities_with_rules,
-    determine_pruning_actions, find_cap, find_ext_cap, get_all_capabilities,
-    get_all_ext_capabilities, get_capability_patches,
-    get_capability_patches_enhanced, process_capabilities_enhanced,
-    prune_capabilities, prune_capabilities_by_rules, setup_logging)
+    categorize_capabilities,
+    categorize_capabilities_with_rules,
+    determine_pruning_actions,
+    find_cap,
+    find_ext_cap,
+    get_all_capabilities,
+    get_all_ext_capabilities,
+    get_capability_patches,
+    get_capability_patches_enhanced,
+    process_capabilities_enhanced,
+    prune_capabilities,
+    prune_capabilities_by_rules,
+    setup_logging,
+)
+
 # Import key classes and functions for easy access
 from .core import CapabilityWalker, ConfigSpace
 from .msix import MSIXCapabilityHandler
 from .patches import BinaryPatch, PatchEngine
 from .processor import CapabilityProcessor
+
 # Phase 2 - Core functionality imports
 from .rules import CapabilityRule, RuleEngine
-from .types import (CapabilityInfo, CapabilityType, EmulationCategory,
-                    PatchInfo, PCICapabilityID, PCIExtCapabilityID,
-                    PruningAction)
+from .types import (
+    CapabilityInfo,
+    CapabilityType,
+    EmulationCategory,
+    PatchInfo,
+    PCICapabilityID,
+    PCIExtCapabilityID,
+    PruningAction,
+)
 
 __all__ = [
     # Core classes

@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Try to import project-specific renderer (prefer importing as `src.templating`)
 try:
@@ -36,8 +36,7 @@ except Exception:
 
 # Try to import Jinja2
 try:
-    from jinja2 import (Environment, FileSystemLoader, TemplateError,
-                        TemplateSyntaxError)
+    from jinja2 import Environment, FileSystemLoader, TemplateError, TemplateSyntaxError
 
     HAS_JINJA2 = True
 except ImportError:
@@ -275,8 +274,8 @@ class Jinja2TemplateValidator(TemplateValidator):
 
         # Import ErrorTagExtension if available
         try:
+            from jinja2 import TemplateRuntimeError, nodes
             from jinja2.ext import Extension
-            from jinja2 import nodes, TemplateRuntimeError
             
             class ErrorTagExtension(Extension):
                 """Custom Jinja2 extension to handle {% error %} tags."""

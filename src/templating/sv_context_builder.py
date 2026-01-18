@@ -4,8 +4,14 @@ import logging
 from typing import Any, Dict, List, Union
 
 from pcileechfwgenerator.device_clone.identifier_normalizer import IdentifierNormalizer
-from pcileechfwgenerator.device_clone.overlay_utils import compute_sparse_hash_table_size
-from pcileechfwgenerator.string_utils import log_error_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.device_clone.overlay_utils import (
+    compute_sparse_hash_table_size,
+)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_warning_safe,
+    safe_format,
+)
 from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
 from ..utils.unified_context import (
@@ -15,9 +21,7 @@ from ..utils.unified_context import (
     TemplateObject,
     normalize_config_to_dict,
 )
-
 from .sv_constants import SV_CONSTANTS
-
 from .template_renderer import TemplateRenderError
 
 # Module-level defaults are sourced from SV_CONSTANTS to avoid drift
@@ -324,7 +328,7 @@ class SVContextBuilder:
         - Upper 32 bits: Device-specific serial number
         """
         import hashlib
-        
+
         # Gather device identifiers
         vendor_id = context.get("vendor_id_int", 0)
         device_id = context.get("device_id_int", 0)
@@ -473,7 +477,6 @@ class SVContextBuilder:
                         ),
                         prefix=self.prefix,
                     )
-                    pass
 
             composite = source.get("device_serial_number")
             if isinstance(composite, dict):
@@ -493,7 +496,6 @@ class SVContextBuilder:
                             ),
                             prefix=self.prefix,
                         )
-                        pass
                 if value is not None:
                     candidates.append(value)
 

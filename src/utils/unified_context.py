@@ -1024,7 +1024,6 @@ class UnifiedContextBuilder:
 
         # Build base context
         from pcileechfwgenerator.templating.sv_constants import SV_CONSTANTS
-
         from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
         context = {
@@ -1167,7 +1166,9 @@ class UnifiedContextBuilder:
         # -----------------------------------------------------------------
         if device_config.enable_advanced_features:
             try:
-                from pcileechfwgenerator.pci_capability.constants import AER_CAPABILITY_VALUES as _AER
+                from pcileechfwgenerator.pci_capability.constants import (
+                    AER_CAPABILITY_VALUES as _AER,
+                )
 
                 aer_ctx = {
                     # Store as integers; template will format as 8-hex digits
@@ -1607,8 +1608,10 @@ class UnifiedContextBuilder:
     def _add_behavioral_context(self, context: Dict[str, Any], **kwargs) -> None:
         """Add behavioral simulation context if enabled."""
         try:
-            from pcileechfwgenerator.utils.behavioral_context import build_behavioral_context
-            
+            from pcileechfwgenerator.utils.behavioral_context import (
+                build_behavioral_context,
+            )
+
             # Create mock device config from context
             device_config = SimpleNamespace(
                 enable_behavioral_simulation=kwargs.get(
@@ -1722,7 +1725,9 @@ class UnifiedContextBuilder:
         # even if empty or partial.
         try:
             # Import from shared driver enrichment module to avoid cyclic dependency
-            from pcileechfwgenerator.utils.context_driver_enrichment import enrich_context_with_driver
+            from pcileechfwgenerator.utils.context_driver_enrichment import (
+                enrich_context_with_driver,
+            )
 
             enrich_context_with_driver(
                 template_context,

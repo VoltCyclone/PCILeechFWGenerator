@@ -5,7 +5,6 @@ Manages PCIe device discovery, validation, and enhanced information gathering.
 """
 
 import asyncio
-import logging
 import os
 import re
 from pathlib import Path
@@ -13,8 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ...cli.cli import list_pci_devices
 from ...cli.vfio import get_current_driver
-from ...cli.vfio_helpers import (check_iommu_group_binding,
-                                 check_vfio_prerequisites)
+from ...cli.vfio_helpers import check_iommu_group_binding, check_vfio_prerequisites
 from ...error_utils import format_concise_error, log_error_with_root_cause
 from ...log_config import get_logger
 from ..models.device import PCIDevice

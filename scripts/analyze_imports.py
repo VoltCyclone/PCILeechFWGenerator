@@ -5,12 +5,10 @@ Analyzes all imports in the project and categorizes them.
 """
 
 import ast
-import os
 import re
-import sys
-from collections import defaultdict, deque
+from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Set
 
 
 class ImportInfo(NamedTuple):

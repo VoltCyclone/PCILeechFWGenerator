@@ -14,11 +14,12 @@ from pcileechfwgenerator.device_clone.constants import (
     PCIE_MPS_CONSTANTS,
     VALID_MPS_VALUES,
 )
-
 from pcileechfwgenerator.exceptions import ContextError
-
-from pcileechfwgenerator.string_utils import (log_info_safe, log_warning_safe,
-                              safe_format)
+from pcileechfwgenerator.string_utils import (
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,6 @@ logger = logging.getLogger(__name__)
 class PayloadSizeError(ContextError):
     """Raised when payload size configuration is invalid."""
 
-    pass
 
 
 class PayloadSizeConfig:

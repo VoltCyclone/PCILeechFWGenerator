@@ -1,15 +1,11 @@
 import json
 import os
-import stat
-from datetime import datetime
-from pathlib import Path
 from unittest import mock
 
 import pytest
 
 from ..models.config import BuildConfiguration
-from ..models.error import ErrorSeverity, TUIError
-from .config_manager import CACHE_DIR, ConfigManager
+from .config_manager import ConfigManager
 
 
 @pytest.fixture

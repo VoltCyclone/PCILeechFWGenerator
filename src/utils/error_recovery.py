@@ -15,8 +15,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Dict, Optional
 
-from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 

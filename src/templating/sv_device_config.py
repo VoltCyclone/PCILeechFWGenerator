@@ -1,7 +1,6 @@
 """Device-specific configuration for SystemVerilog generation."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 from pcileechfwgenerator.device_clone.device_config import DeviceClass, DeviceType
 from pcileechfwgenerator.string_utils import safe_format

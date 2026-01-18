@@ -9,9 +9,8 @@ the string formatting and concatenation currently used in build.py.
 import logging
 import math
 import re
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pcileechfwgenerator.__version__ import __version__
 from pcileechfwgenerator.exceptions import TemplateRenderError
@@ -19,7 +18,6 @@ from pcileechfwgenerator.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
     log_error_safe,
-    log_info_safe,
     log_warning_safe,
     safe_format,
 )
@@ -450,7 +448,9 @@ class TemplateRenderer:
 
                 # Add template constants to the context
                 try:
-                    from pcileechfwgenerator.templates.constants import get_template_constants
+                    from pcileechfwgenerator.templates.constants import (
+                        get_template_constants,
+                    )
 
                     template_constants = get_template_constants()
                     for key, value in template_constants.items():

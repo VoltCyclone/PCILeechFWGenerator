@@ -9,8 +9,7 @@ import asyncio
 import functools
 import logging
 import traceback
-from typing import (Any, Awaitable, Callable, Dict, Optional, Set, TypeVar,
-                    Union, cast)
+from typing import Any, Awaitable, Callable, Dict, Optional, Set, TypeVar, Union
 
 # Set up logging
 logger = logging.getLogger(__name__)

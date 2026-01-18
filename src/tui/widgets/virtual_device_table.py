@@ -5,7 +5,7 @@ This module provides a virtualized data table implementation for handling large 
 with optimal performance by only rendering visible rows.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from textual.binding import Binding
 from textual.widgets import DataTable

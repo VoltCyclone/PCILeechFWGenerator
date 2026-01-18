@@ -2,12 +2,16 @@
 """Behavioral simulation context integration."""
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict
 
-from pcileechfwgenerator.string_utils import log_info_safe, log_warning_safe, log_debug_safe, safe_format
 from pcileechfwgenerator.behavioral.analyzer import BehavioralAnalyzerFactory
 from pcileechfwgenerator.behavioral.base import require
-
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 logger = logging.getLogger(__name__)
 

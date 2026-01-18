@@ -2,7 +2,7 @@
 Template model classes for PCILeechFWGenerator.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import List, Optional
 
 
 class TemplateOption:

@@ -1,7 +1,6 @@
 import json
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll

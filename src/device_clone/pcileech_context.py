@@ -10,19 +10,12 @@ Integrates BehaviorProfiler, ConfigSpaceManager, and MSIXCapability data.
 """
 
 import ctypes
-
 import fcntl
-
 import logging
-
 import os
-
-from dataclasses import asdict, dataclass, field, fields
-
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-
 from pathlib import Path
-
 from typing import Any, Dict, Optional, Tuple, TypedDict, Union, cast
 
 from pcileechfwgenerator.cli.vfio_constants import (
@@ -32,17 +25,14 @@ from pcileechfwgenerator.cli.vfio_constants import (
     VFIO_REGION_INFO_FLAG_WRITE,
     VfioRegionInfo,
 )
-
 from pcileechfwgenerator.device_clone.bar_content_generator import BarContentGenerator
-
 from pcileechfwgenerator.device_clone.bar_size_converter import extract_bar_size
-
 from pcileechfwgenerator.device_clone.behavior_profiler import BehaviorProfile
-
 from pcileechfwgenerator.device_clone.board_config import get_pcileech_board_config
-
-from pcileechfwgenerator.device_clone.config_space_manager import BarInfo, ConfigSpaceConstants
-
+from pcileechfwgenerator.device_clone.config_space_manager import (
+    BarInfo,
+    ConfigSpaceConstants,
+)
 from pcileechfwgenerator.device_clone.constants import (
     BAR_SIZE_CONSTANTS,
     BAR_TYPE_MEMORY_64BIT,
@@ -58,27 +48,19 @@ from pcileechfwgenerator.device_clone.constants import (
     POWER_STATE_D0,
 )
 from pcileechfwgenerator.device_clone.device_config import get_device_config
-
 from pcileechfwgenerator.device_clone.fallback_manager import (
     FallbackManager,
     get_global_fallback_manager,
 )
-
 from pcileechfwgenerator.device_clone.identifier_normalizer import IdentifierNormalizer
-
 from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper
-
 from pcileechfwgenerator.device_clone.overlay_utils import (
     compute_sparse_hash_table_size,
     normalize_overlay_entry_count,
 )
-
 from pcileechfwgenerator.error_utils import extract_root_cause
-
 from pcileechfwgenerator.exceptions import ContextError
-
 from pcileechfwgenerator.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
-
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -92,6 +74,7 @@ from ..utils.validation_constants import (
     CORE_DEVICE_IDS,
     REQUIRED_CONTEXT_SECTIONS,
 )
+
 
 def require(condition: bool, message: str, **context) -> None:
     """Validate condition or exit with error."""
@@ -110,7 +93,6 @@ from pcileechfwgenerator.utils.unified_context import (
     UnifiedContextBuilder,
     ensure_template_compatibility,
 )
-
 from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
 _MSIX_BASE_RUNTIME_FLAGS: Dict[str, Any] = {
@@ -325,7 +307,9 @@ class BarConfiguration:
     def get_size_encoding(self) -> int:
         """Get size encoding for this BAR."""
         if self._size_encoding is None:
-            from pcileechfwgenerator.device_clone.bar_size_converter import BarSizeConverter
+            from pcileechfwgenerator.device_clone.bar_size_converter import (
+                BarSizeConverter,
+            )
 
             bar_type_str = "io" if self.is_io else "memory"
             self._size_encoding = BarSizeConverter.size_to_encoding(
@@ -524,7 +508,6 @@ class VFIODeviceManager:
                         safe_format("Failed to close VFIO FD: {error}", error=e),
                         prefix="VFIO",
                     )
-                    pass
         self._device_fd = None
         self._container_fd = None
 
@@ -620,7 +603,6 @@ class VFIODeviceManager:
             Bytes read or None on error
         """
         import mmap
-
         import os
 
         if size <= 0:
@@ -935,10 +917,8 @@ class PCILeechContextBuilder:
             if cfg_hex:
                 try:
                     # Prefer centralized capability processor to avoid duplicating parsing logic
-                    from pcileechfwgenerator.pci_capability import (
-                        core as _pcicore,
-                        processor as _pciproc,
-                    )
+                    from pcileechfwgenerator.pci_capability import core as _pcicore
+                    from pcileechfwgenerator.pci_capability import processor as _pciproc
 
                     _cs = _pcicore.ConfigSpace(cfg_hex)
                     _cp = _pciproc.CapabilityProcessor(_cs)
@@ -1136,7 +1116,9 @@ class PCILeechContextBuilder:
         # If the check raises, treat as not verified but leave vfio_device intact.
         try:
             # Late import to allow unit tests to patch helpers
-            from pcileechfwgenerator.cli.vfio_helpers import ensure_device_vfio_binding as _ensure
+            from pcileechfwgenerator.cli.vfio_helpers import (
+                ensure_device_vfio_binding as _ensure,
+            )
 
             _ensure(self.device_bdf)
             context["vfio_binding_verified"] = True
@@ -1188,7 +1170,6 @@ class PCILeechContextBuilder:
                     safe_format("Failed to set numeric ID aliases: {error}", error=e),
                     prefix="PCILEECH",
                 )
-                pass
 
     def _finalize_context(self, context):
         """Final validation and template compatibility."""
@@ -1294,7 +1275,9 @@ class PCILeechContextBuilder:
 
             # Try to use ConfigSpaceManager for missing fields
             try:
-                from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
+                from pcileechfwgenerator.device_clone.config_space_manager import (
+                    ConfigSpaceManager,
+                )
 
                 manager = ConfigSpaceManager(self.device_bdf)
                 config_space = manager.read_vfio_config_space()
@@ -1466,7 +1449,9 @@ class PCILeechContextBuilder:
         if not all(
             k in config_data for k in ["config_space_hex", "config_space_size", "bars"]
         ):
-            from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
+            from pcileechfwgenerator.device_clone.config_space_manager import (
+                ConfigSpaceManager,
+            )
 
             manager = ConfigSpaceManager(self.device_bdf)
             config_space = manager.read_vfio_config_space()
@@ -1709,7 +1694,10 @@ class PCILeechContextBuilder:
         if device_context_path and os.path.exists(device_context_path):
             try:
                 import json
-                from pcileechfwgenerator.device_clone.bar_model_loader import deserialize_bar_model
+
+                from pcileechfwgenerator.device_clone.bar_model_loader import (
+                    deserialize_bar_model,
+                )
                 
                 with open(device_context_path, "r") as f:
                     device_context = json.load(f)
@@ -1741,8 +1729,13 @@ class PCILeechContextBuilder:
                     prefix="MMIO",
                 )
 
-        from pcileechfwgenerator.device_clone.bar_model_loader import BarModel, load_bar_model, save_bar_model
-        from pcileechfwgenerator.device_clone.bar_model_synthesizer import synthesize_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            load_bar_model,
+            save_bar_model,
+        )
+        from pcileechfwgenerator.device_clone.bar_model_synthesizer import (
+            synthesize_model,
+        )
         from pcileechfwgenerator.device_clone.mmio_tracer import MmioTracer
 
         models = {}
@@ -1893,7 +1886,9 @@ class PCILeechContextBuilder:
                 )
 
         # Generate BAR content (with learned models or sampled data if available)
-        from pcileechfwgenerator.device_clone.bar_content_generator import BarContentType
+        from pcileechfwgenerator.device_clone.bar_content_generator import (
+            BarContentType,
+        )
 
         bar_sizes = {b.index: b.size for b in bar_configs if b.size > 0}
         bar_content_gen = BarContentGenerator(device_signature=device_signature)
@@ -1960,7 +1955,9 @@ class PCILeechContextBuilder:
         # Store learned BAR models if available for SystemVerilog generation
         if bar_models:
             # Serialize models for template compatibility
-            from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
+            from pcileechfwgenerator.device_clone.bar_model_loader import (
+                serialize_bar_model,
+            )
             
             serialized_models = {}
             for bar_idx, model in bar_models.items():
@@ -2671,7 +2668,6 @@ class PCILeechContextBuilder:
                 safe_format("Failed to get vendor name: {error}", error=e),
                 prefix="PCILEECH",
             )
-            pass
         return safe_format("Vendor {vendor_id}", vendor_id=vendor_id)
 
     def _get_device_name(self, vendor_id: str, device_id: str) -> str:
@@ -2708,7 +2704,6 @@ class PCILeechContextBuilder:
                 safe_format("Failed to get device name: {error}", error=e),
                 prefix="PCILEECH",
             )
-            pass
         return safe_format("Device {device_id}", device_id=device_id)
 
     def _build_overlay_config(
