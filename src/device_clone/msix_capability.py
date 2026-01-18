@@ -32,13 +32,6 @@ from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
 # Import project logging and string utilities
 
-
-
-
-
-
-
-
 logger = get_logger(__name__)
 
 # Define commonly used BAR size constants
