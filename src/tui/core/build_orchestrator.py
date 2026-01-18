@@ -1286,8 +1286,6 @@ class BuildOrchestrator:
             await self._run_shell(build_cmd.split())
         else:
             # Get IOMMU group for VFIO device
-            pass
-
             from ...cli.vfio_handler import _get_iommu_group
 
             iommu_group = await asyncio.get_running_loop().run_in_executor(

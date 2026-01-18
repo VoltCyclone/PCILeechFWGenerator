@@ -5,10 +5,7 @@ This module contains the base Command classes and CommandManager implementation.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List
-
-if TYPE_CHECKING:
-    pass
+from typing import List
 
 
 class Command(ABC):
