@@ -17,9 +17,7 @@ from ..exceptions import (
     RepositoryError,
     TemplateNotFoundError,
 )
-
 from ..log_config import get_logger
-
 from ..string_utils import (
     log_debug_safe,
     log_error_safe,

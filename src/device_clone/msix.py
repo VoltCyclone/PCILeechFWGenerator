@@ -10,18 +10,16 @@ from __future__ import annotations
 import json
 import logging
 import os
-
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
 )
-
-from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 
 # Constants
 CONFIG_SPACE_PATH_TEMPLATE = "/sys/bus/pci/devices/{}/config"

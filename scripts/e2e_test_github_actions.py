@@ -24,10 +24,9 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 
@@ -297,31 +296,29 @@ class E2ETestRunner:
             sys.path.insert(0, str(self.project_root / "src"))
 
             # Test core module imports
-            from src.build import BuildConfiguration, FirmwareBuilder
-            from src.device_clone.device_config import get_device_config
 
             # Note: Some imports may not be available in all environments
             try:
-                from src.systemverilog_generator import SystemVerilogGenerator
+                pass
             except ImportError:
                 self.logger.warning("SystemVerilog generator not available")
 
             try:
-                from src.tcl_builder import TCLBuilder
+                pass
             except ImportError:
                 self.logger.warning("TCL builder not available")
 
             # Test optional imports with graceful degradation
             optional_imports = []
             try:
-                import textual
+                pass
 
                 optional_imports.append("textual")
             except ImportError:
                 pass
 
             try:
-                import rich
+                pass
 
                 optional_imports.append("rich")
             except ImportError:
@@ -351,7 +348,6 @@ class E2ETestRunner:
             )
 
             from src.device_discovery import discover_pci_devices
-            from src.vfio_handler import VFIODeviceHandler
 
             # Discover devices
             devices = discover_pci_devices()
@@ -682,8 +678,7 @@ class E2ETestRunner:
 
         try:
             from src.template_context_validator import TemplateContextValidator
-            from src.template_security_validation import \
-                TemplateSecurityValidator
+            from src.template_security_validation import TemplateSecurityValidator
 
             # Find all template files
             template_dir = self.project_root / "src" / "templates"
@@ -1034,11 +1029,12 @@ puts "Project created successfully"
 
         try:
             # Import required modules
+            from src.device_clone.pcileech_generator import (
+                PCILeechGenerationConfig,
+                PCILeechGenerator,
+            )
             from src.host_device_collector import HostDeviceCollector
-            from src.device_clone.pcileech_generator import PCILeechGenerator, PCILeechGenerationConfig
-            from src.device_clone.config_space_manager import ConfigSpaceManager
-            from src.utils.unified_context import UnifiedContextBuilder
-            
+
             # Test device
             test_device = self.test_devices[0]
             bdf = test_device["bdf"]

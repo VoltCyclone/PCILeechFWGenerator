@@ -7,16 +7,11 @@ All values are derived deterministically from device identifiers.
 
 import hashlib
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from pcileechfwgenerator.string_utils import log_info_safe, log_debug_safe, safe_format
-from .base import (
-    BehavioralSpec,
-    BehavioralRegister,
-    BehavioralCounter,
-    BehaviorType
-)
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 
+from .base import BehavioralCounter, BehavioralRegister, BehavioralSpec, BehaviorType
 
 logger = logging.getLogger(__name__)
 

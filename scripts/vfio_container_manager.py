@@ -17,26 +17,23 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.cli.vfio_handler import (
+    VFIOBinder,
+    VFIOBindError,
+    VFIOPermissionError,
+)
+from src.cli.vfio_helpers import check_vfio_prerequisites
 from src.string_utils import (
-    log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
 )
-from src.cli.vfio_handler import (
-    VFIOBinder,
-    DeviceInfo,
-    VFIOBindError,
-    VFIOPermissionError,
-)
-from src.cli.vfio_helpers import check_vfio_prerequisites
 
 # Setup logging
 logging.basicConfig(

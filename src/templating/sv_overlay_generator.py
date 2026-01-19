@@ -11,11 +11,9 @@ lib/voltcyclone-fpga.
 """
 
 import logging
-
 from typing import Any, Dict, Optional
 
 from pcileechfwgenerator.exceptions import PCILeechGenerationError
-
 from pcileechfwgenerator.string_utils import (
     generate_tcl_header_comment,
     log_debug_safe,
@@ -26,9 +24,7 @@ from pcileechfwgenerator.string_utils import (
 )
 
 from .sv_constants import SV_VALIDATION
-
 from .template_renderer import TemplateRenderer, TemplateRenderError
-
 from .validation_helpers import validate_template_context
 
 
@@ -226,7 +222,9 @@ class SVOverlayGenerator:
         from pathlib import Path
         from tempfile import NamedTemporaryFile
 
-        from pcileechfwgenerator.device_clone.writemask_generator import WritemaskGenerator
+        from pcileechfwgenerator.device_clone.writemask_generator import (
+            WritemaskGenerator,
+        )
         
         log_info_safe(
             self.logger,

@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from pcileechfwgenerator.string_utils import (
-    log_debug_safe,
     log_error_safe,
     log_info_safe,
     log_warning_safe,
@@ -63,7 +62,6 @@ class OptionROMError(Exception):
 class OptionROMExtractionError(OptionROMError):
     """Raised when Option-ROM extraction fails"""
 
-    pass
 
 
 class OptionROMManager:

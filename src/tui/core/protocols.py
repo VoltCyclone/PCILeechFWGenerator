@@ -5,7 +5,6 @@ These protocols define the interfaces that can be implemented by both real
 and mock components, enabling dependency injection and testability.
 """
 
-import asyncio
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 # Import necessary types

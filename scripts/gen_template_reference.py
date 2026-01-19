@@ -21,8 +21,12 @@ from typing import Any, Dict, List
 
 # Prefer in-repo utilities for logging/formatting
 try:
-    from src.string_utils import (log_error_safe, log_info_safe,
-                                  log_warning_safe, safe_format)
+    from src.string_utils import (
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
 except Exception:
     # Lightweight shims matching the project signatures
 

@@ -5,7 +5,6 @@ This module implements device operations with graceful degradation to ensure
 the application can continue functioning even if specific operations fail.
 """
 
-import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 

@@ -7,7 +7,10 @@ Monitors system status including container availability, USB devices, and system
 import asyncio
 from typing import Any, Dict
 
-from pcileechfwgenerator.utils.system_status import get_status_summary, get_system_status
+from pcileechfwgenerator.utils.system_status import (
+    get_status_summary,
+    get_system_status,
+)
 
 
 class StatusMonitor:

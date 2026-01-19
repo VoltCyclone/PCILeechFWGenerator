@@ -6,7 +6,6 @@ Provides consistent logging prefixes and formatting for the build process.
 """
 
 import logging
-
 from typing import Optional
 
 from pcileechfwgenerator.string_utils import (

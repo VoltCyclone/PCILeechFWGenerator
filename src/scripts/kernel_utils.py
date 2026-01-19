@@ -20,14 +20,21 @@ import pathlib
 import platform
 import subprocess
 import tarfile
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional
 
 from pcileechfwgenerator.log_config import get_logger
+
 # Project logging & safe string formatting utilities (mandatory per repo style)
-from pcileechfwgenerator.string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format)
-from pcileechfwgenerator.utils.unified_context import \
-    TemplateObject  # For context compatibility
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from pcileechfwgenerator.utils.unified_context import (  # noqa: F401; For context compatibility
+    TemplateObject,
+)
 
 logger = get_logger(__name__)
 
@@ -199,7 +206,6 @@ def setup_debugfs() -> None:
                     ),
                     prefix="KERNEL",
                 )
-            pass
 
         # Check if debugfs is supported in kernel
         try:
@@ -421,7 +427,9 @@ def find_driver_sources(
 
 
 # Expose enrich_context_with_driver for test and module compatibility
-from pcileechfwgenerator.utils.context_driver_enrichment import enrich_context_with_driver
+from pcileechfwgenerator.utils.context_driver_enrichment import (
+    enrich_context_with_driver,
+)
 
 # Retain the usage wrapper for legacy/internal use if needed
 

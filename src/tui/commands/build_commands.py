@@ -4,7 +4,7 @@ Build-Related Commands
 This module contains commands for firmware build operations like validating and building firmware.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from ..core.build_manager import BuildManager
 from ..models.device import PCIDevice

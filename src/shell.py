@@ -2,9 +2,7 @@
 """Shell command execution utilities with dry-run support."""
 
 import logging
-
 import subprocess
-
 from typing import Optional
 
 logger = logging.getLogger(__name__)

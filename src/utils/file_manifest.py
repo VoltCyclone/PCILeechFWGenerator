@@ -7,8 +7,7 @@ Tracks file operations to prevent duplicates and provide audit trails.
 
 import json
 import time
-
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 

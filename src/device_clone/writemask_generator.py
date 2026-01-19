@@ -20,22 +20,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from pcileechfwgenerator.exceptions import FileOperationError
-
-from pcileechfwgenerator.string_utils import (
-    log_debug_safe,
-    log_error_safe,
-    log_info_safe,
-    log_warning_safe,
-    safe_format,
-)
-from pcileechfwgenerator.pci_capability.constants import (
-    STANDARD_CAPABILITY_NAMES as CAPABILITY_NAMES,
-    EXTENDED_CAPABILITY_NAMES,
-)
 from pcileechfwgenerator.device_clone.constants import (
     FIXED_SECTION,
-    WRITEMASK_DICT,
     WRITE_PROTECTED_BITS_MSI_64_BIT_1,
     WRITE_PROTECTED_BITS_MSI_ENABLED_0,
     WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1,
@@ -46,6 +32,21 @@ from pcileechfwgenerator.device_clone.constants import (
     WRITE_PROTECTED_BITS_MSIX_6,
     WRITE_PROTECTED_BITS_MSIX_7,
     WRITE_PROTECTED_BITS_MSIX_8,
+    WRITEMASK_DICT,
+)
+from pcileechfwgenerator.exceptions import FileOperationError
+from pcileechfwgenerator.pci_capability.constants import (
+    EXTENDED_CAPABILITY_NAMES,
+)
+from pcileechfwgenerator.pci_capability.constants import (
+    STANDARD_CAPABILITY_NAMES as CAPABILITY_NAMES,
+)
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
 )
 
 logger = logging.getLogger(__name__)

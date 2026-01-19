@@ -10,7 +10,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Set, Tuple
 
 
 def extract_ports_from_systemverilog(sv_file: Path) -> Set[str]:

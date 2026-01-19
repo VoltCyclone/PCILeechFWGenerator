@@ -10,27 +10,21 @@ import json
 import logging
 import time
 from dataclasses import asdict
-
 from pathlib import Path
-from typing import Dict, Any, Optional
-
-from pcileechfwgenerator.string_utils import (
-    safe_format,
-    log_info_safe,
-    log_warning_safe,
-    log_error_safe,
-)
-
-from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
-
-from pcileechfwgenerator.device_clone.device_info_lookup import DeviceInfoLookup
-from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
-
-from pcileechfwgenerator.device_clone.msix import MSIXManager, MSIXData
+from typing import Any, Dict, Optional
 
 from pcileechfwgenerator.cli.vfio_handler import VFIOBinder
-
+from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
+from pcileechfwgenerator.device_clone.device_info_lookup import DeviceInfoLookup
+from pcileechfwgenerator.device_clone.msix import MSIXData, MSIXManager
+from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 from pcileechfwgenerator.exceptions import BuildError
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 
 class HostDeviceCollector:

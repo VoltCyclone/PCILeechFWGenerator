@@ -6,7 +6,6 @@ This module provides the single source of truth for version information,
 eliminating duplication across the codebase.
 """
 
-import os
 import re
 from pathlib import Path
 from typing import Optional

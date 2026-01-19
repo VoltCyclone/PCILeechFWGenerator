@@ -8,13 +8,11 @@ import importlib
 import importlib.util
 import inspect
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional
 
-from .plugin_base import (BuildHook, ConfigValidator, DeviceAnalyzer,
-                          PCILeechPlugin)
+from .plugin_base import BuildHook, ConfigValidator, DeviceAnalyzer, PCILeechPlugin
 
 # Set up logging
 logger = logging.getLogger(__name__)

@@ -1,10 +1,15 @@
 import platform
 from typing import Any, Dict, List, Optional, Union
 
-from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
-from pcileechfwgenerator.utils.unified_context import \
-    TemplateObject  # For context compatibility
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from pcileechfwgenerator.utils.unified_context import (
+    TemplateObject,  # For context compatibility
+)
 
 
 def enrich_context_with_driver(

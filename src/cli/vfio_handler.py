@@ -1,25 +1,27 @@
 """VFIO handler for PCI device management."""
 
+import fcntl
+import logging
 import os
 import time
-import logging
-import fcntl
-import atexit
-from typing import Optional, List, Dict, Any, Tuple
-from pathlib import Path
 from dataclasses import dataclass
-import re
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from pcileechfwgenerator.string_utils import log_debug_safe, log_info_safe, log_warning_safe, safe_format
-
-from pcileechfwgenerator.utils.validators import get_bdf_validator
 from pcileechfwgenerator.exceptions import (
     VFIOBindError,
-    VFIOPermissionError,
-    VFIOGroupError,
     VFIODeviceNotFoundError,
+    VFIOGroupError,
+    VFIOPermissionError,
 )
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+from pcileechfwgenerator.utils.validators import get_bdf_validator
 
 
 class BindingState(Enum):

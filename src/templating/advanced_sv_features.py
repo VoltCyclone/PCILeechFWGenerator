@@ -8,7 +8,7 @@ reduce import complexity.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 # Centralized version import (avoid hardcoding versions)
 try:
@@ -16,8 +16,8 @@ try:
 except Exception:  # pragma: no cover - fallback if package structure differs
     try:
         from pcileechfwgenerator.__version__ import (
-            __version__ as PCILEECH_FWGEN_VERSION,
-        )  # type: ignore
+            __version__ as PCILEECH_FWGEN_VERSION,  # type: ignore
+        )
     except Exception:
         PCILEECH_FWGEN_VERSION = "unknown"
 
@@ -40,7 +40,6 @@ try:
         PerformanceMetric,
         PowerManagementConfig,
         PowerState,
-        TransitionCycles,
     )
     from .template_renderer import TemplateRenderer, TemplateRenderError
 except ImportError:
@@ -62,7 +61,6 @@ except ImportError:
         PerformanceMetric,
         PowerManagementConfig,
         PowerState,
-        TransitionCycles,
     )
     from pcileechfwgenerator.templating.template_renderer import (
         TemplateRenderer,

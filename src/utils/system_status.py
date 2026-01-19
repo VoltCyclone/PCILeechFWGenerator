@@ -103,7 +103,9 @@ async def check_vivado_status() -> Dict[str, Any]:
     """
     # Import vivado_utils from vivado_handling package
     try:
-        from pcileechfwgenerator.vivado_handling.vivado_utils import find_vivado_installation
+        from pcileechfwgenerator.vivado_handling.vivado_utils import (
+            find_vivado_installation,
+        )
 
         # Use the utility function to find Vivado
         vivado_info = find_vivado_installation()

@@ -2,12 +2,11 @@
 """Base behavioral register infrastructure for device simulation."""
 
 import logging
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Optional
 
-from pcileechfwgenerator.string_utils import log_error_safe, log_debug_safe, safe_format
-
+from pcileechfwgenerator.string_utils import log_debug_safe, log_error_safe, safe_format
 
 logger = logging.getLogger(__name__)
 

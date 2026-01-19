@@ -1,12 +1,12 @@
 import asyncio
-import os
-from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
-
-from pcileechfwgenerator.tui.core.device_manager import (BAR_TYPE_IO, BAR_TYPE_MEMORY,
-                                         DeviceManager)
+from pcileechfwgenerator.tui.core.device_manager import (
+    BAR_TYPE_IO,
+    BAR_TYPE_MEMORY,
+    DeviceManager,
+)
 from pcileechfwgenerator.tui.models.device import PCIDevice
 
 

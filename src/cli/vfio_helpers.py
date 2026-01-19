@@ -200,7 +200,6 @@ def ensure_device_vfio_binding(bdf: str) -> str:
                 ),
                 prefix="VFIO",
             )
-            pass
 
     # Reuse existing checks - these raise OSError on failure.
     check_vfio_prerequisites()

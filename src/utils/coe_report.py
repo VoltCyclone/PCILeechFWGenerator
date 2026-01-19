@@ -314,7 +314,7 @@ def generate_coe_report_if_enabled(
         logger: Optional logger instance
     """
     import os
-    
+
     # Allow disabling via environment variable
     if os.environ.get("PCILEECH_DISABLE_COE_REPORT", "").lower() in ("1", "true", "yes"):
         return

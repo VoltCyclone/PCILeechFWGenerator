@@ -2,16 +2,11 @@
 """Behavioral simulation for media controllers (audio/video)."""
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
 from pcileechfwgenerator.string_utils import log_info_safe, safe_format
-from .base import (
-    BehavioralSpec,
-    BehavioralRegister,
-    BehavioralCounter,
-    BehaviorType
-)
 
+from .base import BehavioralCounter, BehavioralRegister, BehavioralSpec, BehaviorType
 
 logger = logging.getLogger(__name__)
 

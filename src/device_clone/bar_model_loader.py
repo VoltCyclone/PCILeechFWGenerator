@@ -6,9 +6,9 @@ load/save functionality with validation.
 """
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.string_utils import log_error_safe, log_info_safe, safe_format

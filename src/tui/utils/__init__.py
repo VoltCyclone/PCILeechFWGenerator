@@ -8,8 +8,12 @@ used throughout the TUI application.
 from .debounced_search import DebouncedSearch
 from .graceful_degradation import GracefulDegradation
 from .input_validator import InputValidator
-from .ui_helpers import (format_build_mode, format_donor_module_status,
-                         format_status_messages, safely_update_static)
+from .ui_helpers import (
+    format_build_mode,
+    format_donor_module_status,
+    format_status_messages,
+    safely_update_static,
+)
 
 # Module-level aliases for backward compatibility
 debounced_search = DebouncedSearch

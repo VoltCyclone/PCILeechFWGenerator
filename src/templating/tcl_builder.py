@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 
 # Import exceptions and utilities - these should be in the package structure
-from pcileechfwgenerator.device_clone.fallback_manager import get_global_fallback_manager
+from pcileechfwgenerator.device_clone.fallback_manager import (
+    get_global_fallback_manager,
+)
 from pcileechfwgenerator.exceptions import (
     DeviceConfigError,
     TCLBuilderError,

@@ -22,37 +22,35 @@ from __future__ import annotations
 
 import logging
 import os
-
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-
 from pathlib import Path
-
 from typing import Any, Dict, Generator, List, Optional
 
 # Import existing infrastructure components
-from pcileechfwgenerator.device_clone.behavior_profiler import BehaviorProfile, BehaviorProfiler
-
+from pcileechfwgenerator.device_clone.behavior_profiler import (
+    BehaviorProfile,
+    BehaviorProfiler,
+)
 from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
-
-from pcileechfwgenerator.device_clone.constants import DEFAULT_FPGA_PART
-
 from pcileechfwgenerator.device_clone.device_info_lookup import lookup_device_info
-
 from pcileechfwgenerator.device_clone.msix_capability import (
     parse_msix_capability,
     validate_msix_configuration,
 )
-
-from pcileechfwgenerator.device_clone.pcileech_context import PCILeechContextBuilder, VFIODeviceManager
-
+from pcileechfwgenerator.device_clone.pcileech_context import (
+    PCILeechContextBuilder,
+    VFIODeviceManager,
+)
 from pcileechfwgenerator.device_clone.writemask_generator import WritemaskGenerator
-
 from pcileechfwgenerator.error_utils import extract_root_cause
-
-from pcileechfwgenerator.exceptions import PCILeechGenerationError, PlatformCompatibilityError
-
-from pcileechfwgenerator.pci_capability.msix_bar_validator import validate_msix_bar_configuration
+from pcileechfwgenerator.exceptions import (
+    PCILeechGenerationError,
+    PlatformCompatibilityError,
+)
+from pcileechfwgenerator.pci_capability.msix_bar_validator import (
+    validate_msix_bar_configuration,
+)
 
 # Import from centralized locations
 from pcileechfwgenerator.string_utils import (
@@ -63,9 +61,11 @@ from pcileechfwgenerator.string_utils import (
     safe_format,
     utc_timestamp,
 )
-
-from pcileechfwgenerator.templating import AdvancedSVGenerator, TemplateRenderer, TemplateRenderError
-
+from pcileechfwgenerator.templating import (
+    AdvancedSVGenerator,
+    TemplateRenderer,
+    TemplateRenderError,
+)
 from pcileechfwgenerator.templating.tcl_builder import format_hex_id
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,9 @@ class PCILeechGenerator:
         self.logger = logging.getLogger(__name__)
 
         # Initialize shared/global fallback manager
-        from pcileechfwgenerator.device_clone.fallback_manager import get_global_fallback_manager
+        from pcileechfwgenerator.device_clone.fallback_manager import (
+            get_global_fallback_manager,
+        )
 
         self.fallback_manager = get_global_fallback_manager(
             mode=config.fallback_mode, allowed_fallbacks=config.allowed_fallbacks
@@ -1055,9 +1057,8 @@ class PCILeechGenerator:
             PCILeechGenerationError: If constraint file copying fails
         """
         try:
-            from pcileechfwgenerator.file_management.file_manager import FileManager
             from pcileechfwgenerator.file_management.repo_manager import RepoManager
-            
+
             # Get board name from context
             board = template_context.get(
                 "board_name"
@@ -1268,8 +1269,7 @@ class PCILeechGenerator:
         """
         try:
             from pcileechfwgenerator.file_management.file_manager import FileManager
-            from pcileechfwgenerator.file_management.repo_manager import RepoManager
-            
+
             # Get board name from context
             board = template_context.get("board_name") or template_context.get("board")
             if not board:
@@ -1491,7 +1491,9 @@ class PCILeechGenerator:
 
         try:
             # Import hex formatter
-            from pcileechfwgenerator.device_clone.hex_formatter import ConfigSpaceHexFormatter
+            from pcileechfwgenerator.device_clone.hex_formatter import (
+                ConfigSpaceHexFormatter,
+            )
 
             # Resolve raw configuration space bytes via centralized helper
             raw_config_space = self._extract_raw_config_space(template_context)

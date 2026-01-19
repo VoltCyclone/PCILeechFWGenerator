@@ -6,11 +6,13 @@ previously duplicated across the build system.
 """
 
 import random
-from typing import Dict, Final, List, Optional, Union
+from typing import Final, List, Optional
 
 # Import the VendorID enum for use in fallback functions
 try:
-    from pcileechfwgenerator.pci_capability.dynamic_functions import VendorID as ExternalVendorID
+    from pcileechfwgenerator.pci_capability.dynamic_functions import (
+        VendorID as ExternalVendorID,
+    )
 
     # Use the external VendorID enum values
     VENDOR_ID_INTEL = ExternalVendorID.INTEL
@@ -291,7 +293,7 @@ MPS_ENCODING_TO_VALUE = {v: k for k, v in MPS_VALUE_TO_ENCODING.items()}
 VALID_MPS_VALUES = list(MPS_VALUE_TO_ENCODING.keys())
 
 # Import writemask constants to avoid duplication
-from .writemask_constants import (
+from .writemask_constants import (  # noqa: F401
     FIXED_SECTION,
     WRITE_PROTECTED_BITS_AER,
     WRITE_PROTECTED_BITS_DSN,

@@ -6,21 +6,18 @@ Validates that required template files and IP cores exist before build.
 """
 
 import json
-
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from pcileechfwgenerator.string_utils import (
     log_info_safe,
     log_warning_safe,
-    log_error_safe,
-    safe_format
+    safe_format,
 )
 
 
 class TemplateValidationError(Exception):
     """Raised when template validation fails."""
-    pass
 
 
 class TemplateValidator:

@@ -11,45 +11,70 @@ to provide production-ready dynamic capability generation.
 """
 
 import logging
-
 from typing import Any, Dict, List, Optional, Set
 
-
-from .base_function_analyzer import (BaseFunctionAnalyzer,
-                                     create_function_capabilities)
-
+from .base_function_analyzer import BaseFunctionAnalyzer, create_function_capabilities
 from .constants import AMD_EHCI_PATTERNS  # USB Function Analyzer Constants
-
-from .constants import (AMD_XHCI_PATTERNS, CLASS_CODES, INTEL_EHCI_PATTERNS,
-                        INTEL_UHCI_PATTERNS, INTEL_XHCI_PATTERNS,
-                        NEC_XHCI_PATTERNS, USB_AUX_CURRENT_OTHER,
-                        USB_AUX_CURRENT_XHCI_USB4, USB_BAR_SIZE_EHCI_BASE,
-                        USB_BAR_SIZE_IO_PORTS, USB_BAR_SIZE_MSIX_TABLE,
-                        USB_BAR_SIZE_XHCI_BASE, USB_CAP_ID_MSI,
-                        USB_CAP_ID_MSIX, USB_CAP_ID_PCIE, USB_CAP_ID_PM,
-                        USB_CATEGORY_EHCI_THRESHOLD,
-                        USB_CATEGORY_UHCI_THRESHOLD,
-                        USB_CATEGORY_USB4_THRESHOLD,
-                        USB_CATEGORY_XHCI_THRESHOLD_HIGH,
-                        USB_CATEGORY_XHCI_THRESHOLD_LOW, USB_DEVICE_LOWER_MASK,
-                        USB_DEVICE_UPPER_MASK, USB_DEVICE_UPPER_SHIFT,
-                        USB_ENTROPY_DIVISOR, USB_ENTROPY_MASK,
-                        USB_ENTROPY_VARIATION_FACTOR, USB_MSI_MESSAGES_OTHER,
-                        USB_MSI_MESSAGES_XHCI_USB4, USB_MSIX_SUPPORT_THRESHOLD,
-                        USB_PCIE_MAX_PAYLOAD_SIZE, USB_PORT_COUNT_EHCI_HIGH,
-                        USB_PORT_COUNT_EHCI_LOW,
-                        USB_PORT_COUNT_HIGH_THRESHOLD_EHCI,
-                        USB_PORT_COUNT_HIGH_THRESHOLD_XHCI,
-                        USB_PORT_COUNT_OHCI, USB_PORT_COUNT_UHCI,
-                        USB_PORT_COUNT_USB4, USB_PORT_COUNT_XHCI_HIGH,
-                        USB_PORT_COUNT_XHCI_LOW, USB_QUEUE_BASE_EHCI,
-                        USB_QUEUE_BASE_OTHER, USB_QUEUE_BASE_USB4,
-                        USB_QUEUE_BASE_XHCI, USB_SPEED_5GBPS, USB_SPEED_10GBPS,
-                        USB_SPEED_12MBPS, USB_SPEED_40GBPS, USB_SPEED_480MBPS,
-                        USB_VERSION_11, USB_VERSION_20, USB_VERSION_30,
-                        USB_VERSION_31, USB_VERSION_31_THRESHOLD,
-                        USB_VERSION_40, VENDOR_ID_NEC, VENDOR_ID_VIA,
-                        VIA_UHCI_PATTERNS)
+from .constants import (
+    AMD_XHCI_PATTERNS,
+    CLASS_CODES,
+    INTEL_EHCI_PATTERNS,
+    INTEL_UHCI_PATTERNS,
+    INTEL_XHCI_PATTERNS,
+    NEC_XHCI_PATTERNS,
+    USB_AUX_CURRENT_OTHER,
+    USB_AUX_CURRENT_XHCI_USB4,
+    USB_BAR_SIZE_EHCI_BASE,
+    USB_BAR_SIZE_IO_PORTS,
+    USB_BAR_SIZE_MSIX_TABLE,
+    USB_BAR_SIZE_XHCI_BASE,
+    USB_CAP_ID_MSI,
+    USB_CAP_ID_MSIX,
+    USB_CAP_ID_PCIE,
+    USB_CAP_ID_PM,
+    USB_CATEGORY_EHCI_THRESHOLD,
+    USB_CATEGORY_UHCI_THRESHOLD,
+    USB_CATEGORY_USB4_THRESHOLD,
+    USB_CATEGORY_XHCI_THRESHOLD_HIGH,
+    USB_CATEGORY_XHCI_THRESHOLD_LOW,
+    USB_DEVICE_LOWER_MASK,
+    USB_DEVICE_UPPER_MASK,
+    USB_DEVICE_UPPER_SHIFT,
+    USB_ENTROPY_DIVISOR,
+    USB_ENTROPY_MASK,
+    USB_ENTROPY_VARIATION_FACTOR,
+    USB_MSI_MESSAGES_OTHER,
+    USB_MSI_MESSAGES_XHCI_USB4,
+    USB_MSIX_SUPPORT_THRESHOLD,
+    USB_PCIE_MAX_PAYLOAD_SIZE,
+    USB_PORT_COUNT_EHCI_HIGH,
+    USB_PORT_COUNT_EHCI_LOW,
+    USB_PORT_COUNT_HIGH_THRESHOLD_EHCI,
+    USB_PORT_COUNT_HIGH_THRESHOLD_XHCI,
+    USB_PORT_COUNT_OHCI,
+    USB_PORT_COUNT_UHCI,
+    USB_PORT_COUNT_USB4,
+    USB_PORT_COUNT_XHCI_HIGH,
+    USB_PORT_COUNT_XHCI_LOW,
+    USB_QUEUE_BASE_EHCI,
+    USB_QUEUE_BASE_OTHER,
+    USB_QUEUE_BASE_USB4,
+    USB_QUEUE_BASE_XHCI,
+    USB_SPEED_5GBPS,
+    USB_SPEED_10GBPS,
+    USB_SPEED_12MBPS,
+    USB_SPEED_40GBPS,
+    USB_SPEED_480MBPS,
+    USB_VERSION_11,
+    USB_VERSION_20,
+    USB_VERSION_30,
+    USB_VERSION_31,
+    USB_VERSION_31_THRESHOLD,
+    USB_VERSION_40,
+    VENDOR_ID_NEC,
+    VENDOR_ID_VIA,
+    VIA_UHCI_PATTERNS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +110,10 @@ class USBFunctionAnalyzer(BaseFunctionAnalyzer):
         ) & USB_DEVICE_UPPER_MASK
 
         # Import vendor ID constants
-        from pcileechfwgenerator.device_clone.constants import VENDOR_ID_AMD, VENDOR_ID_INTEL
+        from pcileechfwgenerator.device_clone.constants import (
+            VENDOR_ID_AMD,
+            VENDOR_ID_INTEL,
+        )
 
         # Vendor-specific patterns
         if self.vendor_id == VENDOR_ID_INTEL:  # Intel

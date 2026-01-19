@@ -13,15 +13,14 @@ Critical elements validated:
 5. Config space structure and integrity
 """
 
-from typing import Any, Dict, List, Optional, Set, Tuple
-from pathlib import Path
-
 import struct
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pcileechfwgenerator.string_utils import (
+    log_error_safe,
     log_info_safe,
     log_warning_safe,
-    log_error_safe,
     safe_format,
 )
 

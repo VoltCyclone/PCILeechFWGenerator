@@ -4,11 +4,8 @@ Build Manager for PCILeech TUI application.
 This module provides services for validating and building firmware for devices.
 """
 
-import asyncio
 import os
-import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 from ..models.device import PCIDevice
 from ..models.progress import BuildProgress, BuildStage
@@ -117,8 +114,12 @@ class BuildManager:
 
             # do this inside the function to avoid circular imports
             try:
-                from pcileechfwgenerator.build import BuildConfiguration as CoreBuildConfig
-                from pcileechfwgenerator.build import FirmwareBuilder
+                from pcileechfwgenerator.build import (
+                    BuildConfiguration as CoreBuildConfig,
+                )
+                from pcileechfwgenerator.build import (
+                    FirmwareBuilder,
+                )
             except ImportError as e:
                 build_progress.add_error(f"Failed to import build system: {str(e)}")
                 return False, f"Build system import failed: {str(e)}"

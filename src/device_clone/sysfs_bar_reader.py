@@ -9,13 +9,11 @@ This module complements VFIO-based access for simpler, read-only operations.
 import mmap
 import os
 import struct
-
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from pcileechfwgenerator.log_config import get_logger
-
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,

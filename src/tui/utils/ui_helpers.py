@@ -7,7 +7,7 @@ standardized helper functions for safely updating UI elements, formatting
 status messages, and handling UI-related operations across the TUI codebase.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 # We don't directly import Textual classes to avoid import errors during static analysis
 # The objects will be checked using getattr and isinstance() at runtime

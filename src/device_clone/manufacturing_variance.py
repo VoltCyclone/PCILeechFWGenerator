@@ -10,22 +10,14 @@ at the same commit fall in the same timing band.
 """
 
 import hashlib
-
 import json
-
 import logging
-
 import random
-
 import statistics
-
 import struct
-
 from dataclasses import dataclass, field
-
 from enum import Enum
-
-from typing import Any, Dict, List, Optional, Tuple, Union, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 

@@ -9,7 +9,6 @@ import logging
 from typing import Any, Dict
 
 from pcileechfwgenerator.exceptions import TemplateRenderError
-
 from pcileechfwgenerator.string_utils import log_error_safe, safe_format
 
 

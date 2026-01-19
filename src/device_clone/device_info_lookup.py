@@ -16,7 +16,9 @@ from typing import Any, Dict, Optional
 from pcileechfwgenerator.device_clone.device_config import DeviceIdentification
 
 # Import DeviceConfiguration first to avoid cyclic import
-from pcileechfwgenerator.device_clone.fallback_manager import get_global_fallback_manager
+from pcileechfwgenerator.device_clone.fallback_manager import (
+    get_global_fallback_manager,
+)
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -24,7 +26,10 @@ from pcileechfwgenerator.string_utils import (
     log_warning_safe,
     safe_format,
 )
-from pcileechfwgenerator.utils.validation_constants import CORE_DEVICE_ID_FIELDS, CORE_DEVICE_IDS
+from pcileechfwgenerator.utils.validation_constants import (
+    CORE_DEVICE_ID_FIELDS,
+    CORE_DEVICE_IDS,
+)
 
 # Import config_space_manager dynamically when needed to avoid circular dependencies
 logger = logging.getLogger(__name__)
@@ -82,7 +87,9 @@ class DeviceInfoLookup:
         )
 
         # Dynamically import ConfigSpaceManager to avoid circular dependency
-        from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
+        from pcileechfwgenerator.device_clone.config_space_manager import (
+            ConfigSpaceManager,
+        )
 
         manager = ConfigSpaceManager(self.bdf)
         try:

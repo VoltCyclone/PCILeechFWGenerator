@@ -9,14 +9,16 @@ binary format.
 """
 
 import logging
-
 from typing import Dict, List, Optional, Tuple
 
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
-
+from ..string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 from .core import ConfigSpace
-
 from .types import PatchInfo
 
 logger = logging.getLogger(__name__)

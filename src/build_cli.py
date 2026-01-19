@@ -13,12 +13,12 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from pcileechfwgenerator.log_config import get_logger, setup_logging
 from pcileechfwgenerator.string_utils import (
     log_error_safe,
     log_info_safe,
     log_warning_safe,
 )
-from pcileechfwgenerator.log_config import get_logger, setup_logging
 
 
 def main():

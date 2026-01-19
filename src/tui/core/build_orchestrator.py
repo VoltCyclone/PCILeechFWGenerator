@@ -8,18 +8,22 @@ import asyncio
 import datetime
 import logging
 import os
-import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import psutil
-
-from pcileechfwgenerator.error_utils import (extract_root_cause, format_user_friendly_error,
-                             log_error_with_root_cause)
-from pcileechfwgenerator.string_utils import (log_error_safe, log_info_safe, log_warning_safe,
-                              safe_format)
+from pcileechfwgenerator.error_utils import (
+    extract_root_cause,
+    format_user_friendly_error,
+    log_error_with_root_cause,
+)
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 from ..models.config import BuildConfiguration
 from ..models.device import PCIDevice
@@ -661,7 +665,6 @@ class BuildOrchestrator:
             # Import the module
             # Return the module
             import file_management.donor_dump_manager as donor_dump_manager
-            from file_management.donor_dump_manager import DonorDumpManager
 
             return donor_dump_manager
 
@@ -956,7 +959,6 @@ class BuildOrchestrator:
                 return
 
             # Import build module
-            from pathlib import Path
 
             # For local builds with donor info file, load and validate the file
             if config.local_build and config.donor_info_file:
@@ -1100,7 +1102,6 @@ class BuildOrchestrator:
             device: The PCIe device to analyze
         """
         # Import existing functions
-        from pathlib import Path
 
         from ...cli.vfio import get_current_driver
         from ...cli.vfio_handler import _get_iommu_group
@@ -1285,8 +1286,6 @@ class BuildOrchestrator:
             await self._run_shell(build_cmd.split())
         else:
             # Get IOMMU group for VFIO device
-            from pathlib import Path
-
             from ...cli.vfio_handler import _get_iommu_group
 
             iommu_group = await asyncio.get_running_loop().run_in_executor(

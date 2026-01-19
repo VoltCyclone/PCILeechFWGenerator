@@ -7,9 +7,7 @@ and prevent invalid values from entering SystemVerilog templates.
 """
 
 import logging
-
 import re
-
 from typing import Any, Dict, Optional, Tuple
 
 from pcileechfwgenerator.string_utils import log_error_safe, safe_format

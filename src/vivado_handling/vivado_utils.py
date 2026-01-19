@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from pcileechfwgenerator.string_utils import (
-    safe_format,
+    log_debug_safe,
     log_info_safe,
     log_warning_safe,
-    log_debug_safe,
+    safe_format,
 )
 
 LOG = logging.getLogger(__name__)

@@ -1,16 +1,15 @@
 import hashlib
+import logging
 import math
 import secrets
 import struct
-import logging
 from collections import Counter
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, Optional
 
-from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 from pcileechfwgenerator.exceptions import ConfigSpaceError
-
 from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 
 if TYPE_CHECKING:
     from pcileechfwgenerator.device_clone.bar_model_loader import BarModel

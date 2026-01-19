@@ -6,16 +6,8 @@ firmware behave like real devices (e.g., Ethernet showing as connected,
 NVMe showing as ready).
 """
 
-from .base import (
-    BehaviorType,
-    BehavioralRegister,
-    BehavioralCounter,
-    BehavioralSpec
-)
-from .analyzer import (
-    BehavioralAnalyzerFactory,
-    generate_behavioral_spec
-)
+from .analyzer import BehavioralAnalyzerFactory, generate_behavioral_spec
+from .base import BehavioralCounter, BehavioralRegister, BehavioralSpec, BehaviorType
 
 __all__ = [
     'BehaviorType',

@@ -19,13 +19,14 @@ from urllib.request import Request, urlopen
 try:
     from ..__version__ import __url__, __version__
     from ..log_config import get_logger
-    from ..string_utils import log_info_safe, log_warning_safe
+    from ..string_utils import log_warning_safe
 except ImportError:
     # Fallback for direct execution
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    from pcileechfwgenerator.string_utils import log_warning_safe
+
     from __version__ import __url__, __version__
     from log_config import get_logger
-    from pcileechfwgenerator.string_utils import log_info_safe, log_warning_safe
 
 logger = get_logger(__name__)
 
@@ -168,7 +169,6 @@ def save_cache(latest_version: str, update_available: bool):
     except Exception as e:
         # Silently fail if we can't write cache
         logger.debug(f"Failed to save cache: {e}")
-        pass
 
 
 def fetch_latest_version_github() -> Optional[str]:
@@ -330,7 +330,6 @@ def check_and_notify():
     except Exception as e:
         # Never let version checking break the main program
         logger.debug(f"Version check failed: {e}")
-        pass
 
 
 # Add command line argument support

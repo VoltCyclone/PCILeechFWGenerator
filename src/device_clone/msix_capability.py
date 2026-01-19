@@ -7,29 +7,30 @@ PCI configuration space and generate SystemVerilog code for MSI-X table replicat
 """
 
 import struct
-
 from typing import Any, Dict, List, Optional, Tuple
 
-# Import project logging and string utilities
-
+# Import BAR size constants
+from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
 from pcileechfwgenerator.log_config import get_logger
-
-from pcileechfwgenerator.string_utils import (format_kv_table, format_raw_bar_table,
-                              log_debug_safe, log_error_safe, log_info_safe,
-                              log_warning_safe, safe_format, safe_print_format)
 
 # Import PCI capability infrastructure for extended capabilities support
 from pcileechfwgenerator.pci_capability.compat import find_cap as pci_find_cap
-
 from pcileechfwgenerator.pci_capability.compat import find_ext_cap
-
-from pcileechfwgenerator.pci_capability.types import CapabilityType
+from pcileechfwgenerator.string_utils import (
+    format_kv_table,
+    format_raw_bar_table,
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+    safe_print_format,
+)
 
 # Import template renderer
 from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
-# Import BAR size constants
-from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
+# Import project logging and string utilities
 
 logger = get_logger(__name__)
 

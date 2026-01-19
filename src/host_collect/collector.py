@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import os
 import json
-
+import os
 from pathlib import Path
-from typing import Optional, Dict, Any
-
-from pcileechfwgenerator.string_utils import (
-    log_info_safe,
-    log_error_safe,
-    log_warning_safe,
-    log_debug_safe,
-    safe_format,
-)
-from pcileechfwgenerator.log_config import get_logger
+from typing import Any, Dict, Optional
 
 # Reuse existing MSI-X parser
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.log_config import get_logger
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_error_safe,
+    log_info_safe,
+    safe_format,
+)
 
 CONFIG_PATH_TEMPLATE = "/sys/bus/pci/devices/{bdf}/config"
 

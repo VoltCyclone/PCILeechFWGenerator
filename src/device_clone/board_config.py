@@ -7,14 +7,13 @@ from the pcileech-fpga repository.
 """
 
 import logging
-
 from pathlib import Path
-
 from typing import Any, Dict, List, Optional
 
-from pcileechfwgenerator.file_management.board_discovery import (BoardDiscovery,
-                                                 discover_all_boards)
-
+from pcileechfwgenerator.file_management.board_discovery import (
+    BoardDiscovery,
+    discover_all_boards,
+)
 from pcileechfwgenerator.string_utils import log_debug_safe, log_info_safe
 
 logger = logging.getLogger(__name__)

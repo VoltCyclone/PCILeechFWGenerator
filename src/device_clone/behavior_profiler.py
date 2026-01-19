@@ -18,7 +18,6 @@ import os
 import platform
 import queue
 import re
-import shlex
 import statistics
 import subprocess
 import sys

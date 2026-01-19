@@ -10,17 +10,12 @@ and retrieve board paths and XDC files for various PCILeech boards.
 from __future__ import annotations
 
 import os as _os
-
 import subprocess as _sp
-
 from pathlib import Path
-
 from typing import List, Optional
 
 from ..log_config import get_logger
-
-from ..string_utils import (log_debug_safe, log_error_safe, log_info_safe,
-                            log_warning_safe, safe_format)
+from ..string_utils import log_debug_safe, log_error_safe, log_info_safe, safe_format
 
 ###############################################################################
 # Configuration constants

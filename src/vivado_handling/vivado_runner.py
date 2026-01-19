@@ -7,24 +7,23 @@ designed to replace the complex container-based approach.
 """
 
 import logging
-
 import os
-
 from pathlib import Path
-
 from typing import Any, Dict, Optional
 
-from pcileechfwgenerator.string_utils import log_info_safe, log_warning_safe, safe_format
+from pcileechfwgenerator.string_utils import (
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
 
 from ..log_config import get_logger
-
 from .ip_lock_resolver import repair_ip_artifacts
 
 
 class VivadoIntegrationError(Exception):
     """Exception raised when Vivado integration fails."""
 
-    pass
 
 
 class VivadoRunner:
@@ -221,7 +220,6 @@ echo "Vivado synthesis completed on host"
         # Import these functions dynamically to avoid circular dependencies
         try:
             from .pcileech_build_integration import integrate_pcileech_build
-
             from .vivado_error_reporter import run_vivado_with_error_reporting
         except ImportError as e:
             raise VivadoIntegrationError(

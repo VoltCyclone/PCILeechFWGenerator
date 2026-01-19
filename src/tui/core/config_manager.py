@@ -10,7 +10,7 @@ import os
 import stat
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Dict, List, Optional
 
 try:
     from pydantic import ValidationError
@@ -19,14 +19,12 @@ except ImportError:
     class ValidationError(Exception):
         """Fallback ValidationError when pydantic is not available."""
 
-        pass
 
 
 # Import both the legacy and new Pydantic configuration models
 from ..models.config import BuildConfiguration as LegacyBuildConfiguration
 from ..models.configuration import BuildConfiguration
 from ..models.error import ErrorSeverity, TUIError
-from ..plugins.plugin_manager import get_plugin_manager
 
 # Set up logging
 logger = logging.getLogger(__name__)

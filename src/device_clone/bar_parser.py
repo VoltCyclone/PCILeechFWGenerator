@@ -5,17 +5,19 @@ This module provides a single, consistent implementation for parsing BAR
 """
 
 import struct
-from typing import List, Optional, Union
+from typing import List, Union
 
-from pcileechfwgenerator.device_clone.config_space_manager import BarInfo, ConfigSpaceConstants
-from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
+from pcileechfwgenerator.device_clone.config_space_manager import (
+    BarInfo,
+    ConfigSpaceConstants,
+)
+from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_warning_safe,
     safe_format,
 )
-from pcileechfwgenerator.log_config import get_logger
 
 logger = get_logger(__name__)
 
