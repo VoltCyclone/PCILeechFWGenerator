@@ -330,3 +330,173 @@ class TestReportAndCLI:
         vd.main([])
         captured = capsys.readouterr().out
         assert "{\n" in captured and "overall" in captured
+
+
+# -----------------------------
+# Tests for _bind_commands() with new_id approach
+# -----------------------------
+
+
+class TestBindCommands:
+    """Tests for the _bind_commands method with new_id approach."""
+
+    def test_bind_commands_with_vendor_device_ids_and_current_driver(self):
+        """Test bind commands when vendor/device IDs are available and driver is bound."""
+        d = Diagnostics("0000:01:00.0")
+        d._vendor_id = "10ec"
+        d._device_id = "8125"
+        
+        cmds = d._bind_commands("0000:01:00.0", "nvidia")
+        
+        # Should have unbind command first
+        assert len(cmds) == 2
+        assert "unbind" in cmds[0]
+        assert "0000:01:00.0" in cmds[0]
+        # Should use new_id approach (preferred method)
+        assert "new_id" in cmds[1]
+        assert "10ec" in cmds[1]
+        assert "8125" in cmds[1]
+
+    def test_bind_commands_with_vendor_device_ids_no_current_driver(self):
+        """Test bind commands when vendor/device IDs available but no driver bound."""
+        d = Diagnostics("0000:01:00.0")
+        d._vendor_id = "10ec"
+        d._device_id = "8125"
+        
+        cmds = d._bind_commands("0000:01:00.0", None)
+        
+        # Should only have new_id command (no unbind needed)
+        assert len(cmds) == 1
+        assert "new_id" in cmds[0]
+        assert "10ec 8125" in cmds[0]
+        assert "vfio-pci/new_id" in cmds[0]
+
+    def test_bind_commands_fallback_without_vendor_device_ids(self):
+        """Test fallback to direct bind when vendor/device IDs not available."""
+        d = Diagnostics("0000:01:00.0")
+        # No vendor/device IDs set
+        
+        cmds = d._bind_commands("0000:01:00.0", "r8169")
+        
+        # Should have unbind + fallback bind commands
+        assert len(cmds) == 2
+        assert "unbind" in cmds[0]
+        # Should fallback to direct bind approach
+        assert "vfio-pci/bind" in cmds[1]
+        assert "0000:01:00.0" in cmds[1]
+        assert "new_id" not in cmds[1]
+
+    def test_bind_commands_fallback_no_driver_no_ids(self):
+        """Test fallback when no driver and no vendor/device IDs."""
+        d = Diagnostics("0000:01:00.0")
+        # No vendor/device IDs set
+        
+        cmds = d._bind_commands("0000:01:00.0", None)
+        
+        # Should only have fallback bind command
+        assert len(cmds) == 1
+        assert "vfio-pci/bind" in cmds[0]
+        assert "0000:01:00.0" in cmds[0]
+
+
+class TestDeviceExistsVendorDeviceIds:
+    """Tests for _device_exists storing vendor/device IDs."""
+
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics.VFIOPathManager")
+    def test_device_exists_stores_vendor_device_ids(self, mock_path_manager_cls):
+        """Test that _device_exists stores vendor/device IDs for use in bind commands."""
+        bdf = "0000:0a:00.0"
+        d = Diagnostics(bdf)
+        
+        # Mock the path manager
+        mock_path_manager = MagicMock()
+        mock_path_manager.device_path.exists.return_value = True
+        mock_path_manager.get_vendor_device_id.return_value = ("10ec", "8125")
+        mock_path_manager_cls.return_value = mock_path_manager
+        
+        d._device_exists()
+        
+        # Verify IDs were stored (without 0x prefix for command use)
+        assert d._vendor_id == "10ec"
+        assert d._device_id == "8125"
+        
+        # Verify check was added with formatted display (with 0x prefix)
+        ck = next(c for c in d.checks if c.name == "Device")
+        assert ck.status == Status.OK
+        assert "0x10ec" in ck.message
+        assert "0x8125" in ck.message
+
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics.VFIOPathManager")
+    def test_device_exists_not_found(self, mock_path_manager_cls):
+        """Test _device_exists when device doesn't exist."""
+        bdf = "0000:ff:00.0"
+        d = Diagnostics(bdf)
+        
+        mock_path_manager = MagicMock()
+        mock_path_manager.device_path.exists.return_value = False
+        mock_path_manager_cls.return_value = mock_path_manager
+        
+        d._device_exists()
+        
+        # IDs should not be set
+        assert d._vendor_id is None
+        assert d._device_id is None
+        
+        # Should have error check
+        ck = next(c for c in d.checks if c.name == "Device")
+        assert ck.status == Status.ERROR
+        assert "not found" in ck.message
+
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics.VFIOPathManager")
+    def test_device_exists_error_handling(self, mock_path_manager_cls):
+        """Test _device_exists handles exceptions gracefully."""
+        bdf = "0000:0a:00.0"
+        d = Diagnostics(bdf)
+        
+        mock_path_manager_cls.side_effect = Exception("Permission denied")
+        
+        d._device_exists()
+        
+        # IDs should not be set
+        assert d._vendor_id is None
+        assert d._device_id is None
+        
+        # Should have error check
+        ck = next(c for c in d.checks if c.name == "Device")
+        assert ck.status == Status.ERROR
+        assert "Permission denied" in ck.message
+
+
+class TestBindCommandsIntegration:
+    """Integration tests for bind commands through the driver binding flow."""
+
+    @patch("pcileechfwgenerator.cli.vfio_diagnostics.VFIOPathManager")
+    def test_driver_binding_uses_new_id_when_ids_available(self, mock_path_manager_cls):
+        """Test that driver binding check uses new_id approach when IDs are available."""
+        bdf = "0000:0a:00.0"
+        d = Diagnostics(bdf)
+        drv_link = f"/sys/bus/pci/devices/{bdf}/driver"
+        
+        # Setup: simulate _device_exists having stored the IDs
+        mock_path_manager = MagicMock()
+        mock_path_manager.device_path.exists.return_value = True
+        mock_path_manager.get_vendor_device_id.return_value = ("10ec", "8125")
+        mock_path_manager_cls.return_value = mock_path_manager
+        
+        d._device_exists()  # This stores the IDs
+        
+        # Now test driver binding with a non-vfio driver
+        exists_map = PathExistsMap([drv_link])
+        with patch("pathlib.Path.exists", new=lambda self, m=exists_map: m(self)):
+            with patch("os.readlink", return_value="/sys/bus/pci/drivers/r8169"):
+                d._device_driver_binding()
+        
+        # Find the driver check
+        ck = next(c for c in d.checks if c.name == "Driver")
+        assert ck.status == Status.WARNING
+        
+        # Commands should use new_id approach
+        assert ck.commands is not None
+        assert any("new_id" in c and "10ec 8125" in c for c in ck.commands)
+        # Should also have unbind command
+        assert any("unbind" in c for c in ck.commands)

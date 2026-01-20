@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.cli.vfio_handler import (
+    DeviceInfo,
     VFIOBinder,
     VFIOBindError,
     VFIOPermissionError,

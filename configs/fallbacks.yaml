@@ -22,6 +22,19 @@ critical_variables:
   - device.class_code     # PCI Class Code (e.g., 020000 for network devices)
   - device.subsys_vendor_id  # PCI Subsystem Vendor ID
   - device.subsys_device_id  # PCI Subsystem Device ID
+  
+  # Timing configuration (MUST come from device profiling)
+  # Using fallbacks would create fingerprintable patterns
+  - timing_config.min_latency_cycles
+  - timing_config.max_latency_cycles
+  - timing_config.avg_latency_cycles
+  - timing_config.min_read_latency
+  - timing_config.max_read_latency
+  - timing_config.avg_read_latency
+  
+  # Template context device identifiers
+  - vendor_id_int         # Integer form of vendor ID
+  - device_id_int         # Integer form of device ID
 
 # Safe fallback values for non-critical variables
 # These will be used only if the variable is missing

@@ -17,20 +17,47 @@
 `timescale 1ns / 1ps
 
 module tlp_latency_emulator #(
-    parameter MIN_LATENCY_CYCLES = {{ timing_config.min_latency_cycles | default(10) }},
-    parameter MAX_LATENCY_CYCLES = {{ timing_config.max_latency_cycles | default(50) }},
-    parameter AVG_LATENCY_CYCLES = {{ timing_config.avg_latency_cycles | default(25) }},
+    // Timing parameters - MUST be provided from device profiling, no fallbacks
+    // Using hardcoded defaults would create fingerprintable patterns
+    {%- if not timing_config or timing_config.min_latency_cycles is not defined %}
+    {% error "timing_config.min_latency_cycles must be provided from device profiling - no fallback allowed" %}
+    {%- endif %}
+    {%- if not timing_config or timing_config.max_latency_cycles is not defined %}
+    {% error "timing_config.max_latency_cycles must be provided from device profiling - no fallback allowed" %}
+    {%- endif %}
+    {%- if not timing_config or timing_config.avg_latency_cycles is not defined %}
+    {% error "timing_config.avg_latency_cycles must be provided from device profiling - no fallback allowed" %}
+    {%- endif %}
+    parameter MIN_LATENCY_CYCLES = {{ timing_config.min_latency_cycles }},
+    parameter MAX_LATENCY_CYCLES = {{ timing_config.max_latency_cycles }},
+    parameter AVG_LATENCY_CYCLES = {{ timing_config.avg_latency_cycles }},
     parameter ENABLE_JITTER = 1,
-    // Device-specific seed derived from vendor_id XOR device_id XOR timestamp hash
+    // Device-specific seed derived from vendor_id XOR device_id XOR build entropy
     // This ensures each build has unique timing characteristics
-    parameter [31:0] PRNG_SEED_0 = 32'h{{ "%08X" % ((vendor_id_int | default(0x8086)) ^ (device_id_int | default(0x1234)) ^ 0xDEADBEEF) }},
-    parameter [31:0] PRNG_SEED_1 = 32'h{{ "%08X" % (((vendor_id_int | default(0x8086)) << 16) | (device_id_int | default(0x1234)) ^ 0xCAFEBABE) }},
-    parameter [31:0] PRNG_SEED_2 = 32'h{{ "%08X" % ((device_id_int | default(0x1234)) ^ (subsystem_id_int | default(0x0000)) ^ 0xFEEDFACE) }},
-    parameter [31:0] PRNG_SEED_3 = 32'h{{ "%08X" % ((vendor_id_int | default(0x8086)) ^ 0xBAADF00D) }},
+    // SECURITY: These values MUST come from actual hardware - no fallbacks allowed
+    {%- if vendor_id_int is not defined %}
+    {% error "vendor_id_int must be provided from hardware - no fallback allowed to prevent fingerprinting" %}
+    {%- endif %}
+    {%- if device_id_int is not defined %}
+    {% error "device_id_int must be provided from hardware - no fallback allowed to prevent fingerprinting" %}
+    {%- endif %}
+    {%- set vid = vendor_id_int %}
+    {%- set did = device_id_int %}
+    {%- set ssid = subsystem_id_int | default(0x0000) %}
+    // Build entropy from timestamp/random source (provided by context builder)
+    {%- set build_entropy = build_entropy_seed | default(range(1, 2147483647) | random) %}
+    // PRNG seeds use device-specific values mixed with build entropy
+    // No well-known magic constants - each combination is unique
+    parameter [31:0] PRNG_SEED_0 = 32'h{{ "%08X" % ((vid | bitxor(did)) | bitxor(build_entropy)) }},
+    parameter [31:0] PRNG_SEED_1 = 32'h{{ "%08X" % (((vid * 65536) | bitor(did)) | bitxor((build_entropy * 31) % 0xFFFFFFFF)) }},
+    parameter [31:0] PRNG_SEED_2 = 32'h{{ "%08X" % ((did | bitxor(ssid)) | bitxor((build_entropy * 127) % 0xFFFFFFFF)) }},
+    parameter [31:0] PRNG_SEED_3 = 32'h{{ "%08X" % (vid | bitxor((build_entropy * 8191) % 0xFFFFFFFF)) }},
     // Burst correlation factor (0-255, higher = more correlated sequential timing)
-    parameter BURST_CORRELATION = {{ timing_config.burst_correlation | default(180) }},
+    // Derived from device ID to avoid fingerprinting with fixed default
+    parameter BURST_CORRELATION = {{ timing_config.burst_correlation | default(128 + (vid % 128)) }},
     // Thermal drift rate (cycles between baseline adjustments)
-    parameter THERMAL_DRIFT_PERIOD = {{ timing_config.thermal_drift_period | default(65536) }}
+    // Device-specific to avoid fingerprinting
+    parameter THERMAL_DRIFT_PERIOD = {{ timing_config.thermal_drift_period | default(32768 + (did % 65536)) }}
 )(
     input wire          clk,
     input wire          rst,
@@ -167,7 +194,7 @@ module tlp_latency_emulator #(
     assign base_jitter = is_sequential ? correlated_latency : (prng_out[7:0] % latency_range);
     
     // Apply thermal drift
-    assign thermal_adjusted = base_jitter + {{4{thermal_offset[3]}}, thermal_offset};
+    assign thermal_adjusted = base_jitter + {% raw %}{{4{thermal_offset[3]}}, thermal_offset}{% endraw %};
     
     // Apply region-based adjustment
     assign region_adjusted = thermal_adjusted + region_latency_adjust;

@@ -231,6 +231,9 @@ class Diagnostics:
     def __init__(self, device_bdf: Optional[str] = None):
         self.device_bdf = device_bdf
         self.checks: List[Check] = []
+        # Store device vendor/device IDs for remediation commands
+        self._vendor_id: Optional[str] = None
+        self._device_id: Optional[str] = None
 
     # Public API --------------------------------------------------------------
     def run(self) -> Report:
@@ -591,6 +594,9 @@ class Diagnostics:
             path_manager = VFIOPathManager(self.device_bdf)
             if path_manager.device_path.exists():
                 vendor_id, device_id = path_manager.get_vendor_device_id()
+                # Store IDs for use in remediation commands (without 0x prefix)
+                self._vendor_id = vendor_id
+                self._device_id = device_id
                 # Add 0x prefix for display consistency with existing behavior
                 vendor = f"0x{vendor_id}"
                 device = f"0x{device_id}"
@@ -828,22 +834,49 @@ class Diagnostics:
                 commands=self._bind_commands(self.device_bdf, None),
             )
 
-    @staticmethod
-    def _bind_commands(bdf: str, current: Optional[str]) -> List[str]:
-        cmds: list[str] = [
-            (
+    def _bind_commands(self, bdf: str, current: Optional[str]) -> List[str]:
+        """Generate commands to bind device to vfio-pci driver.
+        
+        Uses the new_id approach which is more robust:
+        1. Unbind from current driver (if any)
+        2. Register device IDs with vfio-pci via new_id (this auto-binds)
+        
+        The new_id approach is preferred because:
+        - It works even when the device has no current driver
+        - It doesn't require the device to be pre-registered with vfio-pci
+        - It handles the binding automatically after registration
+        """
+        cmds: list[str] = []
+        
+        # Step 1: Unbind from current driver if one is bound
+        if current:
+            cmds.append(
                 safe_format(
                     "echo '{bdf}' | sudo tee /sys/bus/pci/devices/{bdf}/driver/unbind",
                     bdf=bdf,
                 )
-                if current
-                else ""
-            ),
-            safe_format(
-                "echo '{bdf}' | sudo tee /sys/bus/pci/drivers/vfio-pci/bind", bdf=bdf
-            ),
-        ]
-        return [c for c in cmds if c]
+            )
+        
+        # Step 2: Use new_id to register and auto-bind to vfio-pci
+        # This is the recommended approach and works regardless of prior driver state
+        if self._vendor_id and self._device_id:
+            cmds.append(
+                safe_format(
+                    "echo '{vid} {did}' | sudo tee /sys/bus/pci/drivers/vfio-pci/new_id",
+                    vid=self._vendor_id,
+                    did=self._device_id,
+                )
+            )
+        else:
+            # Fallback to direct bind if we don't have device IDs
+            # This may fail if the device IDs aren't pre-registered
+            cmds.append(
+                safe_format(
+                    "echo '{bdf}' | sudo tee /sys/bus/pci/drivers/vfio-pci/bind", bdf=bdf
+                )
+            )
+        
+        return cmds
 
     def _device_node(self):
         link = Path(

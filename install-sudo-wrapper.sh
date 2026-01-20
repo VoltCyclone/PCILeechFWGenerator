@@ -26,8 +26,8 @@ log_error() {
 check_files() {
     local missing_files=()
     
-    if [ ! -f "pcileech-build-sudo" ]; then
-        missing_files+=("pcileech-build-sudo")
+    if [ ! -f "pcileech-sudo" ]; then
+        missing_files+=("pcileech-sudo")
     fi
     
     if [ ${#missing_files[@]} -ne 0 ]; then
@@ -59,14 +59,18 @@ if ! check_files; then
 fi
 
 # Copy the wrapper script to the installation directory
-log_info "Installing pcileech-build-sudo..."
-cp pcileech-build-sudo "$INSTALL_DIR/"
+log_info "Installing pcileech-sudo..."
+cp pcileech-sudo "$INSTALL_DIR/"
+chmod +x "$INSTALL_DIR/pcileech-sudo"
+
+# Also install as pcileech-build-sudo for backwards compatibility
+ln -sf "$INSTALL_DIR/pcileech-sudo" "$INSTALL_DIR/pcileech-build-sudo" 2>/dev/null || \
+    cp pcileech-sudo "$INSTALL_DIR/pcileech-build-sudo"
 chmod +x "$INSTALL_DIR/pcileech-build-sudo"
 
 log_info "Installed pcileech sudo wrapper to $INSTALL_DIR"
-log_info "You can now run builds with sudo using: pcileech-build-sudo build --bdf <device> --board <board>"
-log_warning "Note: The wrapper now uses the unified pcileech.py entrypoint"
-log_warning "Legacy usage is supported but consider using: sudo python3 pcileech.py build ..."
+log_info "You can now run commands with sudo using: pcileech-sudo <command> [args]"
+log_warning "Note: The wrapper uses the unified pcileech.py entrypoint"
 
 # Add the directory to PATH if it's not already there
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -106,9 +110,9 @@ fi
 log_info "Installation complete!"
 log_info ""
 log_info "Usage examples:"
-log_info "  pcileech-build-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1"
-log_info "  pcileech-build-sudo tui"
-log_info "  pcileech-build-sudo check --device 0000:03:00.0"
+log_info "  pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1"
+log_info "  pcileech-sudo check --device 0000:03:00.0"
+log_info "  pcileech-sudo tui"
 log_info ""
-log_info "Alternative (recommended):"
+log_info "Alternative (from project directory):"
 log_info "  sudo python3 pcileech.py build --bdf 0000:03:00.0 --board pcileech_35t325_x1"

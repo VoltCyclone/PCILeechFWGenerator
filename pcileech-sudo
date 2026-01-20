@@ -1,0 +1,57 @@
+#!/bin/bash
+# pcileech-sudo - Run pcileech commands with elevated privileges
+# 
+# This wrapper script handles:
+# 1. Automatic virtual environment detection
+# 2. Running pcileech.py with sudo while preserving the Python environment
+#
+# Usage: pcileech-sudo <command> [args...]
+# Example: pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1
+#          pcileech-sudo check --device 0000:03:00.0
+#          pcileech-sudo tui
+
+set -euo pipefail
+
+# Find the script directory (where pcileech.py is located)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if pcileech.py exists in the script directory
+if [ ! -f "$SCRIPT_DIR/pcileech.py" ]; then
+    # Try to find it relative to installed location
+    if [ -f "/app/pcileech.py" ]; then
+        SCRIPT_DIR="/app"
+    else
+        echo "Error: Could not find pcileech.py in $SCRIPT_DIR or /app"
+        echo "Please run this script from the PCILeechFWGenerator directory"
+        exit 1
+    fi
+fi
+
+# Determine the Python interpreter to use
+PYTHON_CMD=""
+
+# Check for active virtual environment first
+if [ -n "${VIRTUAL_ENV:-}" ]; then
+    PYTHON_CMD="$VIRTUAL_ENV/bin/python3"
+elif [ -f "$SCRIPT_DIR/.venv/bin/python3" ]; then
+    # Check for local .venv
+    PYTHON_CMD="$SCRIPT_DIR/.venv/bin/python3"
+elif [ -f "$HOME/.pcileech-venv/bin/python3" ]; then
+    # Check for user-level venv
+    PYTHON_CMD="$HOME/.pcileech-venv/bin/python3"
+else
+    # Fall back to system Python
+    PYTHON_CMD="python3"
+fi
+
+# Verify the Python interpreter exists
+if [ ! -x "$PYTHON_CMD" ] && ! command -v "$PYTHON_CMD" &> /dev/null; then
+    echo "Error: Python interpreter not found: $PYTHON_CMD"
+    echo "Please ensure Python 3 is installed and accessible"
+    exit 1
+fi
+
+# Execute pcileech.py with sudo, preserving the Python environment
+# Using 'sudo -E' to preserve environment variables
+cd "$SCRIPT_DIR"
+exec sudo -E "$PYTHON_CMD" "$SCRIPT_DIR/pcileech.py" "$@"

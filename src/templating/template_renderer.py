@@ -397,6 +397,28 @@ class TemplateRenderer:
 
         self.env.filters["safe_int"] = safe_int_filter
 
+        # Bitwise operation filters (Jinja2 doesn't support | and ^ as Python operators)
+        def bitor(value, other):
+            """Bitwise OR filter: value | other"""
+            return int(value or 0) | int(other or 0)
+
+        def bitxor(value, other):
+            """Bitwise XOR filter: value ^ other"""
+            return int(value or 0) ^ int(other or 0)
+
+        def bitand(value, other):
+            """Bitwise AND filter: value & other"""
+            return int(value or 0) & int(other or 0)
+
+        def bitnot(value):
+            """Bitwise NOT filter: ~value (with 32-bit mask)"""
+            return ~int(value or 0) & 0xFFFFFFFF
+
+        self.env.filters["bitor"] = bitor
+        self.env.filters["bitxor"] = bitxor
+        self.env.filters["bitand"] = bitand
+        self.env.filters["bitnot"] = bitnot
+
     def _setup_global_functions(self):
         """Setup global functions available in templates."""
 
