@@ -66,7 +66,8 @@ COPY pcileech.py .
 COPY pyproject.toml setup.py setup.cfg ./
 
 # Install the package itself so `from pcileechfwgenerator.xxx` imports work
-RUN pip3 install --no-cache-dir -e . || echo "Warning: Editable install failed, trying regular install" && pip3 install --no-cache-dir .
+# Note: Use regular install (not editable) since source is copied, not mounted
+RUN pip3 install --no-cache-dir .
 
 # Copy voltcyclone-fpga from build stage (cloned during build)
 COPY --from=build /src/lib/voltcyclone-fpga ./lib/voltcyclone-fpga
