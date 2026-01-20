@@ -677,7 +677,6 @@ puts "Adding source files..."
         )
 
         # Set include directories for SystemVerilog header files
-        # This is critical for resolving `include "pcileech_header.svh" and interfaces like IfAXIS128
         script_content += "\n# Set include directories for SystemVerilog headers\n"
         script_content += (
             'puts "Setting include directories for SystemVerilog headers..."\n'
@@ -702,7 +701,6 @@ puts "Adding source files..."
             try:
                 rel_path = xdc_path.relative_to(board_output_dir)
             except ValueError:
-                # If file is not under board_output_dir, use the filename and assume it's in constraints/
                 rel_path = Path("constraints") / xdc_path.name
             
             cmd = f'add_files -fileset constrs_1 -norecurse "{rel_path}"\n'
