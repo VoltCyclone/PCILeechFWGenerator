@@ -67,7 +67,9 @@ COPY pyproject.toml setup.py setup.cfg ./
 
 # Install the package itself so `from pcileechfwgenerator.xxx` imports work
 # Note: Use regular install (not editable) since source is copied, not mounted
-RUN pip3 install --no-cache-dir .
+RUN pip3 install --no-cache-dir . && \
+    python3 -c "import pcileechfwgenerator; print('✓ pcileechfwgenerator installed successfully')" && \
+    python3 -c "from pcileechfwgenerator.string_utils import safe_format; print('✓ string_utils imports work')"
 
 # Copy voltcyclone-fpga from build stage (cloned during build)
 COPY --from=build /src/lib/voltcyclone-fpga ./lib/voltcyclone-fpga

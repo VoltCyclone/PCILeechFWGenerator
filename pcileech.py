@@ -950,47 +950,15 @@ def _get_image_age_days(runtime: str, tag: str) -> Optional[int]:
 
 
 def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -> bool:
-    """Ensure the container image exists; build it if missing."""
+    """Always rebuild the container image to ensure latest code is used."""
     try:
-        inspect = subprocess.run(
-            [runtime, "image", "inspect", tag],
-            capture_output=True,
-            text=True,
-        )
-        if inspect.returncode == 0:
-            # Image exists - warn user about potential staleness
-            age_days = _get_image_age_days(runtime, tag)
-            if age_days is not None and age_days > 7:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Container image '{tag}' is {days} days old. "
-                        "If you experience issues, rebuild with: "
-                        "{rt} system prune -a -f && {rt} build -t {tag} -f Containerfile .",
-                        tag=tag,
-                        days=age_days,
-                        rt=runtime,
-                    ),
-                    prefix="BUILD",
-                )
-            else:
-                log_info_safe(
-                    logger,
-                    safe_format(
-                        "Using existing container image: {tag}",
-                        tag=tag,
-                    ),
-                    prefix="BUILD",
-                )
-            return True
-        # Build image
         log_info_safe(
             logger,
-            safe_format("Building container image: {tag}", tag=tag),
+            safe_format("Building container image: {tag} (always rebuilds for consistency)", tag=tag),
             prefix="BUILD",
         )
         build = subprocess.run(
-            [runtime, "build", "-t", tag, "-f", "Containerfile", "."],
+            [runtime, "build", "--no-cache", "-t", tag, "-f", "Containerfile", "."],
             cwd=str(project_root),
         )
         return build.returncode == 0
