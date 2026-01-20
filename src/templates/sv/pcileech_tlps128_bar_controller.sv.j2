@@ -94,7 +94,17 @@ module pcileech_tlps128_bar_controller(
 {% if timing_config is defined and timing_config and timing_config.get('enable_latency_jitter', False) %}
     // ========================================================================
     // TLP Latency Emulation (enabled via behavior profiling)
+    // SECURITY: All timing parameters must come from device profiling
     // ========================================================================
+    {%- if not timing_config.get('min_read_latency') %}
+    {% error "timing_config.min_read_latency must be provided from device profiling" %}
+    {%- endif %}
+    {%- if not timing_config.get('max_read_latency') %}
+    {% error "timing_config.max_read_latency must be provided from device profiling" %}
+    {%- endif %}
+    {%- if not timing_config.get('avg_read_latency') %}
+    {% error "timing_config.avg_read_latency must be provided from device profiling" %}
+    {%- endif %}
     wire [87:0] bar_latency_rsp_ctx[7];
     wire [31:0] bar_latency_rsp_data[7];
     wire        bar_latency_rsp_valid[7];
@@ -103,10 +113,9 @@ module pcileech_tlps128_bar_controller(
     generate
         for (bar_idx = 0; bar_idx < 7; bar_idx = bar_idx + 1) begin : gen_latency_emulators
             tlp_latency_emulator #(
-                .MIN_LATENCY_CYCLES({{ timing_config.get('min_read_latency', 10) }}),
-                .MAX_LATENCY_CYCLES({{ timing_config.get('max_read_latency', 50) }}),
-                .AVG_LATENCY_CYCLES({{ timing_config.get('avg_read_latency', 30) }}),
-                .LFSR_SEED({{ timing_config.get('latency_lfsr_seed', 0xACE1) }}),
+                .MIN_LATENCY_CYCLES({{ timing_config.get('min_read_latency') }}),
+                .MAX_LATENCY_CYCLES({{ timing_config.get('max_read_latency') }}),
+                .AVG_LATENCY_CYCLES({{ timing_config.get('avg_read_latency') }}),
                 .ENABLE_JITTER(1'b1)
             ) i_tlp_latency_emulator (
                 .rst            ( rst                               ),

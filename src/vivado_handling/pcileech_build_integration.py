@@ -670,6 +670,20 @@ puts "Adding source files..."
             "}\n"
         )
 
+        # Set include directories for SystemVerilog header files
+        # This is critical for resolving `include "pcileech_header.svh" and interfaces like IfAXIS128
+        script_content += "\n# Set include directories for SystemVerilog headers\n"
+        script_content += (
+            'puts "Setting include directories for SystemVerilog headers..."\n'
+            "set src_dir [file normalize \"./src\"]\n"
+            "if {[file exists $src_dir]} {\n"
+            "    set_property include_dirs [list $src_dir] [current_fileset]\n"
+            '    puts "Include directory set: $src_dir"\n'
+            "} else {\n"
+            '    puts "WARNING: src directory not found at $src_dir"\n'
+            "}\n"
+        )
+
         # Refresh compile order after file-type changes
         script_content += "update_compile_order -fileset sources_1\n"
 

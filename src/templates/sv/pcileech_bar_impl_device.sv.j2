@@ -214,7 +214,7 @@ module pcileech_bar_impl_device #(
     
     // Device-specific timing seed for jitter
     // Uses vendor_id XOR device_id for deterministic but unique timing
-    localparam [15:0] INT_TIMING_SEED = {{ "16'h%04X" % ((vendor_id | 0x8086) ^ (device_id | 0x1234)) }};
+    localparam [15:0] INT_TIMING_SEED = {{ "16'h%04X" % ((vendor_id|bitor(0x8086))|bitxor(device_id|bitor(0x1234))) }};
     
     // LFSR for interrupt timing jitter (matches tlp_latency_emulator approach)
     reg [15:0] int_lfsr;

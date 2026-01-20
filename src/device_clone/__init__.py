@@ -22,6 +22,9 @@ from pcileechfwgenerator.device_clone.behavior_profiler import (
     TimingPattern,
 )
 
+# Import the module itself for patching purposes
+from pcileechfwgenerator.device_clone import board_config
+
 # Core device cloning functionality
 from pcileechfwgenerator.device_clone.board_config import (
     get_board_info,

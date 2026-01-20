@@ -65,6 +65,13 @@ DEFAULT_TIMING_CONFIG = {
     "hold_time": 1,
     "burst_length": 4,
     "enable_clock_gating": False,
+    # Latency emulation values - should be overridden with real device profiling data
+    # These defaults provide reasonable baseline values for testing
+    "min_latency_cycles": 4,
+    "max_latency_cycles": 32,
+    "avg_latency_cycles": 12,
+    "burst_correlation": 128,
+    "thermal_drift_period": 65536,
 }
 
 # PCIe clock configuration for Xilinx 7-series cores
