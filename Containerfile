@@ -90,7 +90,9 @@ COPY entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod 755 /usr/local/bin/entrypoint
 
 # Set up environment and permissions
-ENV PYTHONPATH=/app:/app/src
+# NOTE: Only /app should be in PYTHONPATH - the pcileechfwgenerator package is installed
+# Adding /app/src causes module import conflicts with the installed package
+ENV PYTHONPATH=/app
 RUN mkdir -p /app/output && chown appuser /app/output
 
 # Health check to verify essential dependencies
