@@ -23,6 +23,24 @@ project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
+# Create pcileechfwgenerator namespace mapping for direct script execution
+# This is needed because pyproject.toml maps pcileechfwgenerator -> src/
+# but that only works when the package is installed via pip
+_src_path = project_root / "src"
+if _src_path.exists() and "pcileechfwgenerator" not in sys.modules:
+    import importlib.util
+    
+    # Check if package is already installed (editable or regular install)
+    _spec = importlib.util.find_spec("pcileechfwgenerator")
+    if _spec is None:
+        # Package not installed, create the namespace mapping manually
+        # This allows "from pcileechfwgenerator.x import y" to work as "from src.x import y"
+        import types
+        _pkg = types.ModuleType("pcileechfwgenerator")
+        _pkg.__path__ = [str(_src_path)]
+        _pkg.__file__ = str(_src_path / "__init__.py")
+        sys.modules["pcileechfwgenerator"] = _pkg
+
 
 def get_version():
     """Get the current version from the centralized version resolver."""
