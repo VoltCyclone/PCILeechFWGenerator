@@ -319,8 +319,18 @@ class TemplateValidator:
                 board_path = repo_root / config["dir"]
                 if board_path.exists() and board_path.is_dir():
                     return board_path
-        except (ImportError, RuntimeError):
-            pass
+        except (ImportError, RuntimeError) as exc:
+            # If the discovery or repo manager modules are unavailable or fail,
+            # fall back to searching common board directory patterns below.
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "Authoritative board discovery unavailable: {error}. "
+                    "Falling back to pattern-based board search.",
+                    error=str(exc),
+                ),
+                prefix="TEMPLATE",
+            )
 
         # Fallback: search common board directory patterns
         search_patterns = [
