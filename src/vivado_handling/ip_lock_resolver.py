@@ -132,8 +132,10 @@ def patch_xci_speed_grade(
 
     logger = logger or get_logger(__name__)
 
-    # Extract speed grade from part string (e.g. "xc7a100tfgg484-1" -> "-1")
-    match = _re.search(r"(-\d+)$", target_fpga_part)
+    # Extract speed grade from part string.
+    # Handles both simple (e.g. "xc7a100tfgg484-1" -> "-1") and
+    # suffixed parts (e.g. "xczu3eg-sbva484-1-e" -> "-1").
+    match = _re.search(r"-(\d+)(?:-[a-zA-Z])?$", target_fpga_part)
     if not match:
         log_warning_safe(
             logger,
@@ -144,7 +146,7 @@ def patch_xci_speed_grade(
             prefix=prefix,
         )
         return 0
-    target_grade = match.group(1)
+    target_grade = "-" + match.group(1)
 
     ip_dirs = _discover_ip_dirs(ip_root)
     patched = 0

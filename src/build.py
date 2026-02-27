@@ -2473,7 +2473,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--vivado-timeout",
         type=int,
         default=3600,
-        help="Timeout for Vivado operations in seconds (min 60, default: 3600)",
+        choices=range(60, 86401),
+        metavar="SECONDS",
+        help="Timeout for Vivado operations in seconds (60-86400, default: 3600)",
     )
 
     # MMIO Learning Arguments

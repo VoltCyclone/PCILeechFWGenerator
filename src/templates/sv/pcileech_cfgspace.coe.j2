@@ -15,7 +15,7 @@
 {% from "_helpers.j2" import safe_name, safe_fpga_part, safe_attr, safe_int, get_vendor_id, get_device_id, get_subsystem_vendor_id, get_subsystem_device_id %}
 
 {# Helper function to check if MSI-X is supported with consistent logic #}
-{# Uses set+caller pattern instead of macro output to return a true boolean #}
+{# Emits "True" (truthy string) when supported, empty string (falsy) otherwise #}
 {% macro is_msix_supported() %}
 {%- if (msix_config is defined) and msix_config and (msix_config.is_supported if hasattr(msix_config, 'is_supported') else (msix_config.num_vectors|default(0) > 0)) -%}
 True

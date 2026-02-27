@@ -437,7 +437,7 @@ class TestDriverCompatibility:
     def test_large_vector_count_warning(self):
         """Test warning for large vector counts."""
         msix_cap = {
-            "table_size": 511,  # 512 vectors
+            "table_size": 512,  # already-decoded vector count
             "table_bar": 0,
             "pba_bar": 0,
         }

@@ -558,8 +558,8 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 raise OSError(
                     safe_format("Device name {bdf} too long (max 39 chars)", bdf=bdf)
                 )
-            # Null-terminate and pad to fixed length for the ioctl
-            name_buf = name_bytes + b"\x00"
+            # Null-terminate and pad to fixed 40-byte length for the ioctl
+            name_buf = name_bytes + b"\x00" * (40 - len(name_bytes))
 
             try:
                 # Verify device is actually bound to vfio-pci before attempting to get FD
