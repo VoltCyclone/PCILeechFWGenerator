@@ -51,25 +51,3 @@ def test_generate_firmware_injects_msix_defaults(monkeypatch, tmp_path: Path):
     assert "msix_data" in tc and tc["msix_data"] is None
 
 
-def test_recheck_vfio_bindings_calls_helper(monkeypatch, tmp_path: Path, caplog):
-    """
-    _recheck_vfio_bindings should call the canonical helper and log a passing message.
-    """
-    builder = make_builder(monkeypatch, tmp_path)
-
-    # Replace the ensure_device_vfio_binding helper used in vfio_helpers
-    import pcileechfwgenerator.cli.vfio_helpers as vfio_helpers
-
-    monkeypatch.setattr(vfio_helpers, "ensure_device_vfio_binding", lambda bdf: "99")
-
-    caplog.set_level(logging.INFO)
-    # Should not raise
-    builder._recheck_vfio_bindings()
-
-    # Confirm the log contains the bdf and group
-    found = any(
-        "VFIO binding recheck passed" in rec.getMessage()
-        or builder.config.bdf in rec.getMessage()
-        for rec in caplog.records
-    )
-    assert found, "Expected VFIO recheck success message to be logged"

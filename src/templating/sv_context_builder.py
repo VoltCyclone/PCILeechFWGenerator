@@ -784,14 +784,20 @@ class SVContextBuilder:
         )
 
         context["bar"] = template_context.get("bar", [])
+        # class_code and revision_id may be at the top level of template_context
+        # OR nested inside template_context["config_space"]. Check both locations
+        # so donor identity is preserved regardless of how the context was built.
+        config_space_ctx = template_context.get("config_space", {})
         context["config_space"] = {
             "vendor_id": context["vendor_id"],
             "device_id": context["device_id"],
-            "class_code": template_context.get(
-                "class_code", self.constants.DEFAULT_CLASS_CODE
+            "class_code": config_space_ctx.get(
+                "class_code",
+                template_context.get("class_code", self.constants.DEFAULT_CLASS_CODE),
             ),
-            "revision_id": template_context.get(
-                "revision_id", self.constants.DEFAULT_REVISION_ID
+            "revision_id": config_space_ctx.get(
+                "revision_id",
+                template_context.get("revision_id", self.constants.DEFAULT_REVISION_ID),
             ),
         }
 

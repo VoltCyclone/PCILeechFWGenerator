@@ -28,7 +28,7 @@ def test_run_success(monkeypatch):
     s = Shell()
     out = s.run("echo ok", timeout=3, cwd="/")
     assert out == "ok"
-    assert calls["args"]["shell"] is True
+    assert calls["args"]["shell"] is False
     assert calls["args"]["text"] is True
     assert calls["args"]["timeout"] == 3
     assert calls["args"]["cwd"] == "/"

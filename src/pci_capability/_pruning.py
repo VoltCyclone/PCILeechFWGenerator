@@ -167,11 +167,17 @@ def _modify_standard_capability(config_space: ConfigSpace, cap: CapabilityInfo) 
     """Modify a standard capability based on its type."""
     if cap.cap_id == PCICapabilityID.POWER_MANAGEMENT.value:
         # Modify Power Management Capability
-        # Keep only D0 and D3hot support, clear PME support
+        # Keep PM version and D3hot support, clear PME support bits
         pm_cap_offset = cap.offset + PM_CAP_CAPABILITIES_OFFSET
         if config_space.has_data(pm_cap_offset, 2):
-            # Set only D3hot support (bit 3)
-            config_space.write_word(pm_cap_offset, PM_CAP_D3HOT_SUPPORT)
+            current_pmc = config_space.read_word(pm_cap_offset)
+            # Preserve version (bits 2:0), D1/D2 support, D3hot;
+            # clear PME support bits (bits 15:11) and PME Clock (bit 3)
+            pme_mask = 0xF808  # bits 15:11 (PME) + bit 3 (PME Clock)
+            new_pmc = current_pmc & ~pme_mask
+            # Ensure D3hot support is set (bit 9)
+            new_pmc |= PM_CAP_D3HOT_SUPPORT
+            config_space.write_word(pm_cap_offset, new_pmc)
 
     elif cap.cap_id == PCICapabilityID.PCI_EXPRESS.value:
         # Modify PCI Express Capability

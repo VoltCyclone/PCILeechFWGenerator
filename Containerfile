@@ -48,9 +48,9 @@ RUN apt-get update && \
         python3 python3-pip pciutils bsdextrautils kmod ca-certificates git sudo \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user and configure sudo
+# Create non-root user with limited sudo for VFIO module loading only
 RUN useradd -m -r appuser && \
-    echo "appuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    echo "appuser ALL=(ALL) NOPASSWD: /sbin/modprobe vfio*, /sbin/modprobe -- vfio*" >> /etc/sudoers && \
     echo "Defaults !requiretty" >> /etc/sudoers
 
 WORKDIR /app
@@ -67,7 +67,9 @@ COPY pyproject.toml setup.py setup.cfg ./
 
 # Install the package itself so `from pcileechfwgenerator.xxx` imports work
 # Note: Use regular install (not editable) since source is copied, not mounted
-RUN pip3 install --no-cache-dir .
+RUN pip3 install --no-cache-dir . && \
+    python3 -c "import pcileechfwgenerator; print('✓ pcileechfwgenerator installed successfully')" && \
+    python3 -c "from pcileechfwgenerator.string_utils import safe_format; print('✓ string_utils imports work')"
 
 # Copy voltcyclone-fpga from build stage (cloned during build)
 COPY --from=build /src/lib/voltcyclone-fpga ./lib/voltcyclone-fpga
@@ -88,7 +90,9 @@ COPY entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod 755 /usr/local/bin/entrypoint
 
 # Set up environment and permissions
-ENV PYTHONPATH=/app:/app/src
+# NOTE: Only /app should be in PYTHONPATH - the pcileechfwgenerator package is installed
+# Adding /app/src causes module import conflicts with the installed package
+ENV PYTHONPATH=/app
 RUN mkdir -p /app/output && chown appuser /app/output
 
 # Health check to verify essential dependencies

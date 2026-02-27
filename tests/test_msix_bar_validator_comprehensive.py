@@ -86,14 +86,14 @@ class TestMSIXCapabilityStructureValidation:
         errors = []
         warnings = []
 
-        # Test table size 0 (invalid)
-        msix_cap = {"table_size": -1}  # Encodes to 0 vectors
+        # Test table size 0 (invalid — table_size is already decoded by msix.py)
+        msix_cap = {"table_size": 0}
         _validate_msix_capability_structure(msix_cap, errors, warnings)
         assert any("table size 0 is invalid" in error for error in errors)
 
         # Test table size > 2048 (invalid)
         errors.clear()
-        msix_cap = {"table_size": 2048}  # Encodes to 2049 vectors
+        msix_cap = {"table_size": 2049}
         _validate_msix_capability_structure(msix_cap, errors, warnings)
         assert any("table size 2049 is invalid" in error for error in errors)
 
@@ -437,7 +437,7 @@ class TestDriverCompatibility:
     def test_large_vector_count_warning(self):
         """Test warning for large vector counts."""
         msix_cap = {
-            "table_size": 511,  # 512 vectors
+            "table_size": 512,  # already-decoded vector count
             "table_bar": 0,
             "pba_bar": 0,
         }

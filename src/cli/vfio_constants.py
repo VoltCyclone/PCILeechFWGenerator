@@ -75,15 +75,17 @@ class vfio_region_info(ctypes.Structure):
 
 # VFIO API and extension IOCTLs
 VFIO_GET_API_VERSION = _IO(VFIO_TYPE, 0)
-VFIO_CHECK_EXTENSION = _IOW(VFIO_TYPE, 1, ctypes.sizeof(ctypes.c_int))
+VFIO_CHECK_EXTENSION = _IO(VFIO_TYPE, 1)
 
 # VFIO Container IOCTLs
-VFIO_SET_IOMMU = _IOW(VFIO_TYPE, 2, ctypes.sizeof(ctypes.c_int))
+VFIO_SET_IOMMU = _IO(VFIO_TYPE, 2)
 
 # VFIO Group IOCTLs
-# Use the actual struct size for group status (vfio_group_status)
-VFIO_GROUP_GET_STATUS = _IOR(VFIO_TYPE, 3, ctypes.sizeof(vfio_group_status))
-VFIO_GROUP_SET_CONTAINER = _IOW(VFIO_TYPE, 4, ctypes.sizeof(ctypes.c_int))
+# All VFIO group ioctls use _IO() per the kernel uapi definition
+# (include/uapi/linux/vfio.h). Using _IOW/_IOR produces mismatched ioctl
+# numbers and causes ENOTTY (Inappropriate ioctl) errors on some kernels.
+VFIO_GROUP_GET_STATUS = _IO(VFIO_TYPE, 3)
+VFIO_GROUP_SET_CONTAINER = _IO(VFIO_TYPE, 4)
 # The VFIO_GROUP_GET_DEVICE_FD ioctl does not encode a write buffer size in the
 # ioctl number; it is an _IO() command. Using _IOW() with an artificial size
 # produced a mismatched ioctl number and caused ENOTTY (Inappropriate ioctl)

@@ -51,7 +51,7 @@ PCI_CONFIG_SPACE_MIN_HEX_CHARS = 512  # 256 bytes * 2 hex chars per byte
 
 # Power Management Capability
 PM_CAP_CAPABILITIES_OFFSET = 2  # PMC register offset from capability header
-PM_CAP_D3HOT_SUPPORT = 0x0008  # D3hot support bit
+PM_CAP_D3HOT_SUPPORT = 0x0200  # D3hot support bit (bit 9 of PMC register)
 
 # PCI Express Capability
 PCIE_CAP_LINK_CONTROL_OFFSET = 0x10  # Link Control register offset

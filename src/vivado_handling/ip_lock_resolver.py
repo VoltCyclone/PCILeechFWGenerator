@@ -114,6 +114,88 @@ def _ensure_writable(ip_dir: Path, prefix: str, logger) -> int:
     return repaired
 
 
+def patch_xci_speed_grade(
+    ip_root: Path,
+    target_fpga_part: str,
+    logger=None,
+    prefix: str = "VIVADO",
+) -> int:
+    """Patch XCI files whose SPEEDGRADE doesn't match the target FPGA part.
+
+    Vivado locks IP cores when the XCI's SPEEDGRADE differs from the
+    project's target part.  This pre-build step rewrites the value so
+    Vivado can open/regenerate the cores without manual intervention.
+
+    Returns the number of files patched.
+    """
+    import re as _re
+
+    logger = logger or get_logger(__name__)
+
+    # Extract speed grade from part string.
+    # Handles both simple (e.g. "xc7a100tfgg484-1" -> "-1") and
+    # suffixed parts (e.g. "xczu3eg-sbva484-1-e" -> "-1").
+    match = _re.search(r"-(\d+)(?:-[a-zA-Z])?$", target_fpga_part)
+    if not match:
+        log_warning_safe(
+            logger,
+            safe_format(
+                "Cannot extract speed grade from part '{part}'",
+                part=target_fpga_part,
+            ),
+            prefix=prefix,
+        )
+        return 0
+    target_grade = "-" + match.group(1)
+
+    ip_dirs = _discover_ip_dirs(ip_root)
+    patched = 0
+    for ip_dir in ip_dirs:
+        for xci_file in ip_dir.glob("*.xci"):
+            try:
+                text = xci_file.read_text(encoding="utf-8")
+                # Match  "SPEEDGRADE": [ { "value": "-2" } ]
+                new_text, n = _re.subn(
+                    r'("SPEEDGRADE"\s*:\s*\[\s*\{\s*"value"\s*:\s*)"(-?\d+)"',
+                    rf'\1"{target_grade}"',
+                    text,
+                )
+                if n > 0 and new_text != text:
+                    xci_file.write_text(new_text, encoding="utf-8")
+                    patched += 1
+                    log_info_safe(
+                        logger,
+                        safe_format(
+                            "Patched SPEEDGRADE -> {grade} in {path}",
+                            grade=target_grade,
+                            path=xci_file.name,
+                        ),
+                        prefix=prefix,
+                    )
+            except Exception as exc:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Failed to patch {path}: {err}",
+                        path=str(xci_file),
+                        err=str(exc),
+                    ),
+                    prefix=prefix,
+                )
+
+    if patched:
+        log_info_safe(
+            logger,
+            safe_format(
+                "Patched SPEEDGRADE in {count} XCI file(s) to {grade}",
+                count=patched,
+                grade=target_grade,
+            ),
+            prefix=prefix,
+        )
+    return patched
+
+
 def repair_ip_artifacts(
     output_root: Path,
     logger=None,

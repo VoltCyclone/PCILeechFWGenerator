@@ -118,6 +118,20 @@ class PCILeechBuildIntegration:
         # Copy IP definition files (.xci/.coe) if present - required for Vivado to import IP cores.
         ip_files = self._copy_ip_files(board_name, board_output_dir / "ip")
 
+        # Patch XCI speed grade to match board's target FPGA part.
+        # Some upstream XCI files are generated for a different speed grade
+        # than the board targets, causing Vivado to lock the IP cores.
+        fpga_part = board_config.get("fpga_part", "")
+        if fpga_part and (board_output_dir / "ip").is_dir():
+            from .ip_lock_resolver import patch_xci_speed_grade
+
+            patch_xci_speed_grade(
+                board_output_dir,
+                fpga_part,
+                logger=logger,
+                prefix=self.prefix,
+            )
+
         # Fail fast if no IP definition files discovered. These are required for
         # downstream Vivado IP import/regeneration; continuing would produce
         # opaque synthesis failures. Provide actionable remediation.
@@ -652,6 +666,9 @@ puts "Adding source files..."
         )
 
         # Ensure all .sv and .svh files are treated as SystemVerilog
+        # CRITICAL: .svh files containing interface definitions (like IfAXIS128) must be
+        # compiled as SystemVerilog, NOT as Verilog Header. Interfaces are design units
+        # that need to be compiled, not just included as text.
         script_content += "\n# Set SystemVerilog file types\n"
         script_content += (
             "set sv_in_proj "
@@ -661,17 +678,19 @@ puts "Adding source files..."
             '[llength $sv_in_proj] files"\n'
             "    set_property file_type SystemVerilog $sv_in_proj\n"
             "}\n"
+            "# CRITICAL FIX: Set .svh files as SystemVerilog (not Verilog Header)\n"
+            "# because pcileech_header.svh contains interface definitions (IfAXIS128, etc.)\n"
+            "# which are design units that must be compiled, not just text-included.\n"
             "set svh_in_proj "
             "[get_files -of_objects [get_filesets sources_1] *.svh]\n"
             "if {[llength $svh_in_proj] > 0} {\n"
-            '    puts "Setting SystemVerilog Header type for '
-            '[llength $svh_in_proj] files"\n'
-            "    set_property file_type {Verilog Header} $svh_in_proj\n"
+            '    puts "Setting SystemVerilog type for '
+            '[llength $svh_in_proj] header files (contains interface definitions)"\n'
+            "    set_property file_type SystemVerilog $svh_in_proj\n"
             "}\n"
         )
 
         # Set include directories for SystemVerilog header files
-        # This is critical for resolving `include "pcileech_header.svh" and interfaces like IfAXIS128
         script_content += "\n# Set include directories for SystemVerilog headers\n"
         script_content += (
             'puts "Setting include directories for SystemVerilog headers..."\n'
@@ -696,7 +715,6 @@ puts "Adding source files..."
             try:
                 rel_path = xdc_path.relative_to(board_output_dir)
             except ValueError:
-                # If file is not under board_output_dir, use the filename and assume it's in constraints/
                 rel_path = Path("constraints") / xdc_path.name
             
             cmd = f'add_files -fileset constrs_1 -norecurse "{rel_path}"\n'

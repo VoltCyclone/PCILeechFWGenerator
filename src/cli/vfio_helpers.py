@@ -548,17 +548,18 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 safe_format("Requesting device fd for {bdf}", bdf=bdf),
                 prefix="VFIO",
             )
-            # Create a proper ctypes char array for the device name
-            name_array = (ctypes.c_char * 40)()
+            # Create the device name as immutable bytes for the ioctl.
+            # When fcntl.ioctl() receives an immutable bytes/str argument,
+            # it returns the ioctl return value (the device fd) as an int,
+            # rather than the mutated buffer. This is critical for
+            # VFIO_GROUP_GET_DEVICE_FD which returns the fd as its return value.
             name_bytes = bdf.encode("utf-8")
             if len(name_bytes) >= 40:
                 raise OSError(
                     safe_format("Device name {bdf} too long (max 39 chars)", bdf=bdf)
                 )
-
-            # Copy the device name into the array (null-terminated)
-            ctypes.memmove(name_array, name_bytes, len(name_bytes))
-            name_array[len(name_bytes)] = 0  # Ensure null termination
+            # Null-terminate and pad to fixed 40-byte length for the ioctl
+            name_buf = name_bytes + b"\x00" * (40 - len(name_bytes))
 
             try:
                 # Verify device is actually bound to vfio-pci before attempting to get FD
@@ -575,7 +576,6 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                             ),
                             prefix="VFIO",
                         )
-                        os.close(cont_fd)
                         raise OSError(
                             safe_format(
                                 "Device {bdf} not bound to vfio-pci (bound to {current_driver})",
@@ -589,7 +589,6 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                         safe_format("Device {bdf} has no driver binding", bdf=bdf),
                         prefix="VFIO",
                     )
-                    os.close(cont_fd)
                     raise OSError(
                         safe_format("Device {bdf} has no driver binding", bdf=bdf)
                     )
@@ -600,7 +599,7 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                     prefix="VFIO",
                 )
 
-                dev_fd = fcntl.ioctl(grp_fd, VFIO_GROUP_GET_DEVICE_FD, name_array)
+                dev_fd = fcntl.ioctl(grp_fd, VFIO_GROUP_GET_DEVICE_FD, name_buf)
                 log_info_safe(
                     logger,
                     safe_format(
@@ -610,7 +609,7 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                     ),
                     prefix="VFIO",
                 )
-                return int(dev_fd), cont_fd
+                return dev_fd, cont_fd
 
             except OSError as e:
                 log_error_safe(
@@ -683,12 +682,10 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                         prefix="VFIO",
                     )
 
-                # Close container fd on error
-                os.close(cont_fd)
                 raise
 
         except OSError:
-            # Close container fd on any error during container setup
+            # Close container fd on any error during container/device setup
             os.close(cont_fd)
             raise
 

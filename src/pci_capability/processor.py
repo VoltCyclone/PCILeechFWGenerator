@@ -737,19 +737,19 @@ class CapabilityProcessor:
                     patches.extend(self._create_af_patches(cap_info))
                 elif cap_info.cap_id == 0x12:  # SATA HBA
                     patches.extend(self._create_sata_hba_patches(cap_info))
-                elif cap_info.cap_id == 0x0D:  # PCI Hot Plug
+                elif cap_info.cap_id == 0x0C:  # PCI Hot Plug
                     patches.extend(self._create_hotplug_patches(cap_info))
-                elif cap_info.cap_id == 0x0E:  # Hyper Transport
+                elif cap_info.cap_id == 0x0D:  # PCI Bridge Subsystem VID
+                    patches.extend(self._create_generic_modification_patches(cap_info))
+                elif cap_info.cap_id == 0x08:  # HyperTransport
                     patches.extend(self._create_hypertransport_patches(cap_info))
+                elif cap_info.cap_id == 0x0E:  # AGP 8x
+                    patches.extend(self._create_generic_modification_patches(cap_info))
                 elif cap_info.cap_id == 0x14:  # Enhanced Allocation
                     patches.extend(self._create_enhanced_allocation_patches(cap_info))
-                elif cap_info.cap_id == 0x15:  # Flattening Portal Bridge
-                    patches.extend(self._create_fpb_patches(cap_info))
-                elif cap_info.cap_id == 0x1E:  # L1 PM Substates
-                    patches.extend(self._create_l1_pm_substates_patches(cap_info))
-                elif cap_info.cap_id == 0x1F:  # Precision Time Measurement
-                    patches.extend(self._create_ptm_patches(cap_info))
                 else:
+                    # Standard capability IDs only go up to 0x14.
+                    # IDs >= 0x15 are extended capabilities handled above.
                     # For other capabilities, create generic patches
                     patches.extend(self._create_generic_modification_patches(cap_info))
         except (ValueError, IndexError, KeyError, TypeError) as e:
@@ -813,8 +813,10 @@ class CapabilityProcessor:
                 mmc, 3
             )  # Enable up to 8 messages (2^3) for live device functionality
 
-            new_control = current_control & ~0x0EE  # Clear MME and enable bits
-            new_control |= 0x001  # Set MSI Enable bit
+            # Clear MSI Enable (bit 0) and MME (bits 6:4), preserve
+            # read-only MMC (bits 3:1), 64-bit capable (bit 7), etc.
+            new_control = current_control & ~0x0071
+            new_control |= 0x0001  # Set MSI Enable bit
             new_control |= mme << 4  # Set Multiple Message Enable
 
             if new_control != current_control:
@@ -2256,7 +2258,11 @@ class CapabilityProcessor:
             else:
                 # Find the previous capability
                 current_offset = first_cap_offset
+                visited = set()
                 while current_offset and current_offset != cap_info.offset:
+                    if current_offset in visited:
+                        break  # Circular capability chain detected
+                    visited.add(current_offset)
                     if self.config_space.has_data(
                         current_offset + PCI_CAP_NEXT_PTR_OFFSET, 1
                     ):

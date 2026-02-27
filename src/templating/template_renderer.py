@@ -333,9 +333,9 @@ class TemplateRenderer:
             return 0 if n <= 1 else int(math.ceil(math.log2(n)))
 
         def flog2(v) -> int:
-            """Calculate floor of log2."""
+            """Calculate floor of log2 using integer arithmetic."""
             n = max(1, int(v))
-            return int(math.log2(n))
+            return n.bit_length() - 1
 
         def python_list(value) -> str:
             """Format value as Python list literal."""

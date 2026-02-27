@@ -32,7 +32,6 @@ MSIX_MIN_TABLE_ENTRIES: int = 1
 MSIX_MAX_TABLE_ENTRIES: int = 2048
 MSIX_OFFSET_MIN_ALIGNMENT: int = 8
 
-decode_table_size = lambda raw: raw + 1
 compute_table_bytes = lambda entries: entries * MSIX_TABLE_ENTRY_SIZE_BYTES
 compute_pba_bytes = lambda entries: (
     ((entries + (PBA_VECTORS_PER_DWORD - 1)) // PBA_VECTORS_PER_DWORD)
@@ -99,8 +98,9 @@ def _validate_msix_capability_structure(
     msix_cap: Dict[str, Any], errors: List[str], warnings: List[str]
 ) -> None:
     """Validate MSI-X capability structure fields."""
-    # Validate table size
-    table_size = decode_table_size(msix_cap.get("table_size", 0))
+    # Validate table size -- msix.py already decodes the N-1 encoded
+    # value to N, so use it directly (do NOT apply decode_table_size).
+    table_size = msix_cap.get("table_size", 0)
     if not (MSIX_MIN_TABLE_ENTRIES <= table_size <= MSIX_MAX_TABLE_ENTRIES):
         errors.append(
             (
@@ -238,7 +238,7 @@ def _validate_msix_memory_layout(
     pba_bar = msix_cap.get("pba_bar", 0)
     table_offset = msix_cap.get("table_offset", 0)
     pba_offset = msix_cap.get("pba_offset", 0)
-    table_size = decode_table_size(msix_cap.get("table_size", 0))
+    table_size = msix_cap.get("table_size", 0)
 
     # Calculate structure sizes
     table_size_bytes = compute_table_bytes(table_size)
@@ -353,7 +353,7 @@ def _validate_driver_compatibility(
     """Check for common driver compatibility issues."""
     table_bar = msix_cap.get("table_bar", 0)
     pba_bar = msix_cap.get("pba_bar", 0)
-    table_size = decode_table_size(msix_cap.get("table_size", 0))
+    table_size = msix_cap.get("table_size", 0)
 
     # Check if table and PBA are in different BARs
     if table_bar != pba_bar:
@@ -410,7 +410,7 @@ def _validate_performance_considerations(
     """Check for performance-related configuration issues."""
     table_offset = msix_cap.get("table_offset", 0)
     pba_offset = msix_cap.get("pba_offset", 0)
-    table_size = decode_table_size(msix_cap.get("table_size", 0))
+    table_size = msix_cap.get("table_size", 0)
 
     # Check for optimal cache line alignment
     if table_offset % CACHELINE_OPTIMAL != 0:
@@ -480,7 +480,7 @@ def auto_fix_msix_configuration(
     msix_cap = fixed_capabilities[msix_cap_index]
     table_bar_index = msix_cap.get("table_bar", 0)
     pba_bar_index = msix_cap.get("pba_bar", 0)
-    table_size_value = decode_table_size(msix_cap.get("table_size", 0))
+    table_size_value = msix_cap.get("table_size", 0)
 
     # Fix 1: Align offsets to 4KB boundaries
     table_offset_value = msix_cap.get("table_offset", 0)

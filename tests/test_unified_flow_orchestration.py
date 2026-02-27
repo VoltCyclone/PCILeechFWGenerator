@@ -265,12 +265,10 @@ class TestLocalTemplating:
 
         assert result == 0
 
-        # Verify environment variables were set
-        expected_device_path = str(datastore / "device_context.json")
-        assert os.environ.get("DEVICE_CONTEXT_PATH") == expected_device_path
-        expected_msix_path = str(datastore / "msix_data.json")
-        assert os.environ.get("MSIX_DATA_PATH") == expected_msix_path
-        assert os.environ.get("PCILEECH_HOST_CONTEXT_ONLY") == "1"
+        # Env vars are set during the build but restored afterward to avoid pollution
+        assert os.environ.get("DEVICE_CONTEXT_PATH") is None
+        assert os.environ.get("MSIX_DATA_PATH") is None
+        assert os.environ.get("PCILEECH_HOST_CONTEXT_ONLY") is None
 
 
 class TestHostVivado:

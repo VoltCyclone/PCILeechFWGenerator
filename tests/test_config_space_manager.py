@@ -138,11 +138,8 @@ class TestConfigSpaceManager:
         assert len(extended_data) == 256
         # Check that first 4 bytes (vendor/device ID) are preserved
         assert extended_data[:4] == short_data[:4]
-        # Check that revision ID was set to default (since input revision was 0)
-        assert (
-            extended_data[ConfigSpaceConstants.REVISION_ID_OFFSET]
-            == ConfigSpaceConstants.DEFAULT_REVISION_ID
-        )
+        # Revision ID 0x00 is valid and should be preserved (not overwritten)
+        assert extended_data[ConfigSpaceConstants.REVISION_ID_OFFSET] == 0x00
         # Check that the rest is padded with zeros
         assert extended_data[104:] == b"\x00" * 152
 
@@ -275,7 +272,7 @@ class TestConfigSpaceManager:
 
         parsed_data = manager._parse_hexdump_output(hexdump)
 
-        assert len(parsed_data) == 256
+        assert len(parsed_data) == 4096
         assert parsed_data[0:4] == b"\x86\x80\x00\x10"
         assert parsed_data[0x10:0x14] == b"\x00\x00\x00\xf0"
 
@@ -285,11 +282,9 @@ class TestConfigSpaceManager:
 
         parsed_data = manager._parse_hexdump_output(invalid_hexdump)
 
-        assert len(parsed_data) == 256
-        assert (
-            parsed_data[ConfigSpaceConstants.REVISION_ID_OFFSET]
-            == ConfigSpaceConstants.DEFAULT_REVISION_ID
-        )
+        assert len(parsed_data) == 4096
+        # Invalid hexdump produces all zeros — revision ID stays 0x00
+        assert parsed_data[ConfigSpaceConstants.REVISION_ID_OFFSET] == 0x00
 
 
 class TestExceptions:

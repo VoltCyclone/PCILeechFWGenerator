@@ -426,23 +426,20 @@ def validate_hex_id(value: Any, bit_width: int = 16) -> int:
     """
     Validate and convert hex ID string to integer.
 
-    Accepts strings like '0x10ec', '10ec', or decimal strings like '4332'.
-    Auto-detects base: hex if starts with 0x or contains A-F, decimal otherwise.
+    Accepts strings like '0x10ec', '10ec', or integer values.
+    String inputs without 0x prefix are always interpreted as hex
+    since PCI IDs are conventionally hexadecimal.
     """
-    s = str(value).strip()
-    if s.startswith(("0x", "0X")):
-        s = s[2:]
-        base = 16
-    elif re.match(r"^-?\d+$", s):
-        # Decimal digits with optional leading minus, treat as decimal
-        base = 10
-    elif re.match(r"^-?[0-9A-Fa-f]+$", s):
-        # Contains hex characters with optional leading minus, treat as hex
-        base = 16
+    if isinstance(value, int):
+        int_value = value
     else:
-        raise ValueError(f"Invalid format: {value}")
-
-    int_value = int(s, base)
+        s = str(value).strip()
+        if s.startswith(("0x", "0X")):
+            s = s[2:]
+        if not re.match(r"^-?[0-9A-Fa-f]+$", s):
+            raise ValueError(f"Invalid format: {value}")
+        # For PCI IDs, always interpret as hex
+        int_value = int(s, 16)
 
     # Check for negative values
     if int_value < 0:

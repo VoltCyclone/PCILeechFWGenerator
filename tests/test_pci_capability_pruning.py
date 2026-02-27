@@ -137,8 +137,9 @@ class TestApplyPruningActions:
 
         # Previous (PM) next pointer should now skip to 0x70
         assert cfg.read_byte(0x51) == 0x70
-        # PM capabilities word set to D3hot only (0x0008)
-        assert cfg.read_word(0x50 + PM_CAP_CAPABILITIES_OFFSET) == 0x0008
+        # PM capabilities word: original 0x1234, PME bits cleared (& ~0xF808),
+        # D3hot set (| 0x0200) = 0x0234
+        assert cfg.read_word(0x50 + PM_CAP_CAPABILITIES_OFFSET) == 0x0234
 
         # PCIe link control ASPM cleared: 0x00F3 -> 0x00F0
         assert cfg.read_word(0x70 + PCIE_CAP_LINK_CONTROL_OFFSET) == 0x00F0
