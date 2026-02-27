@@ -16,7 +16,6 @@ import sys
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
 
 # Add project root to path for imports (use absolute path to avoid symlink issues)
 project_root = Path(__file__).resolve().parent
@@ -886,8 +885,8 @@ def run_host_collect(args):
     # Ensure output directory exists with proper permissions for container access
     output_dir = datastore / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Set permissive permissions to allow container writes (0o777 = rwxrwxrwx)
-    output_dir.chmod(0o777)
+    # Set permissions to allow container writes (0o755 = rwxr-xr-x)
+    output_dir.chmod(0o755)
 
     # Get MMIO learning flags
     enable_mmio_learning = not getattr(args, "no_mmio_learning", False)
@@ -914,39 +913,6 @@ def run_host_collect(args):
             prefix="BUILD",
         )
     return rc
-
-
-def _get_image_age_days(runtime: str, tag: str) -> Optional[int]:
-    """Get the age of a container image in days, or None if unable to determine."""
-    try:
-        result = subprocess.run(
-            [runtime, "image", "inspect", tag, "--format", "{{.Created}}"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return None
-        
-        created_str = result.stdout.strip()
-        # Parse ISO format timestamp (e.g., "2024-12-01T10:30:00.123456789Z")
-        from datetime import datetime, timezone
-        # Handle both formats: with and without nanoseconds
-        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"]:
-            try:
-                # Truncate nanoseconds to microseconds if present
-                if "." in created_str and len(created_str.split(".")[-1].rstrip("Z")) > 6:
-                    parts = created_str.split(".")
-                    created_str = parts[0] + "." + parts[1][:6] + "Z"
-                created = datetime.strptime(created_str, fmt)
-                if created.tzinfo is None:
-                    created = created.replace(tzinfo=timezone.utc)
-                now = datetime.now(timezone.utc)
-                return (now - created).days
-            except (ValueError, AttributeError):
-                continue
-        return None
-    except (subprocess.SubprocessError, OSError):
-        return None
 
 
 def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -> bool:
@@ -1180,6 +1146,22 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "--board", args.board,
         "--output", "/datastore/output",
     ])
+
+    # Forward optional CLI flags to container so behavior matches local mode
+    if getattr(args, "device_type", None):
+        cmd.extend(["--device-type", args.device_type])
+    if getattr(args, "enable_variance", False):
+        cmd.append("--enable-variance")
+    if getattr(args, "advanced_sv", False):
+        cmd.append("--advanced-sv")
+    if getattr(args, "enable_error_injection", False):
+        cmd.append("--enable-error-injection")
+    if getattr(args, "no_mmio_learning", False):
+        cmd.append("--no-mmio-learning")
+    if getattr(args, "force_recapture", False):
+        cmd.append("--force-recapture")
+    if getattr(args, "donor_template", None):
+        cmd.extend(["--donor-template", args.donor_template])
     if getattr(args, "generate_donor_template", None):
         cmd.extend(["--output-template", "/datastore/donor_info_template.json"])
 
@@ -1188,8 +1170,20 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         safe_format("Executing in container using {rt}", rt=runtime),
         prefix="BUILD",
     )
-    result = subprocess.call(cmd)
-    
+    try:
+        proc = subprocess.run(
+            cmd,
+            timeout=3600,  # 1 hour max for container builds
+        )
+        result = proc.returncode
+    except subprocess.TimeoutExpired:
+        log_error_safe(
+            logger,
+            "Container build timed out after 3600 seconds",
+            prefix="BUILD",
+        )
+        return 1
+
     # Generate COE visualization report after container build completes successfully
     if result == 0:
         try:
@@ -1222,29 +1216,39 @@ def run_local_templating(args):
     output_dir = datastore / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Ensure builder uses host-only context
+    # Set env vars for host-only context, then clean up after build
+    _env_keys = ["DEVICE_CONTEXT_PATH", "MSIX_DATA_PATH", "PCILEECH_HOST_CONTEXT_ONLY"]
+    _saved_env = {k: os.environ.get(k) for k in _env_keys}
     os.environ["DEVICE_CONTEXT_PATH"] = str(datastore / "device_context.json")
     os.environ["MSIX_DATA_PATH"] = str(datastore / "msix_data.json")
     os.environ["PCILEECH_HOST_CONTEXT_ONLY"] = "1"
 
-    # Build a minimal args namespace for ConfigurationManager
-    cfg_args = SimpleNamespace(
-        bdf=args.bdf,
-        board=args.board,
-        output=str(output_dir),
-        profile=0,
-        preload_msix=True,
-        output_template=getattr(args, "generate_donor_template", None),
-        donor_template=getattr(args, "donor_template", None),
-        vivado_path=getattr(args, "vivado_path", None),
-        vivado_jobs=getattr(args, "vivado_jobs", 4),
-        vivado_timeout=getattr(args, "vivado_timeout", 3600),
-        enable_error_injection=getattr(args, "enable_error_injection", False),
-    )
+    try:
+        # Build a minimal args namespace for ConfigurationManager
+        cfg_args = SimpleNamespace(
+            bdf=args.bdf,
+            board=args.board,
+            output=str(output_dir),
+            profile=0,
+            preload_msix=True,
+            output_template=getattr(args, "generate_donor_template", None),
+            donor_template=getattr(args, "donor_template", None),
+            vivado_path=getattr(args, "vivado_path", None),
+            vivado_jobs=getattr(args, "vivado_jobs", 4),
+            vivado_timeout=getattr(args, "vivado_timeout", 3600),
+            enable_error_injection=getattr(args, "enable_error_injection", False),
+        )
 
-    cfg = ConfigurationManager().create_from_args(cfg_args)
-    builder = FirmwareBuilder(cfg)
-    artifacts = builder.build()
+        cfg = ConfigurationManager().create_from_args(cfg_args)
+        builder = FirmwareBuilder(cfg)
+        artifacts = builder.build()
+    finally:
+        # Restore original env state to avoid polluting the process
+        for k in _env_keys:
+            if _saved_env[k] is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = _saved_env[k]
     log_info_safe(
         logger,
         safe_format("Templating complete; artifacts: {n}", n=len(artifacts)),
@@ -1482,11 +1486,16 @@ def handle_check(args):
                 )
                 return 0
 
-            # Generate remediation script
+            # Generate remediation script using secure temp file
+            import tempfile
             script_text = remediation_script(report)
-            temp = Path("/tmp/vfio_fix.sh")
-            temp.write_text(script_text)
-            temp.chmod(0o755)
+            fd, temp_path = tempfile.mkstemp(suffix="_vfio_fix.sh", prefix="pcileech_")
+            temp = Path(temp_path)
+            try:
+                os.write(fd, script_text.encode())
+            finally:
+                os.close(fd)
+            temp.chmod(0o700)
 
             log_info_safe(
                 logger,
@@ -1494,11 +1503,22 @@ def handle_check(args):
                 prefix="CHECK",
             )
 
-            if args.interactive:
-                confirm = input("Run remediation script now? [y/N]: ").strip().lower()
-                if confirm not in ("y", "yes"):
-                    log_info_safe(logger, "Aborted", prefix="CHECK")
-                    return 1
+            if not args.interactive:
+                log_info_safe(
+                    logger,
+                    safe_format(
+                        "Remediation script written to {path}. "
+                        "Use --interactive to run it, or execute manually.",
+                        path=temp,
+                    ),
+                    prefix="CHECK",
+                )
+                return 1
+
+            confirm = input("Run remediation script now? [y/N]: ").strip().lower()
+            if confirm not in ("y", "yes"):
+                log_info_safe(logger, "Aborted", prefix="CHECK")
+                return 1
 
             log_info_safe(
                 logger,
@@ -1600,16 +1620,15 @@ def handle_version(args):
 
     # Show additional version info
     try:
-        import pkg_resources
+        from importlib.metadata import version as get_pkg_version
 
-        version = pkg_resources.get_distribution("pcileechfwgenerator").version
+        pkg_ver = get_pkg_version("pcileechfwgenerator")
         log_info_safe(
             logger,
-            safe_format("Package version: {version}", version=version),
+            safe_format("Package version: {version}", version=pkg_ver),
             prefix="VERSION",
         )
-    except (ImportError, AttributeError, ValueError) as e:
-        # Package version not available (development install or pkg_resources missing)
+    except Exception as e:
         log_debug_safe(
             logger,
             safe_format(

@@ -384,7 +384,7 @@ def _build_podman_command(
     # Mount host debugfs to container to avoid privileged mount issues
     debugfs_path = "/sys/kernel/debug"
     if Path(debugfs_path).exists():
-        cmd.extend(["-v", f"{debugfs_path}:{debugfs_path}:rw"])
+        cmd.extend(["-v", f"{debugfs_path}:{debugfs_path}:ro"])
         log_debug_safe(
             logger,
             safe_format(

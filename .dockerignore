@@ -99,8 +99,6 @@ test_*.py
 # Configuration files that shouldn't be in container
 .editorconfig
 .pre-commit-config.yaml
-pyproject.toml
-setup.cfg
 tox.ini
 
 # Backup files

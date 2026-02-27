@@ -99,8 +99,9 @@ def _validate_msix_capability_structure(
     msix_cap: Dict[str, Any], errors: List[str], warnings: List[str]
 ) -> None:
     """Validate MSI-X capability structure fields."""
-    # Validate table size
-    table_size = decode_table_size(msix_cap.get("table_size", 0))
+    # Validate table size -- msix.py already decodes the N-1 encoded
+    # value to N, so use it directly (do NOT apply decode_table_size).
+    table_size = msix_cap.get("table_size", 0)
     if not (MSIX_MIN_TABLE_ENTRIES <= table_size <= MSIX_MAX_TABLE_ENTRIES):
         errors.append(
             (

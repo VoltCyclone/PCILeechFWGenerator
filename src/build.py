@@ -415,8 +415,19 @@ class MSIXManager:
                     with open(msix_json_path, "r") as f:
                         payload = json.load(f)
 
-                    # Optional: ensure BDF matches if present
+                    # Warn if BDF in MSI-X data doesn't match current device
                     bdf_in = payload.get("bdf")
+                    if bdf_in and bdf_in != self.config.bdf:
+                        log_warning_safe(
+                            self.logger,
+                            safe_format(
+                                "MSI-X data BDF {data_bdf} does not match "
+                                "current device BDF {dev_bdf}",
+                                data_bdf=bdf_in,
+                                dev_bdf=self.config.bdf,
+                            ),
+                            prefix="MSIX",
+                        )
                     msix_info = payload.get("msix_info")
                     cfg_hex = payload.get("config_space_hex")
                     if msix_info and isinstance(msix_info, dict):
@@ -2094,48 +2105,6 @@ class FirmwareBuilder:
 
         return result
 
-    def _recheck_vfio_bindings(self) -> None:
-        """Recheck VFIO bindings via canonical helper and log the outcome."""
-        if getattr(self.config, "disable_vfio", False):
-            log_info_safe(
-                self.logger,
-                "VFIO binding recheck skipped (disabled)",
-                prefix="VFIO",
-            )
-            return
-        try:
-            from pcileechfwgenerator.cli.vfio_helpers import ensure_device_vfio_binding
-        except ImportError:
-            # Helper module not available (expected in some environments)
-            log_debug_safe(
-                self.logger,
-                "VFIO binding recheck skipped: helper module not available",
-                prefix="VFIO",
-            )
-            return
-        except Exception as e:
-            # Unexpected import error
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "VFIO binding recheck skipped: import failed - {err}",
-                    err=str(e)
-                ),
-                prefix="VFIO",
-            )
-            return
-
-        group_id = ensure_device_vfio_binding(self.config.bdf)
-        log_warning_safe(
-            self.logger,
-            safe_format(
-                "VFIO binding recheck passed: bdf={bdf} group={group}",
-                bdf=self.config.bdf,
-                group=str(group_id),
-            ),
-            prefix="VFIO",
-        )
-
     def _inject_msix(self, result: Dict[str, Any], msix_data: MSIXData) -> None:
         """Inject MSI-X data into generation result."""
         self.msix_manager.inject_data(result, msix_data)
@@ -2496,13 +2465,15 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--vivado-jobs",
         type=int,
         default=4,
-        help="Number of parallel jobs for Vivado builds (default: 4)",
+        choices=range(1, 65),
+        metavar="N",
+        help="Number of parallel jobs for Vivado builds (1-64, default: 4)",
     )
     parser.add_argument(
         "--vivado-timeout",
         type=int,
         default=3600,
-        help="Timeout for Vivado operations in seconds (default: 3600)",
+        help="Timeout for Vivado operations in seconds (min 60, default: 3600)",
     )
 
     # MMIO Learning Arguments

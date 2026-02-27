@@ -553,10 +553,10 @@ class TestValidateHexId:
         result = validate_hex_id("10EC", bit_width=16)
         assert result == 0x10EC
 
-    def test_validate_hex_id_decimal_string(self):
-        """Test validate_hex_id with decimal string."""
+    def test_validate_hex_id_all_decimal_digits_string(self):
+        """Test validate_hex_id with string of all-decimal digits (still treated as hex for PCI IDs)."""
         result = validate_hex_id("4332", bit_width=16)
-        assert result == 4332
+        assert result == 0x4332
 
     def test_validate_hex_id_uppercase_hex(self):
         """Test validate_hex_id with uppercase hex string."""

@@ -2,6 +2,7 @@
 """Shell command execution utilities with dry-run support."""
 
 import logging
+import shlex
 import subprocess
 from typing import Optional
 
@@ -76,9 +77,11 @@ class Shell:
             logger.debug(f"Working directory: {cwd}")
 
         try:
+            # Use shell=False with shlex.split for safety.
+            # All current callers pass hardcoded command strings.
             result = subprocess.check_output(
-                cmd,
-                shell=True,
+                shlex.split(cmd),
+                shell=False,
                 text=True,
                 timeout=timeout,
                 stderr=subprocess.STDOUT,

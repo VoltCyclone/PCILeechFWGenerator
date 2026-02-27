@@ -530,15 +530,13 @@ class ConfigSpaceManager:
             )
             extended_data.extend(bytes(padding_bytes))
 
-        # Ensure revision_id is set
-        if (
-            len(data) <= ConfigSpaceConstants.REVISION_ID_OFFSET
-            or extended_data[ConfigSpaceConstants.REVISION_ID_OFFSET] == 0
-        ):
+        # Only set default revision_id when the config data was too short
+        # to include it. A revision ID of 0x00 is valid for many devices.
+        if len(data) <= ConfigSpaceConstants.REVISION_ID_OFFSET:
             log_warning_safe(
                 logger,
                 safe_format(
-                    "Revision ID is missing or zero, setting default value 0x{default:02x}",
+                    "Revision ID is missing (data too short), setting default value 0x{default:02x}",
                     default=ConfigSpaceConstants.DEFAULT_REVISION_ID,
                 ),
                 prefix="CNFG",
@@ -584,9 +582,8 @@ class ConfigSpaceManager:
 
     def _parse_hexdump_output(self, hex_data: str) -> bytes:
         """Parse hexdump output to reconstruct binary data."""
-        # Tests and typical sysfs hexdump cover the standard 256-byte config space
-        # Allocate only STANDARD_CONFIG_SIZE here; extended space may be handled elsewhere
-        data = bytearray(ConfigSpaceConstants.STANDARD_CONFIG_SIZE)
+        # Allocate full extended config space to support PCIe 4096-byte dumps
+        data = bytearray(ConfigSpaceConstants.EXTENDED_CONFIG_SIZE)
         bytes_parsed = 0
 
         for line_num, line in enumerate(hex_data.splitlines()):
@@ -629,19 +626,8 @@ class ConfigSpaceManager:
             prefix="CNFG",
         )
 
-        # Ensure revision_id is set
-        if data[ConfigSpaceConstants.REVISION_ID_OFFSET] == 0:
-            log_warning_safe(
-                logger,
-                safe_format(
-                    "Setting default revision ID 0x{default:02x}",
-                    default=ConfigSpaceConstants.DEFAULT_REVISION_ID,
-                ),
-                prefix="CNFG",
-            )
-            data[ConfigSpaceConstants.REVISION_ID_OFFSET] = (
-                ConfigSpaceConstants.DEFAULT_REVISION_ID
-            )
+        # Note: Revision ID 0x00 is valid for many PCI devices.
+        # Do not overwrite it -- preserve the actual donor value.
 
         self._log_device_header_info(bytes(data))
         return bytes(data)

@@ -48,9 +48,9 @@ RUN apt-get update && \
         python3 python3-pip pciutils bsdextrautils kmod ca-certificates git sudo \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user and configure sudo
+# Create non-root user with limited sudo for VFIO module loading only
 RUN useradd -m -r appuser && \
-    echo "appuser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    echo "appuser ALL=(ALL) NOPASSWD: /sbin/modprobe vfio*, /sbin/modprobe -- vfio*" >> /etc/sudoers && \
     echo "Defaults !requiretty" >> /etc/sudoers
 
 WORKDIR /app

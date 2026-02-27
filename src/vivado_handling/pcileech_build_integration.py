@@ -118,6 +118,20 @@ class PCILeechBuildIntegration:
         # Copy IP definition files (.xci/.coe) if present - required for Vivado to import IP cores.
         ip_files = self._copy_ip_files(board_name, board_output_dir / "ip")
 
+        # Patch XCI speed grade to match board's target FPGA part.
+        # Some upstream XCI files are generated for a different speed grade
+        # than the board targets, causing Vivado to lock the IP cores.
+        fpga_part = board_config.get("fpga_part", "")
+        if fpga_part and (board_output_dir / "ip").is_dir():
+            from .ip_lock_resolver import patch_xci_speed_grade
+
+            patch_xci_speed_grade(
+                board_output_dir,
+                fpga_part,
+                logger=logger,
+                prefix=self.prefix,
+            )
+
         # Fail fast if no IP definition files discovered. These are required for
         # downstream Vivado IP import/regeneration; continuing would produce
         # opaque synthesis failures. Provide actionable remediation.

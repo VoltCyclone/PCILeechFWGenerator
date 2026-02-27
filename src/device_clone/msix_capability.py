@@ -448,9 +448,8 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
 
         table_offset_bir = read_u32_le(cfg_bytes, table_offset_bir_offset)
         table_bir = table_offset_bir & 0x7  # Lower 3 bits
-        table_offset = (
-            table_offset_bir & 0xFFFFFFF8
-        )  # Clear lower 3 bits for 8-byte alignment
+        raw_table_offset = table_offset_bir & 0xFFFFFFF8  # Upper 29 bits
+        table_offset = raw_table_offset  # Already 8-byte aligned by spec
 
         # Read PBA Offset/BIR register (offset 8 from capability start)
         pba_offset_bir_offset = cap + 8
@@ -469,7 +468,7 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
         pba_bir = pba_offset_bir & 0x7  # Lower 3 bits
         pba_offset = (
             pba_offset_bir & 0xFFFFFFF8
-        )  # Clear lower 3 bits for 8-byte alignment
+        )  # Upper 29 bits, already 8-byte aligned
 
         # Update result
         result.update(
@@ -497,18 +496,6 @@ def parse_msix_capability(cfg: str) -> Dict[str, Any]:
                 pba_offset=pba_offset,
             ),
         )
-        # Check for alignment warnings
-        if table_offset & 0x7 != 0:
-            log_warning_safe(
-                logger,
-                safe_format(
-                    "MSI-X table offset 0x{table_offset:x} is not 8-byte aligned "
-                    "(actual offset: 0x{table_offset:x}, aligned: 0x{aligned:x})",
-                    table_offset=table_offset,
-                    aligned=table_offset & 0xFFFFFFF8,
-                ),
-                prefix="PCICAP",
-            )
 
         return result
 
@@ -950,7 +937,7 @@ if __name__ == "__main__":
     if errors:
         # Render errors in a compact table
         err_rows = [("Issue", e) for e in errors]
-    print(format_kv_table(err_rows, title="Validation Errors"))
+        print(format_kv_table(err_rows, title="Validation Errors"))
 
     # Parse and display BAR information
     bars = parse_bar_info_from_config_space(config_space)

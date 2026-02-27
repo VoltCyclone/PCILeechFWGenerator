@@ -304,7 +304,25 @@ class TemplateValidator:
 
     def _find_board_path(self, board_name: str) -> Optional[Path]:
         """Find board directory in repository."""
-        # Common board directory patterns
+        # Use the authoritative board config mapping first
+        try:
+            from pcileechfwgenerator.file_management.board_discovery import (
+                BoardDiscovery,
+            )
+            from pcileechfwgenerator.file_management.repo_manager import (
+                RepoManager,
+            )
+
+            config = BoardDiscovery.BOARD_CONFIGS.get(board_name)
+            if config:
+                repo_root = RepoManager.ensure_repo()
+                board_path = repo_root / config["dir"]
+                if board_path.exists() and board_path.is_dir():
+                    return board_path
+        except (ImportError, RuntimeError):
+            pass
+
+        # Fallback: search common board directory patterns
         search_patterns = [
             self.repo_root / board_name,
             self.repo_root / "boards" / board_name,

@@ -53,8 +53,8 @@ def test_run_local_templating_monkeypatched(tmp_path, monkeypatch):
     rc = pcileech.run_local_templating(args)
     assert rc == 0
 
-    # Env vars should be set for host-context-only flow
+    # Env vars are set during the build but restored afterward to avoid pollution
     import os
-    assert os.environ.get('DEVICE_CONTEXT_PATH') == str(tmp_path / 'device_context.json')
-    assert os.environ.get('MSIX_DATA_PATH') == str(tmp_path / 'msix_data.json')
-    assert os.environ.get('PCILEECH_HOST_CONTEXT_ONLY') == '1'
+    assert os.environ.get('DEVICE_CONTEXT_PATH') is None
+    assert os.environ.get('MSIX_DATA_PATH') is None
+    assert os.environ.get('PCILEECH_HOST_CONTEXT_ONLY') is None

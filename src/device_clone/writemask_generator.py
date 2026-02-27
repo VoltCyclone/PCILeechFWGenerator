@@ -337,8 +337,9 @@ class WritemaskGenerator:
 
             capabilities[f"0x{ext_id:04X}"] = ext_offset
 
-            # Convert DWORD offset to byte offset (spec uses DWORD granularity)
-            ext_offset = (next_dword_offset << 2) if next_dword_offset else 0
+            # Next pointer is already a byte offset per PCIe spec
+            # (bits [31:20] of extended capability header encode byte offset)
+            ext_offset = next_dword_offset if next_dword_offset else 0
 
         log_info_safe(
             self.logger,
@@ -450,6 +451,18 @@ class WritemaskGenerator:
         # Apply capability-specific protections
         for cap_id, cap_offset in capabilities.items():
             cap_start_index = cap_offset // 4
+
+            if cap_start_index >= len(wr_mask):
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Capability {cap_id} at offset 0x{offset:x} exceeds writemask bounds, skipping",
+                        cap_id=cap_id,
+                        offset=cap_offset,
+                    ),
+                    prefix="WRITEMASK",
+                )
+                continue
 
             # Handle MSI capability (0x05)
             if cap_id == "0x05":
