@@ -67,7 +67,11 @@ COPY pyproject.toml setup.py setup.cfg ./
 
 # Install the package itself so `from pcileechfwgenerator.xxx` imports work
 # Note: Use regular install (not editable) since source is copied, not mounted
-RUN pip3 install --no-cache-dir . && \
+# SETUPTOOLS_SCM_PRETEND_VERSION is required because .git is not copied into the container,
+# and setuptools-scm needs it to infer version. We also upgrade setuptools so that
+# setuptools-scm>=8 (pulled by pip) is compatible (requires setuptools>=61).
+RUN pip3 install --no-cache-dir --upgrade setuptools && \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 pip3 install --no-cache-dir . && \
     python3 -c "import pcileechfwgenerator; print('✓ pcileechfwgenerator installed successfully')" && \
     python3 -c "from pcileechfwgenerator.string_utils import safe_format; print('✓ string_utils imports work')"
 

@@ -6,7 +6,7 @@ Unit tests for the donor info template generator.
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -340,6 +340,52 @@ class TestDonorInfoTemplateGenerator:
                 generator.generate_template_from_device("0000:00:00.0")
 
             assert "lspci" in str(exc_info.value)
+
+    def test_generate_template_from_device_with_domain_prefix(self):
+        """Test that BDF with domain prefix (0000:02:00.0) matches lspci output."""
+        generator = DonorInfoTemplateGenerator()
+
+        # lspci output uses short BDF format (no domain prefix)
+        mock_output = (
+            "02:00.0 Non-Volatile memory controller [0108]: "
+            "Samsung Electronics Co Ltd NVMe SSD Controller [144d:a80a]\n"
+            "\tSubsystem: Samsung Electronics Co Ltd SSD 980 PRO [144d:a801]\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.stdout = mock_output
+        mock_result.returncode = 0
+
+        with patch('subprocess.run', return_value=mock_result), \
+             patch('pathlib.Path.exists', return_value=False):
+            template = generator.generate_template_from_device("0000:02:00.0")
+
+        assert template["device_info"]["identification"]["vendor_id"] == "0x144d"
+        assert template["device_info"]["identification"]["device_id"] == "0xa80a"
+
+    def test_generate_template_from_device_without_domain_prefix(self):
+        """Test that BDF without domain prefix also works."""
+        generator = DonorInfoTemplateGenerator()
+
+        mock_output = (
+            "02:00.0 Network controller [0280]: "
+            "Intel Corporation Wi-Fi 6 AX200 [8086:2723] (rev 1a)\n"
+            "\tSubsystem: Intel Corporation [8086:0084]\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.stdout = mock_output
+        mock_result.returncode = 0
+
+        with patch('subprocess.run', return_value=mock_result), \
+             patch('pathlib.Path.exists', return_value=False):
+            template = generator.generate_template_from_device("02:00.0")
+
+        assert template["device_info"]["identification"]["vendor_id"] == "0x8086"
+        assert template["device_info"]["identification"]["device_id"] == "0x2723"
+        ident = template["device_info"]["identification"]
+        assert ident["subsystem_vendor_id"] == "0x8086"
+        assert ident["subsystem_device_id"] == "0x0084"
 
     def test_save_template_dict(self):
         """Test saving a template dictionary."""

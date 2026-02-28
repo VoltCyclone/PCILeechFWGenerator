@@ -571,9 +571,15 @@ class DonorInfoTemplateGenerator:
 
             # Parse lspci output
             lines = result.stdout.strip().split("\n")
+
+            # lspci output uses short BDF (bus:device.function) without
+            # the domain prefix (e.g. "02:00.0" not "0000:02:00.0").
+            # Strip the domain prefix for matching against output lines.
+            match_bdf = bdf.split(":", 1)[-1] if bdf.count(":") >= 2 else bdf
+
             for line in lines:
                 # Extract vendor and device IDs
-                if "[" in line and "]" in line and bdf in line:
+                if "[" in line and "]" in line and match_bdf in line:
                     # Look for [vendor:device] pattern
                     match = re.search(r"\[([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\]", line)
                     if match:
@@ -660,13 +666,23 @@ class DonorInfoTemplateGenerator:
             # Update metadata
             template["metadata"]["device_bdf"] = bdf
 
-            safe_log_format(
-                logger,
-                logging.INFO,
-                "Successfully generated template for device {bdf}",
-                prefix="DONOR",
-                bdf=bdf,
-            )
+            if template["device_info"]["identification"]["vendor_id"] is not None:
+                safe_log_format(
+                    logger,
+                    logging.INFO,
+                    "Successfully generated template for device {bdf}",
+                    prefix="DONOR",
+                    bdf=bdf,
+                )
+            else:
+                safe_log_format(
+                    logger,
+                    logging.WARNING,
+                    "Template generated for device {bdf} but no vendor/device "
+                    "IDs were extracted from lspci output",
+                    prefix="DONOR",
+                    bdf=bdf,
+                )
 
         except FileNotFoundError as e:
             error_msg = safe_format(

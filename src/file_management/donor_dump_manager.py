@@ -364,7 +364,7 @@ class DonorDumpManager:
                 try:
                     subprocess.run(
                         [
-                            "dn",
+                            "dnf",
                             "install",
                             "-y",
                             f"kernel-devel-{kernel_version}",
