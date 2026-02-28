@@ -548,18 +548,18 @@ def get_device_fd(bdf: str) -> tuple[int, int]:
                 safe_format("Requesting device fd for {bdf}", bdf=bdf),
                 prefix="VFIO",
             )
-            # Create the device name as immutable bytes for the ioctl.
-            # When fcntl.ioctl() receives an immutable bytes/str argument,
-            # it returns the ioctl return value (the device fd) as an int,
-            # rather than the mutated buffer. This is critical for
-            # VFIO_GROUP_GET_DEVICE_FD which returns the fd as its return value.
+            # Create the device name as a mutable bytearray for the ioctl.
+            # When fcntl.ioctl() receives a mutable buffer (bytearray),
+            # it returns the ioctl return value (the device fd) as an int.
+            # Using immutable bytes would cause ioctl() to return bytes
+            # instead, leading to type errors when comparing with int.
             name_bytes = bdf.encode("utf-8")
             if len(name_bytes) >= 40:
                 raise OSError(
                     safe_format("Device name {bdf} too long (max 39 chars)", bdf=bdf)
                 )
             # Null-terminate and pad to fixed 40-byte length for the ioctl
-            name_buf = name_bytes + b"\x00" * (40 - len(name_bytes))
+            name_buf = bytearray(name_bytes + b"\x00" * (40 - len(name_bytes)))
 
             try:
                 # Verify device is actually bound to vfio-pci before attempting to get FD

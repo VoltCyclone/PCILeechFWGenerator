@@ -22,17 +22,46 @@ from ..string_utils import log_debug_safe, log_error_safe, log_info_safe, safe_f
 ###############################################################################
 
 # Git submodule path - single source of truth
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REPO_URL = "https://github.com/VoltCyclone/voltcyclone-fpga.git"
+
+# Container workdir where voltcyclone-fpga is placed during image build
+_CONTAINER_APP_ROOT = Path("/app")
+
+
+def _resolve_repo_root() -> Path:
+    """Resolve the project root directory.
+
+    When running from source (development/editable install), __file__-based
+    resolution works: src/file_management/repo_manager.py → three parents up
+    gives the project root containing lib/voltcyclone-fpga.
+
+    When pip-installed (e.g. in containers), __file__ points into
+    site-packages and the three-parent trick yields the wrong directory.
+    In that case, fall back to the container app root (/app) where the
+    Containerfile places lib/voltcyclone-fpga.
+    """
+    # Try __file__-based resolution first (works for source/editable installs)
+    source_root = Path(__file__).resolve().parent.parent.parent
+    if (source_root / "lib" / "voltcyclone-fpga").exists():
+        return source_root
+
+    # Pip-installed package: __file__ is in site-packages.
+    # Check the container app root where the Containerfile copies the submodule.
+    if (
+        _CONTAINER_APP_ROOT / "lib" / "voltcyclone-fpga"
+    ).exists():
+        return _CONTAINER_APP_ROOT
+
+    # Neither path has the submodule yet — return the source-based root so
+    # ensure_repo() can emit a clear "submodule missing" error downstream.
+    return source_root
+
+
+_REPO_ROOT = _resolve_repo_root()
 
 
 def _get_voltcyclone_fpga_path() -> Path:
-    """Return the canonical voltcyclone-fpga submodule path.
-
-    Single-path policy: we control the git repo and build; no fallbacks,
-    environment overrides, or vendored payload acceptance. Fail fast if the
-    expected submodule path is not present.
-    """
+    """Return the canonical voltcyclone-fpga submodule path."""
     return _REPO_ROOT / "lib" / "voltcyclone-fpga"
 
 

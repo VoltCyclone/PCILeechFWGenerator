@@ -80,11 +80,16 @@ class HostDeviceCollector:
             self.logger, "Collecting complete device context on host", prefix="HOST"
         )
 
-        # Use single VFIO binding session to collect all data
+        # Use single VFIO binding session to collect all data.
+        # The VFIOBinder context manager handles bind/unbind and holds the
+        # IOMMU group lock. ConfigSpaceManager must NOT create its own
+        # VFIOBinder (strict_vfio=False) to avoid a double-bind deadlock
+        # on the group lock. Sysfs config space reads work fine while the
+        # device is bound to vfio-pci.
         with VFIOBinder(self.bdf, attach=True) as _:
             try:
-                # 1. Use existing ConfigSpaceManager for VFIO config space reading
-                config_manager = ConfigSpaceManager(self.bdf, strict_vfio=True)
+                # 1. Read config space via sysfs (device already bound by VFIOBinder above)
+                config_manager = ConfigSpaceManager(self.bdf, strict_vfio=False)
                 config_space_bytes = config_manager.read_vfio_config_space()
 
                 log_info_safe(
