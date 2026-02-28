@@ -1216,12 +1216,13 @@ def run_local_templating(args):
     output_dir = datastore / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set env vars for host-only context, then clean up after build
-    _env_keys = ["DEVICE_CONTEXT_PATH", "MSIX_DATA_PATH", "PCILEECH_HOST_CONTEXT_ONLY"]
+    # In local mode the process has direct access to the PCI device, so
+    # do NOT set DEVICE_CONTEXT_PATH or PCILEECH_HOST_CONTEXT_ONLY which
+    # would disable VFIO operations.  Only set MSIX_DATA_PATH to allow
+    # preloading MSI-X data collected by run_host_collect.
+    _env_keys = ["MSIX_DATA_PATH"]
     _saved_env = {k: os.environ.get(k) for k in _env_keys}
-    os.environ["DEVICE_CONTEXT_PATH"] = str(datastore / "device_context.json")
     os.environ["MSIX_DATA_PATH"] = str(datastore / "msix_data.json")
-    os.environ["PCILEECH_HOST_CONTEXT_ONLY"] = "1"
 
     try:
         # Build a minimal args namespace for ConfigurationManager
@@ -1229,7 +1230,7 @@ def run_local_templating(args):
             bdf=args.bdf,
             board=args.board,
             output=str(output_dir),
-            profile=0,
+            profile=getattr(args, "profile", 0),
             preload_msix=True,
             output_template=getattr(args, "generate_donor_template", None),
             donor_template=getattr(args, "donor_template", None),
