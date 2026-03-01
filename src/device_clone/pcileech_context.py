@@ -446,10 +446,15 @@ class VFIODeviceManager:
                 self.device_bdf
             )
 
-            # Treat negative FDs as unavailable; normalize to None so callers
-            # can fall back to sysfs-based logic without crashing.
-            if (self._device_fd is not None and self._device_fd < 0) or (
-                self._container_fd is not None and self._container_fd < 0
+            # Treat non-integer or negative FDs as unavailable; normalize to
+            # None so callers can fall back to sysfs-based logic without
+            # crashing. This guards against fcntl.ioctl returning bytes
+            # instead of int if the buffer type is wrong.
+            if (
+                not isinstance(self._device_fd, int)
+                or not isinstance(self._container_fd, int)
+                or self._device_fd < 0
+                or self._container_fd < 0
             ):
                 log_debug_safe(
                     self.logger,
@@ -499,7 +504,7 @@ class VFIODeviceManager:
     def close(self):
         """Close VFIO file descriptors."""
         for fd in [self._device_fd, self._container_fd]:
-            if fd is not None and fd >= 0:
+            if isinstance(fd, int) and fd >= 0:
                 try:
                     os.close(fd)
                 except OSError as e:
@@ -2884,10 +2889,13 @@ class PCILeechContextBuilder:
                     prefix="PCIL",
                 )
             except Exception as e:
-                log_warning_safe(
+                log_error_safe(
                     self.logger,
                     safe_format(
-                        "Failed to load board XDC content for {board_name}: {error}",
+                        "Failed to load board XDC content for {board_name}: {error}. "
+                        "Vivado synthesis will fail without constraint files. "
+                        "Ensure the voltcyclone-fpga submodule is initialized: "
+                        "git submodule update --init --recursive",
                         board_name=board_name,
                         error=extract_root_cause(e),
                     ),
