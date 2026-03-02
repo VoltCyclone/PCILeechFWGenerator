@@ -171,7 +171,7 @@ jobs:
           pip list >> system_info.txt || echo "Failed to list packages" >> system_info.txt
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-test-artifacts-py${{ matrix.python-version }}-${{ matrix.container-engine }}
@@ -183,7 +183,7 @@ jobs:
           retention-days: 7
 
       - name: Upload test reports
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-test-reports-py${{ matrix.python-version }}-${{ matrix.container-engine }}
@@ -224,7 +224,7 @@ jobs:
           safety check
 
       - name: Upload security reports
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: security-scan-reports
@@ -273,7 +273,7 @@ jobs:
           fi
 
       - name: Upload performance reports
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: performance-analysis-reports
@@ -352,7 +352,7 @@ jobs:
           cat SUMMARY.md
 
       - name: Upload integration summary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: integration-test-summary
           path: SUMMARY.md
