@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""
-Fallback Manager for Template Variables
-
-This module provides a centralized fallback management system for
-template variables, ensuring that all templates have access to required variables
-without needing to define defaults in the templates themselves.
-
-"""
+"""Centralized fallback management for template variables."""
 
 import copy
 import logging
@@ -46,32 +39,25 @@ logger = logging.getLogger(__name__)
 
 
 class FallbackMode(Enum):
-    """Policy modes for fallback confirmation behavior."""
-
-    NONE = "none"  # Never allow fallbacks
-    AUTO = "auto"  # Always allow fallbacks
-    PROMPT = "prompt"  # Permissive in non-interactive contexts
+    NONE = "none"
+    AUTO = "auto"
+    PROMPT = "prompt"
 
 
 class VariableType(Enum):
-    """Types of variables for categorization."""
-
-    CRITICAL = "critical"  # Must come from hardware, no fallbacks
-    SENSITIVE = "sensitive"  # Contains sensitive tokens
-    STANDARD = "standard"  # Normal variables with fallbacks
-    DEFAULT = "default"  # Built-in system defaults
+    CRITICAL = "critical"
+    SENSITIVE = "sensitive"
+    STANDARD = "standard"
+    DEFAULT = "default"
 
 
 @dataclass
 class FallbackConfig:
-    """Configuration for fallback behavior."""
-
     mode: FallbackMode = FallbackMode.PROMPT
     allowed_fallbacks: Set[str] = field(default_factory=set)
     config_path: Optional[Path] = None
 
     def __post_init__(self):
-        """Validate and normalize configuration."""
         if isinstance(self.mode, str):
             self.mode = FallbackMode(self.mode)
         if self.config_path and isinstance(self.config_path, str):
@@ -80,8 +66,6 @@ class FallbackConfig:
 
 @dataclass
 class VariableMetadata:
-    """Metadata for a registered variable."""
-
     name: str
     value: Any
     var_type: VariableType = VariableType.STANDARD
@@ -91,20 +75,11 @@ class VariableMetadata:
 
 
 class FallbackHandler(Protocol):
-    """Protocol for fallback value handlers."""
-
     def __call__(self) -> Any: ...
 
 
 class FallbackManager:
-    """
-    Manages template variable fallbacks with security-first approach.
-
-    Features:
-        CRITICAL_VARS: Variables that must be hardware-derived
-        SENSITIVE_TOKENS: Tokens that indicate sensitive variables
-        DEFAULT_FALLBACKS: Safe fallback values for non-critical variables
-    """
+    """Manages template variable fallbacks with hardware-critical variable protection."""
 
     DEFAULT_FALLBACKS: Final[Dict[str, Any]] = {
         "board.name": "",
@@ -176,15 +151,6 @@ class FallbackManager:
         mode: str = "prompt",
         allowed_fallbacks: Optional[List[str]] = None,
     ):
-        """
-        Initialize the fallback manager.
-
-        Args:
-            config_path: Path to YAML config file OR FallbackConfig object for new API
-            mode: Policy mode controlling fallback confirmation behavior
-            allowed_fallbacks: Optional whitelist of fallback keys
-        """
-        # Support both old and new initialization styles
         if isinstance(config_path, FallbackConfig):
             self.config = config_path
         else:
@@ -195,11 +161,9 @@ class FallbackManager:
                 config_path=Path(config_path) if config_path else None,
             )
 
-        # Expose legacy attributes for backward compatibility
         self.mode = self.config.mode.value
         self.allowed_fallbacks = self.config.allowed_fallbacks
 
-        # Internal storage
         self._variables: Dict[str, VariableMetadata] = {}
         self._critical_vars: Set[str] = set()
         self._default_registered_keys: Set[str] = set()
@@ -213,18 +177,6 @@ class FallbackManager:
     def confirm_fallback(
         self, key: str, reason: str, details: Optional[str] = None
     ) -> bool:
-        """
-        Policy decision helper for fallback permission.
-
-        Args:
-            key: Identifier for the fallback being requested
-            reason: Short explanation why the fallback would be used
-            details: Optional longer description
-
-        Returns:
-            True if the fallback is permitted, False otherwise
-        """
-        # Check whitelist first
         if self.config.allowed_fallbacks and key not in self.config.allowed_fallbacks:
             log_warning_safe(
                 logger, "Fallback {key} not in whitelist", prefix="FALLBACK", key=key
@@ -260,7 +212,6 @@ class FallbackManager:
         return True
 
     def _register_default_fallbacks(self) -> None:
-        """Register default fallbacks for common variables."""
         for key, value in self.DEFAULT_FALLBACKS.items():
             metadata = VariableMetadata(
                 name=key,
@@ -283,7 +234,6 @@ class FallbackManager:
         self._register_default_critical_variables()
 
     def _register_default_critical_variables(self) -> None:
-        """Register default critical variables that should never have fallbacks."""
         critical_vars: List[str] = []
 
         for field in DEVICE_IDENTIFICATION_FIELDS:
@@ -308,15 +258,6 @@ class FallbackManager:
         self.mark_as_critical(deduped)
 
     def _split_path(self, path: str) -> List[str]:
-        """
-        Split a dot-notation path into parts with caching.
-
-        Args:
-            path: Dot-notation path like "device.config.id"
-
-        Returns:
-            List of path components
-        """
         if path not in self._path_cache:
             self._path_cache[path] = path.split(".")
         return self._path_cache[path]
@@ -327,25 +268,11 @@ class FallbackManager:
         path_parts: List[str],
         create_missing: bool = False,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str], bool]:
-        """
-        Navigate to a nested dictionary path.
-
-        Args:
-            context: The dictionary to navigate
-            path_parts: List of parts in the path
-            create_missing: Whether to create missing intermediate dicts
-
-        Returns:
-            Tuple of (parent_dict, final_key, success)
-        """
         if not path_parts:
             return context, "", True
 
         current = context
-
-        # Navigate to parent of final key
         for part in path_parts[:-1]:
-            # Missing intermediate part
             if part not in current:
                 if create_missing:
                     try:
@@ -361,18 +288,14 @@ class FallbackManager:
 
             next_obj = current[part]
 
-            # Accept plain dicts
             if isinstance(next_obj, dict):
                 current = next_obj
                 continue
 
-            # Accept TemplateObject-like objects (duck-typed) that expose .get
-            # and __setitem__/__getitem__ so we can set attributes on them.
             if hasattr(next_obj, "get") and callable(getattr(next_obj, "get")):
                 current = next_obj
                 continue
 
-            # Anything else is not navigable
             return None, None, False
 
         return current, path_parts[-1], True
@@ -380,17 +303,6 @@ class FallbackManager:
     def register_fallback(
         self, var_name: str, value: Any, description: Optional[str] = None
     ) -> bool:
-        """
-        Register a fallback value for a variable.
-
-        Args:
-            var_name: The variable name (can use dot notation)
-            value: The fallback value
-            description: Optional description of the variable
-
-        Returns:
-            True if registered successfully, False otherwise
-        """
         if not self._validate_variable_name(var_name):
             return False
 
@@ -403,7 +315,6 @@ class FallbackManager:
             )
             return False
 
-        # Idempotency: if the same static value is already registered, do nothing
         existing = self._variables.get(var_name)
         if existing and not existing.is_dynamic and existing.value == value:
             # No change required
@@ -429,17 +340,6 @@ class FallbackManager:
     def register_handler(
         self, var_name: str, handler: FallbackHandler, description: Optional[str] = None
     ) -> bool:
-        """
-        Register a dynamic handler for a variable.
-
-        Args:
-            var_name: The variable name (can use dot notation)
-            handler: A callable that returns the fallback value
-            description: Optional description
-
-        Returns:
-            True if registered successfully, False otherwise
-        """
         if not self._validate_variable_name(var_name):
             return False
 
@@ -460,7 +360,6 @@ class FallbackManager:
                 var_name=var_name,
             )
             return False
-        # Idempotency: if same dynamic handler already registered, do nothing
         existing = self._variables.get(var_name)
         if existing and existing.is_dynamic and existing.handler == handler:
             return True
@@ -484,27 +383,18 @@ class FallbackManager:
         return True
 
     def mark_as_critical(self, var_names: List[str]) -> None:
-        """
-        Mark variables as critical, preventing fallbacks.
-
-        Args:
-            var_names: List of variable names to mark as critical
-        """
         for var_name in var_names:
             if not self._validate_variable_name(var_name):
                 continue
 
             self._critical_vars.add(var_name)
 
-            # Remove any existing registrations
             if var_name in self._variables:
                 del self._variables[var_name]
-            # Legacy compatibility: also remove from old dicts
             if var_name in self._fallbacks:
                 del self._fallbacks[var_name]
             if var_name in self._default_handlers:
                 del self._default_handlers[var_name]
-            # Legacy compatibility
             if var_name in self._fallbacks:
                 del self._fallbacks[var_name]
             if var_name in self._default_handlers:
@@ -518,19 +408,7 @@ class FallbackManager:
         )
 
     def get_fallback(self, var_name: str) -> Any:
-        """
-        Get the fallback value for a variable.
-
-        Args:
-            var_name: The variable name
-
-        Returns:
-            The fallback value or None if not found
-
-        Raises:
-            ValueError: If the variable is critical
-            RuntimeError: If a dynamic handler fails
-        """
+        """Get the fallback value for a variable, or None if not found."""
         if var_name in self._critical_vars:
             raise ValueError(f"Cannot get fallback for critical variable: {var_name}")
 
@@ -555,23 +433,12 @@ class FallbackManager:
         return metadata.value
 
     def apply_fallbacks(self, template_context: Optional[Any] = None) -> Dict[str, Any]:
-        """
-        Apply all registered fallbacks to a template context.
-
-        Args:
-            template_context: The original template context
-
-        Returns:
-            Updated template context with fallbacks applied
-        """
-        # Prepare a working dict. If a TemplateObject-like context is provided
-        # (it exposes `to_dict()`), convert it to a plain dict first to avoid
-        # deep-copy recursion issues. Remember the original shape so we can
-        # convert back to template-compatible objects afterward.
+        """Apply all registered fallbacks to a template context."""
+        # Convert TemplateObject to plain dict to avoid deep-copy recursion,
+        # then convert back afterward.
         original_was_template_object = False
         working_ctx: Any = template_context
 
-        # Detect TemplateObject-like API and try to convert to plain dict
         try:
             if (
                 template_context is not None
@@ -587,18 +454,14 @@ class FallbackManager:
         except Exception:
             working_ctx = template_context
 
-        # Deep copy to avoid modifying original
         context = copy.deepcopy(working_ctx) if working_ctx else {}
 
-        # Apply all registered variables
         for var_name, metadata in self._variables.items():
             if var_name in self._critical_vars:
                 continue
 
             self._apply_single_fallback(context, metadata)
 
-        # If the original context was template-compatible, convert back so
-        # consumers still receive TemplateObjects rather than plain dicts.
         if original_was_template_object:
             try:
                 from pcileechfwgenerator.utils.unified_context import (
@@ -607,7 +470,6 @@ class FallbackManager:
 
                 return ensure_template_compatibility(context)
             except Exception:
-                # If conversion fails, return the plain dict
                 return context
 
         return context
@@ -615,19 +477,8 @@ class FallbackManager:
     def _apply_single_fallback(
         self, context: Dict[str, Any], metadata: VariableMetadata
     ) -> bool:
-        """
-        Apply a single fallback value to the context.
-
-        Args:
-            context: The template context to update
-            metadata: Variable metadata
-
-        Returns:
-            True if the fallback was applied, False otherwise
-        """
         var_name = metadata.name
 
-        # Get the value (from handler or static)
         if metadata.is_dynamic and metadata.handler:
             try:
                 value = metadata.handler()
@@ -645,7 +496,6 @@ class FallbackManager:
         else:
             value = metadata.value
 
-        # Apply to context
         if "." in var_name:
             parts = self._split_path(var_name)
             parent, key, success = self._navigate_nested_dict(
@@ -686,15 +536,7 @@ class FallbackManager:
     def validate_critical_variables(
         self, template_context: Dict[str, Any]
     ) -> Tuple[bool, List[str]]:
-        """
-        Validate that all critical variables are present.
-
-        Args:
-            template_context: The template context to validate
-
-        Returns:
-            Tuple of (is_valid, missing_variables)
-        """
+        """Return (is_valid, missing_variables) for all critical vars."""
         missing = []
 
         for var_name in self._critical_vars:
@@ -718,16 +560,6 @@ class FallbackManager:
     def _check_var_exists(
         self, template_context: Dict[str, Any], var_name: str
     ) -> Tuple[bool, Any]:
-        """
-        Check if a variable exists and has a non-empty value.
-
-        Args:
-            template_context: The template context to check
-            var_name: The variable name (can use dot notation)
-
-        Returns:
-            Tuple of (exists, value)
-        """
         if "." in var_name:
             parts = self._split_path(var_name)
             parent, key, success = self._navigate_nested_dict(
@@ -743,7 +575,6 @@ class FallbackManager:
                 return False, None
             value = template_context[var_name]
 
-        # Check for empty containers
         if value is None:
             return False, None
         if isinstance(value, (list, dict, str)) and len(value) == 0:
@@ -752,26 +583,17 @@ class FallbackManager:
         return True, value
 
     def get_exposable_fallbacks(self) -> Dict[str, Any]:
-        """
-        Get fallbacks that are safe to expose to users.
-
-        Returns:
-            Dictionary of variable names and values that are safe to expose
-        """
+        """Get fallbacks that are safe to expose to users."""
         exposable = {}
 
         for var_name, metadata in self._variables.items():
-            # Skip critical and sensitive variables
             if var_name in self._critical_vars:
                 continue
             if self.is_sensitive_var(var_name):
                 continue
-
-            # Skip dynamic handlers (can't serialize)
             if metadata.is_dynamic:
                 continue
 
-            # Present defaults as blanks for user input
             if var_name in self._default_registered_keys:
                 exposable[var_name] = ""
             else:
@@ -780,15 +602,6 @@ class FallbackManager:
         return exposable
 
     def is_sensitive_var(self, name: str) -> bool:
-        """
-        Check if a variable name contains sensitive tokens.
-
-        Args:
-            name: The variable name to check
-
-        Returns:
-            True if the name contains a sensitive token
-        """
         if not isinstance(name, str):
             return False
 
@@ -796,15 +609,6 @@ class FallbackManager:
         return any(token in name_lower for token in SENSITIVE_TOKENS)
 
     def _determine_variable_type(self, var_name: str) -> VariableType:
-        """
-        Determine the type of a variable based on its name.
-
-        Args:
-            var_name: The variable name
-
-        Returns:
-            The determined variable type
-        """
         if var_name in self._critical_vars:
             return VariableType.CRITICAL
         if self.is_sensitive_var(var_name):
@@ -814,15 +618,6 @@ class FallbackManager:
         return VariableType.STANDARD
 
     def _validate_variable_name(self, var_name: str) -> bool:
-        """
-        Validate that a variable name is properly formatted.
-
-        Args:
-            var_name: The variable name to validate
-
-        Returns:
-            True if valid, False otherwise
-        """
         if not var_name or not isinstance(var_name, str):
             log_error_safe(
                 logger,
@@ -831,7 +626,6 @@ class FallbackManager:
             )
             return False
 
-        # Check for valid characters
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", var_name):
             log_error_safe(
                 logger,
@@ -845,15 +639,6 @@ class FallbackManager:
         return True
 
     def load_from_config(self, config_path: str) -> bool:
-        """
-        Load fallback configurations from a YAML file.
-
-        Args:
-            config_path: Path to the YAML configuration file
-
-        Returns:
-            True if configuration was loaded successfully
-        """
         try:
             import yaml
 
@@ -883,7 +668,6 @@ class FallbackManager:
                 )
                 return False
 
-            # Process critical variables first
             if "critical_variables" in config:
                 self.mark_as_critical(config["critical_variables"])
                 log_info_safe(
@@ -896,7 +680,6 @@ class FallbackManager:
                     prefix="FALLBACK",
                 )
 
-            # Then register fallbacks
             if "fallbacks" in config:
                 for var_name, value in config["fallbacks"].items():
                     self.register_fallback(var_name, value)
@@ -934,16 +717,7 @@ class FallbackManager:
     def scan_template_variables(
         self, template_dir: str, pattern: str = "*.j2"
     ) -> Set[str]:
-        """
-        Scan templates to discover used variables.
-
-        Args:
-            template_dir: Directory containing template files
-            pattern: Glob pattern for matching template files
-
-        Returns:
-            Set of discovered variable names
-        """
+        """Scan Jinja2 templates to discover used variable names."""
         discovered_vars = set()
         template_path = Path(template_dir)
 
@@ -956,7 +730,6 @@ class FallbackManager:
             )
             return discovered_vars
 
-        # Find all template files
         template_files = list(template_path.rglob(pattern))
 
         log_info_safe(
@@ -971,7 +744,6 @@ class FallbackManager:
             try:
                 content = file_path.read_text()
 
-                # Extract variable names
                 for match in self.JINJA_VAR_PATTERN.finditer(content):
                     var_name = match.group(1) or match.group(2)
                     if var_name:
@@ -991,45 +763,22 @@ class FallbackManager:
     def validate_templates_for_critical_vars(
         self, template_dir: str, pattern: str = "*.j2"
     ) -> bool:
-        """
-        Validate templates don't use critical variables directly.
-
-        This method maintains backward compatibility by returning just a bool.
-        Use validate_templates_with_details() for the full tuple return.
-
-        Args:
-            template_dir: Directory containing template files
-            pattern: Glob pattern for matching template files
-
-        Returns:
-            True if no critical variables are found in templates, False otherwise
-        """
+        """Bool-only wrapper around validate_templates_with_details()."""
         is_valid, _ = self.validate_templates_with_details(template_dir, pattern)
         return is_valid
 
     def validate_templates_with_details(
         self, template_dir: str, pattern: str = "*.j2"
     ) -> Tuple[bool, Set[str]]:
-        """
-        Validate templates don't use critical variables directly with details.
-
-        Args:
-            template_dir: Directory containing template files
-            pattern: Glob pattern for matching template files
-
-        Returns:
-            Tuple of (is_valid, critical_vars_found)
-        """
+        """Return (is_valid, critical_vars_found) for templates in a directory."""
         all_template_vars = self.scan_template_variables(template_dir, pattern)
         critical_vars_in_templates = set()
 
         for var in all_template_vars:
-            # Check direct critical variable usage
             if var in self._critical_vars:
                 critical_vars_in_templates.add(var)
                 continue
 
-            # Check if any parent path is critical
             if "." in var:
                 parts = self._split_path(var)
                 for i in range(1, len(parts)):
@@ -1055,12 +804,6 @@ class FallbackManager:
         return True, set()
 
     def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get statistics about registered fallbacks.
-
-        Returns:
-            Dictionary with statistics about the fallback manager
-        """
         stats = {
             "total_variables": len(self._variables),
             "critical_variables": len(self._critical_vars),
@@ -1071,7 +814,6 @@ class FallbackManager:
             "by_type": {},
         }
 
-        # Count by type
         for var_type in VariableType:
             count = sum(1 for v in self._variables.values() if v.var_type == var_type)
             stats["by_type"][var_type.value] = count
@@ -1079,15 +821,6 @@ class FallbackManager:
         return stats
 
     def export_config(self, output_path: str) -> bool:
-        """
-        Export current configuration to a YAML file.
-
-        Args:
-            output_path: Path to write the configuration
-
-        Returns:
-            True if exported successfully
-        """
         try:
             import yaml
 
@@ -1096,7 +829,6 @@ class FallbackManager:
                 "fallbacks": {},
             }
 
-            # Export non-dynamic, non-critical variables
             for var_name, metadata in self._variables.items():
                 if var_name in self._critical_vars:
                     continue
@@ -1137,11 +869,9 @@ class FallbackManager:
         self._default_registered_keys.clear()
         self._path_cache.clear()
 
-        # Legacy compatibility
         self._fallbacks.clear()
         self._default_handlers.clear()
 
-        # Re-register defaults
         self._register_default_fallbacks()
 
         log_info_safe(
@@ -1149,7 +879,6 @@ class FallbackManager:
         )
 
 
-# Global singleton accessor for sharing a single FallbackManager across the app
 _GLOBAL_FALLBACK_MANAGER: Optional["FallbackManager"] = None
 _FALLBACK_MANAGER_LOCK = threading.Lock()
 
@@ -1159,23 +888,13 @@ def get_global_fallback_manager(
     mode: str = "prompt",
     allowed_fallbacks: Optional[List[str]] = None,
 ) -> "FallbackManager":
-    """Return a lazily-created global FallbackManager instance.
-
-    If a global manager already exists, the existing instance is returned.
-    The first call may pass initialization parameters which will be used to
-    construct the singleton.
-
-    This function is thread-safe using double-checked locking pattern.
-    """
+    """Return the lazily-created global FallbackManager singleton (thread-safe)."""
     global _GLOBAL_FALLBACK_MANAGER
 
-    # First check without lock (fast path for already initialized case)
     if _GLOBAL_FALLBACK_MANAGER is not None:
         return _GLOBAL_FALLBACK_MANAGER
 
-    # Acquire lock for initialization
     with _FALLBACK_MANAGER_LOCK:
-        # Double-check after acquiring lock in case another thread initialized it
         if _GLOBAL_FALLBACK_MANAGER is None:
             _GLOBAL_FALLBACK_MANAGER = FallbackManager(
                 config_path=config_path,
@@ -1187,10 +906,7 @@ def get_global_fallback_manager(
 
 
 def set_global_fallback_manager(manager: Optional["FallbackManager"]) -> None:
-    """Set or clear the global fallback manager (useful for tests).
-
-    This function is thread-safe.
-    """
+    """Set or clear the global fallback manager (useful for tests)."""
     global _GLOBAL_FALLBACK_MANAGER
     with _FALLBACK_MANAGER_LOCK:
         _GLOBAL_FALLBACK_MANAGER = manager

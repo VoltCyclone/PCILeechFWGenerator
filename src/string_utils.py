@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-String utilities for safe formatting operations.
-
-This module provides utilities to handle complex string formatting
-operations safely, particularly for multi-line f-strings that can
-cause syntax errors when split across lines.
-"""
+"""Safe string formatting, logging helpers, and table rendering."""
 
 import logging
 import os
@@ -20,15 +14,9 @@ VIVADO_PROJECT_NAME = "pcileech_firmware"
 
 
 def get_project_name() -> str:
-    """
-    Return the canonical project name for Vivado/PCILeech builds.
-    Always use this function or VIVADO_PROJECT_NAME for project naming.
-    """
     return VIVADO_PROJECT_NAME
 
 
-# Short constants to keep lines within linter limits while reusing the same banner
-# Note: dynamic borders are constructed in helpers to satisfy line-length rules.
 SV_HEADER_BAR = "//=="
 TCL_HEADER_BAR = "#=="
 
@@ -144,34 +132,7 @@ def _cached_format(template: str, frozen_items: Tuple[Tuple[str, Any], ...]) -> 
 
 
 def safe_format(template: str, prefix: Optional[str] = None, **kwargs: Any) -> str:
-    """
-    Safely format a string template with the given keyword arguments.
-
-    This function provides a safe alternative to f-strings when dealing
-    with complex multi-line formatting that might cause syntax errors.
-
-    Args:
-        template: The string template with {variable} placeholders
-        prefix: Optional prefix to add to the formatted message
-        **kwargs: Keyword arguments to substitute in the template
-
-    Returns:
-        The formatted string with all placeholders replaced
-
-    Example:
-        >>> safe_format("Hello {name}, you have {count} messages",
-        ...             name="Alice", count=5)
-        'Hello Alice, you have 5 messages'
-
-        >>> safe_format(
-        ...     "Device {bdf} with VID:{vid:04x} DID:{did:04x}",
-        ...     bdf="0000:00:1f.3", vid=0x8086, did=0x54c8
-        ... )
-        'Device 0000:00:1f.3 with VID:8086 DID:54c8'
-
-        >>> safe_format("Processing device {bdf}", prefix="VFIO", bdf="0000:01:00.0")
-        '[VFIO] Processing device 0000:01:00.0'
-    """
+    """Format a string template, handling missing keys gracefully."""
     try:
         cache_key = _build_cache_key(template, kwargs)
         if cache_key is not None:
@@ -182,7 +143,6 @@ def safe_format(template: str, prefix: Optional[str] = None, **kwargs: Any) -> s
             return f"[{prefix}] {formatted_message}"
         return formatted_message
     except KeyError as e:
-        # Handle missing keys gracefully
         missing_key = str(e).strip("'\"")
         logger = logging.getLogger(__name__)
         logger.warning("Missing key '%s' in string template", missing_key)
@@ -192,14 +152,12 @@ def safe_format(template: str, prefix: Optional[str] = None, **kwargs: Any) -> s
             return f"[{prefix}] {formatted_message}"
         return formatted_message
     except ValueError as e:
-        # Handle format specification errors
         logger = logging.getLogger(__name__)
         logger.error("Format error in string template: %s", e)
         if prefix:
             return f"[{prefix}] {template}"
         return template
     except Exception as e:
-        # Handle any other unexpected errors
         logger = logging.getLogger(__name__)
         logger.error("Unexpected error in safe_format: %s", e)
         if prefix:
@@ -214,27 +172,9 @@ def safe_log_format(
     prefix: Optional[str] = None,
     **kwargs: Any,
 ) -> None:
-    """
-    Safely log a formatted message with padding and short timestamps.
-
-    Args:
-        logger: The logger instance to use
-        log_level: The logging level (e.g., logging.INFO, logging.ERROR)
-        template: The string template with {variable} placeholders
-        prefix: Optional prefix to add to the log message (e.g., "VFIO", "BUILD")
-        **kwargs: Keyword arguments to substitute in the template
-
-    Example:
-        >>> import logging
-        >>> logger = logging.getLogger(__name__)
-        >>> safe_log_format(logger, logging.INFO,
-        ...                  "Processing device {bdf} with {bytes} bytes",
-        ...                  prefix="VFIO", bdf="0000:00:1f.3", bytes=256)
-    """
+    """Log a formatted message with level-padded prefix and timestamp."""
     try:
         formatted_message = safe_format(template, prefix=prefix, **kwargs)
-
-        # Map log level to string
         level_map = {
             logging.INFO: "INFO",
             logging.WARNING: "WARNING",
@@ -245,8 +185,6 @@ def safe_log_format(
         level_str = level_map.get(log_level, "UNKNOWN")
 
         padded_message = format_padded_message(formatted_message, level_str)
-        # Call the specific logger method so mocks like mock_logger.info are
-        # invoked during tests (instead of logger.log which doesn't call them).
         if log_level == logging.INFO:
             logger.info(padded_message)
         elif log_level == logging.WARNING:
@@ -260,7 +198,6 @@ def safe_log_format(
         else:
             logger.log(log_level, padded_message)
     except Exception as e:
-        # Fallback to basic logging if formatting fails
         error_msg = f"Failed to format log message: {e}"
         padded_error = format_padded_message(error_msg, "ERROR")
         logger.error(padded_error)
@@ -274,19 +211,7 @@ def safe_log_format(
 
 
 def safe_print_format(template: str, prefix: str, **kwargs: Any) -> None:
-    """
-    Safely print a formatted message with padding and short timestamp.
-
-    Args:
-        template: The string template with {variable} placeholders
-        prefix: Optional prefix to add to the message
-        **kwargs: Keyword arguments to substitute in the template
-
-    Example:
-        >>> safe_print_format("Build completed in {time:.2f} seconds",
-        ...                   prefix="BUILD", time=45.67)
-        14:23:45 │  INFO  │ [BUILD] Build completed in 45.67 seconds
-    """
+    """Print a formatted message with timestamp and level padding."""
     try:
         formatted_message = safe_format(template=template, prefix=prefix, **kwargs)
         padded_message = format_padded_message(formatted_message, "INFO")
@@ -302,47 +227,13 @@ def safe_print_format(template: str, prefix: str, **kwargs: Any) -> None:
 
 
 def multiline_format(template: str, prefix: str, **kwargs: Any) -> str:
-    """
-    Format a multi-line string template safely.
-
-    This is particularly useful for complex multi-line strings that
-    would be difficult to handle with f-strings.
-
-    Args:
-        template: Multi-line string template with {variable} placeholders
-        **kwargs: Keyword arguments to substitute in the template
-
-    Returns:
-        The formatted multi-line string
-
-    Example:
-        >>> template = '''
-        ... Device Information:
-        ...   BDF: {bdf}
-        ...   Vendor ID: {vid:04x}
-        ...   Device ID: {did:04x}
-        ...   Driver: {driver}
-        ... '''
-        >>> result = multiline_format(template.strip(),
-        ...                          bdf="0000:00:1f.3", vid=0x8086,
-        ...                          did=0x54c8, driver="snd_hda_intel")
-    """
     return safe_format(template, prefix=prefix, **kwargs)
 
 
 def build_device_info_string(device_info: Dict[str, Any]) -> str:
-    """
-    Build a standardized device information string.
-
-    Args:
-        device_info: Dictionary containing device information
-
-    Returns:
-        Formatted device information string
-    """
+    """Format VID/DID/class/subsystem into a compact string."""
     template = "VID:{vendor_id:04x}, DID:{device_id:04x}"
 
-    # Add optional fields if present
     if "class_code" in device_info:
         template += ", Class:{class_code:04x}"
     if "subsystem_vendor_id" in device_info:
@@ -356,18 +247,6 @@ def build_device_info_string(device_info: Dict[str, Any]) -> str:
 def build_progress_string(
     operation: str, current: int, total: int, elapsed_time: Optional[float] = None
 ) -> str:
-    """
-    Build a standardized progress string.
-
-    Args:
-        operation: Description of the current operation
-        current: Current progress value
-        total: Total expected value
-        elapsed_time: Optional elapsed time in seconds
-
-    Returns:
-        Formatted progress string
-    """
     percentage = (current / total * 100) if total > 0 else 0
     template = "{operation}: {current}/{total} ({percentage:.1f}%)"
 
@@ -386,15 +265,6 @@ def build_progress_string(
 
 
 def build_file_size_string(size_bytes: int) -> str:
-    """
-    Build a human-readable file size string.
-
-    Args:
-        size_bytes: Size in bytes
-
-    Returns:
-        Formatted size string (e.g., "1.5 MB", "256 KB")
-    """
     if size_bytes < 1024:
         return safe_format("{size} bytes", prefix="File Size", size=size_bytes)
     elif size_bytes < 1024 * 1024:
@@ -416,17 +286,7 @@ def build_file_size_string(size_bytes: int) -> str:
 
 
 def format_size_short(size_bytes: int) -> str:
-    """
-    Return a short human-readable size string using binary units.
-
-    Examples:
-        512 -> "512B"
-        2048 -> "2.0KB"
-        1048576 -> "1.0MB"
-        1073741824 -> "1.0GB"
-
-    This helper is intended for concise in-line logs without prefixes.
-    """
+    """Return a short human-readable size (e.g. '2.0KB', '1.0MB')."""
     try:
         if size_bytes >= 1024 * 1024 * 1024:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f}GB"
@@ -437,21 +297,10 @@ def format_size_short(size_bytes: int) -> str:
         else:
             return f"{size_bytes}B"
     except Exception:
-        # Fallback to raw bytes on any unexpected error
         return f"{size_bytes}B"
 
 
 def get_short_timestamp() -> str:
-    """
-    Get a short timestamp string for logging.
-
-    Returns:
-        Short timestamp in format HH:MM:SS
-
-    Example:
-        >>> get_short_timestamp()
-        '14:23:45'
-    """
     fmt = FormatConfig.get_instance().timestamp_format
     return datetime.now().strftime(fmt)
 
@@ -461,24 +310,10 @@ def utc_timestamp(
     env_var: str = "BUILD_TIMESTAMP",
     fallback: str = "2024-01-01T00:00:00Z",
 ) -> str:
-    """Return a standardized UTC ISO-8601 timestamp with trailing Z.
-
-    Args:
-        precise: Include microseconds if True (default False)
-        env_var: Environment variable that, if set, overrides the timestamp
-        fallback: Fallback timestamp if generation fails
-
-    Behavior:
-        - If the environment variable exists, it's validated (appends 'Z' if
-          missing and contains no timezone). Returned as-is otherwise.
-        - Uses timezone-aware UTC datetime; strips microseconds unless
-          precise=True.
-        - Always normalizes '+00:00' suffix to 'Z'.
-    """
+    """Return a UTC ISO-8601 timestamp. Honors env override if set."""
     try:
         override = os.getenv(env_var)
         if override:
-            # Basic normalization: ensure trailing Z if no timezone specified
             if override.endswith("Z") or override.endswith("z"):
                 return override.rstrip("zZ") + "Z"
             if "+" in override or override.endswith("Z"):
@@ -494,22 +329,6 @@ def utc_timestamp(
 
 
 def format_padded_message(message: str, log_level: str) -> str:
-    """
-    Format a message with padding based on log level.
-
-    Args:
-        message: The message to format
-        log_level: The log level (INFO, WARNING, DEBUG, ERROR)
-
-    Returns:
-        Formatted message with appropriate padding
-
-    Example:
-        >>> format_padded_message("Device found", "INFO")
-        '  INFO  │ Device found'
-        >>> format_padded_message("Memory issue", "WARNING")
-        ' WARNING│ Memory issue'
-    """
     timestamp = get_short_timestamp()
     config = FormatConfig.get_instance()
 
@@ -530,48 +349,31 @@ def format_padded_message(message: str, log_level: str) -> str:
     return f"  {timestamp} │ {level_segment}│ {message}"
 
 
-# Convenience functions for common logging patterns
-
-
 def log_info_safe(
-    logger: logging.Logger,
-    template: str,
-    prefix: Optional[str] = None,
-    **kwargs: Any,
+    logger: logging.Logger, template: str,
+    prefix: Optional[str] = None, **kwargs: Any,
 ) -> None:
-    """Convenience function for safe INFO level logging."""
-    # Use the centralized safe_log_format to ensure padding/timestamp and
-    # consistent behavior across log levels.
     safe_log_format(logger, logging.INFO, template, prefix=prefix, **kwargs)
 
 
 def log_error_safe(
-    logger: logging.Logger,
-    template: str,
-    prefix: Optional[str] = None,
-    **kwargs: Any,
+    logger: logging.Logger, template: str,
+    prefix: Optional[str] = None, **kwargs: Any,
 ) -> None:
-    """Convenience function for safe ERROR level logging."""
     safe_log_format(logger, logging.ERROR, template, prefix=prefix, **kwargs)
 
 
 def log_warning_safe(
-    logger: logging.Logger,
-    template: str,
-    prefix: Optional[str] = None,
-    **kwargs: Any,
+    logger: logging.Logger, template: str,
+    prefix: Optional[str] = None, **kwargs: Any,
 ) -> None:
-    """Convenience function for safe WARNING level logging."""
     safe_log_format(logger, logging.WARNING, template, prefix=prefix, **kwargs)
 
 
 def log_debug_safe(
-    logger: logging.Logger,
-    template: str,
-    prefix: Optional[str] = None,
-    **kwargs: Any,
+    logger: logging.Logger, template: str,
+    prefix: Optional[str] = None, **kwargs: Any,
 ) -> None:
-    """Convenience function for safe DEBUG level logging."""
     safe_log_format(logger, logging.DEBUG, template, prefix=prefix, **kwargs)
 
 
@@ -582,32 +384,6 @@ def generate_sv_header_comment(
     board: Optional[str] = None,
     **kwargs: Any,
 ) -> str:
-    """
-    Generate a standardized SystemVerilog header comment block.
-
-    This function creates a consistent header format used across SystemVerilog
-    modules with device-specific information.
-
-    Args:
-        title: The main title/description for the module
-        vendor_id: Optional vendor ID (will be included if provided)
-        device_id: Optional device ID (will be included if provided)
-        board: Optional board name (will be included if provided)
-        **kwargs: Additional key-value pairs to include in the header
-
-    Returns:
-        Formatted SystemVerilog header comment block
-
-    Example:
-        >>> generate_sv_header_comment(
-        ...     "Device Configuration Module",
-        ...     vendor_id="1234", device_id="5678", board="AC701"
-        ... )
-        '//... Device Configuration Module - Generated for 1234:5678 ...'
-
-        >>> generate_sv_header_comment("PCIe Controller Module")
-        '//... PCIe Controller Module ...'
-    """
     from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
 
     # Use the first line of the standardized header as a base (single-line banner)
@@ -619,21 +395,17 @@ def generate_sv_header_comment(
     sv_border = "//" + "=" * 78
     lines = [sv_border, header_base]
 
-    # Build the main title line
     if vendor_id and device_id:
         title_line = f"// {title} - Generated for {vendor_id}:{device_id}"
     else:
         title_line = f"// {title}"
     lines.append(title_line)
 
-    # Add board information if provided
     if board:
         lines.append(f"// Board: {board}")
 
-    # Add any additional key-value pairs
     for key, value in kwargs.items():
         if value is not None:
-            # Convert key from snake_case to Title Case for display
             display_key = key.replace("_", " ").title()
             lines.append(f"// {display_key}: {value}")
 
@@ -651,35 +423,8 @@ def generate_tcl_header_comment(
     fpga_part: Optional[str] = None,
     **kwargs: Any,
 ) -> str:
-    """
-    Generate a standardized TCL header comment block.
-
-    This function creates a consistent header format used across TCL build scripts
-    with device-specific information.
-
-    Args:
-        title: The main title/description for the script
-        vendor_id: Optional vendor ID (will be included if provided)
-        device_id: Optional device ID (will be included if provided)
-        class_code: Optional class code (will be included if provided)
-        board: Optional board name (will be included if provided)
-        fpga_part: Optional FPGA part number (will be included if provided)
-        **kwargs: Additional key-value pairs to include in the header
-
-    Returns:
-        Formatted TCL header comment block
-
-    Example:
-        >>> generate_tcl_header_comment(
-        ...     "PCILeech Firmware Build Script",
-        ...     vendor_id="1234", device_id="5678",
-        ...     class_code="0200", board="AC701"
-        ... )
-    '# ... PCILeech Firmware Build Script ...'
-    """
     from pcileechfwgenerator.utils.validation_constants import TCL_FILE_HEADER
 
-    # Use the standardized header as a base (single-line banner)
     header_base = (
         TCL_FILE_HEADER.split("\n")[0] if "\n" in TCL_FILE_HEADER else TCL_FILE_HEADER
     )
@@ -688,28 +433,22 @@ def generate_tcl_header_comment(
     tcl_border = "#" + "=" * 78
     lines = [tcl_border, header_base]
 
-    # Build the main title line
     lines.append(f"# {title}")
 
-    # Add device information if provided
     if vendor_id and device_id:
         device_line = f"# Generated for device {vendor_id}:{device_id}"
         if class_code:
             device_line += f" (Class: {class_code})"
         lines.append(device_line)
 
-    # Add board information if provided
     if board:
         lines.append(f"# Board: {board}")
 
-    # Add FPGA part information if provided
     if fpga_part:
         lines.append(f"# FPGA Part: {fpga_part}")
 
-    # Add any additional key-value pairs
     for key, value in kwargs.items():
         if value is not None:
-            # Convert key from snake_case to Title Case for display
             display_key = key.replace("_", " ").title()
             lines.append(f"# {display_key}: {value}")
 
@@ -728,57 +467,30 @@ def generate_hex_header_comment(
     board: Optional[str] = None,
     **kwargs: Any,
 ) -> str:
-    """
-    Generate a standardized HEX file header comment block.
-
-    This creates a consistent header used for .hex files intended for
-    $readmemh initialization, aligning with other header styles.
-
-    Args:
-        title: Main title/description (e.g., "config_space_init.hex - ...")
-        total_bytes: Optional total byte count included when provided
-        total_dwords: Optional total dword count included when provided
-        vendor_id: Optional vendor ID to display
-        device_id: Optional device ID to display
-        class_code: Optional class code to display
-        board: Optional board identifier
-        **kwargs: Additional key-value pairs to include as comments
-
-    Returns:
-        Formatted HEX header comment block
-    """
     from pcileechfwgenerator.utils.validation_constants import HEX_FILE_HEADER
 
-    # First line from standardized header as base
     header_base = (
         HEX_FILE_HEADER.split("\n")[0] if "\n" in HEX_FILE_HEADER else HEX_FILE_HEADER
     )
 
-    # Dynamic border line to respect line-length rules
     hex_border = "//" + "=" * 78
     lines = [hex_border, header_base]
-
-    # Title
     lines.append(f"// {title}")
 
-    # Optional device information
     if vendor_id and device_id:
         dev_line = f"// Generated for device {vendor_id}:{device_id}"
         if class_code:
             dev_line += f" (Class: {class_code})"
         lines.append(dev_line)
 
-    # Optional board info
     if board:
         lines.append(f"// Board: {board}")
 
-    # Totals if provided
     if total_bytes is not None and total_dwords is not None:
         lines.append(f"// Total size: {total_bytes} bytes ({total_dwords} dwords)")
     elif total_bytes is not None:
         lines.append(f"// Total size: {total_bytes} bytes")
 
-    # Additional key/value pairs
     for key, value in kwargs.items():
         if value is not None:
             display_key = key.replace("_", " ").title()
@@ -790,16 +502,6 @@ def generate_hex_header_comment(
 
 
 def format_bar_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
-    """
-    Format BAR configuration data into a nice ASCII table.
-
-    Args:
-        bar_configs: List of BarConfiguration objects
-        primary_bar: Optional primary BAR to highlight
-
-    Returns:
-        Formatted ASCII table string
-    """
     if not bar_configs:
         return "No BAR configurations found"
 
@@ -848,16 +550,6 @@ def format_bar_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
 
 
 def format_bar_summary_table(bar_configs: List[Any], primary_bar: Any = None) -> str:
-    """
-    Format a compact BAR summary table showing only essential information.
-
-    Args:
-        bar_configs: List of BarConfiguration objects
-        primary_bar: Optional primary BAR to highlight
-
-    Returns:
-        Formatted ASCII table string
-    """
     if not bar_configs:
         return "No BAR configurations found"
 
@@ -903,16 +595,6 @@ def format_bar_summary_table(bar_configs: List[Any], primary_bar: Any = None) ->
 
 
 def format_raw_bar_table(bars: List[Any], device_bdf: str) -> str:
-    """
-    Format raw BAR data from config space into a nice ASCII table.
-
-    Args:
-        bars: List of raw BAR data (dict or int values)
-        device_bdf: Device BDF for context
-
-    Returns:
-        Formatted ASCII table string
-    """
     if not bars:
         return "No BAR data found"
 
@@ -950,16 +632,6 @@ def format_raw_bar_table(bars: List[Any], device_bdf: str) -> str:
 
 
 def format_kv_table(rows: List[Tuple[str, str]], title: str) -> str:
-    """
-    Format a simple key/value table with a banner title.
-
-    Args:
-        rows: List of (key, value) pairs to display
-        title: Title to show in the banner
-
-    Returns:
-        Box-drawn table string
-    """
     if rows is None:
         rows = []
 
@@ -986,8 +658,6 @@ def truncate_string(
     suffix: str = "...",
     position: str = "end",
 ) -> str:
-    """Truncate text with optional suffix placement."""
-
     if max_length <= 0:
         return ""
 
@@ -1010,8 +680,6 @@ def truncate_string(
 
 
 def validate_template(template: str) -> bool:
-    """Return True when placeholders in template are well-formed."""
-
     if template.count("{") != template.count("}"):
         return False
 

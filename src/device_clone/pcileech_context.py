@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""
-PCILeech Template Context Builder
-
-Builds comprehensive template context from device profiling data.
-Integrates BehaviorProfiler, ConfigSpaceManager, and MSIXCapability data.
-
-"""
+"""PCILeech template context builder."""
 
 import ctypes
 import fcntl
@@ -110,17 +104,11 @@ _MSIX_BASE_RUNTIME_FLAGS: Dict[str, Any] = {
 
 
 def _build_msix_disabled_runtime_flags() -> Dict[str, Any]:
-    """Return runtime flag set for a disabled / unsupported MSI-X capability.
-
-    Always returns a fresh dict (avoid accidental shared mutations).
-    """
+    """Return runtime flags for disabled MSI-X."""
     return {
         **_MSIX_BASE_RUNTIME_FLAGS,
-        # Capability-level state flags
         "function_mask": False,
-        # PBA writes remain ignored while disabled
         "write_pba_allowed": False,
-        # Zero PBA storage requirement
         "pba_size_dwords": 0,
     }
 
@@ -131,18 +119,7 @@ def _build_msix_enabled_runtime_flags(
     function_mask: bool = False,
     write_pba_allowed: bool = False,
 ) -> Dict[str, Any]:
-    """Return runtime flag set for an enabled MSI-X capability.
-
-    Parameters
-    ----------
-    pba_size_dwords: int
-        Computed dword length of PBA storage
-    function_mask: bool
-        Current function mask state from capability
-    write_pba_allowed: bool
-        Whether template logic should permit PBA writes (kept False for
-        spec-compliant read-only behavior unless explicitly changed later)
-    """
+    """Return runtime flags for enabled MSI-X."""
     return {
         **_MSIX_BASE_RUNTIME_FLAGS,
         "function_mask": function_mask,
@@ -168,12 +145,10 @@ class TemplateContext(TypedDict, total=False):
     timing_config: Dict[str, Any]
     pcileech_config: Dict[str, Any]
     board_config: Dict[str, Any]
-    # Donor-derived PCIe link capabilities (codes)
     pcie_max_link_speed: int
     pcie_max_link_width: int
     EXT_CFG_CAP_PTR: int
     EXT_CFG_XP_CAP_PTR: int
-    # Optional VFIO availability/verification flags for integration rendering
     vfio_device: bool
     vfio_binding_verified: bool
 
@@ -202,7 +177,6 @@ class DeviceIdentifiers:
                 }
             )
         except ContextError:
-            # Preserve original validation error details without rewriting
             raise
         self.vendor_id = norm["vendor_id"]
         self.device_id = norm["device_id"]
@@ -264,7 +238,7 @@ class BarConfiguration:
     _size_encoding: Optional[int] = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
-        """Validate BAR configuration with aggregated errors and clear guidance."""
+        """Validate BAR configuration."""
         issues = []
         if not 0 <= self.index < ConfigSpaceConstants.MAX_BARS:
             issues.append(
@@ -274,7 +248,6 @@ class BarConfiguration:
                     max_idx=ConfigSpaceConstants.MAX_BARS - 1,
                 )
             )
-        # BAR size must be a positive 32-bit unsigned value
         if self.size <= 0:
             issues.append(
                 safe_format(
@@ -342,7 +315,6 @@ class TimingParameters:
     clock_frequency_mhz: float
     timing_regularity: float
     
-    # TLP latency emulation parameters (optional, for enhanced realism)
     min_read_latency: Optional[int] = None
     max_read_latency: Optional[int] = None
     avg_read_latency: Optional[int] = None
@@ -350,8 +322,6 @@ class TimingParameters:
     latency_lfsr_seed: int = 0xACE1
 
     def __post_init__(self):
-        """Validate timing parameters."""
-        # Validate required fields
         required_fields = [
             'read_latency', 'write_latency', 'burst_length',
             'inter_burst_gap', 'timeout_cycles', 'clock_frequency_mhz',
@@ -381,7 +351,6 @@ class TimingParameters:
                 )
             )
         
-        # Set defaults for optional TLP latency parameters if not provided
         if self.min_read_latency is None:
             self.min_read_latency = max(1, int(self.read_latency * 0.8))
         if self.max_read_latency is None:
@@ -435,21 +404,13 @@ class VFIODeviceManager:
             return self._device_fd, self._container_fd
 
         try:
-            # Open device FDs first. Tests commonly patch `get_device_fd` so
-            # calling it before a strict VFIO precheck allows unit tests to
-            # control the returned fds without requiring a real VFIO device.
-            # Late import so unit tests that patch src.cli.vfio_helpers.get_device_fd
-            # are effective.
             import pcileechfwgenerator.cli.vfio_helpers as vfio_helpers
 
             self._device_fd, self._container_fd = vfio_helpers.get_device_fd(
                 self.device_bdf
             )
 
-            # Treat non-integer or negative FDs as unavailable; normalize to
-            # None so callers can fall back to sysfs-based logic without
-            # crashing. This guards against fcntl.ioctl returning bytes
-            # instead of int if the buffer type is wrong.
+            # Guard against fcntl.ioctl returning bytes instead of int
             if (
                 not isinstance(self._device_fd, int)
                 or not isinstance(self._container_fd, int)
@@ -464,13 +425,7 @@ class VFIODeviceManager:
                 self._device_fd = None
                 self._container_fd = None
 
-            # Attempt to ensure VFIO binding and prerequisites. Do not make
-            # this fatal here; log a warning if the check fails so callers can
-            # decide whether to treat it as an error. This preserves the
-            # original safety check while keeping unit tests hermetic.
             try:
-                # Late import so patches on src.cli.vfio_helpers.ensure_device_vfio_binding
-                # are honored by tests.
                 group = vfio_helpers.ensure_device_vfio_binding(self.device_bdf)
                 log_info_safe(
                     self.logger,
@@ -482,8 +437,6 @@ class VFIODeviceManager:
                     prefix="VFIO",
                 )
             except Exception as e:
-                # Log non-fatally; higher-level callers may re-run the check
-                # and decide to abort the operation if required.
                 log_debug_safe(
                     self.logger,
                     safe_format(
@@ -530,14 +483,12 @@ class VFIODeviceManager:
                 )
                 return None
             except Exception as e:
-                # Catch any other open() failures and return None for fallback
                 log_warning_safe(
                     self.logger,
                     safe_format("VFIO device open failed (fallback): {error}", error=e),
                     prefix="VFIO",
                 )
                 return None
-            # After attempting open, ensure the FD is valid
             if (self._device_fd is None) or (
                 isinstance(self._device_fd, int) and self._device_fd < 0
             ):
@@ -549,7 +500,6 @@ class VFIODeviceManager:
 
         try:
             if self._device_fd is None:
-                # Return None to allow fallback path instead of raising
                 log_debug_safe(
                     self.logger,
                     "Device FD not available, returning None for fallback",
@@ -577,7 +527,6 @@ class VFIODeviceManager:
                 "mappable": bool(info.flags & VFIO_REGION_INFO_FLAG_MMAP),
             }
 
-            # Clean up if we opened the FDs here
             if opened_here:
                 self.close()
 
@@ -588,25 +537,12 @@ class VFIODeviceManager:
                 safe_format("VFIO region info failed: {error}", error=e),
                 prefix="VFIO",
             )
-            # Clean up if we opened the FDs here
             if opened_here:
                 self.close()
             return None
 
     def read_region_slice(self, index: int, offset: int, size: int) -> Optional[bytes]:
-        """Read a slice of a VFIO region safely using mmap (with transient retry).
-
-        This handles page alignment requirements by mapping a page-aligned range
-        and slicing out the requested bytes.
-
-        Args:
-            index: VFIO region index (BAR index for BARs)
-            offset: Offset within the region to start reading
-            size: Number of bytes to read
-
-        Returns:
-            Bytes read or None on error
-        """
+        """Read a slice of a VFIO region via page-aligned mmap."""
         import mmap
         import os
 
@@ -629,12 +565,10 @@ class VFIODeviceManager:
                 return None
 
         try:
-            # Query full region info to get the kernel-provided mmap offset
             info = VfioRegionInfo()
             info.argsz = ctypes.sizeof(VfioRegionInfo)
             info.index = index
             if self._device_fd is None:
-                # Return None to allow fallback path instead of raising
                 log_debug_safe(
                     self.logger,
                     "Device FD not available for region slice, returning None",
@@ -668,10 +602,8 @@ class VFIODeviceManager:
                 )
                 return None
 
-            # Clamp size to region bounds
             read_len = min(size, region_size - offset)
 
-            # Verify the region is mappable before attempting mmap
             if not (region_flags & VFIO_REGION_INFO_FLAG_MMAP):
                 log_warning_safe(
                     self.logger,
@@ -684,8 +616,7 @@ class VFIODeviceManager:
                 )
                 return None
 
-            # Compute page-aligned mapping window using portable page size
-            # Prefer mmap.PAGESIZE, then resource.getpagesize(), then os.sysconf
+            # Page-aligned mapping window; portable page size discovery
             try:
                 page_sz = mmap.PAGESIZE  # type: ignore[attr-defined]
             except Exception:
@@ -722,10 +653,8 @@ class VFIODeviceManager:
 
 
 class PCILeechContextBuilder:
-    """Builds template context from device profiling data - Optimized."""
+    """Builds template context from device profiling data."""
 
-    # Required MSI-X fields for validation
-    # Device fields use DEVICE_IDENTIFICATION_FIELDS from validation_constants
     REQUIRED_MSIX_FIELDS = ["table_size", "table_bir", "table_offset"]
 
     def __init__(
@@ -763,18 +692,7 @@ class PCILeechContextBuilder:
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
     ) -> TemplateContext:
-        """Build comprehensive template context.
-        
-        Args:
-            behavior_profile: Optional behavior profile
-            config_space_data: Device configuration space data
-            msix_data: Optional MSI-X capability data
-            interrupt_strategy: Interrupt strategy to use
-            interrupt_vectors: Number of interrupt vectors
-            donor_template: Optional donor template data
-            enable_mmio_learning: Enable automatic MMIO trace capture (default: True)
-            force_recapture: Force recapture of MMIO traces even if cached (default: False)
-        """
+        """Build comprehensive template context."""
         log_info_safe(
             self.logger,
             safe_format(
@@ -852,14 +770,14 @@ class PCILeechContextBuilder:
         enable_mmio_learning=True,
         force_recapture=False,
     ):
-        """Build all context sections with minimal nesting."""
+        """Build all context sections."""
         context: TemplateContext = {
             "device_config": self._build_device_config(
                 device_identifiers, behavior_profile, config_space_data
             ),
             "config_space": self._build_config_space_context(config_space_data),
             "msix_config": self._build_msix_context(msix_data),
-            "msix_data": msix_data,  # Raw MSI-X data for SystemVerilog generator
+            "msix_data": msix_data,
             "bar_config": self._build_bar_config(
                 config_space_data,
                 behavior_profile,
@@ -887,13 +805,9 @@ class PCILeechContextBuilder:
             "device_id": device_identifiers.device_id,
         }
 
-        # Expose critical board attributes at the top level to keep downstream
-        # generators firmly non-interactive and ensure constraint builders can
-        # resolve donor-specific XDC files.
         board_config = context["board_config"]
 
         def _board_attr(attr: str, default: Any = None) -> Any:
-            """Safely extract attributes from the board configuration."""
             try:
                 value = getattr(board_config, attr)
             except AttributeError:
@@ -912,8 +826,6 @@ class PCILeechContextBuilder:
         context["board_xdc_content"] = _board_attr("board_xdc_content", "")
         context.setdefault("sys_clk_freq_mhz", _board_attr("sys_clk_freq_mhz"))
 
-        # Attempt to extract PCIe max link speed/width from config space for donor-uniqueness.
-        # These are required by the TCL builder to derive target_link_speed/width enums.
         try:
             cfg_hex = config_space_data.get("config_space_hex")
             if not cfg_hex and isinstance(context.get("config_space"), dict):
@@ -921,13 +833,11 @@ class PCILeechContextBuilder:
 
             if cfg_hex:
                 try:
-                    # Prefer centralized capability processor to avoid duplicating parsing logic
                     from pcileechfwgenerator.pci_capability import core as _pcicore
                     from pcileechfwgenerator.pci_capability import processor as _pciproc
 
                     _cs = _pcicore.ConfigSpace(cfg_hex)
                     _cp = _pciproc.CapabilityProcessor(_cs)
-                    # Use the processor's device context view to read derived fields
                     dev_ctx = (
                         _cp._get_device_context()
                     )  # Internal, but stable within project
@@ -939,7 +849,6 @@ class PCILeechContextBuilder:
                     if isinstance(max_width, int) and max_width > 0:
                         context["pcie_max_link_width"] = max_width
                 except Exception as e:
-                    # Non-fatal: log and continue; TCL builder will enforce strictness downstream
                     log_debug_safe(
                         self.logger,
                         safe_format(
@@ -949,7 +858,6 @@ class PCILeechContextBuilder:
                         prefix="PCIL",
                     )
         except Exception as e:
-            # Defensive catch-all to avoid blocking context construction
             log_debug_safe(
                 self.logger,
                 safe_format(
@@ -959,7 +867,7 @@ class PCILeechContextBuilder:
                 prefix="PCIL",
             )
 
-        # Fallback: if PCIe link speed/width still missing, try sysfs current_link_* files
+        # sysfs fallback for PCIe link speed/width
         try:
             need_speed = "pcie_max_link_speed" not in context
             need_width = "pcie_max_link_width" not in context
@@ -974,10 +882,8 @@ class PCILeechContextBuilder:
                     except Exception:
                         return None
 
-                # Map speed string like "5 GT/s" or "5.0 GT/s" => code 2
                 def _map_speed_str_to_code(s: str) -> Optional[int]:
                     try:
-                        # Extract the leading float number
                         parts = s.replace("GT/s", "").replace("G T/s", "").split()
                         if not parts:
                             return None
@@ -1008,7 +914,6 @@ class PCILeechContextBuilder:
                     except Exception:
                         return None
 
-                # Map width string like "x4" => 4
                 def _map_width_str_to_lanes(s: str) -> Optional[int]:
                     try:
                         s = s.lower().lstrip("x")
@@ -1058,12 +963,10 @@ class PCILeechContextBuilder:
                 prefix="PCIL",
             )
 
-        # Add overlay config
         overlay_config = self._build_overlay_config(config_space_data)
         for key, value in overlay_config.items():
             context[key] = value  # type: ignore
 
-        # Add missing template variables using UnifiedContextBuilder
         device_type = self._get_device_type_from_class_code(
             device_identifiers.class_code
         )
@@ -1075,16 +978,12 @@ class PCILeechContextBuilder:
         context["error_config"] = self._build_error_handling_config()  # type: ignore
         context["variance_model"] = self._build_variance_model()  # type: ignore
 
-        # Add device-specific signals
         device_signals = self._build_device_specific_signals(device_type)
         for key, value in device_signals.items():
             context[key] = value  # type: ignore
 
-        # Add header for SystemVerilog generation from central constants
-
         context["header"] = SV_FILE_HEADER  # type: ignore
         context["registers"] = []  # type: ignore
-        # EXT_CFG_CAP_PTR and EXT_CFG_XP_CAP_PTR must be present at top-level context for test contract
         ext_cfg_cap_ptr = None
         ext_cfg_xp_cap_ptr = None
         if isinstance(context.get("device_config"), dict):
@@ -1105,11 +1004,8 @@ class PCILeechContextBuilder:
         if donor_template:
             context = self._merge_donor_template(dict(context), donor_template)
 
-        # Ensure numeric ID aliases exist on top-level and device_config
         self._add_numeric_id_aliases(context)
 
-        # Add VFIO status indicators for template integration logic.
-        # These are dynamic, environment-derived values; never hardcode.
         try:
             import os as _os
 
@@ -1117,10 +1013,7 @@ class PCILeechContextBuilder:
         except Exception:
             context["vfio_device"] = False
 
-        # Attempt a non-fatal verification of VFIO binding for this BDF.
-        # If the check raises, treat as not verified but leave vfio_device intact.
         try:
-            # Late import to allow unit tests to patch helpers
             from pcileechfwgenerator.cli.vfio_helpers import (
                 ensure_device_vfio_binding as _ensure,
             )
@@ -1133,10 +1026,9 @@ class PCILeechContextBuilder:
         return context
 
     def _add_numeric_id_aliases(self, context):
-        """Ensure numeric ID aliases exist on top-level and device_config."""
+        """Populate integer vendor/device ID aliases in context."""
         from pcileechfwgenerator.device_clone.constants import get_fallback_vendor_id
 
-        # Simple int parsing - identifiers are already validated/normalized
         def _parse_hex_id(val):
             try:
                 if isinstance(val, str) and val.startswith("0x"):
@@ -1145,18 +1037,15 @@ class PCILeechContextBuilder:
             except (ValueError, TypeError):
                 return None
 
-        # Get fallback vendor ID from central function
         fallback_vendor_id = get_fallback_vendor_id(
             prefer_random=getattr(self.config, "test_mode", False)
         )
 
-        # Set numeric aliases (identifiers already validated in DeviceIdentifiers)
         parsed_vid = _parse_hex_id(context.get("vendor_id"))
         parsed_did = _parse_hex_id(context.get("device_id"))
         context.setdefault("vendor_id_int", parsed_vid or fallback_vendor_id)
         context.setdefault("device_id_int", parsed_did or DEVICE_ID_FALLBACK)
 
-        # Also set aliases inside device_config dict if present
         if isinstance(context.get("device_config"), dict):
             dc = context["device_config"]
             vid_int = context.get("vendor_id_int", fallback_vendor_id)
@@ -1183,7 +1072,6 @@ class PCILeechContextBuilder:
         compatible_context = ensure_template_compatibility(dict(context))
         context.clear()
         context.update(cast(TemplateContext, compatible_context))
-        # Ensure project and board are TemplateObjects with .name and .fpga_part
         if not isinstance(context.get("board_config"), TemplateObject):
             context["board_config"] = TemplateObject(
                 context.get("board_config", {"name": "generic", "fpga_part": "xc7a35t"})
@@ -1205,7 +1093,7 @@ class PCILeechContextBuilder:
         msix_data: Optional[Dict[str, Any]],
         behavior_profile: Optional[BehaviorProfile],
     ):
-        """Validate input data with minimal nesting."""
+        """Validate input data."""
         missing = []
         self._check_config_space(config_space_data, missing)
         self._check_msix_data(msix_data, missing)
@@ -1222,7 +1110,6 @@ class PCILeechContextBuilder:
         if not config_space_data:
             missing.append("config_space_data")
             return
-        # Basic config space validation - identifier validation happens in DeviceIdentifiers
         size = config_space_data.get("config_space_size", 0)
         if size < PCI_CONFIG_SPACE_MIN_SIZE:
             log_warning_safe(
@@ -1236,8 +1123,6 @@ class PCILeechContextBuilder:
             )
             if self.validation_level == ValidationLevel.STRICT and size == 0:
                 missing.append(safe_format("config_space_size ({size})", size=size))
-        # Ensure required identifier keys trigger missing when absent so callers
-        # that expect strict validation receive missing entries.
         for key in CORE_DEVICE_ID_FIELDS:
             if key not in config_space_data:
                 missing.append(key)
@@ -1259,13 +1144,11 @@ class PCILeechContextBuilder:
     def _extract_device_identifiers(
         self, config_space_data: Dict[str, Any]
     ) -> DeviceIdentifiers:
-        """Extract device identifiers using ConfigSpaceManager if needed."""
-        # If config_space_data doesn't have the required fields, use ConfigSpaceManager
+        """Extract device identifiers, falling back to ConfigSpaceManager."""
         required_fields = CORE_DEVICE_ID_FIELDS
         missing_required = [k for k in required_fields if k not in config_space_data]
 
         if missing_required:
-            # In strict validation mode, check if we have any essential identifiers
             if self.validation_level == ValidationLevel.STRICT:
                 essential_missing = [
                     k for k in CORE_DEVICE_IDS if k not in config_space_data
@@ -1278,7 +1161,6 @@ class PCILeechContextBuilder:
                         )
                     )
 
-            # Try to use ConfigSpaceManager for missing fields
             try:
                 from pcileechfwgenerator.device_clone.config_space_manager import (
                     ConfigSpaceManager,
@@ -1287,7 +1169,6 @@ class PCILeechContextBuilder:
                 manager = ConfigSpaceManager(self.device_bdf)
                 config_space = manager.read_vfio_config_space()
                 extracted_data = manager.extract_device_info(config_space)
-                # Merge extracted data with provided data (prefer provided)
                 config_space_data = {**extracted_data, **config_space_data}
             except Exception:
                 if self.validation_level == ValidationLevel.STRICT:
@@ -1297,13 +1178,10 @@ class PCILeechContextBuilder:
                             missing=missing_required,
                         )
                     )
-                # In permissive mode, continue with what we have
 
-        # Extract identifiers with basic validation
         vendor_id = config_space_data.get("vendor_id")
         device_id = config_space_data.get("device_id")
 
-        # Only check for presence - DeviceIdentifiers will handle normalization
         require(
             vendor_id is not None and vendor_id != "",
             "Missing vendor_id from config space data",
@@ -1313,17 +1191,14 @@ class PCILeechContextBuilder:
             "Missing device_id from config space data",
         )
 
-        # Require class_code - critical for device identity
         class_code = config_space_data.get("class_code")
         if class_code is None or class_code == "":
-            # Try to extract from config space if not present
             if "class_code" not in config_space_data:
                 log_error_safe(
                     self.logger,
                     "class_code missing from config space data - device identity incomplete",
                     prefix="CONTEXT",
                 )
-                # Use unknown device class as last resort, but warn heavily
                 class_code = DEFAULT_CLASS_CODE
                 log_warning_safe(
                     self.logger,
@@ -1334,7 +1209,6 @@ class PCILeechContextBuilder:
                     prefix="CONTEXT",
                 )
 
-        # DeviceIdentifiers.__post_init__ handles validation and normalization
         return DeviceIdentifiers(
             vendor_id=str(vendor_id),
             device_id=str(device_id),
@@ -1365,8 +1239,6 @@ class PCILeechContextBuilder:
             "enable_advanced_features": getattr(
                 self.config, "enable_advanced_features", False
             ),
-            # Ensure templates can check for error injection hooks without crashing
-            # This mirrors CLI/config flag --enable-error-injection handled upstream
             "enable_error_injection": getattr(
                 self.config, "enable_error_injection", False
             ),
@@ -1378,7 +1250,6 @@ class PCILeechContextBuilder:
             ),
         }
 
-        # Add hex representations
         if identifiers.subsystem_vendor_id:
             device_config_dict["subsystem_vendor_id_hex"] = safe_format(
                 "0x{value:04X}",
@@ -1390,7 +1261,6 @@ class PCILeechContextBuilder:
                 value=int(identifiers.subsystem_device_id, 16),
             )
 
-        # Add extended config pointers
         if hasattr(self.config, "device_config"):
             caps = getattr(self.config.device_config, "capabilities", None)
             if caps:
@@ -1401,7 +1271,6 @@ class PCILeechContextBuilder:
                     caps, "ext_cfg_xp_cap_ptr", DEFAULT_EXT_CFG_CAP_PTR
                 )
 
-        # Add behavior profile
         if behavior_profile:
             device_config_dict.update(
                 {
@@ -1432,7 +1301,6 @@ class PCILeechContextBuilder:
         """Serialize behavior profile."""
         try:
             profile_dict = asdict(profile)
-            # Convert non-serializable objects
             for key, value in profile_dict.items():
                 if hasattr(value, "__dict__"):
                     profile_dict[key] = safe_format(
@@ -1449,8 +1317,7 @@ class PCILeechContextBuilder:
     def _build_config_space_context(
         self, config_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Build config space context, using ConfigSpaceManager if needed."""
-        # If data is incomplete, use ConfigSpaceManager to get it
+        """Build config space context."""
         if not all(
             k in config_data for k in ["config_space_hex", "config_space_size", "bars"]
         ):
@@ -1462,15 +1329,14 @@ class PCILeechContextBuilder:
             config_space = manager.read_vfio_config_space()
             device_info = manager.extract_device_info(config_space)
 
-            # Merge with provided data
             config_data = {**device_info, **config_data}
 
         return {
             "raw_data": config_data.get("config_space_hex", ""),
             "size": config_data.get("config_space_size", 256),
             "device_info": config_data.get("device_info", {}),
-            "vendor_id": config_data["vendor_id"],  # Required - no fallback
-            "device_id": config_data["device_id"],  # Required - no fallback
+            "vendor_id": config_data["vendor_id"],
+            "device_id": config_data["device_id"],
             "class_code": config_data.get("class_code", DEFAULT_CLASS_CODE),
             "revision_id": config_data.get("revision_id", DEFAULT_REVISION_ID),
             "bars": config_data.get("bars", []),
@@ -1482,7 +1348,6 @@ class PCILeechContextBuilder:
     ) -> Dict[str, Any]:
         """Build MSI-X context."""
         if not msix_data or not msix_data.get("capability_info"):
-            # Return disabled MSI-X config
             disabled_ctx = {
                 "num_vectors": 0,
                 "table_bir": 0,
@@ -1505,7 +1370,6 @@ class PCILeechContextBuilder:
         pba_offset = cap.get("pba_offset", table_offset + (table_size * 16))
         pba_size_dwords = (table_size + 31) // 32
 
-        # Check alignment
         alignment_warning = ""
         if table_offset % 8 != 0:
             alignment_warning = safe_format(
@@ -1539,17 +1403,14 @@ class PCILeechContextBuilder:
                 offset=pba_offset,
             ),
         }
-        # Merge standardized runtime flags
         context.update(
             _build_msix_enabled_runtime_flags(
                 pba_size_dwords=pba_size_dwords,
                 function_mask=cap.get("function_mask", False),
-                # Preserve existing behavior: keep PBA writes disabled by default
                 write_pba_allowed=False,
             )
         )
 
-        # Add alignment warning if present
         if alignment_warning:
             context["alignment_warning"] = alignment_warning
 
@@ -1558,19 +1419,7 @@ class PCILeechContextBuilder:
     def _sample_bar_data_direct(
         self, device_bdf: str, bar_configs: list
     ) -> Dict[int, bytes]:
-        """Sample BAR data directly via sysfs (read-only, safe).
-
-        This complements MMIO tracing by capturing actual reset values
-        from the donor device's BARs. Runs before MMIO learning to provide
-        baseline data.
-
-        Args:
-            device_bdf: Device BDF (e.g., "0000:03:00.0")
-            bar_configs: Analyzed BAR configurations
-
-        Returns:
-            Dict mapping BAR index to sampled bytes (first 8KB or full BAR)
-        """
+        """Sample BAR reset values directly via sysfs."""
         try:
             from pcileechfwgenerator.device_clone.sysfs_bar_reader import SysfsBarReader
         except ImportError:
@@ -1588,12 +1437,11 @@ class PCILeechContextBuilder:
 
             for bar_info in bar_configs:
                 if not bar_info.is_memory or bar_info.size == 0:
-                    continue  # Skip I/O BARs and empty BARs
+                    continue
 
                 bar_idx = bar_info.index
 
                 try:
-                    # Sample first 8KB or entire BAR if smaller
                     sample_size = min(8192, bar_info.size)
                     data = reader.read_bar_bytes(
                         bar_idx, offset=0, length=sample_size
@@ -1628,7 +1476,7 @@ class PCILeechContextBuilder:
                         "skipping direct sampling",
                         prefix="SYSFS_BAR",
                     )
-                    return {}  # Abort all sampling if permission denied
+                    return {}
                 except Exception as e:
                     log_warning_safe(
                         self.logger,
@@ -1679,21 +1527,10 @@ class PCILeechContextBuilder:
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
     ) -> Dict[int, Any]:
-        """Capture MMIO traces or load cached models.
-
-        Args:
-            device_bdf: Device to profile
-            bar_configs: Analyzed BAR info
-            enable_mmio_learning: If False, skip MMIO learning
-            force_recapture: Ignore cache, always capture
-
-        Returns:
-            Dict mapping BAR index to learned models
-        """
+        """Capture MMIO traces or load cached models."""
         if not enable_mmio_learning:
             return {}
 
-        # Check for prefilled bar_models from container flow
         import os
         device_context_path = os.getenv("DEVICE_CONTEXT_PATH")
         if device_context_path and os.path.exists(device_context_path):
@@ -1754,7 +1591,6 @@ class PCILeechContextBuilder:
             bar_idx = bar_info.index
             cache_file = cache_dir / f"bar{bar_idx}_model.json"
 
-            # Try cache first
             if cache_file.exists() and not force_recapture:
                 try:
                     models[bar_idx] = load_bar_model(cache_file)
@@ -1775,7 +1611,6 @@ class PCILeechContextBuilder:
                         prefix="MMIO",
                     )
 
-            # Capture fresh trace
             log_info_safe(
                 self.logger,
                 safe_format("Capturing MMIO trace for BAR{idx}...", idx=bar_idx),
@@ -1798,11 +1633,9 @@ class PCILeechContextBuilder:
                     )
                     continue
 
-                # Synthesize model
                 model = synthesize_model(trace)
                 models[bar_idx] = model
 
-                # Cache for future runs
                 save_bar_model(model, cache_file)
                 log_info_safe(
                     self.logger,
@@ -1832,7 +1665,6 @@ class PCILeechContextBuilder:
                     ),
                     prefix="MMIO",
                 )
-                # Continue to next BAR
 
         return models
 
@@ -1859,8 +1691,6 @@ class PCILeechContextBuilder:
         )
         config = self._build_bar_config_dict(primary_bar, bar_configs)
 
-        # --- BAR content generation with sampling + MMIO learning ---
-        # Use device signature if available, else fallback to vendor:device
         device_signature = config_space_data.get("device_signature")
         if not device_signature:
             device_signature = safe_format(
@@ -1869,11 +1699,9 @@ class PCILeechContextBuilder:
                 device=config_space_data.get("device_id", ""),
             )
 
-        # Step 1: Sample BARs directly via sysfs (safe, read-only)
         device_bdf = config_space_data.get("device_bdf", self.device_bdf)
         bar_samples = self._sample_bar_data_direct(device_bdf, bar_configs)
 
-        # Step 2: Attempt to learn models from live device (optional MMIO trace)
         bar_models = {}
         if enable_mmio_learning:
             try:
@@ -1890,7 +1718,6 @@ class PCILeechContextBuilder:
                     prefix="MMIO",
                 )
 
-        # Generate BAR content (with learned models or sampled data if available)
         from pcileechfwgenerator.device_clone.bar_content_generator import (
             BarContentType,
         )
@@ -1904,7 +1731,6 @@ class PCILeechContextBuilder:
             sampled_data = bar_samples.get(bar_idx)
 
             if model:
-                # Use learned MMIO model (most accurate)
                 content = bar_content_gen.generate_bar_content(
                     size, bar_idx, BarContentType.LEARNED, model=model
                 )
@@ -1918,10 +1744,7 @@ class PCILeechContextBuilder:
                     prefix="BAR",
                 )
             elif sampled_data:
-                # Use directly sampled data (donor reset values)
-                # Pad or truncate to match BAR size
                 if len(sampled_data) < size:
-                    # Pad with high-entropy data
                     padding = bar_content_gen._get_seeded_bytes(
                         size - len(sampled_data),
                         f"pad_bar{bar_idx}"
@@ -1941,7 +1764,6 @@ class PCILeechContextBuilder:
                     prefix="BAR",
                 )
             else:
-                # Fallback to existing heuristics (synthetic data)
                 if size <= 4096:
                     content_type = BarContentType.REGISTERS
                 else:
@@ -1953,13 +1775,10 @@ class PCILeechContextBuilder:
             bar_contents[bar_idx] = content
 
         config["bar_contents"] = bar_contents
-        # Store sampled data for reference (optional)
         if bar_samples:
             config["bar_samples"] = bar_samples
 
-        # Store learned BAR models if available for SystemVerilog generation
         if bar_models:
-            # Serialize models for template compatibility
             from pcileechfwgenerator.device_clone.bar_model_loader import (
                 serialize_bar_model,
             )
@@ -1999,8 +1818,6 @@ class PCILeechContextBuilder:
     def _analyze_bars(self, bars):
         """Analyze BARs with detailed progress output."""
         bar_configs = []
-        
-        # Technical header
         log_info_safe(
             self.logger,
             safe_format(
@@ -2029,9 +1846,7 @@ class PCILeechContextBuilder:
         
         for i, bar_data in enumerate(bars):
             try:
-                # Use the true BAR index from config space when querying VFIO.
-                # enumerate() index may not match BAR index if some BARs are
-                # disabled or filtered out, which can mis-read I/O BAR sizes.
+                # enumerate() index may differ from BAR index if BARs are filtered
                 vfio_region_index = i
                 if isinstance(bar_data, dict):
                     vfio_region_index = bar_data.get("index", bar_data.get("bar", i))
@@ -2043,8 +1858,6 @@ class PCILeechContextBuilder:
                 if bar_info:
                     bar_configs.append(bar_info)
                     discovered_count += 1
-                    
-                    # Technical per-BAR output
                     size_mb = bar_info.size / (1024 * 1024)
                     size_kb = bar_info.size / 1024
                     
@@ -2090,7 +1903,6 @@ class PCILeechContextBuilder:
                     prefix="BAR",
                 )
         
-        # Summary footer
         separator = (
             "╠═════════════════════════════════════════════════════════════╣"
         )
@@ -2133,7 +1945,6 @@ class PCILeechContextBuilder:
         """Get BAR info via VFIO with strict size validation."""
         region_info = self._vfio_manager.get_region_info(index)
         if not region_info:
-            # VFIO not available; construct from provided bar_data as a fallback.
             try:
                 if isinstance(bar_data, dict):
                     is_memory = bar_data.get("type", "memory") == "memory"
@@ -2197,7 +2008,6 @@ class PCILeechContextBuilder:
             )
             raise
 
-        # Extract BAR properties
         if isinstance(bar_data, dict):
             is_memory = bar_data.get("type", "memory") == "memory"
             is_io = not is_memory
@@ -2219,9 +2029,7 @@ class PCILeechContextBuilder:
         else:
             return None
 
-        # Enforce minimum size for memory BARs; fallback to sysfs-reported size
-        # in bar_data when VFIO reports an unexpectedly small size (e.g., due to
-        # wrong region mapping or kernel quirks).
+        # VFIO can report wrong sizes due to region mapping or kernel quirks
         if is_memory:
             min_mem = BAR_SIZE_CONSTANTS.get("MIN_MEMORY_SIZE", 128)
             if size < min_mem:
@@ -2237,21 +2045,18 @@ class PCILeechContextBuilder:
                     fallback_size = None
 
                 if isinstance(fallback_size, int) and fallback_size >= min_mem:
-                    # Use the more reliable sysfs resource size
                     log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "BAR {index}: VFIO size {size}B < {min_mem}B; using sysfs size {fallback_size}B",
-                            index=index,
-                            size=size,
-                            min_mem=min_mem,
-                            fallback_size=fallback_size,
-                        ),
-                        prefix="BAR",
+                    self.logger,
+                    safe_format(
+                        "BAR {index}: VFIO size {size}B < {min_mem}B; using sysfs size {fallback_size}B",
+                        index=index,
+                        size=size,
+                        min_mem=min_mem,
+                        fallback_size=fallback_size,
+                        ), prefix="BAR",
                     )
                     size = fallback_size
                 else:
-                    # Skip invalid/small memory BARs
                     log_warning_safe(
                         self.logger,
                         safe_format(
@@ -2264,7 +2069,6 @@ class PCILeechContextBuilder:
                     )
                     return None
 
-        # Only return valid memory BARs; never select I/O BARs for MMIO aperture
         if is_memory and size > 0:
             return BarConfiguration(
                 index=index,
@@ -2294,13 +2098,12 @@ class PCILeechContextBuilder:
                             safe_format("Waking device from {state}", state=state),
                             prefix="PWR",
                         )
-                        # Wake device by accessing config space
                         config_path = safe_format(
                             "/sys/bus/pci/devices/{device_bdf}/config",
                             device_bdf=self.device_bdf,
                         )
                         with open(config_path, "rb") as f:
-                            f.read(4)  # Read vendor ID to wake device
+                            f.read(4)  # config read wakes the device
         except Exception as e:
             log_warning_safe(
                 self.logger,
@@ -2331,31 +2134,22 @@ class PCILeechContextBuilder:
         behavior_profile: Optional[BehaviorProfile],
         identifiers: DeviceIdentifiers,
     ) -> TimingParameters:
-        """Build timing configuration using existing device config."""
-
-        # Try to get timing from behavior profile first
+        """Build timing configuration."""
         if behavior_profile and hasattr(behavior_profile, "timing_patterns"):
             patterns = behavior_profile.timing_patterns
             if patterns and len(patterns) > 0:
-                # Use the behavior profile's actual timing data
-                # This is dynamic based on actual device behavior
                 total_read = 0
                 total_write = 0
                 count = 0
                 
-                # Track min/max for realistic latency ranges
                 min_latency = float('inf')
                 max_latency = 0.0
 
                 for p in patterns:
-                    # Handle both object and dict patterns
                     if hasattr(p, "avg_interval_us"):
-                        # Convert interval to latency estimate (cycles at 100MHz)
                         latency_cycles = max(1, int(p.avg_interval_us / 10))  # 10ns per cycle at 100MHz
                         total_read += latency_cycles
                         total_write += latency_cycles
-                        
-                        # Track range for jitter emulation
                         if hasattr(p, "std_deviation_us") and p.std_deviation_us:
                             dev_cycles = int(p.std_deviation_us / 10)
                             min_latency = min(min_latency, latency_cycles - dev_cycles)
@@ -2379,7 +2173,6 @@ class PCILeechContextBuilder:
                     avg_write = total_write / count
                     burst_length = 32  # Default
                     
-                    # Ensure realistic min/max bounds
                     if min_latency == float('inf'):
                         min_latency = max(1, int(avg_read * 0.8))
                     if max_latency == 0:
@@ -2394,20 +2187,17 @@ class PCILeechContextBuilder:
                         burst_length=burst_length,
                         inter_burst_gap=max(1, burst_length // 4),
                         timeout_cycles=max(100, int(avg_read * 100)),
-                        clock_frequency_mhz=100.0,  # This should come from config
+                        clock_frequency_mhz=100.0,
                         timing_regularity=0.95,
-                        # TLP latency emulation enabled automatically when behavior profile captured timing
                         min_read_latency=min_latency,
                         max_read_latency=max_latency,
                         avg_read_latency=int(avg_read),
-                        enable_latency_jitter=True,  # Auto-enabled with behavior profile timing
-                        latency_lfsr_seed=0xACE1,  # Pseudo-random but deterministic
+                        enable_latency_jitter=True,
+                        latency_lfsr_seed=0xACE1,
                     )
 
-        # Try to get device-specific config
         device_config = None
         try:
-            # Derive profile name from device identifiers for configuration lookup
             profile_name = safe_format(
                 "{vendor_id}_{device_id}",
                 vendor_id=identifiers.vendor_id,
@@ -2415,7 +2205,6 @@ class PCILeechContextBuilder:
             )
             device_config = get_device_config(profile_name)
         except Exception as e:
-            # Device config not found or invalid - use defaults
             log_debug_safe(
                 self.logger,
                 safe_format(
@@ -2426,7 +2215,6 @@ class PCILeechContextBuilder:
             )
 
         if device_config and hasattr(device_config, "capabilities"):
-            # Use the device-specific timing configuration from capabilities
             caps = device_config.capabilities
             read_lat = getattr(caps, "read_latency", 10)
             
@@ -2438,7 +2226,6 @@ class PCILeechContextBuilder:
                 timeout_cycles=getattr(caps, "timeout_cycles", 1000),
                 clock_frequency_mhz=getattr(caps, "clock_frequency_mhz", 100.0),
                 timing_regularity=getattr(caps, "timing_regularity", 0.95),
-                # TLP latency parameters (defaults if not in caps)
                 min_read_latency=getattr(caps, "min_read_latency", read_lat),
                 max_read_latency=getattr(caps, "max_read_latency", read_lat),
                 avg_read_latency=getattr(caps, "avg_read_latency", read_lat),
@@ -2447,7 +2234,6 @@ class PCILeechContextBuilder:
             )
         class_prefix = identifiers.class_code[:2]
 
-        # Default timing parameters based on device class
         if class_prefix == "02":  # Network controller
             base_freq = 125.0
             read_latency = 4
@@ -2473,7 +2259,6 @@ class PCILeechContextBuilder:
             timeout_cycles=1000,
             clock_frequency_mhz=base_freq,
             timing_regularity=0.95,
-            # Default TLP latency parameters (no jitter without behavior profile)
             min_read_latency=read_latency,
             max_read_latency=read_latency,
             avg_read_latency=read_latency,
@@ -2482,9 +2267,7 @@ class PCILeechContextBuilder:
         )
 
     def _build_pcileech_config(self, identifiers: DeviceIdentifiers) -> Dict[str, Any]:
-        """Build PCILeech-specific configuration using dynamic values."""
-        # Gather defaults and device/capability-provided values but avoid
-        # overwriting any explicit configuration present in self.config.pcileech_config
+        """Build PCILeech-specific configuration."""
         defaults = {
             "device_signature": identifiers.device_signature,
             "full_signature": identifiers.full_signature,
@@ -2496,28 +2279,22 @@ class PCILeechContextBuilder:
             "completion_timeout": 50000,
             "replay_timer": 1000,
             "ack_nak_latency": 100,
-            # buffer_size is expressed in bytes
             "buffer_size": None,
-            # DMA/scatter settings
             "enable_dma": getattr(self.config, "enable_dma_operations", True),
-            # Use explicit scatter_gather setting if present, otherwise fall back to DMA operations
             "enable_scatter_gather": getattr(
                 self.config,
                 "enable_scatter_gather",
                 getattr(self.config, "enable_dma_operations", True),
             ),
-            # backwards/alternate names some templates or older code may expect
             "max_read_req_size": None,
             "max_payload": None,
         }
 
-        # Merge in values from any device-specific capabilities if available
         caps = None
         if hasattr(self.config, "device_config") and self.config.device_config:
             caps = getattr(self.config.device_config, "capabilities", None)
 
         if caps:
-            # Prefer explicit capability attributes when present
             if hasattr(caps, "max_payload_size"):
                 defaults["max_payload_size"] = caps.max_payload_size
             if hasattr(caps, "max_read_request"):
@@ -2527,12 +2304,9 @@ class PCILeechContextBuilder:
             if hasattr(caps, "replay_timer"):
                 defaults["replay_timer"] = caps.replay_timer
 
-        # Finalize derived/alias fields
         if defaults.get("buffer_size") is None:
-            # buffer_size default: 4x max_payload_size (bytes)
             defaults["buffer_size"] = int(defaults.get("max_payload_size", 256)) * 4
 
-        # Provide aliases to avoid template mismatch
         defaults["max_read_req_size"] = defaults.get("max_read_request")
         defaults["max_payload"] = defaults.get("max_payload_size")
 
@@ -2542,9 +2316,6 @@ class PCILeechContextBuilder:
         ):
             project_overrides = getattr(self.config, "pcileech_config")
 
-        # Build final config by starting with defaults, then applying capability
-        # values (already in defaults). Prefer dynamic/capability values: only
-        # apply project overrides when the dynamic/default value is empty (None or '').
         final = dict(defaults)
         if project_overrides:
             for k, v in project_overrides.items():
@@ -2558,13 +2329,11 @@ class PCILeechContextBuilder:
             "enable_dma",
             "enable_scatter_gather",
         ]
-        # command_timeout is an alias for completion_timeout if not provided
         if "command_timeout" not in final or final.get("command_timeout") is None:
             final["command_timeout"] = final.get("completion_timeout")
 
         for k in required_keys:
             if k not in final:
-                # fallback sensible default
                 if k == "command_timeout":
                     final[k] = final.get("completion_timeout", 50000)
                 elif k == "buffer_size":
@@ -2574,9 +2343,6 @@ class PCILeechContextBuilder:
                 elif k == "enable_dma":
                     final[k] = bool(final.get("enable_dma", False))
                 elif k == "enable_scatter_gather":
-                    # Always use explicit scatter_gather setting if provided,
-                    # otherwise use the explicit DMA setting if provided,
-                    # with a final fallback to True (safe default)
                     final[k] = bool(
                         final.get(
                             "enable_scatter_gather", final.get("enable_dma", True)
@@ -2591,7 +2357,7 @@ class PCILeechContextBuilder:
         interrupt_strategy: str,
         interrupt_vectors: int,
     ) -> Any:
-        """Build active device configuration using unified context builder."""
+        """Build active device configuration."""
         from pcileechfwgenerator.utils.unified_context import UnifiedContextBuilder
 
         builder = UnifiedContextBuilder(self.logger)
@@ -2613,7 +2379,7 @@ class PCILeechContextBuilder:
         behavior_profile: Optional[BehaviorProfile],
         config_space_data: Dict[str, Any],
     ) -> str:
-        """Generate canonical device signature as 'VID:DID:RID'."""
+        """Generate device signature as 'VID:DID:RID'."""
         rid = identifiers.revision_id or DEFAULT_REVISION_ID
         return safe_format(
             "{vendor}:{device}:{revision}",
@@ -2623,10 +2389,9 @@ class PCILeechContextBuilder:
         )
 
     def _build_generation_metadata(self, identifiers: DeviceIdentifiers) -> Any:
-        """Build generation metadata using centralized metadata builder."""
+        """Build generation metadata."""
         from pcileechfwgenerator.utils.metadata import build_generation_metadata
 
-        # Use device_signature as 'vendor_id:device_id' for test contract
         return build_generation_metadata(
             device_bdf=self.device_bdf,
             device_signature=safe_format(
@@ -2644,11 +2409,7 @@ class PCILeechContextBuilder:
         )
 
     def _get_vendor_name(self, vendor_id: str) -> str:
-        """Get vendor name from vendor ID using lspci directly.
-
-        Removed indirection through now-deleted lookup_device_info to avoid
-        redundant config space re-reads. Keep minimal logic only.
-        """
+        """Get vendor name via lspci."""
         import subprocess
 
         try:
@@ -2676,11 +2437,7 @@ class PCILeechContextBuilder:
         return safe_format("Vendor {vendor_id}", vendor_id=vendor_id)
 
     def _get_device_name(self, vendor_id: str, device_id: str) -> str:
-        """Get device name from vendor/device IDs via lspci.
-
-        Direct resolution keeps behavior identical to previous code path when
-        lookup_device_info provided no enrichment (most cases).
-        """
+        """Get device name via lspci."""
         import subprocess
 
         try:
@@ -2717,17 +2474,15 @@ class PCILeechContextBuilder:
         """Build overlay configuration for shadow config space."""
         try:
             mapper = OverlayMapper()
-            # Convert config_space_data to proper format for overlay mapper
             dword_map = config_space_data.get("dword_map", {})
             if not dword_map and "config_space_hex" in config_space_data:
-                # Create dword_map from hex data if not present
                 hex_data = config_space_data["config_space_hex"]
                 if isinstance(hex_data, str):
                     hex_data = hex_data.replace(" ", "").replace("\n", "")
                     dword_map = {}
                     for i in range(
                         0, min(len(hex_data), 1024), 8
-                    ):  # Process up to 256 dwords
+                    ):
                         if i + 8 <= len(hex_data):
                             dword = hex_data[i : i + 8]
                             dword_map[i // 8] = int(dword, 16)
@@ -2782,12 +2537,9 @@ class PCILeechContextBuilder:
         self, context: Dict[str, Any], donor: Dict[str, Any]
     ) -> TemplateContext:
         """Merge donor template with context."""
-        # Deep merge, preferring context values
         merged = dict(donor)
-        # Merge: ALWAYS prefer the dynamic/context values over donor values.
         for key, value in context.items():
             if key in merged and merged[key] is not None and merged[key] != {}:
-                # Donor provided a value; we'll prefer the context value but log the overwrite
                 if merged[key] != value:
                     log_warning_safe(
                         self.logger,
@@ -2798,7 +2550,6 @@ class PCILeechContextBuilder:
                         prefix="TEMPLATE",
                     )
 
-            # If both sides are dict-like, perform a shallow merge where context overrides donor
             if (
                 key in merged
                 and isinstance(merged[key], dict)
@@ -2807,22 +2558,18 @@ class PCILeechContextBuilder:
                 merged[key] = {**merged[key], **value}
             else:
                 merged[key] = value
-        # Ensure active_device_config retains TemplateObject shape
         try:
             if "active_device_config" in merged:
                 raw = merged["active_device_config"]
 
                 if isinstance(raw, dict):
-                    # Coerce dict into TemplateObject to preserve template attribute access
                     merged["active_device_config"] = TemplateObject(raw)
                     log_warning_safe(
                         self.logger,
                         "Donor template provided 'active_device_config' as dict; coerced to TemplateObject and dynamic values will be preserved.",
                         prefix="TEMPLATE",
                     )
-                # If it's already a TemplateObject or an object with 'enabled', leave as-is
         except Exception as e:
-            # If coercion fails, log and continue; caller will perform final validation
             log_warning_safe(
                 self.logger,
                 safe_format("Failed to coerce active_device_config: {error}", error=e),
@@ -2832,24 +2579,21 @@ class PCILeechContextBuilder:
         return merged  # type: ignore
 
     def _build_board_config(self) -> Any:
-        """Build board configuration using unified context builder."""
+        """Build board configuration."""
 
         builder = UnifiedContextBuilder(self.logger)
 
         try:
-            # Get board name from config
             board_name = getattr(self.config, "board", None)
             if not board_name:
-                # Try to get board from fallback or environment
                 log_warning_safe(
                     self.logger,
                     "No board specified in config, using fallback detection",
                     prefix="PCIL",
                 )
-                # Use a default board or get from constants
                 from pcileechfwgenerator.device_clone.constants import BOARD_PARTS
 
-                board_name = list(BOARD_PARTS.keys())[0]  # Use first available board
+                board_name = list(BOARD_PARTS.keys())[0]
 
             log_info_safe(
                 self.logger,
@@ -2871,8 +2615,6 @@ class PCILeechContextBuilder:
                 prefix="PCIL",
             )
 
-            # Load board-specific XDC content from repository
-            # This provides PCIe reference clock pin constraints and other board-specific pin assignments
             try:
                 from pcileechfwgenerator.file_management.repo_manager import RepoManager
                 
@@ -2901,10 +2643,8 @@ class PCILeechContextBuilder:
                     ),
                     prefix="PCIL",
                 )
-                # Set empty XDC content to avoid template errors
                 board_config["board_xdc_content"] = ""
 
-            # Pass only the fields present in board_config; builder should handle defaults internally
             return builder.create_board_config(**board_config)
 
         except Exception as e:
@@ -2913,7 +2653,6 @@ class PCILeechContextBuilder:
                 safe_format("Failed to build board configuration: {error}", error=e),
                 prefix="PCIL",
             )
-            # Return a minimal board config to prevent template validation failure
             return builder.create_board_config(
                 board_name="generic",
                 fpga_part="xc7a35tcsg324-2",
@@ -2936,11 +2675,9 @@ class PCILeechContextBuilder:
                     safe_format("Missing required section: {section}", section=section)
                 )
 
-        # Validate device signature (identifiers already validated in DeviceIdentifiers)
         if "device_signature" not in context or not context["device_signature"]:
             raise ContextError("Missing device signature")
 
-        # Basic presence check - detailed validation done earlier
         vendor_id = context.get("vendor_id") or (
             context.get("device_config", {}).get("vendor_id")
             if context.get("device_config")
@@ -2979,7 +2716,6 @@ class PCILeechContextBuilder:
                 self.config, "enable_performance_grading", True
             ),
             enable_perf_outputs=getattr(self.config, "enable_perf_outputs", True),
-            # Set signal availability based on device type
             error_signals_available=True,
             network_signals_available=(device_type == "network"),
             storage_signals_available=(device_type == "storage"),
@@ -3012,15 +2748,14 @@ class PCILeechContextBuilder:
         return device_signals.to_dict()
 
     def _build_variance_model(self) -> Any:
-        # Enable variance modeling when configured for manufacturing process simulation
         enable_variance = getattr(self.config, "enable_variance", False)
 
         variance_data = {
             "enabled": enable_variance,
             "variance_type": "normal",
-            "process_variation": 0.1,  # Required by template
-            "temperature_coefficient": 0.05,  # Required by template
-            "voltage_variation": 0.03,  # Required by template
+            "process_variation": 0.1,
+            "temperature_coefficient": 0.05,
+            "voltage_variation": 0.03,
             "parameters": {
                 "mean": 0.0,
                 "std_dev": 0.1,

@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
-"""
-PCILeech Generator - Main orchestrator for PCILeech firmware generation
+"""Main orchestrator for PCILeech firmware generation.
 
-This module provides the main orchestrator class that coordinates complete PCILeech
-firmware generation by integrating with existing infrastructure components and
-eliminating all hard-coded fallbacks.
-
-The PCILeechGenerator class serves as the central coordination point for:
-- Device behavior profiling and analysis
-- Configuration space management
-- MSI-X capability handling
-- Template context building
-- SystemVerilog generation
-- Production-ready error handling
-
-All data sources are dynamic with no fallback mechanisms - the system fails
-fast if required data is not available.
+Coordinates device profiling, config space analysis, MSI-X handling,
+template context building, and SystemVerilog generation. All data sources
+are dynamic -- fails fast if required data is unavailable.
 """
 
 from __future__ import annotations
@@ -27,7 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-# Import existing infrastructure components
 from pcileechfwgenerator.device_clone.behavior_profiler import (
     BehaviorProfile,
     BehaviorProfiler,
@@ -52,7 +39,6 @@ from pcileechfwgenerator.pci_capability.msix_bar_validator import (
     validate_msix_bar_configuration,
 )
 
-# Import from centralized locations
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -70,91 +56,44 @@ from pcileechfwgenerator.templating.tcl_builder import format_hex_id
 
 logger = logging.getLogger(__name__)
 
-# Data sizing constants for MSI-X handling
-# NOTE: Core sizing constants kept here for backward import compatibility.
-MSIX_ENTRY_SIZE = 16  # bytes per MSI-X table entry
-DWORD_SIZE = 4  # bytes per 32-bit word
+MSIX_ENTRY_SIZE = 16
+DWORD_SIZE = 4
 DWORDS_PER_MSIX_ENTRY = MSIX_ENTRY_SIZE // DWORD_SIZE
-
-# (Removed MSIXData TypedDict to avoid typing friction with dynamic dict usage)
 
 
 @dataclass
 class PCILeechGenerationConfig:
     """Configuration for PCILeech firmware generation."""
 
-    # Device identification
     device_bdf: str
-
-    # Board configuration
     board: Optional[str] = None
     fpga_part: Optional[str] = None
-
-    # Generation options
     enable_behavior_profiling: bool = True
     behavior_capture_duration: float = 30.0
     enable_manufacturing_variance: bool = True
     enable_advanced_features: bool = True
-
-    # Template configuration
     template_dir: Optional[Path] = None
     output_dir: Path = Path("generated")
-
-    # PCILeech-specific options
     pcileech_command_timeout: int = 1000
     pcileech_buffer_size: int = 4096
     enable_dma_operations: bool = True
     enable_interrupt_coalescing: bool = False
-
-    # Validation options
     strict_validation: bool = True
     fail_on_missing_data: bool = True
-
-    # Fallback control options
-    fallback_mode: str = "none"  # "none", "prompt", or "auto"
+    fallback_mode: str = "none"
     allowed_fallbacks: List[str] = field(default_factory=list)
-
-    # Donor template
     donor_template: Optional[Dict[str, Any]] = None
-    
-    # Preloaded data (to avoid redundant VFIO operations)
     preloaded_config_space: Optional[bytes] = None
-    
-    # Experimental / testing features
     enable_error_injection: bool = False
 
 
 class PCILeechGenerator:
-    """
-    Main orchestrator class for PCILeech firmware generation.
-
-    This class coordinates the complete PCILeech firmware generation process by
-    integrating with existing infrastructure components and providing dynamic
-    data sourcing for all template variables.
-
-    Key responsibilities:
-    - Orchestrate device behavior profiling
-    - Manage configuration space analysis
-    - Handle MSI-X capability processing
-    - Build comprehensive template contexts
-    - Generate SystemVerilog modules
-    - Provide production-ready error handling
-    """
+    """Orchestrates the full PCILeech firmware generation pipeline."""
 
     def __init__(self, config: PCILeechGenerationConfig):
-        """
-        Initialize the PCILeech generator.
-
-        Args:
-            config: Generation configuration
-
-        Raises:
-            PCILeechGenerationError: If initialization fails
-        """
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-        # Initialize shared/global fallback manager
         from pcileechfwgenerator.device_clone.fallback_manager import (
             get_global_fallback_manager,
         )
@@ -163,7 +102,6 @@ class PCILeechGenerator:
             mode=config.fallback_mode, allowed_fallbacks=config.allowed_fallbacks
         )
 
-        # Initialize infrastructure components
         try:
             self._initialize_components()
         except Exception as e:
@@ -171,20 +109,10 @@ class PCILeechGenerator:
                 safe_format("Failed to initialize PCILeech generator: {err}", err=e)
             ) from e
 
-    # ------------------------------------------------------------------
-    # Internal validation helper (reduces repetitive fail-fast patterns)
-    # ------------------------------------------------------------------
-
     def _require(self, condition: bool, message: str, **context: Any) -> None:
-        """Fail fast with a consistent error + log when condition is false.
-
-        This keeps enforcement localized and aligns with the donor uniqueness
-        policy – no silent fallbacks. Uses PCILeechGenerationError so callers
-        inherit existing exception handling semantics.
-        """
+        """Fail fast when condition is false."""
         if condition:
             return
-        # Log first (explicit prefix for quick grep in logs)
         log_error_safe(
             self.logger,
             safe_format(
@@ -196,18 +124,8 @@ class PCILeechGenerator:
         )
         raise PCILeechGenerationError(message)
 
-    # ------------------------------------------------------------------
-    # Timestamp helper (legacy compatibility for tests expecting _get_timestamp)
-    # ------------------------------------------------------------------
-
     def _get_timestamp(self) -> str:
-        """Return build timestamp.
-
-        Prefers BUILD_TIMESTAMP env (for reproducible builds/tests) else falls
-        back to naive ISO8601 (local time). This mirrors legacy behavior so
-        existing tests that patch datetime in modules still receive a plain
-        ISO string without a trailing 'Z'.
-        """
+        """Return build timestamp (BUILD_TIMESTAMP env override or local ISO)."""
         import os
         from datetime import datetime
 
@@ -220,7 +138,6 @@ class PCILeechGenerator:
             return utc_timestamp()
 
     def _initialize_components(self) -> None:
-        """Initialize all infrastructure components."""
         log_info_safe(
             self.logger,
             "Initializing PCILeech generator for device {bdf}",
@@ -228,7 +145,6 @@ class PCILeechGenerator:
             prefix="PCIL",
         )
 
-        # Initialize behavior profiler
         if self.config.enable_behavior_profiling:
             self.behavior_profiler = BehaviorProfiler(
                 bdf=self.config.device_bdf,
@@ -239,13 +155,11 @@ class PCILeechGenerator:
         else:
             self.behavior_profiler = None
 
-        # Initialize configuration space manager
         self.config_space_manager = ConfigSpaceManager(
             bdf=self.config.device_bdf,
             strict_vfio=getattr(self.config, "strict_vfio", True),
         )
-        
-        # Store preloaded config space data if available
+
         self._preloaded_config_space = getattr(
             self.config, "preloaded_config_space", None
         )
@@ -266,13 +180,8 @@ class PCILeechGenerator:
                 prefix="PCIL"
             )
 
-        # Initialize template renderer
         self.template_renderer = TemplateRenderer(self.config.template_dir)
-
-        # Initialize SystemVerilog generator
         self.sv_generator = AdvancedSVGenerator(template_dir=self.config.template_dir)
-
-        # Initialize context builder (will be created after profiling)
         self.context_builder = None
 
         log_info_safe(
@@ -282,28 +191,10 @@ class PCILeechGenerator:
         )
 
     def generate_pcileech_firmware(self) -> Dict[str, Any]:
-        """Main orchestration entrypoint for firmware generation.
-
-        Steps (fail-fast, no inline TCL fallbacks):
-          1. Capture device behavior (optional)
-          2. Analyze configuration space
-          3. Preload MSI-X data & optionally capture table entries
-          4. Validate MSI-X/BAR layout
-          5. Build + validate template context
-          6. Generate SystemVerilog modules
-             7. Generate additional components (constraints, integration,
-                 COE, writemask)
-          8. Generate TCL scripts strictly via templates
-          9. Validate generated firmware & assemble result
-        """
+        """Run the full firmware generation pipeline."""
         try:
-            # 1. Behavior profiling (optional)
             behavior_profile = self._capture_device_behavior()
-
-            # 2. Config space analysis
             config_space_data = self._analyze_configuration_space()
-
-            # 3. Preload MSI-X & capture table entries if available
             msix_data = self._preload_msix_data_early()
             if msix_data:
                 table_capture = self._capture_msix_table_entries(msix_data)
@@ -313,19 +204,17 @@ class PCILeechGenerator:
                     if "table_init_hex" in table_capture:
                         msix_data["table_init_hex"] = table_capture["table_init_hex"]
 
-            # 4. Early MSI-X/BAR validation (context not yet built; pass minimal)
             try:
                 self._validate_msix_and_bar_layout(
                     template_context={},
                     config_space_data=config_space_data,
                     msix_data=msix_data,
                 )
-            except Exception as e:  # surface as generation error
+            except Exception as e:
                 raise PCILeechGenerationError(
                     safe_format("MSI-X/BAR validation failed: {err}", err=e)
                 ) from e
 
-            # 5. Build & validate template context
             interrupt_strategy = (
                 "msix" if (msix_data and msix_data.get("table_size")) else "none"
             )
@@ -338,18 +227,14 @@ class PCILeechGenerator:
                 interrupt_vectors,
             )
 
-            # 6. SystemVerilog generation
             systemverilog_modules = self._generate_systemverilog_modules(
                 template_context
             )
 
-            # 7. Additional firmware components (constraints, COE, writemask,
-            #    integration)
             firmware_components = self._generate_firmware_components(
                 template_context
             )
 
-            # 8. Validate generated firmware artifacts
             self._validate_generated_firmware(
                 systemverilog_modules, firmware_components
             )
@@ -373,12 +258,8 @@ class PCILeechGenerator:
 
         except PlatformCompatibilityError:
             raise
-        except Exception as e:  # Keep broad catch for top-level wrapper
+        except Exception as e:
             raise self._handle_generation_exception(e)
-
-    # ------------------------------------------------------------------
-    # Small extracted helpers (low-risk, no behavioral changes)
-    # ------------------------------------------------------------------
 
     def _assemble_generation_result(
         self,
@@ -417,10 +298,6 @@ class PCILeechGenerator:
             "Firmware generation failed", root_cause=root_cause
         )
 
-    # ------------------------------------------------------------------
-    # Lightweight context manager for consistent step logging/handling
-    # ------------------------------------------------------------------
-
     @contextmanager
     def _generation_step(
         self, step: str, allow_fallback: bool = False
@@ -446,15 +323,7 @@ class PCILeechGenerator:
             raise
 
     def _capture_device_behavior(self) -> Optional[BehaviorProfile]:
-        """
-        Capture device behavior profile using the behavior profiler.
-
-        Returns:
-            BehaviorProfile if profiling is enabled, None otherwise
-
-        Raises:
-            PCILeechGenerationError: If behavior profiling fails
-        """
+        """Capture device behavior profile if profiling is enabled."""
         if not self.behavior_profiler:
             log_info_safe(
                 self.logger,
@@ -477,12 +346,10 @@ class PCILeechGenerator:
                 duration=self.config.behavior_capture_duration
             )
 
-            # Analyze patterns for enhanced context
             pattern_analysis = self.behavior_profiler.analyze_patterns(
                 behavior_profile
             )
 
-            # Store analysis results in profile for later use
             behavior_profile.pattern_analysis = pattern_analysis
 
             log_info_safe(
@@ -499,7 +366,6 @@ class PCILeechGenerator:
             return behavior_profile
 
         except Exception as e:
-            # Behavior profiling is optional - can use fallback manager
             details = (
                 "Without behavior profiling, generated firmware may not reflect "
                 "actual device timing patterns and behavior."
@@ -524,15 +390,7 @@ class PCILeechGenerator:
                 ) from e
 
     def _analyze_configuration_space(self) -> Dict[str, Any]:
-        """
-        Analyze device configuration space.
-
-        Returns:
-            Dictionary containing configuration space data and analysis
-
-        Raises:
-            PCILeechGenerationError: If configuration space analysis fails
-        """
+        """Read and analyze the device's PCI config space."""
         log_info_safe(
             self.logger,
             safe_format(
@@ -543,9 +401,8 @@ class PCILeechGenerator:
         )
 
         try:
-            # Check if we have pre-collected config space data (from host)
-            # This avoids redundant VFIO binding when host has already collected data
-            if (hasattr(self, '_preloaded_config_space') and 
+            # Avoids redundant VFIO binding when host already collected data
+            if (hasattr(self, '_preloaded_config_space') and
                 self._preloaded_config_space):
                 log_info_safe(
                     self.logger,
@@ -554,7 +411,6 @@ class PCILeechGenerator:
                 )
                 config_space_bytes = self._preloaded_config_space
             else:
-                # Fallback to VFIO reading (original behavior)
                 config_space_bytes = (
                     self.config_space_manager.read_vfio_config_space()
                 )
@@ -604,17 +460,7 @@ class PCILeechGenerator:
             ) from e
 
     def _analyze_configuration_space_with_vfio(self) -> Dict[str, Any]:
-        """
-            Analyze device configuration space when VFIO is already bound.
-
-        This method assumes VFIO already active and doesn't create its own binding.
-
-            Returns:
-                Dictionary containing configuration space data and analysis
-
-            Raises:
-                PCILeechGenerationError: If configuration space analysis fails
-        """
+        """Analyze device config space assuming VFIO is already bound."""
         log_info_safe(
             self.logger,
             safe_format(
@@ -625,12 +471,10 @@ class PCILeechGenerator:
         )
 
         try:
-            # Read configuration space without creating new VFIO binding
             config_space_bytes = self.config_space_manager._read_sysfs_config_space()
             return self._process_config_space_bytes(config_space_bytes)
 
         except Exception as e:
-            # Configuration space is critical for device identity - MUST FAIL
             log_error_safe(
                 self.logger,
                 safe_format(
@@ -651,23 +495,7 @@ class PCILeechGenerator:
             ) from e
 
     def _process_config_space_bytes(self, config_space_bytes: bytes) -> Dict[str, Any]:
-        """
-            Process configuration space bytes into a comprehensive data structure.
-
-        This consolidates logic from both _analyze_configuration_space methods.
-        The PCILeechContextBuilder handles device info enhancement; we don't need
-            to duplicate that work here.
-
-            Args:
-                config_space_bytes: Raw configuration space bytes
-
-            Returns:
-                Dictionary containing configuration space data
-
-            Raises:
-                PCILeechGenerationError: If critical fields are missing
-        """
-        # Validate config space length (must be 256 or 4096 bytes)
+        """Process raw config space bytes into the structured dict used downstream."""
         if not config_space_bytes or len(config_space_bytes) == 0:
             raise PCILeechGenerationError(
                 "Configuration space is empty"
@@ -675,7 +503,6 @@ class PCILeechGenerator:
         
         cfg_len = len(config_space_bytes)
         if cfg_len not in (256, 4096):
-            # Check if it's a power of 2 at least
             is_power_of_two = (cfg_len & (cfg_len - 1)) == 0 and cfg_len > 0
             log_warning_safe(
                 self.logger,
@@ -690,17 +517,15 @@ class PCILeechGenerator:
             )
             # Don't fail, but warn - some devices might have unusual sizes
         
-        # Initial extraction (fast, local)
         base_info = self.config_space_manager.extract_device_info(config_space_bytes)
 
-        # Centralized enrichment + fallback policy (avoid duplicated parsing logic)
         try:
             device_info = lookup_device_info(
                 bdf=self.config.device_bdf,
                 partial_info=base_info,
                 from_config_manager=True,
             )
-        except Exception as e:  # Fallback to base if lookup path fails
+        except Exception as e:
             log_warning_safe(
                 self.logger,
                 safe_format(
@@ -711,13 +536,11 @@ class PCILeechGenerator:
             )
             device_info = base_info
 
-        # Fail fast if still missing critical identifiers
         if not device_info.get("vendor_id") or not device_info.get("device_id"):
             raise PCILeechGenerationError(
                 "Cannot determine device identity (vendor_id/device_id missing)"
             )
 
-        # Build configuration space data structure
         config_space_data = {
             "raw_config_space": config_space_bytes,
             "config_space_hex": config_space_bytes.hex(),
@@ -747,16 +570,7 @@ class PCILeechGenerator:
     def _process_msix_capabilities(
         self, config_space_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """
-        Process MSI-X capabilities from configuration space.
-
-        Args:
-            config_space_data: Configuration space data
-
-        Returns:
-            Dictionary containing MSI-X capability information, or None if MSI-X
-            capability is missing or table_size == 0
-        """
+        """Process MSI-X capabilities from configuration space."""
         log_info_safe(self.logger, "Processing MSI-X capabilities", prefix="MSIX")
 
         config_space_hex = config_space_data.get("config_space_hex", "")
@@ -769,10 +583,8 @@ class PCILeechGenerator:
             )
             return None
 
-        # Parse MSI-X capability
         msix_info = parse_msix_capability(config_space_hex)
 
-        # Guard against None or missing fields
         if not msix_info:
             log_info_safe(
                 self.logger,
@@ -781,7 +593,6 @@ class PCILeechGenerator:
             )
             return None
 
-        # Return None if table_size == 0
         if msix_info.get("table_size", 0) == 0:
             log_info_safe(
                 self.logger,
@@ -790,7 +601,6 @@ class PCILeechGenerator:
             )
             return None
 
-        # Validate MSI-X configuration
         is_valid, validation_errors = validate_msix_configuration(msix_info)
 
         if not is_valid and self.config.strict_validation:
@@ -804,7 +614,6 @@ class PCILeechGenerator:
             )
             return None
 
-        # Build comprehensive MSI-X data
         msix_data = {
             "capability_info": msix_info,
             "table_size": msix_info.get("table_size", 0),
@@ -840,36 +649,16 @@ class PCILeechGenerator:
         interrupt_strategy: str,
         interrupt_vectors: int,
     ) -> Dict[str, Any]:
-        """
-        Build comprehensive template context from all data sources.
-
-        This is a thin orchestration layer, delegating all the
-        actual context building work to PCILeechContextBuilder.
-
-        Args:
-            behavior_profile: Device behavior profile
-            config_space_data: Configuration space data
-            msix_data: MSI-X capability data (None if not available)
-            interrupt_strategy: Interrupt strategy ("msix", "msi", or "intx")
-            interrupt_vectors: Number of interrupt vectors
-
-        Returns:
-            Comprehensive template context dictionary
-
-        Raises:
-            PCILeechGenerationError: If context building fails
-        """
+        """Build template context by delegating to PCILeechContextBuilder."""
         log_info_safe(
             self.logger, "Building comprehensive template context", prefix="PCIL"
         )
 
         try:
-            # Initialize context builder
             self.context_builder = PCILeechContextBuilder(
                 device_bdf=self.config.device_bdf, config=self.config
             )
 
-            # Delegate all context building to PCILeechContextBuilder
             template_context = self.context_builder.build_context(
                 behavior_profile=behavior_profile,
                 config_space_data=config_space_data,
@@ -903,22 +692,10 @@ class PCILeechGenerator:
     def _generate_systemverilog_modules(
         self, template_context: Dict[str, Any]
     ) -> Dict[str, str]:
-        """
-        Generate SystemVerilog modules using template context.
-
-        Args:
-            template_context: Template context data
-
-        Returns:
-            Dictionary mapping module names to generated SystemVerilog code
-
-        Raises:
-            PCILeechGenerationError: If SystemVerilog generation fails
-        """
+        """Generate SystemVerilog modules using template context."""
         log_info_safe(self.logger, "Generating SystemVerilog modules")
 
         try:
-            # Use the enhanced SystemVerilog generator for PCILeech modules
             behavior_profile = template_context.get("device_config", {}).get(
                 "behavior_profile"
             )
@@ -955,15 +732,7 @@ class PCILeechGenerator:
     def _generate_firmware_components(
         self, template_context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Generate additional firmware components.
-
-        Args:
-            template_context: Template context data
-
-        Returns:
-            Dictionary containing additional firmware components
-        """
+        """Generate additional firmware components."""
         log_info_safe(self.logger, "Generating additional firmware components")
 
         components = {
@@ -973,8 +742,7 @@ class PCILeechGenerator:
             "config_space_hex": self._generate_config_space_hex(template_context),
         }
 
-        # Generate writemask COE after config space COE is available
-        # This requires the config space COE to be saved to disk first
+        # Writemask requires config space COE to be saved to disk first
         components["writemask_coe"] = self._generate_writemask_coe(template_context)
 
         return components
@@ -1003,18 +771,15 @@ class PCILeechGenerator:
                     ),
                     prefix="PCIL",
                 )
-                # Fallback to base integration
                 try:
-                    # Retry with explicit VFIO verification override to bypass
-                    # environment probing in CI/sandbox builds. Do NOT mutate
-                    # the original context; work on a shallow copy.
+                    # Override VFIO verification to bypass env probing in
+                    # CI/sandbox builds. Shallow copy to avoid mutating original.
                     fallback_ctx = dict(template_context)
                     fallback_ctx["vfio_binding_verified"] = True
                     return self.sv_generator.generate_pcileech_integration_code(
                         fallback_ctx
                     )
                 except Exception as fallback_e:
-                    # Build integration is critical - cannot use minimal fallback
                     log_error_safe(
                         self.logger,
                         safe_format(
@@ -1041,25 +806,10 @@ class PCILeechGenerator:
     def _copy_constraint_files(
         self, template_context: Dict[str, Any]
     ) -> Dict[str, str]:
-        """Copy XDC constraint files from voltcyclone-fpga submodule.
-        
-        This method copies pre-existing XDC constraint files from the 
-        lib/voltcyclone-fpga submodule instead of generating them, following 
-        the architecture where static infrastructure files should be used as-is.
-        
-        Args:
-            template_context: Template context data (used to determine board)
-            
-        Returns:
-            Dictionary mapping constraint file names to their paths
-            
-        Raises:
-            PCILeechGenerationError: If constraint file copying fails
-        """
+        """Copy XDC constraint files from voltcyclone-fpga submodule."""
         try:
             from pcileechfwgenerator.file_management.repo_manager import RepoManager
 
-            # Get board name from context
             board = template_context.get(
                 "board_name"
             ) or template_context.get("board")
@@ -1068,12 +818,10 @@ class PCILeechGenerator:
                     "Cannot copy constraint files: board name not specified"
                 )
             
-            # Initialize FileManager with output directory
             output_dir = Path(
                 template_context.get("output_dir", self.config.output_dir)
             )
-            
-            # Get XDC files from submodule (RepoManager uses class methods only)
+
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1086,7 +834,6 @@ class PCILeechGenerator:
             repo_path = RepoManager.ensure_repo()
             xdc_files = RepoManager.get_xdc_files(board, repo_root=repo_path)
             
-            # Validate output directory exists and is writable
             if not output_dir.exists():
                 log_warning_safe(
                     self.logger,
@@ -1113,26 +860,22 @@ class PCILeechGenerator:
                         )
                     ) from e
             
-            # Verify output directory is writable by attempting to create test file
             # os.access() can give false negatives with sudo/root, test directly
             test_file = output_dir / ".write_test"
             try:
                 test_file.write_text("")
                 test_file.unlink()
             except (PermissionError, OSError) as e:
-                # Get directory ownership info for diagnostics
                 try:
                     stat_info = output_dir.stat()
                     current_uid = os.getuid()
                     
-                    # Check if we're in a container
                     in_container = (
                         os.path.exists("/.dockerenv") or
                         os.path.exists("/run/.containerenv") or
                         os.getenv("container") is not None
                     )
                     
-                    # Build error message based on context
                     if current_uid == 0 and in_container:
                         # Running as root in container - likely mount issue
                         error_msg = safe_format(
@@ -1177,7 +920,6 @@ class PCILeechGenerator:
                 
                 raise PCILeechGenerationError(error_msg) from e
             
-            # Copy XDC files to output directory
             constraints_dir = output_dir / "constraints"
             try:
                 constraints_dir.mkdir(parents=True, exist_ok=True)
@@ -1252,36 +994,19 @@ class PCILeechGenerator:
             ) from e
 
     def _copy_tcl_scripts(self, template_context: Dict[str, Any]) -> Dict[str, str]:
-        """Copy static TCL build scripts from voltcyclone-fpga submodule.
-        
-        This method copies pre-existing TCL scripts from the lib/voltcyclone-fpga
-        submodule instead of generating them from templates, following the
-        architecture where only .coe overlay files should be generated via templates.
-        
-        Args:
-            template_context: Template context data (used to determine board)
-            
-        Returns:
-            Dictionary mapping script names to their file paths
-            
-        Raises:
-            PCILeechGenerationError: If TCL copying fails
-        """
+        """Copy static TCL build scripts from voltcyclone-fpga submodule."""
         try:
             from pcileechfwgenerator.file_management.file_manager import FileManager
 
-            # Get board name from context
             board = template_context.get("board_name") or template_context.get("board")
             if not board:
                 raise PCILeechGenerationError(
                     "Cannot copy TCL scripts: board name not specified in context"
                 )
-            
-            # Initialize FileManager with output directory
+
             output_dir = Path(template_context.get("output_dir", self.config.output_dir))
             fm = FileManager(output_dir=output_dir)
-            
-            # Copy TCL scripts from submodule
+
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1292,8 +1017,7 @@ class PCILeechGenerator:
             )
             
             tcl_paths = fm.copy_vivado_tcl_scripts(board=board)
-            
-            # Copy IP files from submodule (COE, XCI files)
+
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1304,14 +1028,12 @@ class PCILeechGenerator:
             )
             
             ip_paths = fm.copy_ip_files(board=board)
-            
-            # Return dictionary mapping script names to paths
+
             result = {}
             for path in tcl_paths:
                 script_name = path.name
                 result[script_name] = str(path)
-            
-            # Add IP files to result
+
             for path in ip_paths:
                 ip_name = path.name
                 result[ip_name] = str(path)
@@ -1345,15 +1067,7 @@ class PCILeechGenerator:
     def _generate_writemask_coe(
         self, template_context: Dict[str, Any]
     ) -> Optional[str]:
-        """
-        Generate writemask COE file for configuration space.
-
-        Args:
-            template_context: Template context data
-
-        Returns:
-            Writemask COE content or None if generation fails
-        """
+        """Generate writemask COE file for configuration space."""
         try:
             log_info_safe(
                 self.logger,
@@ -1361,19 +1075,15 @@ class PCILeechGenerator:
                 prefix="WRMASK",
             )
 
-            # Initialize writemask generator
             writemask_gen = WritemaskGenerator()
 
-            # Config space COE path - use src directory for consistency
             cfg_space_coe = self.config.output_dir / "src" / "pcileech_cfgspace.coe"
             writemask_coe = (
                 self.config.output_dir / "src" / "pcileech_cfgspace_writemask.coe"
             )
 
-            # Ensure output directory exists
             cfg_space_coe.parent.mkdir(parents=True, exist_ok=True)
 
-            # Check if config space COE exists, if not, generate it first
             if not cfg_space_coe.exists():
                 log_info_safe(
                     self.logger,
@@ -1381,13 +1091,11 @@ class PCILeechGenerator:
                     prefix="WRMASK",
                 )
 
-                # Check cached generated systemverilog modules first
                 systemverilog_modules = getattr(
                     self, "_cached_systemverilog_modules", {}
                 )
 
                 if "pcileech_cfgspace.coe" in systemverilog_modules:
-                    # Use the already generated content
                     cfg_space_coe.write_text(
                         systemverilog_modules["pcileech_cfgspace.coe"]
                     )
@@ -1400,12 +1108,10 @@ class PCILeechGenerator:
                         prefix="WRMASK",
                     )
                 else:
-                    # If COE already exists in output, reuse it
                     systemverilog_coe_path = (
                         self.config.output_dir / "src" / "pcileech_cfgspace.coe"
                     )
                     if systemverilog_coe_path.exists():
-                        # Already in src directory
                         log_info_safe(
                             self.logger,
                             safe_format(
@@ -1415,8 +1121,6 @@ class PCILeechGenerator:
                             prefix="WRMASK",
                         )
                     else:
-                        # Generate new content as last resort
-                        # Use existing sv_generator instance instead of re-importing
                         modules = self.sv_generator.generate_pcileech_modules(
                             template_context
                         )
@@ -1439,18 +1143,15 @@ class PCILeechGenerator:
                             )
                             return None
 
-            # Extract device configuration for MSI/MSI-X settings
             device_config = {
                 "msi_config": template_context.get("msi_config", {}),
                 "msix_config": template_context.get("msix_config", {}),
             }
 
-            # Generate writemask
             writemask_gen.generate_writemask(
                 cfg_space_coe, writemask_coe, device_config
             )
 
-            # Read generated writemask content
             if writemask_coe.exists():
                 return writemask_coe.read_text(encoding="utf-8")
             else:
@@ -1473,39 +1174,21 @@ class PCILeechGenerator:
             return None
 
     def _generate_config_space_hex(self, template_context: Dict[str, Any]) -> str:
-        """
-        Generate configuration space hex file for FPGA initialization.
-
-        Args:
-            template_context: Template context containing config space data
-
-        Returns:
-            Path to generated hex file as string
-
-        Raises:
-            PCILeechGenerationError: If hex generation fails
-        """
+        """Generate configuration space hex file for FPGA initialization."""
         log_info_safe(
             self.logger, "Generating configuration space hex file", prefix="HEX"
         )
 
         try:
-            # Import hex formatter
             from pcileechfwgenerator.device_clone.hex_formatter import (
                 ConfigSpaceHexFormatter,
             )
 
-            # Resolve raw configuration space bytes via centralized helper
             raw_config_space = self._extract_raw_config_space(template_context)
-
-            # Create hex formatter
             formatter = ConfigSpaceHexFormatter()
 
-            # Try to extract optional metadata for header enrichment (safe/fallbacks)
             vid_hex = template_context.get("vendor_id")
             did_hex = template_context.get("device_id")
-
-            # Resolve class_code from multiple known locations (no guessing)
 
             def _get_nested(ctx: Dict[str, Any], path: list[str]) -> Any:
                 cur: Any = ctx
@@ -1537,13 +1220,10 @@ class PCILeechGenerator:
                 or template_context.get("board")
                 or None
             )
-            # Normalize to string if ints
 
-            # vendor_id/device_id must be present at top-level per context contract
             vid_str = format_hex_id(vid_hex, 4)
             did_str = format_hex_id(did_hex, 4)
 
-            # class_code may reside under config_space/device_config; fail fast if unresolved
             if cls_hex is None:
                 raise PCILeechGenerationError(
                     "Missing class_code in template context; expected at one of: "
@@ -1551,7 +1231,6 @@ class PCILeechGenerator:
                 )
             cls_str = format_hex_id(cls_hex, 6)
 
-            # Generate hex content
             hex_content = formatter.format_config_space_to_hex(
                 raw_config_space,
                 include_comments=True,
@@ -1586,21 +1265,7 @@ class PCILeechGenerator:
             ) from e
 
     def _extract_raw_config_space(self, template_context: Dict[str, Any]) -> bytes:
-        """Extract raw PCI configuration space bytes from diverse context shapes.
-
-        This centralizes the previously duplicated probing logic. It tries a
-        prioritized sequence of known container keys, then performs a
-        best-effort scan of dict-like values. Fails fast if nothing is found.
-
-        Args:
-            template_context: Full template context.
-
-        Returns:
-            Raw configuration space as bytes.
-
-        Raises:
-            ValueError: If no configuration space bytes can be resolved.
-        """
+        """Extract raw PCI config space bytes from the template context."""
         import re
 
         def _coerce_to_bytes(value: Any) -> Optional[bytes]:
@@ -1626,15 +1291,7 @@ class PCILeechGenerator:
             return None
 
         def _attempt_extract(container: Any) -> Optional[bytes]:
-            """Attempt ordered extraction of raw config space bytes from a mapping-like.
-
-            Accepts plain dicts and TemplateObject/Mapping-like containers. Preference:
-              1. raw_config_space
-              2. raw_data
-              3. config_space_hex
-            """
-            # Support TemplateObject from unified_context
-            # Accept dict-like or TemplateObject that exposes .get()
+            """Try raw_config_space, raw_data, config_space_hex in order."""
             get = getattr(container, "get", None)
             if not callable(get):
                 return None
@@ -1709,22 +1366,11 @@ class PCILeechGenerator:
         systemverilog_modules: Dict[str, str],
         firmware_components: Dict[str, Any],
     ) -> None:
-        """
-        Validate generated firmware for completeness and correctness.
-
-        Args:
-            systemverilog_modules: Generated SystemVerilog modules
-            firmware_components: Generated firmware components
-
-        Raises:
-            PCILeechGenerationError: If validation fails
-        """
+        """Validate generated firmware for completeness and correctness."""
         if self.config.strict_validation:
             # NOTE: Validation updated for overlay-only architecture
             # The new architecture generates .coe overlay files instead of full .sv modules
             # The bar_controller now comes from lib/voltcyclone-fpga statically
-            
-            # Validate that we have at least config space overlay
             expected_overlays = ["pcileech_cfgspace"]
             missing_overlays = [
                 name for name in expected_overlays if name not in systemverilog_modules
@@ -1740,7 +1386,6 @@ class PCILeechGenerator:
                     prefix="PCIL",
                 )
 
-            # Validate module content
             for module_name, module_code in systemverilog_modules.items():
                 if not module_code or len(module_code.strip()) == 0:
                     raise PCILeechGenerationError(
@@ -1765,19 +1410,7 @@ class PCILeechGenerator:
     def save_generated_firmware(
         self, generation_result: Dict[str, Any], output_dir: Optional[Path] = None
     ) -> Path:
-        """
-        Save generated firmware to disk.
-
-        Args:
-            generation_result: Result from generate_pcileech_firmware()
-            output_dir: Output directory (optional, uses config default)
-
-        Returns:
-            Path to the output directory
-
-        Raises:
-            PCILeechGenerationError: If saving fails
-        """
+        """Save generated firmware to disk."""
         if output_dir is None:
             output_dir = self.config.output_dir
 
@@ -1785,9 +1418,7 @@ class PCILeechGenerator:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Save SystemVerilog modules
-            # IMPORTANT: TCL scripts expect files in "src" directory
-            # (avoid using legacy systemverilog path)
+            # TCL scripts expect files in "src", not the legacy path
             sv_dir = output_dir / "src"
             sv_dir.mkdir(exist_ok=True)
 
@@ -1832,7 +1463,6 @@ class PCILeechGenerator:
                 try:
                     module_file.write_text(module_code)
 
-                    # Verify the file was written
                     if not module_file.exists():
                         log_error_safe(
                             self.logger,
@@ -1863,16 +1493,13 @@ class PCILeechGenerator:
                     )
                     raise
 
-            # Save firmware components
             components_dir = output_dir / "components"
             components_dir.mkdir(exist_ok=True)
 
-            # Persist build integration, if provided
             bi = generation_result.get("firmware_components", {}).get(
                 "build_integration"
             )
             if bi:
-                # Save as .sv file in src directory
                 bi_file = sv_dir / "pcileech_integration.sv"
                 bi_file.write_text(bi)
                 log_info_safe(
@@ -1884,13 +1511,11 @@ class PCILeechGenerator:
                     prefix="PCIL",
                 )
 
-            # Save writemask COE if generated
             firmware_components = generation_result.get("firmware_components", {})
             if (
                 "writemask_coe" in firmware_components
                 and firmware_components["writemask_coe"]
             ):
-                # Writemask COE goes in the src directory alongside other COE files
                 writemask_file = sv_dir / "pcileech_cfgspace_writemask.coe"
                 writemask_file.write_text(firmware_components["writemask_coe"])
 
@@ -1903,12 +1528,11 @@ class PCILeechGenerator:
                     prefix="WRMASK",
                 )
 
-            # Save config space hex file if generated
             if (
                 "config_space_hex" in firmware_components
                 and firmware_components["config_space_hex"]
             ):
-                # Config space hex file goes in the src directory for $readmemh
+                # Placed in src/ so $readmemh can find it
                 hex_file = sv_dir / "config_space_init.hex"
                 hex_file.write_text(firmware_components["config_space_hex"])
 
@@ -1921,7 +1545,6 @@ class PCILeechGenerator:
                     prefix="HEX",
                 )
 
-            # Save metadata
             import json
 
             metadata_file = output_dir / "generation_metadata.json"
@@ -1945,16 +1568,10 @@ class PCILeechGenerator:
             ) from e
 
     def _preload_msix_data_early(self) -> Optional[Dict[str, Any]]:
-        """
-        Preload MSI-X data from sysfs before VFIO binding to ensure availability.
-
-        Returns:
-            MSI-X data dictionary if available, None otherwise
-        """
+        """Preload MSI-X data from sysfs before VFIO binding."""
         try:
             import os
 
-            # Try to read config space from sysfs before VFIO binding
             config_space_path = safe_format(
                 "/sys/bus/pci/devices/{bdf}/config", bdf=self.config.device_bdf
             )
@@ -1978,7 +1595,6 @@ class PCILeechGenerator:
 
             config_space_hex = config_space_bytes.hex()
 
-            # Parse MSI-X capability
             msix_info = parse_msix_capability(config_space_hex)
 
             if msix_info["table_size"] > 0:
@@ -1993,10 +1609,8 @@ class PCILeechGenerator:
                     prefix="MSIX",
                 )
 
-                # Validate MSI-X configuration
                 is_valid, validation_errors = validate_msix_configuration(msix_info)
 
-                # Build comprehensive MSI-X data
                 msix_data = {
                     "capability_info": msix_info,
                     "table_size": msix_info["table_size"],
@@ -2035,15 +1649,12 @@ class PCILeechGenerator:
 
     def clear_cache(self) -> None:
         """Clear all cached data to ensure fresh generation."""
-        # Clear SystemVerilog module cache
         if hasattr(self, "_cached_systemverilog_modules"):
             delattr(self, "_cached_systemverilog_modules")
 
-        # Clear SystemVerilog generator cache
         if hasattr(self.sv_generator, "clear_cache"):
             self.sv_generator.clear_cache()
 
-        # Clear context builder cache
         if self.context_builder and hasattr(self.context_builder, "_context_cache"):
             self.context_builder._context_cache.clear()
 
@@ -2094,7 +1705,6 @@ class PCILeechGenerator:
         if table_size <= 0:
             return None
 
-        # Read bytes from the BAR region using VFIO
         manager = VFIODeviceManager(self.config.device_bdf, self.logger)
         total_bytes = table_size * MSIX_ENTRY_SIZE
 
@@ -2114,7 +1724,6 @@ class PCILeechGenerator:
                 )
                 return None
 
-            # Split into 16-byte entries and also build dword-wise init hex
             entries: List[Dict[str, Any]] = []
             hex_lines: List[str] = []
             for i in range(table_size):
@@ -2133,16 +1742,12 @@ class PCILeechGenerator:
                 "table_init_hex": "\n".join(hex_lines) + "\n",
             }
         finally:
-            # Best-effort close if provided
             close = getattr(manager, "close", None)
             if callable(close):
                 try:
                     close()
                 except Exception:
-                    # Ignore close errors
                     pass
-
-    # --- Validation helpers ---
 
     def _validate_msix_and_bar_layout(
         self,
@@ -2150,12 +1755,7 @@ class PCILeechGenerator:
         config_space_data: Dict[str, Any],
         msix_data: Optional[Dict[str, Any]],
     ) -> None:
-        """Run comprehensive MSI-X/BAR validation and fail fast on errors.
-
-        This enforces donor BAR layout fidelity and MSI-X placement correctness
-        before any template rendering. Warnings are logged; errors abort.
-        """
-        # Gather device_info for report context
+        """Validate MSI-X/BAR layout before template rendering."""
         device_info = config_space_data.get("device_info") or {
             "vendor_id": (
                 int(template_context.get("vendor_id", "0") or "0", 16)
@@ -2169,14 +1769,11 @@ class PCILeechGenerator:
             ),
         }
 
-        # Build BARs list for validator
-        # (expecting dicts with keys: bar, type, size, prefetchable)
         raw_bars = config_space_data.get("bars", [])
         bars_for_validation: List[Dict[str, Any]] = self._coerce_bars_for_validation(
             raw_bars
         )
 
-        # Build capabilities list (only MSI-X is needed for this validation)
         capabilities: List[Dict[str, Any]] = []
         if msix_data and msix_data.get("table_size", 0) > 0:
             try:
@@ -2193,14 +1790,12 @@ class PCILeechGenerator:
                     }
                 )
             except Exception:
-                # If msix_data malformed treat as no MSI-X; validator checks BARs
                 capabilities = []
 
         is_valid, errors, warnings = validate_msix_bar_configuration(
             bars_for_validation, capabilities, device_info
         )
 
-        # Log warnings as non-fatal
         for w in warnings or []:
             log_warning_safe(
                 self.logger,
@@ -2212,7 +1807,6 @@ class PCILeechGenerator:
             )
 
         if not is_valid:
-            # Emit actionable error and abort
             joined = "; ".join(errors or ["unknown error"])
             log_error_safe(
                 self.logger,
@@ -2225,13 +1819,7 @@ class PCILeechGenerator:
             raise ValueError(joined)
 
     def _coerce_bars_for_validation(self, bars: List[Any]) -> List[Dict[str, Any]]:
-        """Coerce heterogeneous BAR representations into validator's dict format.
-
-        Accepts:
-          - BarInfo instances
-          - dicts with keys {bar, type, size, prefetchable}
-          - dicts from parse_bar_info_from_config_space with {index, bar_type, ...}
-        """
+        """Normalize BAR entries (BarInfo, dicts) into validator format."""
         result: List[Dict[str, Any]] = []
         for b in bars or []:
             try:
@@ -2251,7 +1839,6 @@ class PCILeechGenerator:
                             }
                         )
                     else:
-                        # Likely parse_bar_info format
                         result.append(
                             {
                                 "bar": int(b.get("index", 0)),
@@ -2261,7 +1848,6 @@ class PCILeechGenerator:
                             }
                         )
                 else:
-                    # Try attribute-based (e.g., BarInfo)
                     idx = getattr(b, "index", 0)
                     btype = getattr(b, "bar_type", None) or (
                         "memory"
@@ -2279,16 +1865,14 @@ class PCILeechGenerator:
                         }
                     )
             except Exception as e:
-                # Log malformed entries for diagnostics
                 log_debug_safe(
                     self.logger,
                     safe_format(
                         "Failed to coerce BAR entry: {entry} | error: {err}",
-                        entry=str(b)[:100],  # Truncate for safety
+                        entry=str(b)[:100],
                         err=str(e),
                     ),
                     prefix="PCIL",
                 )
-                # Skip malformed entries; validator will catch missing BARs
                 continue
         return result
