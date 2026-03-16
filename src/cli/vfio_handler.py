@@ -643,7 +643,7 @@ class VFIOBinder:
 
         try:
             self._check_privilege("unbind driver")
-            unbind_path.write_text(self.bdf)
+            unbind_path.write_text(f"{self.bdf}\n")
             logger.info(f"Unbound {self.bdf} from {self.original_driver}")
 
             # Wait for unbind to complete
@@ -696,7 +696,7 @@ class VFIOBinder:
             max_retries = 5
             for attempt in range(max_retries):
                 try:
-                    self._path_manager.bind_path.write_text(self.bdf)
+                    self._path_manager.bind_path.write_text(f"{self.bdf}\n")
                     logger.info(f"Bound {self.bdf} to vfio-pci")
                     break
                 except OSError as e:
@@ -863,7 +863,7 @@ class VFIOBinder:
             try:
                 self._check_privilege("unbind from vfio-pci")
                 unbind_path = self._path_manager.driver_path / "unbind"
-                unbind_path.write_text(self.bdf)
+                unbind_path.write_text(f"{self.bdf}\n")
                 log_debug_safe(
                     logger,
                     safe_format("Unbound {bdf} from vfio-pci", bdf=self.bdf),
@@ -901,7 +901,7 @@ class VFIOBinder:
             if driver_bind_path.exists():
                 try:
                     self._check_privilege(f"restore {self.original_driver} driver")
-                    driver_bind_path.write_text(self.bdf)
+                    driver_bind_path.write_text(f"{self.bdf}\n")
                     log_info_safe(
                         logger,
                         safe_format(
@@ -924,7 +924,7 @@ class VFIOBinder:
                 if probe_path.exists():
                     try:
                         self._check_privilege("probe for driver")
-                        probe_path.write_text(self.bdf)
+                        probe_path.write_text(f"{self.bdf}\n")
                     except (OSError, IOError):
                         pass
 
