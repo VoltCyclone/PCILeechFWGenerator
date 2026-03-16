@@ -357,12 +357,29 @@ class Jinja2TemplateValidator(TemplateValidator):
                 return 0
             return int(math.ceil(math.log2(v)))
         
+        # Bitwise operation filters (Jinja2 doesn't support | and ^ as Python operators)
+        def bitor(value, other):
+            return int(value or 0) | int(other or 0)
+
+        def bitxor(value, other):
+            return int(value or 0) ^ int(other or 0)
+
+        def bitand(value, other):
+            return int(value or 0) & int(other or 0)
+
+        def bitnot(value):
+            return ~int(value or 0) & 0xFFFFFFFF
+
         # Register all custom filters
         self.env.filters["safe_int"] = safe_int
         self.env.filters["python_list"] = python_list
         self.env.filters["hex"] = hex_format
         self.env.filters["clog2"] = clog2
         self.env.filters["log2"] = clog2
+        self.env.filters["bitor"] = bitor
+        self.env.filters["bitxor"] = bitxor
+        self.env.filters["bitand"] = bitand
+        self.env.filters["bitnot"] = bitnot
 
     def validate_template(self, template_path: Path) -> ValidationResult:
         """Validate a template using standard Jinja2."""
