@@ -171,7 +171,7 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
             "function_mask": False,
         }
 
-    monkeypatch.setattr("pcileechfwgenerator.build.parse_msix_capability", fake_parse_msix_capability)
+    monkeypatch.setattr("pcileechfwgenerator.device_clone.msix.parse_msix_capability", fake_parse_msix_capability)
 
     mgr = MSIXManager("0000:00:00.0")
     # Avoid attempting to open the real sysfs config path; return dummy bytes

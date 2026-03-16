@@ -1,5 +1,6 @@
 """VFIO handler for PCI device management."""
 
+import errno
 import fcntl
 import logging
 import os
@@ -642,7 +643,7 @@ class VFIOBinder:
 
         try:
             self._check_privilege("unbind driver")
-            unbind_path.write_text(self.bdf)
+            unbind_path.write_text(f"{self.bdf}\n")
             logger.info(f"Unbound {self.bdf} from {self.original_driver}")
 
             # Wait for unbind to complete
@@ -687,16 +688,33 @@ class VFIOBinder:
                     # This might fail if ID is already added, which is fine
                     pass
 
-            # Bind to vfio-pci
+            # Small delay to let kernel finish processing unbind/override
+            time.sleep(0.2)
+
+            # Bind to vfio-pci with retry for transient EBUSY
             self._check_privilege("bind to vfio-pci")
-            self._path_manager.bind_path.write_text(self.bdf)
-            logger.info(f"Bound {self.bdf} to vfio-pci")
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    self._path_manager.bind_path.write_text(f"{self.bdf}\n")
+                    logger.info(f"Bound {self.bdf} to vfio-pci")
+                    break
+                except OSError as e:
+                    if e.errno == errno.EBUSY and attempt < max_retries - 1:
+                        delay = 0.5 * (attempt + 1)
+                        logger.debug(
+                            f"Device {self.bdf} busy, retrying in {delay}s "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(delay)
+                    else:
+                        raise
 
             # Verify binding
             timeout = 5
             start = time.time()
             while time.time() - start < timeout:
-                if (self._path_manager.driver_path.exists() and 
+                if (self._path_manager.driver_path.exists() and
                     self._path_manager.driver_path.resolve().name == "vfio-pci"):
                     self._bound = True
                     return
@@ -845,7 +863,7 @@ class VFIOBinder:
             try:
                 self._check_privilege("unbind from vfio-pci")
                 unbind_path = self._path_manager.driver_path / "unbind"
-                unbind_path.write_text(self.bdf)
+                unbind_path.write_text(f"{self.bdf}\n")
                 log_debug_safe(
                     logger,
                     safe_format("Unbound {bdf} from vfio-pci", bdf=self.bdf),
@@ -883,7 +901,7 @@ class VFIOBinder:
             if driver_bind_path.exists():
                 try:
                     self._check_privilege(f"restore {self.original_driver} driver")
-                    driver_bind_path.write_text(self.bdf)
+                    driver_bind_path.write_text(f"{self.bdf}\n")
                     log_info_safe(
                         logger,
                         safe_format(
@@ -906,7 +924,7 @@ class VFIOBinder:
                 if probe_path.exists():
                     try:
                         self._check_privilege("probe for driver")
-                        probe_path.write_text(self.bdf)
+                        probe_path.write_text(f"{self.bdf}\n")
                     except (OSError, IOError):
                         pass
 

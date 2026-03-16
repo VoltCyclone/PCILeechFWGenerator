@@ -450,10 +450,17 @@ def rebuild_vfio_constants():
             log_info_safe(logger, "VFIO constants rebuilt successfully", prefix="VFIO")
             return True
         else:
+            error_detail = (result.stderr or result.stdout or "").strip()
+            if not error_detail:
+                error_detail = safe_format(
+                    "script exited with code {code} (no output captured - "
+                    "ensure gcc and linux-headers are installed)",
+                    code=result.returncode,
+                )
             log_warning_safe(
                 logger,
                 safe_format(
-                    "VFIO constants rebuild failed: {error}", error=result.stderr
+                    "VFIO constants rebuild failed: {error}", error=error_detail
                 ),
                 prefix="VFIO",
             )
