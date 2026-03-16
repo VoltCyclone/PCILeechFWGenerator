@@ -1371,7 +1371,7 @@ class PCILeechGenerator:
             # NOTE: Validation updated for overlay-only architecture
             # The new architecture generates .coe overlay files instead of full .sv modules
             # The bar_controller now comes from lib/voltcyclone-fpga statically
-            expected_overlays = ["pcileech_cfgspace"]
+            expected_overlays = ["pcileech_cfgspace.coe"]
             missing_overlays = [
                 name for name in expected_overlays if name not in systemverilog_modules
             ]
