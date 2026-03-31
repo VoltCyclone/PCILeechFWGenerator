@@ -63,6 +63,7 @@ pcileech-tui = "pcileechfwgenerator.pcileech_main:main"
 version_scheme = "no-guess-dev"
 
 [tool.setuptools]
+py-modules = ["pcileech"]
 package-dir = {"pcileechfwgenerator" = "src"}
 packages = [
     "pcileechfwgenerator",

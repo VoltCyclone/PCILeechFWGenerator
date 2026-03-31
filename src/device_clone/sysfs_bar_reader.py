@@ -289,7 +289,17 @@ class SysfsBarReader:
             )
 
         # Ensure memory decoding is enabled
-        self.enable_memory_decoding()
+        if not self.enable_memory_decoding():
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Memory decoding not enabled for {bdf}; "
+                    "BAR read may fail (device may be VFIO-bound)",
+                    bdf=self.device_bdf,
+                ),
+                prefix="SYSFS_BAR",
+            )
+            return None
 
         resource_file = self.sysfs_path / f"resource{bar_index}"
         if not resource_file.exists():
