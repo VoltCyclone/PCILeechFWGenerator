@@ -1461,13 +1461,22 @@ class PCILeechContextBuilder:
                             prefix="SYSFS_BAR",
                         )
                     else:
-                        log_warning_safe(
-                            self.logger,
-                            safe_format(
-                                "Failed to sample BAR{idx}", idx=bar_idx
-                            ),
-                            prefix="SYSFS_BAR",
+                        # Sysfs read failed (likely VFIO-bound) — try VFIO
+                        vfio_data = self._read_bar_via_vfio(
+                            bar_idx, sample_size
                         )
+                        if vfio_data:
+                            sampled_bars[bar_idx] = vfio_data
+                        else:
+                            log_warning_safe(
+                                self.logger,
+                                safe_format(
+                                    "Failed to sample BAR{idx} via "
+                                    "sysfs and VFIO",
+                                    idx=bar_idx,
+                                ),
+                                prefix="BAR",
+                            )
 
                 except PermissionError:
                     log_warning_safe(
@@ -1519,6 +1528,37 @@ class PCILeechContextBuilder:
             )
 
         return sampled_bars
+
+    def _read_bar_via_vfio(
+        self, bar_index: int, size: int
+    ) -> Optional[bytes]:
+        """Read BAR data via VFIO as fallback when sysfs is unavailable."""
+        try:
+            data = self._vfio_manager.read_region_slice(
+                index=bar_index, offset=0, size=size
+            )
+            if data:
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Sampled {size} bytes from BAR{idx} via VFIO",
+                        size=len(data),
+                        idx=bar_index,
+                    ),
+                    prefix="VFIO_BAR",
+                )
+                return data
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "VFIO BAR{idx} read failed: {err}",
+                    idx=bar_index,
+                    err=extract_root_cause(e),
+                ),
+                prefix="VFIO_BAR",
+            )
+        return None
 
     def _capture_or_load_bar_models(
         self,
