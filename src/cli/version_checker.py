@@ -43,15 +43,40 @@ VERSION_SOURCE_ENV = "PCILEECH_VERSION_SOURCE"
 USE_CACHE_ENV = "PCILEECH_USE_CACHE"
 
 
-# Enhanced version checking with build metadata awareness
 def get_build_info() -> dict:
-    """Get build information from version file."""
-    try:
-        from ..__version__ import __build_date__, __commit_hash__
+    """Best-effort build metadata for the update prompt.
 
-        return {"build_date": __build_date__, "commit_hash": __commit_hash__}
-    except ImportError:
+    Build date and commit hash are no longer baked into the source tree
+    (the version itself is derived from git tags by setuptools-scm). We try
+    to compute them lazily from a git checkout and fall back to ``"unknown"``.
+    """
+    import subprocess
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[2]
+    if not (project_root / ".git").exists():
         return {"build_date": "unknown", "commit_hash": "unknown"}
+
+    def _git(args: list) -> str:
+        try:
+            result = subprocess.run(
+                ["git"] + args,
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    commit = _git(["rev-parse", "--short", "HEAD"]) or "unknown"
+    iso = _git(["log", "-1", "--format=%cI"])
+    if not iso:
+        iso = datetime.now(timezone.utc).isoformat()
+    return {"build_date": iso, "commit_hash": commit}
 
 
 def parse_version(version_str: str) -> Tuple[int, ...]:

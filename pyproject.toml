@@ -81,9 +81,12 @@ pcileech-build = "pcileechfwgenerator.pcileech_main:main"
 pcileech-tui = "pcileechfwgenerator.pcileech_main:main"
 
 [tool.setuptools_scm]
-# For smarter version schemes and other configuration options,
-# check out https://github.com/pypa/setuptools_scm
+# Single source of truth for the package version: derived from git tags.
+# setuptools-scm writes the resolved version to src/_version.py at build /
+# editable-install time; the file is gitignored. See src/__version__.py for
+# the runtime accessor.
 version_scheme = "no-guess-dev"
+version_file = "src/_version.py"
 
 [tool.setuptools]
 py-modules = ["pcileech"]

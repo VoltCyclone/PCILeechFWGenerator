@@ -80,3 +80,6 @@ vfio_helper.exe
 
 # Generated docs
 site/venv/
+
+# setuptools-scm-generated version file
+src/_version.py

@@ -3,7 +3,7 @@ set -e
 
 # Display minimal usage information
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    VERSION=$(python3 /app/get_version.py)
+    VERSION=$(python3 -c "from pcileechfwgenerator.__version__ import __title__, __version__; print(f'{__title__} v{__version__}')")
     echo "$VERSION"
     echo "Usage: podman run --rm -it --cap-add=SYS_RAWIO --cap-add=SYS_ADMIN \\"
     echo "         --device=/dev/vfio/GROUP --device=/dev/vfio/vfio \\"

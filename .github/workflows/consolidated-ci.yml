@@ -297,7 +297,7 @@ jobs:
       - name: Get package version
         id: version
         run: |
-          VERSION=$(python get_version.py)
+          VERSION=$(python -m setuptools_scm)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Package version: $VERSION"
 
