@@ -152,8 +152,12 @@ jobs:
         env:
           SKIP_SLOW: ${{ github.event.inputs.skip-slow-tests == 'true' && '--skip-slow' || '' }}
         run: |
-          # Create test markers based on conditions
-          MARKERS="not hardware"
+          # Create test markers based on conditions. The e2e suite is
+          # exercised separately by the End-to-End Testing workflow; we
+          # exclude it here so unit-test runs don't duplicate work and so
+          # we don't drag in setuptools-scm-tag-dependent e2e checks
+          # against this workflow's shallow checkout.
+          MARKERS="not hardware and not e2e"
           if [[ "$SKIP_SLOW" == "--skip-slow" ]]; then
             MARKERS="$MARKERS and not slow"
           fi

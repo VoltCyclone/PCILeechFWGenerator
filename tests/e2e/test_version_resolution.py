@@ -20,13 +20,30 @@ import pytest
 pytestmark = pytest.mark.e2e
 
 
-VERSION_RE = re.compile(
-    r"\d+\.\d+\.\d+(?:[.\-+][\w\.\-]+)?",  # PEP 440 / setuptools-scm output
-)
-
-
 def _is_pep440_ish(value: str) -> bool:
-    return bool(VERSION_RE.search(value))
+    """Validate that ``value`` (or a substring of it) is a PEP 440 version.
+
+    setuptools-scm emits a wide variety of PEP 440-shaped strings depending
+    on the state of the working tree (``0.14.15``, ``0.14.15.dev3+gabc``,
+    ``0.0.post1.dev1+gabc`` when no tags are reachable, etc.). Rather than
+    hand-rolling a regex for every case, defer to ``packaging.version.Version``.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    if not value:
+        return False
+    # The CLI prints the version as part of a longer banner; pull out
+    # tokens and check whether any one of them parses.
+    for token in re.split(r"\s+", value):
+        token = token.lstrip("v").rstrip(",.;:!)")
+        if not token:
+            continue
+        try:
+            Version(token)
+        except InvalidVersion:
+            continue
+        return True
+    return False
 
 
 def test_package_dunder_version_is_pep440() -> None:
