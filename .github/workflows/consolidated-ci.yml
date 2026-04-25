@@ -163,7 +163,6 @@ jobs:
           
           pytest tests/ \
             --cov=src \
-            --cov=generate \
             --cov-report=term-missing:skip-covered \
             --cov-report=xml:coverage.xml \
             --cov-report=html:htmlcov \

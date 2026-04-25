@@ -68,3 +68,15 @@ template_variables_report.json
 src/file_management/donor_info.json
 message.txt
 BUILD_LOG_ANALYSIS.md
+
+# Runtime artifacts
+output/
+.pcileech_cache/
+pcileech_ticket_*.txt
+
+# VFIO compiled artifacts
+vfio_helper
+vfio_helper.exe
+
+# Generated docs
+site/venv/

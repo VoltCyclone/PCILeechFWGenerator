@@ -2,28 +2,24 @@
 
 ## CI/CD Status
 
-[![CI](https://github.com/voltcyclone/PCILeechFWGenerator/workflows/CI/badge.svg?branch=main)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![SystemVerilog Validation](https://img.shields.io/badge/SystemVerilog-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![Unit Tests](https://img.shields.io/badge/Unit%20Tests-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![TUI Tests](https://img.shields.io/badge/TUI%20Tests-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![Integration Tests](https://img.shields.io/badge/Integration%20Tests-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![Packaging](https://img.shields.io/badge/Packaging-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![Documentation](https://img.shields.io/badge/Documentation-passing-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
+[![CI](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml/badge.svg?branch=main)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
+[![Security](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/security.yml)
+[![E2E](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/e2e-testing.yml/badge.svg?branch=main)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/e2e-testing.yml)
+[![Release](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/release.yml/badge.svg)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/release.yml)
 
 ## Quality Metrics
 
-[![codecov](https://codecov.io/gh/ramseymcgrath/PCILeechFWGenerator/graph/badge.svg?token=JVX3C1WL86)](https://codecov.io/gh/ramseymcgrath/PCILeechFWGenerator)
-[![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions)
+[![codecov](https://codecov.io/gh/voltcyclone/PCILeechFWGenerator/graph/badge.svg?token=JVX3C1WL86)](https://codecov.io/gh/voltcyclone/PCILeechFWGenerator)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)](https://github.com/voltcyclone/PCILeechFWGenerator)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.txt)
-[![Latest Release](https://img.shields.io/github/v/release/ramseymcgrath/PCILeechFWGenerator?include_prereleases)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
-[![Downloads](https://img.shields.io/github/downloads/ramseymcgrath/PCILeechFWGenerator/total)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
+[![Latest Release](https://img.shields.io/github/v/release/voltcyclone/PCILeechFWGenerator?include_prereleases)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
+[![Downloads](https://img.shields.io/github/downloads/voltcyclone/PCILeechFWGenerator/total)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
 
 ## Build Artifacts
 
-[![Package Build](https://img.shields.io/badge/packages-available-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![Wheel](https://img.shields.io/badge/wheel-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
-[![Source Distribution](https://img.shields.io/badge/sdist-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/ci.yml)
+[![Package Build](https://img.shields.io/badge/packages-available-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
+[![Wheel](https://img.shields.io/badge/wheel-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
+[![Source Distribution](https://img.shields.io/badge/sdist-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
 
 ![Discord](https://dcbadge.limes.pink/api/shield/429866199833247744)
 
@@ -204,7 +200,7 @@ pip install pcileechfwgenerator[tui]
 Use the venv's Python with sudo:
 
 ```bash
-sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech tui
+sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech_main tui
 ```
 
 #### Quick Diagnostic
@@ -264,7 +260,7 @@ Docs are managed in the [site repo](github.com/voltcyclone/pcileechfwgenerator-s
 
 ## License
 
-This project is licensed under the Apache License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.
 
 ## Legal Notice
 

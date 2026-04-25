@@ -1,31 +1,6 @@
 #!/bin/bash
-# Test runner script for PCILeech TUI integration tests
-
+# Convenience shim around the canonical test target in the Makefile.
+# Kept as a thin wrapper because downstream users and MANIFEST.in reference
+# this filename. Use `make test` directly when possible.
 set -e
-
-echo "🧪 PCILeech TUI Test Runner"
-echo "=========================="
-
-# Check if virtual environment exists
-if [ ! -d ".venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv .venv
-fi
-
-# Activate virtual environment
-source .venv/bin/activate
-
-# Install dependencies
-echo "📦 Installing dependencies..."
-pip install --upgrade pip
-pip install -r requirements-dev.txt
-
-# Run TUI tests specifically
-echo "🎯 Running TUI integration tests..."
-pytest tests/test_tui_integration.py -v --tb=short -m tui
-
-# Run all tests except hardware
-echo "🔬 Running all tests (excluding hardware)..."
-pytest tests/ -v -m "not hardware" --cov=src --cov-report=term-missing
-
-echo "✅ All tests completed!"
+exec make test "$@"

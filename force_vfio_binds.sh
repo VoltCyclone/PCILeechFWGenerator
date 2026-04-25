@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# pcileech_build.sh - bind a whole IOMMU group to vfio-pci,
+# force_vfio_binds.sh - bind a whole IOMMU group to vfio-pci,
 # run PCILeechFWGenerator, then restore everything.
 # ------------------------------------------------------------
 set -euo pipefail

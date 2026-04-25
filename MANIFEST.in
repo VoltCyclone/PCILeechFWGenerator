@@ -5,14 +5,12 @@ include CHANGELOG.rst
 include CONTRIBUTING.rst
 include AUTHORS.rst
 include pyproject.toml
-include setup.py
 include setup.cfg
 
 # Include requirements files
 include requirements*.txt
 include pytest.ini
 include .coveragerc
-include mypy_dev.ini
 include tox.ini
 
 # Include CI/CD and development configuration

@@ -17,28 +17,50 @@ import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
-# Add project root to path for imports (use absolute path to avoid symlink issues)
 project_root = Path(__file__).resolve().parent
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / "src"))
 
-# Create pcileechfwgenerator namespace mapping for direct script execution
-# This is needed because pyproject.toml maps pcileechfwgenerator -> src/
-# but that only works when the package is installed via pip
-_src_path = project_root / "src"
-if _src_path.exists() and "pcileechfwgenerator" not in sys.modules:
+
+def _bootstrap_pcileechfwgenerator() -> None:
+    """Make ``from pcileechfwgenerator.x import y`` resolve to ``src/x``.
+
+    The package layout in ``pyproject.toml`` maps ``pcileechfwgenerator`` to
+    ``src/``, which only works when this project has been pip-installed. When
+    ``pcileech.py`` is run directly from a source checkout (or imported from
+    ``cli.py``) we synthesize the namespace mapping so the rest of the file's
+    ``from pcileechfwgenerator.*`` imports resolve.
+
+    Idempotent: safe to call multiple times.
+    """
+    paths = (str(project_root), str(project_root / "src"))
+    for p in paths:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+    src_path = project_root / "src"
+    if not src_path.exists():
+        return
+    if "pcileechfwgenerator" in sys.modules:
+        return
+
     import importlib.util
-    
-    # Check if package is already installed (editable or regular install)
-    _spec = importlib.util.find_spec("pcileechfwgenerator")
-    if _spec is None:
-        # Package not installed, create the namespace mapping manually
-        # This allows "from pcileechfwgenerator.x import y" to work as "from src.x import y"
-        import types
-        _pkg = types.ModuleType("pcileechfwgenerator")
-        _pkg.__path__ = [str(_src_path)]
-        _pkg.__file__ = str(_src_path / "__init__.py")
-        sys.modules["pcileechfwgenerator"] = _pkg
+
+    if importlib.util.find_spec("pcileechfwgenerator") is not None:
+        # Package is installed (editable or regular); use that.
+        return
+
+    import types
+
+    pkg = types.ModuleType("pcileechfwgenerator")
+    pkg.__path__ = [str(src_path)]
+    pkg.__file__ = str(src_path / "__init__.py")
+    sys.modules["pcileechfwgenerator"] = pkg
+
+
+# Run bootstrap at import time so subsequent ``from pcileechfwgenerator.*``
+# imports in this file resolve correctly. The function itself is idempotent
+# and is also called from ``main()`` for callers who import this module
+# without triggering top-level statements (rare, but defensive).
+_bootstrap_pcileechfwgenerator()
 
 
 def get_version():
@@ -708,6 +730,11 @@ Environment Variables:
 
 def main():
     """Main entry point."""
+    # Defensive: bootstrap is idempotent. Calling here too lets callers that
+    # import a single function out of this module without triggering top-level
+    # statements (e.g. ``importlib.util.spec_from_file_location``) still work.
+    _bootstrap_pcileechfwgenerator()
+
     # Parse args early to check for skip flag
     parser = create_parser()
     args = parser.parse_args()
