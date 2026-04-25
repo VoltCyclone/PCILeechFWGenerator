@@ -94,11 +94,23 @@ def _apply_standard_capability_actions(
     the actual list to find the previous cap rather than relying on
     sorted offsets.
     """
-    for offset, cap in std_caps.items():
+    # Iterate in offset order for determinism; the rewiring logic below
+    # uses live reads from config_space so it stays correct regardless of
+    # iteration order or earlier mutations.
+    for offset in sorted(std_caps.keys()):
+        cap = std_caps[offset]
         action = actions.get(offset, PruningAction.KEEP)
 
         if action == PruningAction.REMOVE:
-            next_ptr = cap.next_ptr
+            # Read the *current* next_ptr from config space rather than
+            # using the cached value from the original scan. If an earlier
+            # removal in this loop rewrote next pointers further up the
+            # chain, the cached value would be stale.
+            cap_next_ptr_offset = offset + (
+                2 if cap.cap_id in TWO_BYTE_HEADER_CAPABILITIES else 1
+            )
+            next_ptr = config_space.read_byte(cap_next_ptr_offset)
+
             prev_offset = _find_previous_std_capability(config_space, offset)
 
             if prev_offset:
@@ -114,8 +126,23 @@ def _apply_standard_capability_actions(
                 ptr_offset = prev_offset + header_offset_adj
                 config_space.write_byte(ptr_offset, next_ptr)
             else:
-                # Target is the first capability; update the head pointer at 0x34.
-                config_space.write_byte(PCI_CAPABILITIES_POINTER, next_ptr)
+                # ``_find_previous_std_capability`` returns 0 for both
+                # "target is the head" and "target is not in the chain".
+                # Confirm the head genuinely points at this offset before
+                # clobbering it; otherwise the list is corrupt or the
+                # target is unreachable, and we leave the head untouched
+                # rather than rewriting it to garbage.
+                head = config_space.read_byte(PCI_CAPABILITIES_POINTER)
+                if head == offset:
+                    config_space.write_byte(PCI_CAPABILITIES_POINTER, next_ptr)
+                else:
+                    logger.warning(
+                        "Capability at offset 0x%02X is unreachable from the "
+                        "head pointer (head=0x%02X); skipping next-pointer "
+                        "rewrite",
+                        offset,
+                        head,
+                    )
 
             # Zero the removed cap's 2-byte header in all positions to avoid
             # leaving a dangling cap_id/next_ptr that another walker could

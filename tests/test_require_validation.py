@@ -28,35 +28,35 @@ class TestRequireValidation:
         require(1 == 1, "Equality check should pass")
         require(bool("non-empty"), "Non-empty string should be truthy")
 
-    def test_require_raises_system_exit_on_false_condition(self):
-        """Test require() raises SystemExit(2) when condition is False."""
+    def test_require_raises_context_error_on_false_condition(self):
+        """Test require() raises ContextError when condition is False."""
         with pytest.raises(ContextError):
-            require(False, "This should trigger SystemExit")
+            require(False, "This should trigger ContextError")
 
-    def test_require_raises_system_exit_on_zero(self):
-        """Test require() raises SystemExit(2) when condition evaluates to 0."""
+    def test_require_raises_context_error_on_zero(self):
+        """Test require() raises ContextError when condition evaluates to 0."""
         with pytest.raises(ContextError):
-            require(0, "Zero should trigger SystemExit")
+            require(0, "Zero should trigger ContextError")
 
-    def test_require_raises_system_exit_on_none(self):
-        """Test require() raises SystemExit(2) when condition is None."""
+    def test_require_raises_context_error_on_none(self):
+        """Test require() raises ContextError when condition is None."""
         with pytest.raises(ContextError):
-            require(None, "None should trigger SystemExit")
+            require(None, "None should trigger ContextError")
 
-    def test_require_raises_system_exit_on_empty_string(self):
-        """Test require() raises SystemExit(2) when condition is empty string."""
+    def test_require_raises_context_error_on_empty_string(self):
+        """Test require() raises ContextError when condition is empty string."""
         with pytest.raises(ContextError):
-            require("", "Empty string should trigger SystemExit")
+            require("", "Empty string should trigger ContextError")
 
-    def test_require_raises_system_exit_on_empty_list(self):
-        """Test require() raises SystemExit(2) when condition is empty list."""
+    def test_require_raises_context_error_on_empty_list(self):
+        """Test require() raises ContextError when condition is empty list."""
         with pytest.raises(ContextError):
-            require([], "Empty list should trigger SystemExit")
+            require([], "Empty list should trigger ContextError")
 
-    def test_require_raises_system_exit_on_empty_dict(self):
-        """Test require() raises SystemExit(2) when condition is empty dict."""
+    def test_require_raises_context_error_on_empty_dict(self):
+        """Test require() raises ContextError when condition is empty dict."""
         with pytest.raises(ContextError):
-            require({}, "Empty dict should trigger SystemExit")
+            require({}, "Empty dict should trigger ContextError")
 
     @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_logs_error_message_on_failure(self, mock_log):

@@ -90,6 +90,19 @@ jobs:
         repository-url: https://test.pypi.org/legacy/
         skip-existing: true
 
+    - name: Create GitHub release (stable)
+      if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: v${{ steps.version.outputs.version }}
+        body_path: RELEASE_NOTES.md
+        files: |
+          dist/*.tar.gz
+          dist/*.whl
+        draft: false
+        prerelease: false
+
     - name: Publish to PyPI
       if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
       uses: pypa/gh-action-pypi-publish@release/v1

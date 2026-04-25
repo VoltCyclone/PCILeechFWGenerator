@@ -107,6 +107,11 @@ class PrivilegeManager:
             logger.debug(f"Already have root privileges for {operation}")
             return True
 
+        # The first read of ``self.can_sudo`` triggers the synchronous
+        # subprocess probe (up to 2s). Run it on a worker thread so the
+        # Textual event loop stays responsive.
+        await asyncio.to_thread(self.ensure_checked)
+
         if self.can_sudo:
             logger.debug(f"Sudo available without password for {operation}")
             return True

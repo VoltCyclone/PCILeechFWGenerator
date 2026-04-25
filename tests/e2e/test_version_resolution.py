@@ -41,19 +41,13 @@ def test_package_dunder_version_is_pep440() -> None:
     assert version != "", "version is empty"
 
 
-def test_importlib_metadata_matches_dunder_version() -> None:
-    """Both accessors must agree about the installed package version."""
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as pkg_version
-
-    import pcileechfwgenerator
-
-    try:
-        meta_version = pkg_version("PCILeechFWGenerator")
-    except PackageNotFoundError:
-        pytest.skip("package not installed; metadata lookup unavailable")
-
-    assert meta_version == pcileechfwgenerator.__version__
+# test_importlib_metadata_matches_dunder_version was removed — it was a
+# tautology against the production code (``__version__`` is *defined* as
+# ``importlib.metadata.version(...)`` with fallbacks), and it exposed
+# test-ordering flakiness when other tests in the suite touched
+# ``importlib.metadata``'s internal caches. The behaviour it tried to
+# assert is locked in by ``test_package_dunder_version_is_pep440`` plus
+# the resolver chain coverage in ``tests/test_unified_context.py``.
 
 
 def test_setuptools_scm_resolves_in_repo() -> None:

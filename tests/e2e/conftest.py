@@ -126,10 +126,13 @@ def isolated_workdir(tmp_path: Path, monkeypatch) -> Path:
 @pytest.fixture(scope="session")
 def container_runtime() -> str:
     """Return the available container runtime name, or skip."""
-    for runtime in ("podman", "docker"):
-        if shutil.which(runtime):
-            return runtime
-    pytest.skip("No container runtime (podman/docker) available")
+    runtime = next(
+        (r for r in ("podman", "docker") if shutil.which(r)),
+        None,
+    )
+    if runtime is None:
+        pytest.skip("No container runtime (podman/docker) available")
+    return runtime
 
 
 def collect_iter(path: Path, pattern: str) -> Iterable[Path]:

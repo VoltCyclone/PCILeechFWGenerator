@@ -181,16 +181,16 @@ security:
 	safety check
 
 
-# Container targets
-container:
+# Container targets. The container image bundles VFIO constants, so
+# `vfio-constants` is a prerequisite. ``container-rebuild``,
+# ``docker-build``, and ``build-container`` are all aliases.
+container: vfio-constants
 	./scripts/build_container.sh
 
 container-rebuild: container
 
-docker-build:
-	./scripts/build_container.sh
+docker-build: container
 
-# Alias for container
 build-container: container
 
 # Test package build
@@ -241,10 +241,9 @@ vfio-constants-clean:
 	rm -f vfio_helper vfio_helper.exe
 	@echo "VFIO build artifacts cleaned"
 
-# Integration targets - build VFIO constants before container build
-container: vfio-constants
-	./scripts/build_container.sh
-
+# Integration target: build VFIO constants before the PyPI build.
+# (The container target's vfio-constants prerequisite is declared at
+# the canonical definition above.)
 build-pypi: vfio-constants
 	@echo "Running full PyPI package generation with VFIO constants..."
 	python3 scripts/generate_pypi_package.py --skip-upload
