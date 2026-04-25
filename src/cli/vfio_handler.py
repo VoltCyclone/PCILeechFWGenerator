@@ -530,7 +530,8 @@ class VFIOBinder:
         lock_dir.mkdir(parents=True, exist_ok=True)
         
         lock_path = lock_dir / f"pcileech-vfio-{group_id}.lock"
-        
+
+        lock_file = None
         try:
             lock_file = open(lock_path, "w")
             # Try non-blocking lock

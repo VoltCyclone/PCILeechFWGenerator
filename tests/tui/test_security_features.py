@@ -243,20 +243,27 @@ class TestPrivilegeManager(unittest.TestCase):
         self.assertFalse(self.privilege_manager._check_root())
 
     def test_check_sudo(self):
-        """Test sudo availability checking."""
-        # Mock successful sudo check
+        """Test sudo availability checking.
+
+        ``_check_sudo`` returns True only when sudo is callable without a
+        password (returncode 0). Returncode 1 means sudo would prompt — we
+        do not have privileges yet — and surfaces ``sudo_needs_password``
+        instead of pretending we do.
+        """
         mock_result = MagicMock()
         mock_result.returncode = 0
         self.mock_subprocess.return_value = mock_result
 
-        # Test sudo available
+        # sudo available without password
         self.assertTrue(self.privilege_manager._check_sudo())
 
-        # Test sudo requires password
+        # sudo requires a password — we don't have privileges, but we should
+        # remember that the user could supply one.
         mock_result.returncode = 1
-        self.assertTrue(self.privilege_manager._check_sudo())
+        self.assertFalse(self.privilege_manager._check_sudo())
+        self.assertTrue(self.privilege_manager.sudo_needs_password)
 
-        # Test sudo not available
+        # sudo not available
         mock_result.returncode = 127  # Command not found
         self.assertFalse(self.privilege_manager._check_sudo())
 

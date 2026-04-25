@@ -80,7 +80,7 @@ class DeviceManager:
     async def _get_raw_devices(self) -> List[Dict[str, str]]:
         """Get raw device list using existing CLI functionality."""
         # Run in executor to avoid blocking
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, list_pci_devices)
 
     async def _enhance_device_info(self, raw_device: Dict[str, str]) -> PCIDevice:
@@ -178,7 +178,7 @@ class DeviceManager:
         """Get current driver for device using the VFIO module."""
         try:
             # Use the existing function from the VFIO module
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             return await loop.run_in_executor(None, get_current_driver, bdf)
         except Exception as e:
             logger.debug(f"Failed to get driver for device {bdf}: {e}")
@@ -330,7 +330,7 @@ class DeviceManager:
                 return False
 
             # Use the VFIO module's check_vfio_prerequisites function
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, check_vfio_prerequisites)
             except Exception:
@@ -389,7 +389,7 @@ class DeviceManager:
                     return False
 
             # Try to use the VFIO module's check_iommu_group_binding function
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, check_iommu_group_binding, iommu_group)
                 return True

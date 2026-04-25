@@ -963,8 +963,11 @@ def run_build(cfg: BuildConfig) -> None:
                     )
                     # Get original driver if possible
                     try:
-                        original_driver = get_current_driver(cfg.bdf)
-                        restore_driver(cfg.bdf, original_driver)
+                        current = get_current_driver(cfg.bdf)
+                        restore_driver(cfg.bdf, current)
+                        # Suppress the second restore in the outer finally
+                        # since we successfully restored here.
+                        original_driver = None
                     except Exception:
                         # Just try to unbind from vfio-pci
                         try:

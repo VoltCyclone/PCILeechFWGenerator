@@ -28,6 +28,26 @@ logger = logging.getLogger(__name__)
 LOG_PREFIX = "DONOR_DUMP"
 
 
+def _atomic_json_dump(data: Any, path: str) -> None:
+    """Atomically write ``data`` as JSON to ``path``.
+
+    Writes to ``<path>.tmp``, fsyncs (best-effort), then renames into place
+    so a partial write or crash cannot leave the destination file in a
+    corrupt state.
+    """
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except (OSError, TypeError, AttributeError):
+            # Some streams (e.g. test mocks, certain virtual FS backends)
+            # don't support fsync; fall back to flush-only durability.
+            pass
+    os.replace(tmp_path, path)
+
+
 class DonorDumpError(Exception):
     """Base exception for donor dump operations"""
 
@@ -344,9 +364,8 @@ class DonorDumpManager:
                         text=True,
                     )
 
-                    # For testing purposes, we'll consider the installation successful
-                    # if the commands executed without errors
-                    return True
+                    # Fall through to the verification step below so all
+                    # distros use the same gate.
 
                 except subprocess.CalledProcessError as e:
                     log_error_safe(
@@ -885,8 +904,7 @@ class DonorDumpManager:
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-            with open(output_path, "w") as f:
-                json.dump(device_info, f, indent=2)
+            _atomic_json_dump(device_info, output_path)
             log_info_safe(
                 logger,
                 safe_format("Saved donor information to {path}", path=output_path),
@@ -1387,9 +1405,7 @@ class DonorDumpManager:
                     os.path.dirname(os.path.abspath(save_to_file)), exist_ok=True
                 )
 
-                # Save the device info to the file
-                with open(save_to_file, "w") as f:
-                    json.dump(device_info, f, indent=2)
+                _atomic_json_dump(device_info, save_to_file)
 
                 log_info_safe(
                     logger,
@@ -1403,8 +1419,7 @@ class DonorDumpManager:
                 default_save_path = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)), "donor_info.json"
                 )
-                with open(default_save_path, "w") as f:
-                    json.dump(device_info, f, indent=2)
+                _atomic_json_dump(device_info, default_save_path)
 
                 log_info_safe(
                     logger,
@@ -1495,7 +1510,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Donor Dump Kernel Module Manager")
     parser.add_argument(
-        "--bd", required=True, help="PCIe Bus:Device.Function (e.g., 0000:03:00.0)"
+        "--bdf", required=True, help="PCIe Bus:Device.Function (e.g., 0000:03:00.0)"
     )
     parser.add_argument("--source-dir", help="Path to donor_dump source directory")
     parser.add_argument(

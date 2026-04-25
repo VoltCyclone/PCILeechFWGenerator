@@ -248,20 +248,27 @@ class SVContextBuilder:
         # Extract IEEE OUI from vendor ID
         self._add_vendor_oui(context, context["vendor_id_int"])
 
-    def _add_vendor_oui(self, context: Dict[str, Any], vendor_id_int: int) -> None:
+    @staticmethod
+    def _compute_vendor_oui(vendor_id_int: int) -> int:
+        """Derive a deterministic 24-bit OUI-like value from a 16-bit
+        PCI Vendor ID.
+
+        PCI Vendor IDs and IEEE OUIs are different namespaces; we synthesize
+        a stable 24-bit value by zero-extending the 16-bit vendor ID. This
+        is intentionally a placeholder for the IEEE OUI field in the DSN
+        and produces the same value for the same vendor across all callers.
         """
-        Extract IEEE OUI (Organizationally Unique Identifier) from vendor ID.
-        
-        The OUI is typically the lower 24 bits of the vendor ID.
-        This is used in DSN construction per PCIe specification.
-        
+        return vendor_id_int & 0xFFFF
+
+    def _add_vendor_oui(self, context: Dict[str, Any], vendor_id_int: int) -> None:
+        """Populate vendor_oui context fields used in DSN construction.
+
         Args:
             context: Context dictionary to update
             vendor_id_int: Vendor ID as integer
         """
-        # OUI is 24-bit identifier from vendor ID
-        oui = vendor_id_int & 0xFFFFFF
-        
+        oui = self._compute_vendor_oui(vendor_id_int)
+
         context["vendor_oui"] = oui
         context["vendor_oui_hex"] = safe_format("0x{value:06X}", value=oui)
         context["pci_exp_ep_oui"] = oui  # Match reference implementation naming
@@ -353,9 +360,10 @@ class SVContextBuilder:
         dsn_lower = int.from_bytes(hash_bytes[4:8], byteorder='big')
         
         # Structure the lower 32 bits per PCIe spec:
-        # Bits [23:0]: OUI derived from vendor ID (padded to 24 bits)
+        # Bits [23:0]: OUI derived from vendor ID (same derivation as
+        #             _add_vendor_oui so both paths agree).
         # Bits [31:24]: Extension byte from hash
-        oui = (vendor_id & 0xFFFF) | ((hash_bytes[8] & 0xFF) << 16)
+        oui = self._compute_vendor_oui(vendor_id)
         extension = hash_bytes[9] & 0xFF
         dsn_lower_structured = (extension << 24) | (oui & 0xFFFFFF)
         

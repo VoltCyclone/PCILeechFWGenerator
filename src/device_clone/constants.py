@@ -47,7 +47,7 @@ DEFAULT_REVISION_ID = "00"  # Default revision ID
 PCI_CLASS_NETWORK = "02"
 PCI_CLASS_STORAGE = "01"
 PCI_CLASS_DISPLAY = "03"
-PCI_CLASS_AUDIO = "040"
+PCI_CLASS_AUDIO = "04"
 
 # Power management states
 POWER_STATE_D0 = "D0"  # Fully operational power state

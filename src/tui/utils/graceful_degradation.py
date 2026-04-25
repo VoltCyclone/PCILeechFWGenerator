@@ -110,10 +110,13 @@ class GracefulDegradation:
         logger.error(f"Feature '{feature_name}' failed with error: {error_message}")
         logger.debug(f"Traceback for feature '{feature_name}' failure:\n{error_trace}")
 
+        import time as _time
         self.degradation_history[feature_name] = {
             "error": error_message,
             "traceback": error_trace,
-            "timestamp": asyncio.get_event_loop().time(),
+            # Use wall-clock time so this works even when called from a sync
+            # context where there's no running event loop.
+            "timestamp": _time.time(),
         }
 
         self.app.notify(

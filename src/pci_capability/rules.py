@@ -111,35 +111,31 @@ class CapabilityRule:
         """Check a specific condition."""
         if condition == "version":
             return cap_info.version == expected_value
-
-        if condition == "min_version":
+        elif condition == "min_version":
             return cap_info.version >= expected_value
-
-        if condition == "max_version":
+        elif condition == "max_version":
             return cap_info.version <= expected_value
-
         elif condition == "vendor_id" and device_context:
             return device_context.get("vendor_id") == expected_value
-
         elif condition == "device_id" and device_context:
             return device_context.get("device_id") == expected_value
-
         elif condition == "vendor_ids" and device_context:
             return device_context.get("vendor_id") in expected_value
-
         elif condition == "device_ids" and device_context:
             return device_context.get("device_id") in expected_value
-
         else:
             log_warning_safe(
                 logger,
                 safe_format(
-                    "Unknown condition '{condition}' in rule",
+                    "Unknown or unmet condition '{condition}' in rule; "
+                    "treating as no match",
                     condition=condition,
                 ),
                 prefix="PCI_CAP",
             )
-            return True  # Unknown conditions are ignored
+            # Return False so a typo'd condition can't silently pass and
+            # cause the rule to fire unconditionally.
+            return False
 
     def __repr__(self) -> str:
         return safe_format(
@@ -234,7 +230,7 @@ class RuleEngine:
             device_context = self._extract_device_context(config_space)
 
         # Find matching rules (first match wins)
-        for offset, rule in enumerate(self.rules):
+        for rule_idx, rule in enumerate(self.rules):
             if rule.matches(cap_info, config_space, device_context):
                 log_debug_safe(
                     logger,

@@ -46,20 +46,38 @@ def status_check(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-async def run_command(command: str) -> subprocess.CompletedProcess:
+async def run_command(command) -> subprocess.CompletedProcess:
     """
     Run a command asynchronously.
 
+    ``command`` may be a list (preferred — executed via subprocess_exec without
+    shell interpretation) or a string (executed via subprocess_shell). String
+    callers must not pass attacker- or filesystem-influenced data because the
+    shell will interpret metacharacters.
+
     Args:
-        command: Command to run
+        command: Argument list or shell string
 
     Returns:
         CompletedProcess with stdout and stderr
     """
     try:
-        process = await asyncio.create_subprocess_shell(
-            command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
+        if isinstance(command, (list, tuple)):
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        else:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "run_command invoked with shell string; prefer a list for safety"
+            )
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         stdout, stderr = await process.communicate()
 
         return subprocess.CompletedProcess(
@@ -86,7 +104,7 @@ async def check_podman_status() -> Dict[str, Any]:
         return {"status": "not_found", "message": "Podman not found in PATH"}
 
     # Check if Podman is running
-    result = await run_command("podman version --format json")
+    result = await run_command(["podman", "version", "--format", "json"])
     if result.returncode == 0:
         return {"status": "ready", "message": "Podman available"}
     else:
@@ -162,7 +180,7 @@ async def check_vivado_status() -> Dict[str, Any]:
                             vivado_exe = os.path.join(bin_dir, "vivado")
                             if os.path.isfile(vivado_exe):
                                 # Try to get version using discovered executable
-                                result = await run_command(f'"{vivado_exe}" -version')
+                                result = await run_command([vivado_exe, "-version"])
                                 if result.returncode == 0:
                                     version = extract_vivado_version(result.stdout)
                                     return {
@@ -297,15 +315,19 @@ async def check_container_image() -> Dict[str, Any]:
     Returns:
         Dictionary with container image status
     """
-    result = await run_command(
-        "podman images pcileech-fw-generator --format '{{.Repository}}:{{.Tag}}'"
-    )
-    if result.returncode == 0 and "pcileech-fw-generator" in result.stdout:
+    result = await run_command([
+        "podman",
+        "images",
+        "pcileechfwgenerator",
+        "--format",
+        "{{.Repository}}:{{.Tag}}",
+    ])
+    if result.returncode == 0 and "pcileechfwgenerator" in result.stdout:
         return {"available": True, "image": result.stdout.strip()}
     else:
         return {
             "available": False,
-            "message": "Container image 'pcileech-fw-generator' not found",
+            "message": "Container image 'pcileechfwgenerator' not found",
         }
 
 

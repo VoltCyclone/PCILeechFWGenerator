@@ -25,11 +25,29 @@ class PrivilegeManager:
     """
 
     def __init__(self):
-        """Initialize the privilege manager and check privilege state."""
+        """Initialize the privilege manager. The expensive sudo probe is
+        deferred until first access to avoid a blocking subprocess in the
+        constructor (which is often run on the Textual event loop)."""
         self.has_root = self._check_root()
-        self.can_sudo = self._check_sudo()
+        self._can_sudo: "bool | None" = None
+        self.sudo_needs_password = False
         # All operations are permitted by default to avoid blocking
         self._operation_permissions: Dict[str, bool] = {}
+
+    @property
+    def can_sudo(self) -> bool:
+        """Lazy-evaluated sudo availability. The first read runs a 2s probe."""
+        if self._can_sudo is None:
+            self._can_sudo = self._check_sudo()
+        return self._can_sudo
+
+    @can_sudo.setter
+    def can_sudo(self, value: bool) -> None:
+        self._can_sudo = bool(value)
+
+    def ensure_checked(self) -> None:
+        """Force the sudo probe to run if it hasn't already."""
+        _ = self.can_sudo
 
     def _check_root(self) -> bool:
         """
@@ -42,10 +60,12 @@ class PrivilegeManager:
 
     def _check_sudo(self) -> bool:
         """
-        Check if sudo is available and the user can use it.
+        Check if sudo is available and the user can use it without a password.
+
+        Sets ``self.sudo_needs_password`` if sudo exists but would prompt.
 
         Returns:
-            bool: True if sudo is available, False otherwise.
+            bool: True if sudo is available without a password, False otherwise.
         """
         try:
             # Check if sudo is installed
@@ -62,9 +82,14 @@ class PrivilegeManager:
                 timeout=2.0,
             )
 
-            # Return True if the command succeeded or if it failed due to needing a password
-            # (This means sudo is available but might require a password)
-            return result.returncode == 0 or result.returncode == 1
+            if result.returncode == 0:
+                return True
+            if result.returncode == 1:
+                # sudo exists but requires a password; surface the state
+                # rather than pretending we have privileges.
+                self.sudo_needs_password = True
+                return False
+            return False
         except (subprocess.SubprocessError, OSError):
             return False
 
@@ -83,10 +108,16 @@ class PrivilegeManager:
             return True
 
         if self.can_sudo:
-            # In a non-blocking implementation, we assume permission is granted
-            # This ensures the VFIO handler can continue to operate
-            logger.debug(f"Assuming sudo permission granted for {operation}")
+            logger.debug(f"Sudo available without password for {operation}")
             return True
+
+        if self.sudo_needs_password:
+            logger.warning(
+                "Sudo is available for %s but requires a password; "
+                "TUI must collect credentials separately",
+                operation,
+            )
+            return False
 
         logger.warning(f"Cannot obtain privileges for {operation}")
         return False
@@ -113,8 +144,10 @@ class PrivilegeManager:
         description = operation_descriptions.get(operation, operation)
         logger.info(f"Requesting permission to {description} using sudo")
 
-        # Always grant permission to avoid blocking
-        return True
+        # Reflect actual sudo state instead of unconditionally granting.
+        if self.has_root:
+            return True
+        return self.can_sudo
 
     async def run_with_privileges(
         self, command: List[str], operation: str
@@ -165,9 +198,11 @@ class PrivilegeRequest:
         Returns:
             bool: True if the user granted permission, False otherwise.
         """
-        # This implementation will log the request but always returns True
-        # to ensure it doesn't block operation
         logger.info(f"Privilege elevation requested for {operation}: {description}")
 
-        # Always grant permission in this implementation
-        return True
+        # Reflect actual privilege state. The TUI is expected to render a
+        # password dialog separately when sudo_needs_password is true.
+        manager = PrivilegeManager()
+        if manager.has_root:
+            return True
+        return manager.can_sudo

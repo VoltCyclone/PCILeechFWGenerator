@@ -60,12 +60,9 @@ except ImportError:  # colour optional - silently degrade
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Logging setup - verbose by default, override with --quiet
+# Logger reference - log file initialization moved into main() to avoid
+# import-time side effects when this module is imported as a library.
 # ──────────────────────────────────────────────────────────────────────────────
-# Initialize with INFO level by default, will be adjusted based on CLI args
-# Only setup logging if no handlers exist (avoid overriding CLI setup)
-if not logging.getLogger().handlers:
-    setup_logging(level=logging.INFO, log_file="vfio_diagnostics.log")
 log = get_logger("vfio-assist")
 
 
@@ -1316,6 +1313,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None):
     args = parse_args(argv or sys.argv[1:])
+    # Initialize logging only when running as a CLI; safe to skip if a parent
+    # process has already configured handlers.
+    if not logging.getLogger().handlers:
+        setup_logging(level=logging.INFO, log_file="vfio_diagnostics.log")
     if args.quiet:
         logging.getLogger().setLevel(logging.WARNING)
 
@@ -1342,28 +1343,43 @@ def main(argv: list[str] | None = None):
             return
 
         script_text = remediation_script(report)
-        temp = Path("/tmp/vfio_fix.sh")
-        temp.write_text(script_text)
-        temp.chmod(0o755)
-        render(report)
-        print(
-            colour(
-                safe_format("Remediation script written to {path}", path=str(temp)),
-                Fore.CYAN,
-            )
-        )
-
-        if not args.yes:
-            confirm = input("Run remediation script now? [y/N]: ").strip().lower()
-            if confirm not in ("y", "yes"):
-                print("Aborted.")
-                return
-        log_info_safe(log, "Executing remediation script (requires root)…")
+        # Create a private tempfile so the script-write/sudo-exec window
+        # cannot be exploited by another local user.
+        import tempfile
+        fd, temp_name = tempfile.mkstemp(prefix="vfio_fix_", suffix=".sh")
         try:
-            subprocess.run(["sudo", str(temp)], check=True)
-        except subprocess.CalledProcessError as e:
-            log_error_safe(log, "Script failed: {error}", error=str(e))
-            sys.exit(1)
+            os.fchmod(fd, 0o700)
+            with os.fdopen(fd, "w") as f:
+                f.write(script_text)
+            temp = Path(temp_name)
+            render(report)
+            print(
+                colour(
+                    safe_format(
+                        "Remediation script written to {path}", path=str(temp)
+                    ),
+                    Fore.CYAN,
+                )
+            )
+
+            if not args.yes:
+                confirm = (
+                    input("Run remediation script now? [y/N]: ").strip().lower()
+                )
+                if confirm not in ("y", "yes"):
+                    print("Aborted.")
+                    return
+            log_info_safe(log, "Executing remediation script (requires root)…")
+            try:
+                subprocess.run(["sudo", str(temp)], check=True)
+            except subprocess.CalledProcessError as e:
+                log_error_safe(log, "Script failed: {error}", error=str(e))
+                sys.exit(1)
+        finally:
+            try:
+                os.unlink(temp_name)
+            except OSError:
+                pass
 
         # Re‑run diagnostics after remediation
         print(colour("\nRe‑running diagnostics after remediation…", Fore.CYAN))

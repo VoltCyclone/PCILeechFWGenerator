@@ -27,6 +27,7 @@ from .types import (
     CapabilityType,
     EmulationCategory,
     PatchInfo,
+    PCICapabilityID,
     PruningAction,
 )
 
@@ -304,7 +305,7 @@ class CapabilityProcessor:
                 )
 
             # MSI-X specific validation
-            if cap_info.cap_id == 0x11:  # MSI-X
+            if cap_info.cap_id == PCICapabilityID.MSI_X.value:
                 is_valid, msix_errors = self.msix_handler.validate_msix_capability(
                     offset
                 )
@@ -384,7 +385,7 @@ class CapabilityProcessor:
 
         for cap_info in capabilities.values():
             # MSI capability
-            if cap_info.cap_id == 0x05:  # MSI
+            if cap_info.cap_id == PCICapabilityID.MSI.value:
                 has_msi = True
                 if self.config_space.has_data(cap_info.offset + 2, 2):
                     msi_control = self.config_space.read_word(cap_info.offset + 2)
@@ -394,7 +395,7 @@ class CapabilityProcessor:
                     context["msi_multiple_message_enabled"] = (msi_control >> 4) & 0x7
 
             # MSI-X capability
-            elif cap_info.cap_id == 0x11:  # MSI-X
+            elif cap_info.cap_id == PCICapabilityID.MSI_X.value:
                 has_msix = True
                 if self.config_space.has_data(cap_info.offset + 2, 2):
                     msix_control = self.config_space.read_word(cap_info.offset + 2)
@@ -408,7 +409,7 @@ class CapabilityProcessor:
                     context["msix_table_offset"] = table_offset_bir & 0xFFFFFFF8
 
             # PCI Express capability
-            elif cap_info.cap_id == 0x10:  # PCI Express
+            elif cap_info.cap_id == PCICapabilityID.PCI_EXPRESS.value:
                 has_pcie = True
                 if self.config_space.has_data(cap_info.offset + 2, 2):
                     pcie_caps = self.config_space.read_word(cap_info.offset + 2)
