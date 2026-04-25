@@ -1,6 +1,6 @@
 # Makefile for PCILeech Firmware Generator
 
-.PHONY: help clean install install-dev test lint format build build-pypi upload-test upload-pypi release show-version container container-rebuild docker-build build-container vfio-constants vfio-constants-clean check-templates check-templates-strict check-templates-fix check-templates-errors sv-lint update-changelog update-changelog-custom
+.PHONY: help clean install install-dev test lint format build build-pypi upload-test upload-pypi release show-version changelog container container-rebuild docker-build build-container vfio-constants vfio-constants-clean check-templates check-templates-strict check-templates-fix check-templates-errors sv-lint
 
 # Default target
 help:
@@ -45,15 +45,14 @@ help:
 	@echo "  bar-viz         - Show BAR visualization tool usage"
 	@echo ""
 	@echo "Version Management:"
-	@echo "  show-version                            - Show the version setuptools-scm currently resolves"
-	@echo "  release VERSION=X.Y.Z                   - Update changelog, commit, tag, and push"
-	@echo "  update-changelog VERSION=X.Y.Z          - Update changelog only"
-	@echo "  update-changelog-custom VERSION=X.Y.Z MESSAGE='...' - Update changelog with custom message"
+	@echo "  show-version                  - Show the version setuptools-scm currently resolves"
+	@echo "  changelog                     - Regenerate CHANGELOG.md from git history (git-cliff)"
+	@echo "  release VERSION=X.Y.Z         - Regenerate changelog, commit, tag v<VERSION>, push"
 	@echo ""
-	@echo "  Versioning is driven by git tags via setuptools-scm. To cut a"
-	@echo "  release, run 'make release VERSION=X.Y.Z' which tags the repo;"
-	@echo "  release.yml takes over from there. There is no manual version"
-	@echo "  bump file to edit."
+	@echo "  Versioning is driven by git tags via setuptools-scm. The changelog"
+	@echo "  is generated from conventional-commit messages by git-cliff. To cut"
+	@echo "  a release, run 'make release VERSION=X.Y.Z' which tags the repo;"
+	@echo "  release.yml takes over from there."
 
 # Development targets
 install:
@@ -143,18 +142,29 @@ upload-pypi:
 	@echo "Building and uploading to PyPI..."
 	python3 scripts/generate_pypi_package.py
 
-# Cut a release: update the changelog, commit it, tag, push.
+# Cut a release: regenerate the changelog (git-cliff), commit, tag, push.
 # setuptools-scm reads the tag at build time and the release.yml workflow
 # publishes the wheel. Usage: make release VERSION=0.14.16
 release:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Usage: make release VERSION=X.Y.Z"; exit 1; \
 	fi
-	python3 scripts/update_changelog.py --version $(VERSION)
-	git add CHANGELOG.rst
+	@command -v git-cliff >/dev/null 2>&1 || { \
+		echo "git-cliff is required: brew install git-cliff (or see https://git-cliff.org/docs/installation)"; \
+		exit 1; \
+	}
+	git-cliff --tag v$(VERSION) -o CHANGELOG.md
+	git add CHANGELOG.md
 	git commit -m "docs(changelog): release v$(VERSION)"
 	git tag v$(VERSION)
 	git push origin HEAD --tags
+
+# Regenerate CHANGELOG.md from the full git history.
+changelog:
+	@command -v git-cliff >/dev/null 2>&1 || { \
+		echo "git-cliff is required: brew install git-cliff"; exit 1; \
+	}
+	git-cliff -o CHANGELOG.md
 
 # Show the version setuptools-scm currently resolves to.
 show-version:
@@ -170,14 +180,6 @@ security:
 	bandit -r src/
 	safety check
 
-# Changelog helpers (the release target invokes update_changelog.py for you).
-update-changelog:
-	@echo "Update changelog for specific version (use: make update-changelog VERSION=1.2.3)"
-	python3 scripts/update_changelog.py --version $(VERSION)
-
-update-changelog-custom:
-	@echo "Update changelog with custom message (use: make update-changelog-custom VERSION=1.2.3 MESSAGE='Custom message')"
-	python3 scripts/update_changelog.py --version $(VERSION) --message "$(MESSAGE)"
 
 # Container targets
 container:

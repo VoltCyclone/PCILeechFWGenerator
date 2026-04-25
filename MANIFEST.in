@@ -1,7 +1,8 @@
 # Include documentation and configuration files
 include README.md
 include LICENSE.txt
-include CHANGELOG.rst
+include CHANGELOG.md
+include cliff.toml
 include CONTRIBUTING.rst
 include AUTHORS.rst
 include pyproject.toml
@@ -22,7 +23,6 @@ include install-sudo-wrapper.sh
 include build_vfio_constants.sh
 include force_vfio_binds.sh
 include patch_vfio_constants.py
-include get_version.py
 include run_tests.sh
 include vfio_helper.c
 include Containerfile
