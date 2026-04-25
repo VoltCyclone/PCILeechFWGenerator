@@ -1,0 +1,61 @@
+# Path-based PR labels. Used by .github/workflows/label.yml
+# (actions/labeler@v6). One key per label, value is a list of file-glob
+# rules; any matching changed-files entry adds the label.
+
+documentation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'README.md'
+      - '*.rst'
+      - 'docs/**'
+      - 'site/**'
+      - 'wiki/**'
+
+ci:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+
+build:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - 'MANIFEST.in'
+      - 'Makefile'
+      - 'Containerfile'
+      - 'requirements*.txt'
+
+tests:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tests/**'
+
+cli:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/cli/**'
+
+tui:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/tui/**'
+
+device-clone:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/device_clone/**'
+      - 'src/pci_capability/**'
+
+templating:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/templating/**'
+      - 'src/templates/**'
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'requirements*.txt'
+      - 'pyproject.toml'

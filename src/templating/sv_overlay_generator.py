@@ -220,7 +220,7 @@ class SVOverlayGenerator:
             TemplateRenderError: If required context data is missing
         """
         from pathlib import Path
-        from tempfile import NamedTemporaryFile, TemporaryDirectory
+        from tempfile import TemporaryDirectory
 
         from pcileechfwgenerator.device_clone.writemask_generator import (
             WritemaskGenerator,

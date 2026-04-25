@@ -1344,11 +1344,16 @@ def main(argv: list[str] | None = None):
 
         script_text = remediation_script(report)
         # Create a private tempfile so the script-write/sudo-exec window
-        # cannot be exploited by another local user.
+        # cannot be exploited by another local user. 0o700 is intentional
+        # and stricter than the default — only the invoking user (and root
+        # via sudo) should be able to read or execute the script. Semgrep
+        # rule python.lang.security.audit.insecure-file-permissions flags
+        # 0o700 generically; for a root-elevated shell script in /tmp,
+        # owner-only access is the secure choice.
         import tempfile
         fd, temp_name = tempfile.mkstemp(prefix="vfio_fix_", suffix=".sh")
         try:
-            os.fchmod(fd, 0o700)
+            os.fchmod(fd, 0o700)  # nosem: insecure-file-permissions
             with os.fdopen(fd, "w") as f:
                 f.write(script_text)
             temp = Path(temp_name)
@@ -1378,8 +1383,16 @@ def main(argv: list[str] | None = None):
         finally:
             try:
                 os.unlink(temp_name)
-            except OSError:
-                pass
+            except OSError as cleanup_err:
+                # Best-effort cleanup. The tempfile was created with 0o700
+                # so it isn't a security exposure if it lingers; just log
+                # so future diagnostic runs don't fail mysteriously.
+                log_warning_safe(
+                    log,
+                    "Failed to remove remediation tempfile {path}: {err}",
+                    path=temp_name,
+                    err=cleanup_err,
+                )
 
         # Re‑run diagnostics after remediation
         print(colour("\nRe‑running diagnostics after remediation…", Fore.CYAN))

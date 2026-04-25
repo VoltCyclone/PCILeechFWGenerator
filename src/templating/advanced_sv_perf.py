@@ -61,14 +61,11 @@ class PerformanceCounterConfig:
     latency_sample_rate: int = 1000  # Sample every 1000 transactions
 
     def __post_init__(self) -> None:
-        # Both fields refer to the same concept. If a caller set one but
-        # left the other at its default, propagate. If both were set
-        # explicitly to conflicting values, refuse the config.
-        if (
-            self.enable_latency_measurement
-            and self.enable_latency_tracking
-        ):
-            return
+        # ``enable_latency_measurement`` and ``enable_latency_tracking`` are
+        # aliases for the same concept. If only one is True, mirror it to the
+        # other so downstream consumers see a consistent value. We can't tell
+        # an explicit False from a defaulted False on a plain dataclass, so
+        # any False stays False (no conflict detection).
         if self.enable_latency_measurement and not self.enable_latency_tracking:
             self.enable_latency_tracking = True
         elif self.enable_latency_tracking and not self.enable_latency_measurement:

@@ -54,13 +54,30 @@ def _try_importlib_metadata() -> Optional[str]:
 
 
 def _try_scm_version_file() -> Optional[str]:
+    """Read setuptools-scm's generated ``src/_version.py`` without exec().
+
+    The file is bundled and trusted, but using importlib instead of exec()
+    keeps static analyzers happy and avoids a sharp edge if anything ever
+    crafts an unexpected file there.
+    """
+    import importlib.util
+
     src_dir = Path(__file__).resolve().parent.parent
     version_file = src_dir / "_version.py"
     if not version_file.exists():
         return None
-    namespace: dict = {}
-    exec(version_file.read_text(), namespace)
-    value = namespace.get("version") or namespace.get("__version__")
+
+    spec = importlib.util.spec_from_file_location(
+        "_pcileech_scm_version", version_file
+    )
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        return None
+    value = getattr(module, "version", None) or getattr(module, "__version__", None)
     return str(value) if value else None
 
 

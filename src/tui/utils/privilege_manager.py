@@ -202,7 +202,10 @@ class PrivilegeRequest:
 
         # Reflect actual privilege state. The TUI is expected to render a
         # password dialog separately when sudo_needs_password is true.
+        # The sudo probe is synchronous (subprocess + up to 2s timeout), so
+        # run it on a worker thread to keep the Textual event loop responsive.
         manager = PrivilegeManager()
         if manager.has_root:
             return True
+        await asyncio.to_thread(manager.ensure_checked)
         return manager.can_sudo
