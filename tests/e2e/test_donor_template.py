@@ -80,70 +80,59 @@ def test_donor_template_blank_yields_minimal_schema(
     ), f"blank template missing a vendor field; keys={sorted(flat_keys)[:20]}"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Known issue: the default `donor-template` output omits "
-        "`device_info.identification.vendor_id` and `device_id`, which the "
-        "`--validate` subcommand requires. Tracked as a separate bug — the "
-        "test stays here so we don't lose visibility."
-    ),
-    strict=False,
-)
-def test_donor_template_validate_accepts_self_output(
+def test_default_template_fails_validation_until_filled(
     pcileech_cli, isolated_workdir: Path
 ) -> None:
-    """A template the CLI just wrote should validate successfully."""
+    """A freshly generated template ships with ``vendor_id`` /
+    ``device_id`` set to ``None`` as fill-in placeholders. Validating it
+    unedited must fail (that is the validator's job) and the error
+    message must distinguish "unset placeholder" from "missing key" so
+    users know they just need to edit, not regenerate."""
     output = isolated_workdir / "self.json"
     gen = pcileech_cli(
-        "donor-template",
-        "--save-to",
-        str(output),
-        cwd=isolated_workdir,
+        "donor-template", "--save-to", str(output), cwd=isolated_workdir
     )
     assert gen.returncode == 0
 
     validate = pcileech_cli(
-        "donor-template",
-        "--validate",
-        str(output),
-        cwd=isolated_workdir,
+        "donor-template", "--validate", str(output), cwd=isolated_workdir
+    )
+    assert validate.returncode != 0, (
+        "validator accepted a fresh template with placeholder vendor/device "
+        "IDs — that defeats the purpose of validation"
+    )
+    text = validate.combined
+    assert "vendor_id" in text and "device_id" in text
+    assert "placeholder" in text.lower() or "unset" in text.lower(), (
+        f"error message should mention 'placeholder' / 'unset'; got: {text!r}"
+    )
+    assert "Traceback" not in text, (
+        "validator emitted a Python traceback instead of a clean error"
+    )
+
+
+def test_filled_template_validates_successfully(
+    pcileech_cli, isolated_workdir: Path
+) -> None:
+    """Generate → fill in vendor/device IDs → validate should pass.
+    This is the supported end-to-end workflow for the donor template."""
+    output = isolated_workdir / "self.json"
+    gen = pcileech_cli(
+        "donor-template", "--save-to", str(output), cwd=isolated_workdir
+    )
+    assert gen.returncode == 0
+
+    payload = json.loads(output.read_text())
+    payload["device_info"]["identification"]["vendor_id"] = "0x10DE"
+    payload["device_info"]["identification"]["device_id"] = "0x1234"
+    output.write_text(json.dumps(payload, indent=2))
+
+    validate = pcileech_cli(
+        "donor-template", "--validate", str(output), cwd=isolated_workdir
     )
     assert validate.returncode == 0, (
-        f"self-generated template failed validation\n"
+        f"filled template should validate successfully\n"
         f"stdout: {validate.stdout}\nstderr: {validate.stderr}"
-    )
-
-
-def test_donor_template_validate_runs_without_crash(
-    pcileech_cli, isolated_workdir: Path
-) -> None:
-    """Companion smoke check: even if a generated template fails
-    validation today, the validator must exit cleanly with a usage-style
-    error rather than tracebacking. Catches regressions where the
-    validator chokes on its own output format."""
-    output = isolated_workdir / "self.json"
-    gen = pcileech_cli(
-        "donor-template",
-        "--save-to",
-        str(output),
-        cwd=isolated_workdir,
-    )
-    assert gen.returncode == 0
-
-    validate = pcileech_cli(
-        "donor-template",
-        "--validate",
-        str(output),
-        cwd=isolated_workdir,
-    )
-    # 0 = valid, 1 = validation errors. Anything else (segfault, traceback)
-    # is a bug.
-    assert validate.returncode in (0, 1), (
-        f"validator crashed with code {validate.returncode}\n"
-        f"stdout: {validate.stdout}\nstderr: {validate.stderr}"
-    )
-    assert "Traceback" not in validate.combined, (
-        "validator emitted a Python traceback instead of a clean error"
     )
 
 
