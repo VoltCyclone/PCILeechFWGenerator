@@ -52,13 +52,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           requirements-files: 'requirements.txt'
-          extras: 'tui'
+          extras: 'tui,test'
           editable: 'true'
 
       - name: Run e2e tests
         run: |
           MARKERS="${{ github.event.inputs.marker || 'e2e and not slow and not requires_container_runtime and not requires_build_isolation' }}"
-          pytest tests/e2e/ \
+          python -m pytest tests/e2e/ \
             -m "$MARKERS" \
             --tb=short \
             --strict-markers \
@@ -91,13 +91,13 @@ jobs:
         with:
           python-version: '3.11'
           requirements-files: 'requirements.txt'
-          extras: 'tui'
-          extra-packages: 'build pytest'
+          extras: 'tui,test'
+          extra-packages: 'build'
           editable: 'true'
 
       - name: Run build-artifact tests
         run: |
-          pytest tests/e2e/ \
+          python -m pytest tests/e2e/ \
             -m "e2e and requires_build_isolation" \
             --tb=short \
             --strict-markers \
@@ -126,13 +126,12 @@ jobs:
         with:
           python-version: '3.11'
           requirements-files: 'requirements.txt'
-          extras: 'tui'
-          extra-packages: 'pytest'
+          extras: 'tui,test'
           editable: 'true'
 
       - name: Run container build tests
         run: |
-          pytest tests/e2e/ \
+          python -m pytest tests/e2e/ \
             -m "e2e and requires_container_runtime" \
             --tb=short \
             --strict-markers \
