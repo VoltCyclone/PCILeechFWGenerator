@@ -33,19 +33,29 @@ def _atomic_json_dump(data: Any, path: str) -> None:
 
     Writes to ``<path>.tmp``, fsyncs (best-effort), then renames into place
     so a partial write or crash cannot leave the destination file in a
-    corrupt state.
+    corrupt state. If any step raises, the partial ``.tmp`` file is
+    cleaned up so it doesn't accumulate on disk across failed runs.
     """
     tmp_path = path + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
+    try:
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except (OSError, TypeError, AttributeError):
+                # Some streams (e.g. test mocks, certain virtual FS backends)
+                # don't support fsync; fall back to flush-only durability.
+                pass
+        os.replace(tmp_path, path)
+    except Exception:
+        # Best-effort cleanup of the partial tempfile; let the original
+        # exception propagate so the caller still sees the write failure.
         try:
-            os.fsync(f.fileno())
-        except (OSError, TypeError, AttributeError):
-            # Some streams (e.g. test mocks, certain virtual FS backends)
-            # don't support fsync; fall back to flush-only durability.
+            os.unlink(tmp_path)
+        except OSError:
             pass
-    os.replace(tmp_path, path)
+        raise
 
 
 class DonorDumpError(Exception):

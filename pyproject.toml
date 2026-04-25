@@ -51,6 +51,7 @@ testing = [
     "pytest-mock>=3.10.0",
     "pytest-xdist>=3.0.0",
     "pytest-asyncio>=0.21.0",
+    "packaging>=23.0",
 ]
 # Alias of "testing" so `pip install -e .[test]` works. Inlined rather than
 # referencing PCILeechFWGenerator[testing] to avoid self-referential extras
@@ -62,6 +63,7 @@ test = [
     "pytest-mock>=3.10.0",
     "pytest-xdist>=3.0.0",
     "pytest-asyncio>=0.21.0",
+    "packaging>=23.0",
 ]
 # Full development environment: testing + tui + lint/format/type/security tools.
 dev = [
@@ -72,6 +74,7 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-xdist>=3.0.0",
     "pytest-asyncio>=0.21.0",
+    "packaging>=23.0",
     # tui
     "textual>=4.0.0",
     "rich>=13.0.0",

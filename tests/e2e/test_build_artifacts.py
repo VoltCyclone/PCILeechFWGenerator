@@ -27,9 +27,18 @@ pytestmark = [pytest.mark.e2e, pytest.mark.requires_build_isolation, pytest.mark
 
 @pytest.fixture(scope="module")
 def built_distributions(tmp_path_factory, repo_root: Path) -> Path:
-    """Build a wheel + sdist into a session-scoped tmpdir."""
-    if not shutil.which(sys.executable):  # safety net
-        pytest.skip("Python interpreter unexpectedly missing")
+    """Build a wheel + sdist into a session-scoped tmpdir.
+
+    Skips only when the ``build`` module isn't installed; any other
+    failure is a real packaging regression and must fail the test
+    (otherwise ``--cov-fail-under`` and the like would silently mask
+    pyproject misconfig, missing sdist files, etc.).
+    """
+    pytest.importorskip(
+        "build",
+        reason="`build` PEP 517 frontend not installed; "
+        "add it via the [test] or [dev] extras",
+    )
     out_dir = tmp_path_factory.mktemp("dist")
     proc = subprocess.run(
         [sys.executable, "-m", "build", "--outdir", str(out_dir)],
@@ -38,11 +47,11 @@ def built_distributions(tmp_path_factory, repo_root: Path) -> Path:
         text=True,
         timeout=240,
     )
-    if proc.returncode != 0:
-        pytest.skip(
-            f"`python -m build` failed (likely missing 'build' module)\n"
-            f"stdout: {proc.stdout[:500]}\nstderr: {proc.stderr[:500]}"
-        )
+    assert proc.returncode == 0, (
+        "`python -m build` failed — packaging regression\n"
+        f"--- stdout ---\n{proc.stdout[-2000:]}\n"
+        f"--- stderr ---\n{proc.stderr[-2000:]}"
+    )
     return out_dir
 
 

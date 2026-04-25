@@ -67,6 +67,13 @@ class PrivilegeManager:
         Returns:
             bool: True if sudo is available without a password, False otherwise.
         """
+        # Reset state at the start of each probe so a previous "needs
+        # password" verdict can't linger across re-probes — e.g. if the
+        # user runs ``sudo`` in another shell to refresh credentials and
+        # we re-check, can_sudo can become True and sudo_needs_password
+        # must reflect that.
+        self.sudo_needs_password = False
+
         try:
             # Check if sudo is installed
             sudo_path = shutil.which("sudo")

@@ -9,7 +9,7 @@ operations, used by the compatibility layer.
 import logging
 from typing import Dict, List
 
-from ..string_utils import log_warning_safe, safe_format
+from ..string_utils import log_warning_safe
 from .constants import (
     ACS_CONTROL_REGISTER_OFFSET,
     DPC_CONTROL_REGISTER_OFFSET,
@@ -139,15 +139,13 @@ def _apply_standard_capability_actions(
                 else:
                     log_warning_safe(
                         logger,
-                        safe_format(
-                            "Capability at offset 0x{offset:02X} is "
-                            "unreachable from the head pointer "
-                            "(head=0x{head:02X}); skipping next-pointer "
-                            "rewrite",
-                            offset=offset,
-                            head=head,
-                        ),
+                        "Capability at offset 0x{offset:02X} is "
+                        "unreachable from the head pointer "
+                        "(head=0x{head:02X}); skipping next-pointer "
+                        "rewrite",
                         prefix="PCI_CAP",
+                        offset=offset,
+                        head=head,
                     )
 
             # Zero the removed cap's 2-byte header in all positions to avoid
