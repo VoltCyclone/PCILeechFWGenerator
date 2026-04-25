@@ -249,7 +249,7 @@ Examples:
   # Container build (install headers)
   podman run --privileged --device=/dev/vfio/vfio \\
     -v \$(pwd):/workspace -w /workspace \\
-    pcileech-fw-generator ./build_vfio_constants.sh
+    pcileechfwgenerator ./build_vfio_constants.sh
 
 EOF
     exit 0

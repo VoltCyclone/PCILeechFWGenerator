@@ -60,6 +60,17 @@ class PerformanceCounterConfig:
     bandwidth_window_cycles: int = 100000  # ~1ms at 100MHz
     latency_sample_rate: int = 1000  # Sample every 1000 transactions
 
+    def __post_init__(self) -> None:
+        # ``enable_latency_measurement`` and ``enable_latency_tracking`` are
+        # aliases for the same concept. If only one is True, mirror it to the
+        # other so downstream consumers see a consistent value. We can't tell
+        # an explicit False from a defaulted False on a plain dataclass, so
+        # any False stays False (no conflict detection).
+        if self.enable_latency_measurement and not self.enable_latency_tracking:
+            self.enable_latency_tracking = True
+        elif self.enable_latency_tracking and not self.enable_latency_measurement:
+            self.enable_latency_measurement = True
+
     # Counter sets based on device type
     network_counters: List[str] = field(
         default_factory=lambda: [

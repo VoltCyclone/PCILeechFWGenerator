@@ -119,30 +119,18 @@ class BuildConfig:
     # ------------------------------------------------------------------
 
     def _get_project_version(self) -> str:
-        """Return project version (lightweight, no heavy imports on failure).
+        """Return project version, falling back to ``"latest"``.
 
-        Falls back to 'latest' if version cannot be determined. Only used
-        when dynamic_image=True so normal path remains unchanged.
+        Only used when ``dynamic_image=True``; the normal path keeps the
+        configured tag.
         """
-        try:  # Try canonical version module
-            from src import __version__ as v  # type: ignore
-
-            return getattr(v, "__version__", "latest")
-        except Exception:
-            pass
-        # Fallback: parse pyproject.toml for version line (cheap scan)
         try:
-            pyproj = Path(__file__).parent.parent.parent / "pyproject.toml"
-            if pyproj.exists():
-                for line in pyproj.read_text().splitlines():
-                    if line.strip().startswith("version ="):
-                        # version = "1.2.3"
-                        val = line.split("=", 1)[1].strip().strip("\"'")
-                        if val:
-                            return val
+            from ..utils.version_resolver import get_package_version
+
+            value = get_package_version()
+            return value if value and value != "0.0.0+unknown" else "latest"
         except Exception:
-            pass
-        return "latest"
+            return "latest"
 
     def resolve_image_parts(self) -> tuple[str, str]:
         """Return (image, tag) possibly rewritten if dynamic_image enabled.
@@ -961,12 +949,18 @@ def run_build(cfg: BuildConfig) -> None:
                         ),
                         prefix="CLEA",
                     )
-                    # Get original driver if possible
+                    # Restore the device to whatever driver it had
+                    # *before* the build started, not whatever it has
+                    # right now (which is almost certainly vfio-pci).
                     try:
-                        original_driver = get_current_driver(cfg.bdf)
-                        restore_driver(cfg.bdf, original_driver)
+                        if original_driver:
+                            restore_driver(cfg.bdf, original_driver)
+                            # Suppress the second restore in the outer
+                            # finally since we successfully restored here.
+                            original_driver = None
                     except Exception:
-                        # Just try to unbind from vfio-pci
+                        # Best-effort unbind from vfio-pci so the next
+                        # build attempt can re-bind cleanly.
                         try:
                             with open(
                                 f"/sys/bus/pci/drivers/vfio-pci/unbind", "w"

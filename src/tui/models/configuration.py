@@ -246,12 +246,25 @@ class BuildConfiguration(BaseModel):
     # Keep alias semantics so callers using either name work
     @model_validator(mode="after")
     def _sync_legacy_flags(self):
-        # Ensure legacy 'performance_counters' follows 'enable_performance_counters' if unset
+        # Mirror enable_performance_counters into the legacy
+        # 'performance_counters' flag only when the latter wasn't explicitly
+        # provided. ``model_fields_set`` lists fields the caller actually set.
         try:
-            if not getattr(self, "performance_counters", False) and getattr(
-                self, "enable_performance_counters", False
-            ):
+            fields_set = getattr(self, "model_fields_set", set()) or set()
+            legacy_explicit = "performance_counters" in fields_set
+            new_val = getattr(self, "enable_performance_counters", False)
+            old_val = getattr(self, "performance_counters", False)
+
+            if legacy_explicit and "enable_performance_counters" in fields_set:
+                if bool(old_val) != bool(new_val):
+                    raise ValueError(
+                        "Conflicting values for performance_counters and "
+                        "enable_performance_counters"
+                    )
+            elif not legacy_explicit and new_val:
                 object.__setattr__(self, "performance_counters", True)
+        except ValueError:
+            raise
         except Exception:
             pass
         return self
@@ -267,8 +280,11 @@ class BuildConfiguration(BaseModel):
         import json
         import os
 
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        # Ensure directory exists when ``file_path`` includes one. A bare
+        # filename has no parent dir and would crash makedirs("").
+        dir_part = os.path.dirname(file_path)
+        if dir_part:
+            os.makedirs(dir_part, exist_ok=True)
 
         # Write JSON to file
         with open(file_path, "w") as f:
@@ -323,4 +339,7 @@ class BuildProgress(BaseModel):
     # Method for compatibility with the existing codebase
     def to_dict(self) -> Dict[str, Any]:
         """Convert progress information to a dictionary for serialization."""
-        return self.dict()
+        try:
+            return self.model_dump()
+        except Exception:
+            return self.dict()

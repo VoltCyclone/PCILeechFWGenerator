@@ -459,41 +459,6 @@ class PCILeechGenerator:
                 )
             ) from e
 
-    def _analyze_configuration_space_with_vfio(self) -> Dict[str, Any]:
-        """Analyze device config space assuming VFIO is already bound."""
-        log_info_safe(
-            self.logger,
-            safe_format(
-                "Analyzing configuration space for device {bdf} (VFIO already active)",
-                bdf=self.config.device_bdf,
-            ),
-            prefix="CFG",
-        )
-
-        try:
-            config_space_bytes = self.config_space_manager._read_sysfs_config_space()
-            return self._process_config_space_bytes(config_space_bytes)
-
-        except Exception as e:
-            log_error_safe(
-                self.logger,
-                safe_format(
-                    "CRITICAL: Configuration space analysis failed - cannot "
-                    "continue without device identity: {error}",
-                    error=str(e),
-                ),
-                prefix="CFG",
-            )
-            raise PCILeechGenerationError(
-                safe_format(
-                    (
-                        "Configuration space analysis failed (critical for device "
-                        "identity): {err}"
-                    ),
-                    err=e,
-                )
-            ) from e
-
     def _process_config_space_bytes(self, config_space_bytes: bytes) -> Dict[str, Any]:
         """Process raw config space bytes into the structured dict used downstream."""
         if not config_space_bytes or len(config_space_bytes) == 0:
@@ -863,8 +828,10 @@ class PCILeechGenerator:
             # os.access() can give false negatives with sudo/root, test directly
             test_file = output_dir / ".write_test"
             try:
-                test_file.write_text("")
-                test_file.unlink()
+                try:
+                    test_file.write_text("")
+                finally:
+                    test_file.unlink(missing_ok=True)
             except (PermissionError, OSError) as e:
                 try:
                     stat_info = output_dir.stat()
@@ -1108,40 +1075,29 @@ class PCILeechGenerator:
                         prefix="WRMASK",
                     )
                 else:
-                    systemverilog_coe_path = (
-                        self.config.output_dir / "src" / "pcileech_cfgspace.coe"
+                    # Outer check already established cfg_space_coe doesn't exist;
+                    # regenerate via the SV generator.
+                    modules = self.sv_generator.generate_pcileech_modules(
+                        template_context
                     )
-                    if systemverilog_coe_path.exists():
+
+                    if "pcileech_cfgspace.coe" in modules:
+                        cfg_space_coe.write_text(modules["pcileech_cfgspace.coe"])
                         log_info_safe(
                             self.logger,
                             safe_format(
-                                "Config space COE already exists at {path}",
+                                "Generated config space COE file at {path}",
                                 path=str(cfg_space_coe),
                             ),
                             prefix="WRMASK",
                         )
                     else:
-                        modules = self.sv_generator.generate_pcileech_modules(
-                            template_context
+                        log_warning_safe(
+                            self.logger,
+                            "Config space COE module missing in modules",
+                            prefix="WRMASK",
                         )
-
-                        if "pcileech_cfgspace.coe" in modules:
-                            cfg_space_coe.write_text(modules["pcileech_cfgspace.coe"])
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "Generated config space COE file at {path}",
-                                    path=str(cfg_space_coe),
-                                ),
-                                prefix="WRMASK",
-                            )
-                        else:
-                            log_warning_safe(
-                                self.logger,
-                                "Config space COE module missing in modules",
-                                prefix="WRMASK",
-                            )
-                            return None
+                        return None
 
             device_config = {
                 "msi_config": template_context.get("msi_config", {}),
@@ -1597,42 +1553,55 @@ class PCILeechGenerator:
 
             msix_info = parse_msix_capability(config_space_hex)
 
-            if msix_info["table_size"] > 0:
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "Preloaded MSI-X: {vectors} vec, BIR {bir}, off 0x{offset:x}",
-                        vectors=msix_info["table_size"],
-                        bir=msix_info["table_bir"],
-                        offset=msix_info["table_offset"],
-                    ),
-                    prefix="MSIX",
-                )
-
-                is_valid, validation_errors = validate_msix_configuration(msix_info)
-
-                msix_data = {
-                    "capability_info": msix_info,
-                    "table_size": msix_info["table_size"],
-                    "table_bir": msix_info["table_bir"],
-                    "table_offset": msix_info["table_offset"],
-                    "pba_bir": msix_info["pba_bir"],
-                    "pba_offset": msix_info["pba_offset"],
-                    "enabled": msix_info["enabled"],
-                    "function_mask": msix_info["function_mask"],
-                    "validation_errors": validation_errors,
-                    "is_valid": is_valid,
-                    "preloaded": True,
-                }
-
-                return msix_data
-            else:
+            if not msix_info or msix_info.get("table_size", 0) == 0:
                 log_info_safe(
                     self.logger,
                     "No MSI-X capability found during preload",
                     prefix="MSIX",
                 )
                 return None
+
+            is_valid, validation_errors = validate_msix_configuration(msix_info)
+
+            # Mirror the same validation gate used by _process_msix_capabilities
+            # so the two paths can't disagree.
+            if not is_valid and self.config.strict_validation:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "MSI-X preload validation failed: {errors}",
+                        errors="; ".join(validation_errors),
+                    ),
+                    prefix="MSIX",
+                )
+                return None
+
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "Preloaded MSI-X: {vectors} vec, BIR {bir}, off 0x{offset:x}",
+                    vectors=msix_info["table_size"],
+                    bir=msix_info["table_bir"],
+                    offset=msix_info["table_offset"],
+                ),
+                prefix="MSIX",
+            )
+
+            msix_data = {
+                "capability_info": msix_info,
+                "table_size": msix_info["table_size"],
+                "table_bir": msix_info["table_bir"],
+                "table_offset": msix_info["table_offset"],
+                "pba_bir": msix_info["pba_bir"],
+                "pba_offset": msix_info["pba_offset"],
+                "enabled": msix_info["enabled"],
+                "function_mask": msix_info["function_mask"],
+                "validation_errors": validation_errors,
+                "is_valid": is_valid,
+                "preloaded": True,
+            }
+
+            return msix_data
 
         except Exception as e:
             from pcileechfwgenerator.error_utils import extract_root_cause

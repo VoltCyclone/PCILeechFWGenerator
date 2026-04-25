@@ -740,18 +740,26 @@ class DonorInfoTemplateGenerator:
                         )
                     )
 
-        # Validate device_info
+        # Validate device_info. The template ships with vendor_id /
+        # device_id deliberately set to None as fill-in placeholders, so we
+        # distinguish "absent key" from "key present but unset" in the error
+        # message: it tells the user whether they got a corrupted template
+        # or just forgot to edit it.
         if "device_info" in template:
             device_info = template["device_info"]
             if "identification" not in device_info:
                 errors.append("Missing device_info.identification section")
             else:
                 ident = device_info["identification"]
-                # At minimum need vendor and device IDs
-                if not ident.get("vendor_id"):
-                    errors.append("Missing device_info.identification.vendor_id")
-                if not ident.get("device_id"):
-                    errors.append("Missing device_info.identification.device_id")
+                for field in ("vendor_id", "device_id"):
+                    full = f"device_info.identification.{field}"
+                    if field not in ident:
+                        errors.append(f"Missing {full}")
+                    elif ident[field] in (None, ""):
+                        errors.append(
+                            f"{full} is unset (placeholder) — fill in the "
+                            f"{field.replace('_', ' ')} (e.g., \"0x10DE\")"
+                        )
 
         # Validate behavioral_profile
         if "behavioral_profile" in template:

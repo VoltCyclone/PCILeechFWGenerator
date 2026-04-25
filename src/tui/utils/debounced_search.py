@@ -57,3 +57,11 @@ class DebouncedSearch:
         """
         await asyncio.sleep(self.delay)
         await callback(query)
+
+    def close(self) -> None:
+        """Cancel any pending search task. Call this from the owner widget's
+        ``on_unmount`` to avoid leaving an orphan task firing against a stale
+        callback."""
+        if self._search_task and not self._search_task.done():
+            self._search_task.cancel()
+        self._search_task = None

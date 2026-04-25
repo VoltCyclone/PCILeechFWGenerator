@@ -219,10 +219,12 @@ class BuildLogDialog(ModalScreen[bool]):
             disk_used_gb = round(disk.used / (1024**3), 2)
             disk_percent = disk.percent
 
-            # CPU information
+            # CPU information. interval=None returns the percent since the
+            # last call without blocking; this avoids stalling the Textual
+            # event loop for 100ms each refresh.
             cpu_cores = psutil.cpu_count(logical=False)
             cpu_threads = psutil.cpu_count(logical=True)
-            cpu_percent = psutil.cpu_percent(interval=0.1)
+            cpu_percent = psutil.cpu_percent(interval=None)
 
             # Enhanced system information display
             info_lines = [

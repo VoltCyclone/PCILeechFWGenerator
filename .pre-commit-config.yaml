@@ -63,11 +63,9 @@ repos:
         args: ['-r', 'src/']
         exclude: tests/
 
-  # Dependency vulnerability checking
-  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
-    rev: v1.3.2
-    hooks:
-      - id: python-safety-dependencies-check
+  # Dependency vulnerability checking is handled by safety/Bandit in CI
+  # (see .github/workflows/security.yml). The Lucas-C pre-commit hook was
+  # abandoned upstream so we don't run it locally.
 
   # Conventional commits
   - repo: https://github.com/compilerla/conventional-pre-commit

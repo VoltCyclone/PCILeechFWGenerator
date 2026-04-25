@@ -182,17 +182,19 @@ class TestPerformanceCounterGenerator:
         assert generator.logger == self.mock_logger
 
     def test_init_latency_compatibility(self):
-        """Test backward compatibility for latency tracking configuration."""
-        # Test with a config that has latency measurement enabled
+        """Test backward compatibility for latency tracking configuration.
+
+        Setting either of the two aliased flags should propagate to the
+        other so downstream consumers see a consistent value.
+        """
         config_measurement = PerformanceCounterConfig(enable_latency_measurement=True)
 
         generator = PerformanceCounterGenerator(
             config=config_measurement, renderer=self.mock_renderer
         )
 
-        # Both should be set since the original implementation handles backward compatibility
-        assert generator.config.enable_latency_measurement == True
-        assert generator.config.enable_latency_tracking == False  # This is the default
+        assert generator.config.enable_latency_measurement is True
+        assert generator.config.enable_latency_tracking is True
 
     def test_generate_perf_declarations(self):
         """Test performance counter signal declarations generation."""

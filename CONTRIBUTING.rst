@@ -1,7 +1,7 @@
 # 🤝 Contributing to PCILeech Firmware Generator
 
-[![PyPI version](https://badge.fury.io/py/pcileech-fw-generator.svg)](https://badge.fury.io/py/pcileech-fw-generator)
-[![Python Support](https://img.shields.io/pypi/pyversions/pcileech-fw-generator.svg)](https://pypi.org/project/pcileech-fw-generator/)
+[![PyPI version](https://badge.fury.io/py/pcileechfwgenerator.svg)](https://badge.fury.io/py/pcileechfwgenerator)
+[![Python Support](https://img.shields.io/pypi/pyversions/pcileechfwgenerator.svg)](https://pypi.org/project/pcileechfwgenerator/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/voltcyclone/PCILeechFWGenerator/workflows/CI/badge.svg)](https://github.com/voltcyclone/PCILeechFWGenerator/actions)
 
@@ -306,7 +306,10 @@ def generate_firmware(device_bdf: str, board_type: str) -> Path:
 1. **Update Documentation**: Ensure README, docstrings, and comments are current
 2. **Add Tests**: Include tests for new functionality
 3. **Run Full Test Suite**: Ensure all tests pass
-4. **Update Changelog**: Add entry to CHANGELOG.md
+4. **Use Conventional Commit Messages**: ``feat:``, ``fix:``, ``docs:``,
+   ``refactor:``, ``test:``, ``chore:``, etc. The changelog is regenerated
+   from git history by ``git-cliff``; you do not edit ``CHANGELOG.md``
+   directly.
 5. **Create Pull Request**: Use our PR template
 
 ### Pull Request Template
@@ -345,7 +348,9 @@ Brief description of changes
 
 ### Version Management
 
-We use semantic versioning (MAJOR.MINOR.PATCH):
+We use semantic versioning (MAJOR.MINOR.PATCH). The package version is
+derived from git tags by ``setuptools-scm``; there is no version file
+to edit.
 
 - **MAJOR**: Breaking changes
 - **MINOR**: New features (backward compatible)
@@ -353,27 +358,24 @@ We use semantic versioning (MAJOR.MINOR.PATCH):
 
 ### Release Steps
 
-1. **Update Version**: Increment version in `src/__version__.py`
-2. **Update Changelog**: Add release notes to CHANGELOG.md
-3. **Create Release Branch**: `release/vX.Y.Z`
-4. **Final Testing**: Comprehensive testing of release candidate
-5. **Tag Release**: Create git tag with version
-6. **Build Distribution**: Create wheel and source distributions
-7. **Publish**: Upload to PyPI
-8. **GitHub Release**: Create GitHub release with notes
-
-### Distribution
+The release flow is one Make target:
 
 ```bash
-# Build distributions
-python -m build
-
-# Check distributions
-twine check dist/*
-
-# Upload to PyPI
-twine upload dist/*
+make release VERSION=0.14.16
 ```
+
+That command:
+
+1. Regenerates ``CHANGELOG.md`` from git history with ``git-cliff``
+2. Commits the changelog
+3. Tags ``v0.14.16``
+4. Pushes the commit and tag
+
+The ``release.yml`` workflow takes over from the tag: it builds the
+sdist + wheel, signs them with attestations, generates GitHub release
+notes from the same ``cliff.toml`` config, and publishes to PyPI
+(``alpha``/``beta``/``rc`` tags go to TestPyPI; everything else to
+production PyPI).
 
 ## ❓ Getting Help
 

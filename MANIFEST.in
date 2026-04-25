@@ -1,18 +1,17 @@
 # Include documentation and configuration files
 include README.md
 include LICENSE.txt
-include CHANGELOG.rst
+include CHANGELOG.md
+include cliff.toml
 include CONTRIBUTING.rst
 include AUTHORS.rst
 include pyproject.toml
-include setup.py
 include setup.cfg
 
 # Include requirements files
 include requirements*.txt
 include pytest.ini
 include .coveragerc
-include mypy_dev.ini
 include tox.ini
 
 # Include CI/CD and development configuration
@@ -24,7 +23,6 @@ include install-sudo-wrapper.sh
 include build_vfio_constants.sh
 include force_vfio_binds.sh
 include patch_vfio_constants.py
-include get_version.py
 include run_tests.sh
 include vfio_helper.c
 include Containerfile
@@ -59,7 +57,7 @@ global-exclude *.pyd
 global-exclude __pycache__
 global-exclude .pytest_cache
 global-exclude *.egg-info
-global-exclude .git/
+global-exclude .git
 global-exclude .DS_Store
 global-exclude *.log
 global-exclude logs/**

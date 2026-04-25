@@ -71,7 +71,7 @@ from ..utils.validation_constants import (
 
 
 def require(condition: bool, message: str, **context) -> None:
-    """Validate condition or exit with error."""
+    """Validate condition or raise ContextError."""
     if not condition:
         logger = logging.getLogger(__name__)
         log_error_safe(
@@ -79,7 +79,9 @@ def require(condition: bool, message: str, **context) -> None:
             safe_format("Build aborted: {msg} | ctx={ctx}", msg=message, ctx=context),
             prefix="PCIL",
         )
-        raise SystemExit(2)
+        raise ContextError(
+            safe_format("{msg} | ctx={ctx}", msg=message, ctx=context)
+        )
 
 
 from pcileechfwgenerator.utils.unified_context import (
@@ -900,17 +902,21 @@ class PCILeechContextBuilder:
                             .replace(")", "")
                         )
                         num = float(val)
-                        if 2.0 <= num < 3.0:
-                            return 1
-                        if 4.0 < num <= 6.0:
-                            return 2
-                        if 7.0 < num <= 9.0:
-                            return 3
-                        if 15.0 < num <= 17.0:
-                            return 4
-                        if 31.0 < num <= 33.0:
-                            return 5
-                        return None
+                        # Map the parsed GT/s value to its PCIe speed code by
+                        # picking the closest known speed. PCIe defines exactly
+                        # 2.5/5/8/16/32 GT/s as codes 1..5.
+                        known = (
+                            (2.5, 1),
+                            (5.0, 2),
+                            (8.0, 3),
+                            (16.0, 4),
+                            (32.0, 5),
+                        )
+                        best = min(known, key=lambda kv: abs(kv[0] - num))
+                        # Reject anything more than 25% off the nearest known speed
+                        if abs(best[0] - num) / best[0] > 0.25:
+                            return None
+                        return best[1]
                     except Exception:
                         return None
 

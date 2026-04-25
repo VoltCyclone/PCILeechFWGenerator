@@ -4,6 +4,7 @@ Build Manager for PCILeech TUI application.
 This module provides services for validating and building firmware for devices.
 """
 
+import asyncio
 import os
 from typing import Dict, List, Tuple, Union
 
@@ -173,8 +174,9 @@ class BuildManager:
 
                 # Run the actual build process
                 try:
-                    # Execute the build and get resulting artifacts
-                    artifacts = builder.build()
+                    # Execute the build off the event loop so the TUI keeps
+                    # repainting during long Vivado synthesis runs.
+                    artifacts = await asyncio.to_thread(builder.build)
 
                     # Mark the build as complete
                     build_progress.stage = BuildStage.BITSTREAM_GENERATION

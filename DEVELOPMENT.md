@@ -24,7 +24,7 @@ git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 
 # Build container (automatically clones voltcyclone-fpga)
-podman build -t dma-fw .
+podman build -t pcileechfwgenerator:latest .
 ```
 
 **Note for local development:** The `--recurse-submodules` flag is required to initialize the `voltcyclone-fpga` submodule at `lib/voltcyclone-fpga`.

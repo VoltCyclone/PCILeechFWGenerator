@@ -4,8 +4,9 @@ Critical path tests for the require() validation function in pcileech_context.
 
 Tests the error handling behavior of require(), which is the primary validation
 function used throughout the build process to enforce preconditions. Proper
-behavior is critical - failed validations must abort with SystemExit(2) and
-clear error messages.
+behavior is critical - failed validations must raise ContextError so callers
+can catch and handle the failure rather than killing the process via
+SystemExit. The error must carry a clear message including any context.
 """
 
 import logging
@@ -14,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from pcileechfwgenerator.device_clone.pcileech_context import require
+from pcileechfwgenerator.exceptions import ContextError
 
 
 class TestRequireValidation:
@@ -26,52 +28,40 @@ class TestRequireValidation:
         require(1 == 1, "Equality check should pass")
         require(bool("non-empty"), "Non-empty string should be truthy")
 
-    def test_require_raises_system_exit_on_false_condition(self):
-        """Test require() raises SystemExit(2) when condition is False."""
-        with pytest.raises(SystemExit) as exc_info:
-            require(False, "This should trigger SystemExit")
+    def test_require_raises_context_error_on_false_condition(self):
+        """Test require() raises ContextError when condition is False."""
+        with pytest.raises(ContextError):
+            require(False, "This should trigger ContextError")
 
-        assert exc_info.value.code == 2
+    def test_require_raises_context_error_on_zero(self):
+        """Test require() raises ContextError when condition evaluates to 0."""
+        with pytest.raises(ContextError):
+            require(0, "Zero should trigger ContextError")
 
-    def test_require_raises_system_exit_on_zero(self):
-        """Test require() raises SystemExit(2) when condition evaluates to 0."""
-        with pytest.raises(SystemExit) as exc_info:
-            require(0, "Zero should trigger SystemExit")
+    def test_require_raises_context_error_on_none(self):
+        """Test require() raises ContextError when condition is None."""
+        with pytest.raises(ContextError):
+            require(None, "None should trigger ContextError")
 
-        assert exc_info.value.code == 2
+    def test_require_raises_context_error_on_empty_string(self):
+        """Test require() raises ContextError when condition is empty string."""
+        with pytest.raises(ContextError):
+            require("", "Empty string should trigger ContextError")
 
-    def test_require_raises_system_exit_on_none(self):
-        """Test require() raises SystemExit(2) when condition is None."""
-        with pytest.raises(SystemExit) as exc_info:
-            require(None, "None should trigger SystemExit")
+    def test_require_raises_context_error_on_empty_list(self):
+        """Test require() raises ContextError when condition is empty list."""
+        with pytest.raises(ContextError):
+            require([], "Empty list should trigger ContextError")
 
-        assert exc_info.value.code == 2
-
-    def test_require_raises_system_exit_on_empty_string(self):
-        """Test require() raises SystemExit(2) when condition is empty string."""
-        with pytest.raises(SystemExit) as exc_info:
-            require("", "Empty string should trigger SystemExit")
-
-        assert exc_info.value.code == 2
-
-    def test_require_raises_system_exit_on_empty_list(self):
-        """Test require() raises SystemExit(2) when condition is empty list."""
-        with pytest.raises(SystemExit) as exc_info:
-            require([], "Empty list should trigger SystemExit")
-
-        assert exc_info.value.code == 2
-
-    def test_require_raises_system_exit_on_empty_dict(self):
-        """Test require() raises SystemExit(2) when condition is empty dict."""
-        with pytest.raises(SystemExit) as exc_info:
-            require({}, "Empty dict should trigger SystemExit")
-
-        assert exc_info.value.code == 2
+    def test_require_raises_context_error_on_empty_dict(self):
+        """Test require() raises ContextError when condition is empty dict."""
+        with pytest.raises(ContextError):
+            require({}, "Empty dict should trigger ContextError")
 
     @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_logs_error_message_on_failure(self, mock_log):
         """Test require() logs error message with safe formatting on failure."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(ContextError):
             require(False, "Test error message")
 
         # Verify log_error_safe was called
@@ -89,7 +79,7 @@ class TestRequireValidation:
     @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_includes_context_in_error_message(self, mock_log):
         """Test require() includes context kwargs in error message."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(ContextError):
             require(
                 False,
                 "Missing device ID",
@@ -108,7 +98,7 @@ class TestRequireValidation:
     @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_uses_pcil_prefix(self, mock_log):
         """Test require() uses PCIL prefix for log messages."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(ContextError):
             require(False, "Test message")
 
         # Verify prefix keyword argument was passed
@@ -121,49 +111,41 @@ class TestRequireValidation:
         # Simulate missing vendor_id
         vendor_id = None
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(ContextError):
             require(
                 vendor_id is not None and vendor_id != "",
                 "Missing vendor_id from config space data",
             )
-
-        assert exc_info.value.code == 2
 
     def test_require_real_world_device_id_validation(self):
         """Test require() with realistic device ID validation scenario."""
         # Simulate empty device_id
         device_id = ""
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(ContextError):
             require(
                 device_id is not None and device_id != "",
                 "Missing device_id from config space data",
             )
-
-        assert exc_info.value.code == 2
 
     def test_require_real_world_bar_validation(self):
         """Test require() with realistic BAR validation scenario."""
         # Simulate invalid BAR size
         bar_size = 0
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(ContextError):
             require(bar_size > 0, "Invalid BAR size", bar_index=0, size=bar_size)
-
-        assert exc_info.value.code == 2
 
     def test_require_real_world_device_signature_validation(self):
         """Test require() with realistic device signature validation."""
         # Simulate missing device signature
         device_signature = None
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(ContextError):
             require(
                 bool(device_signature),
                 "device_signature missing",
             )
-
-        assert exc_info.value.code == 2
 
     def test_require_allows_positive_integers(self):
         """Test require() passes with positive integer conditions."""
@@ -203,7 +185,7 @@ class TestRequireValidation:
         vendor_id = "0x10de"
         device_id = None  # Missing
 
-        with pytest.raises(SystemExit):
+        with pytest.raises(ContextError):
             require(
                 vendor_id is not None
                 and device_id is not None
@@ -215,7 +197,7 @@ class TestRequireValidation:
     @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_handles_context_with_special_characters(self, mock_log):
         """Test require() safely handles context with special characters."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(ContextError):
             require(
                 False,
                 "Error with special chars",
@@ -230,7 +212,7 @@ class TestRequireValidation:
     @patch("pcileechfwgenerator.device_clone.pcileech_context.log_error_safe")
     def test_require_handles_unicode_in_message(self, mock_log):
         """Test require() safely handles Unicode characters in messages."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(ContextError):
             require(False, "Error: Device not found → check configuration")
 
         # Should handle Unicode without errors

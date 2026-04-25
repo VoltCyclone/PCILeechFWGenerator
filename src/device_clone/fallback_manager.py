@@ -395,10 +395,6 @@ class FallbackManager:
                 del self._fallbacks[var_name]
             if var_name in self._default_handlers:
                 del self._default_handlers[var_name]
-            if var_name in self._fallbacks:
-                del self._fallbacks[var_name]
-            if var_name in self._default_handlers:
-                del self._default_handlers[var_name]
 
         log_info_safe(
             logger,

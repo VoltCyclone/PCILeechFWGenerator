@@ -445,8 +445,9 @@ class MSIXCapabilityHandler:
         log_info_safe(
             logger,
             safe_format(
-                "Created {patches_created} MSI-X pruning patches for action {action.name}",
+                "Created {patches_created} MSI-X pruning patches for action {action_name}",
                 patches_created=patches_created,
+                action_name=action.name,
             ),
         )
         return patches_created

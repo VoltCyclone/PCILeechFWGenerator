@@ -63,7 +63,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt -r requirements-tui.txt
 COPY src ./src
 COPY configs ./configs
 COPY pcileech.py .
-COPY pyproject.toml setup.py setup.cfg ./
+COPY pyproject.toml setup.cfg ./
 
 # Install the package itself so `from pcileechfwgenerator.xxx` imports work
 # Note: Use regular install (not editable) since source is copied, not mounted

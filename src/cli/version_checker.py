@@ -31,27 +31,52 @@ except ImportError:
 logger = get_logger(__name__)
 
 # Cache file to avoid checking too frequently
-CACHE_FILE = Path.home() / ".cache" / "pcileech-fw-generator" / "version_check.json"
+CACHE_FILE = Path.home() / ".cache" / "pcileechfwgenerator" / "version_check.json"
 CHECK_INTERVAL_DAYS = 1  # Check once per day
 GITHUB_API_URL = (
     "https://api.github.com/repos/voltcyclone/PCILeechFWGenerator/releases/latest"
 )
-PYPI_API_URL = "https://pypi.org/pypi/pcileech-fw-generator/json"
+PYPI_API_URL = "https://pypi.org/pypi/pcileechfwgenerator/json"
 # Env var to control version source behaviour. Defaults to 'github'.
 # Allowed: 'github' (only GitHub), 'pypi' (only PyPI), 'auto' (try GitHub then PyPI).
 VERSION_SOURCE_ENV = "PCILEECH_VERSION_SOURCE"
 USE_CACHE_ENV = "PCILEECH_USE_CACHE"
 
 
-# Enhanced version checking with build metadata awareness
 def get_build_info() -> dict:
-    """Get build information from version file."""
-    try:
-        from ..__version__ import __build_date__, __commit_hash__
+    """Best-effort build metadata for the update prompt.
 
-        return {"build_date": __build_date__, "commit_hash": __commit_hash__}
-    except ImportError:
+    Build date and commit hash are no longer baked into the source tree
+    (the version itself is derived from git tags by setuptools-scm). We try
+    to compute them lazily from a git checkout and fall back to ``"unknown"``.
+    """
+    import subprocess
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[2]
+    if not (project_root / ".git").exists():
         return {"build_date": "unknown", "commit_hash": "unknown"}
+
+    def _git(args: list) -> str:
+        try:
+            result = subprocess.run(
+                ["git"] + args,
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    commit = _git(["rev-parse", "--short", "HEAD"]) or "unknown"
+    iso = _git(["log", "-1", "--format=%cI"])
+    if not iso:
+        iso = datetime.now(timezone.utc).isoformat()
+    return {"build_date": iso, "commit_hash": commit}
 
 
 def parse_version(version_str: str) -> Tuple[int, ...]:
@@ -181,7 +206,7 @@ def fetch_latest_version_github() -> Optional[str]:
         # Use a User-Agent and optional token to reduce rate-limit issues
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "pcileech-fw-generator-version-check/1",
+            "User-Agent": "pcileechfwgenerator-version-check/1",
         }
 
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -309,7 +334,7 @@ def prompt_for_update(latest_version: str):
         f"   Commit hash:     {build_info['commit_hash']}\n"
         "\n"
         "   Update with one of these commands:\n"
-        "   • pip install --upgrade pcileech-fw-generator\n"
+        "   • pip install --upgrade pcileechfwgenerator\n"
         "   • git pull (if installed from source)\n"
         "\n"
         f"   Release notes: {__url__}/releases\n" + "=" * 60 + "\n",

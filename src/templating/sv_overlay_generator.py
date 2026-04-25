@@ -220,7 +220,7 @@ class SVOverlayGenerator:
             TemplateRenderError: If required context data is missing
         """
         from pathlib import Path
-        from tempfile import NamedTemporaryFile
+        from tempfile import TemporaryDirectory
 
         from pcileechfwgenerator.device_clone.writemask_generator import (
             WritemaskGenerator,
@@ -260,18 +260,12 @@ class SVOverlayGenerator:
         )
 
         try:
-            # Create temporary config space COE file
-            with NamedTemporaryFile(
-                mode='w', 
-                suffix='.coe', 
-                delete=False
-            ) as cfg_temp:
-                # Write config space in COE format
-                cfg_temp.write("; PCILeech Configuration Space\n")
-                cfg_temp.write("; Temporary file for writemask generation\n")
-                cfg_temp.write("memory_initialization_radix=16;\n")
-                cfg_temp.write("memory_initialization_vector=\n")
-                
+            # Use a TemporaryDirectory so both temp files are guaranteed to be
+            # cleaned up even if any step (including writes) raises.
+            with TemporaryDirectory(prefix="pcileech_writemask_") as tmpdir:
+                cfg_temp_path = Path(tmpdir) / "cfgspace.coe"
+                wm_temp_path = Path(tmpdir) / "writemask.coe"
+
                 # Convert config_space bytes to hex dwords
                 if isinstance(config_space, (bytes, bytearray)):
                     cfg_bytes = bytes(config_space)
@@ -280,36 +274,28 @@ class SVOverlayGenerator:
                     cfg_bytes = bytes(config_space.get("data", b""))
                 else:
                     cfg_bytes = b""
-                
+
                 # Ensure we have 4KB of config space
                 cfg_bytes = cfg_bytes[:4096].ljust(4096, b'\x00')
-                
-                # Write as dwords
-                dwords = []
-                for i in range(0, len(cfg_bytes), 4):
-                    dword = int.from_bytes(cfg_bytes[i:i+4], byteorder='little')
-                    dwords.append(f"{dword:08x}")
-                
-                # Write in groups of 4 per line
-                for i in range(0, len(dwords), 4):
-                    line_data = dwords[i:i+4]
-                    cfg_temp.write(",".join(line_data))
-                    if i + 4 < len(dwords):
-                        cfg_temp.write(",\n")
-                    else:
-                        cfg_temp.write(";\n")
-                
-                cfg_temp_path = Path(cfg_temp.name)
-            
-            # Create temporary output file
-            with NamedTemporaryFile(
-                mode='w',
-                suffix='.coe',
-                delete=False
-            ) as wm_temp:
-                wm_temp_path = Path(wm_temp.name)
-            
-            try:
+
+                dwords = [
+                    f"{int.from_bytes(cfg_bytes[i:i+4], byteorder='little'):08x}"
+                    for i in range(0, len(cfg_bytes), 4)
+                ]
+
+                with cfg_temp_path.open("w") as cfg_temp:
+                    cfg_temp.write("; PCILeech Configuration Space\n")
+                    cfg_temp.write("; Temporary file for writemask generation\n")
+                    cfg_temp.write("memory_initialization_radix=16;\n")
+                    cfg_temp.write("memory_initialization_vector=\n")
+                    for i in range(0, len(dwords), 4):
+                        line_data = dwords[i:i+4]
+                        cfg_temp.write(",".join(line_data))
+                        if i + 4 < len(dwords):
+                            cfg_temp.write(",\n")
+                        else:
+                            cfg_temp.write(";\n")
+
                 # Generate writemask using WritemaskGenerator
                 writemask_gen = WritemaskGenerator()
                 writemask_gen.generate_writemask(
@@ -317,10 +303,10 @@ class SVOverlayGenerator:
                     output_path=wm_temp_path,
                     device_config=device_config,
                 )
-                
+
                 # Read generated writemask
                 writemask_content = wm_temp_path.read_text(encoding="utf-8")
-                
+
                 log_info_safe(
                     self.logger,
                     safe_format(
@@ -329,16 +315,9 @@ class SVOverlayGenerator:
                     ),
                     prefix=self.prefix,
                 )
-                
+
                 return writemask_content
-                
-            finally:
-                # Clean up temporary files
-                if cfg_temp_path.exists():
-                    cfg_temp_path.unlink()
-                if wm_temp_path.exists():
-                    wm_temp_path.unlink()
-                    
+
         except Exception as e:
             error_msg = safe_format(
                 "Writemask generation failed: {error}",

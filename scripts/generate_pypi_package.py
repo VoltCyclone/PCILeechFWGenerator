@@ -198,9 +198,21 @@ class PackageValidator:
 
     @staticmethod
     def validate_version_format(version: str) -> bool:
-        """Validate semantic version format."""
-        pattern = r"^\d+\.\d+\.\d+(?:-[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?(?:\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$"
-        return bool(re.match(pattern, version))
+        """Validate that ``version`` is a PEP 440 version string.
+
+        setuptools-scm produces PEP 440 versions including dev/post/local
+        suffixes (e.g. ``0.14.15.dev3+g219fe2b``), so we delegate to
+        ``packaging.version.Version`` instead of a hand-rolled regex.
+        """
+        try:
+            from packaging.version import InvalidVersion, Version
+
+            Version(version)
+            return True
+        except InvalidVersion:
+            return False
+        except Exception:
+            return False
 
 
 class VersionManager:
@@ -208,61 +220,31 @@ class VersionManager:
 
     @staticmethod
     def get_current_version() -> str:
-        """Get current version from __version__.py."""
+        """Get current version via setuptools-scm (the canonical source)."""
         try:
-            with open(VERSION_FILE, "r") as f:
-                content = f.read()
+            from setuptools_scm import get_version
 
-            match = re.search(r'__version__ = ["\']([^"\']+)["\']', content)
-            if not match:
-                raise ValueError("Could not find version in __version__.py")
-
-            version = match.group(1)
+            version = get_version(root=str(PROJECT_ROOT))
             if not PackageValidator.validate_version_format(version):
                 raise ValueError(f"Invalid version format: {version}")
-
             return version
-
         except Exception as e:
             Logger.error(f"Failed to get current version: {e}")
             sys.exit(1)
 
     @staticmethod
     def update_build_metadata(version: str) -> None:
-        """Update build metadata in version file."""
-        Logger.info("Updating build metadata...")
+        """No-op retained for backwards compatibility.
 
-        try:
-            with open(VERSION_FILE, "r") as f:
-                content = f.read()
-
-            # Get git commit hash
-            commit_hash = "unknown"
-            if GIT_AVAILABLE and Repo is not None:
-                try:
-                    repo = Repo(".")
-                    commit_hash = repo.head.commit.hexsha[:7]
-                except Exception:
-                    commit_hash = "unknown"
-
-            # Update build metadata
-            build_date = datetime.now().isoformat()
-
-            content = re.sub(
-                r"__build_date__ = .*", f'__build_date__ = "{build_date}"', content
-            )
-
-            content = re.sub(
-                r"__commit_hash__ = .*", f'__commit_hash__ = "{commit_hash}"', content
-            )
-
-            with open(VERSION_FILE, "w") as f:
-                f.write(content)
-
-            Logger.success(f"Updated build metadata (commit: {commit_hash})")
-
-        except Exception as e:
-            Logger.warning(f"Failed to update build metadata: {e}")
+        Build metadata is no longer baked into ``__version__.py``; the
+        version itself is derived from git tags by setuptools-scm at build
+        time and runtime callers compute build_date / commit_hash lazily
+        from the live git checkout.
+        """
+        Logger.info(
+            "Skipping build-metadata file update; version is dynamic via "
+            "setuptools-scm."
+        )
 
 
 class SecurityScanner:

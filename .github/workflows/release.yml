@@ -11,6 +11,11 @@ on:
         required: true
         type: string
 
+# Don't queue duplicate release runs on the same tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -49,22 +54,20 @@ jobs:
       with:
         subject-path: "dist/*"
     
-    - name: Get version and changelog
+    - name: Resolve version
       id: version
       run: |
-        VERSION=$(python -c "import setuptools_scm; print(setuptools_scm.get_version())")
+        VERSION=$(python -m setuptools_scm)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-        
-        # Extract changelog for this version
-        if [ -f "CHANGELOG.rst" ]; then
-          # Extract section between current version and next version/end
-          CHANGELOG=$(awk "/^$VERSION/,/^[0-9]/ {if (/^[0-9]/ && !/^$VERSION/) exit; print}" CHANGELOG.rst | head -n -1)
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        else
-          echo "changelog=Release $VERSION" >> $GITHUB_OUTPUT
-        fi
+
+    - name: Generate release notes
+      id: changelog
+      uses: orhun/git-cliff-action@v4
+      with:
+        config: cliff.toml
+        args: --latest --strip header
+      env:
+        OUTPUT: RELEASE_NOTES.md
     
     - name: Create GitHub prerelease (rc/beta/alpha)
       if: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
@@ -72,7 +75,7 @@ jobs:
       with:
         tag_name: ${{ github.ref_name }}
         name: v${{ steps.version.outputs.version }}
-        body: ${{ steps.version.outputs.changelog }}
+        body_path: RELEASE_NOTES.md
         files: |
           dist/*.tar.gz
           dist/*.whl
@@ -86,6 +89,19 @@ jobs:
         packages-dir: dist
         repository-url: https://test.pypi.org/legacy/
         skip-existing: true
+
+    - name: Create GitHub release (stable)
+      if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: v${{ steps.version.outputs.version }}
+        body_path: RELEASE_NOTES.md
+        files: |
+          dist/*.tar.gz
+          dist/*.whl
+        draft: false
+        prerelease: false
 
     - name: Publish to PyPI
       if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}

@@ -50,15 +50,20 @@ class TestOUIExtraction:
         assert context["pci_exp_ep_oui"] == 0x10DE
 
     def test_oui_extraction_24bit_mask(self, context_builder):
-        """Test OUI is properly masked to 24 bits."""
+        """Test OUI is masked to 16 bits (the PCI Vendor ID width).
+
+        PCI vendor IDs are 16-bit; we deliberately do not pretend a 24-bit
+        IEEE OUI exists for them. The OUI fields are zero-extended from the
+        16-bit vendor ID and must produce the same value across both
+        ``_add_vendor_oui`` and ``_generate_deterministic_dsn``.
+        """
         context = {}
         vendor_id_int = 0xFF10DE  # Value with upper bits set
 
         context_builder._add_vendor_oui(context, vendor_id_int)
 
-        # Should mask to 24 bits (0xFFFFFF & 0xFF10DE = 0xFF10DE)
-        assert context["vendor_oui"] == 0xFF10DE
-        assert context["vendor_oui_hex"] == "0xFF10DE"
+        assert context["vendor_oui"] == 0x10DE
+        assert context["vendor_oui_hex"] == "0x0010DE"
 
     def test_oui_extraction_zero(self, context_builder):
         """Test OUI extraction with zero vendor ID."""
@@ -71,14 +76,14 @@ class TestOUIExtraction:
         assert context["vendor_oui_hex"] == "0x000000"
 
     def test_oui_extraction_max_value(self, context_builder):
-        """Test OUI extraction with maximum 24-bit value."""
+        """Test OUI extraction with a value above 16 bits is truncated."""
         context = {}
         vendor_id_int = 0xFFFFFF
 
         context_builder._add_vendor_oui(context, vendor_id_int)
 
-        assert context["vendor_oui"] == 0xFFFFFF
-        assert context["vendor_oui_hex"] == "0xFFFFFF"
+        assert context["vendor_oui"] == 0xFFFF
+        assert context["vendor_oui_hex"] == "0x00FFFF"
 
 
 class TestDSNSemanticDecomposition:

@@ -1,0 +1,74 @@
+# git-cliff configuration for PCILeech Firmware Generator.
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+# Header at the top of the rendered changelog.
+header = """
+# Changelog
+
+All notable changes to this project are documented here. Versions are
+determined by git tags via setuptools-scm; this changelog is generated
+from conventional-commit messages by git-cliff.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and the project follows [Semantic Versioning](https://semver.org/).
+
+"""
+# Template applied per release. The default keeps the header/body split tidy
+# without forcing every section to exist.
+body = """
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [Unreleased]
+{% endif %}
+{% for group, commits in commits | group_by(attribute="group") -%}
+### {{ group | upper_first }}
+
+{% for commit in commits -%}
+- {{ commit.message | split(pat="\n") | first | upper_first | trim_end_matches(pat=".") }}{% if commit.scope %} *({{ commit.scope }})*{% endif %} ({{ commit.id | truncate(length=7, end="") }})
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+# Conventional commit parsing. Non-conforming commits land in the "Other"
+# group via the catch-all rule below.
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = true
+tag_pattern = "v[0-9]*"
+sort_commits = "newest"
+topo_order = false
+
+# Group rules. The first matching pattern wins.
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Tests" },
+    { message = "^build", group = "Build" },
+    { message = "^ci", group = "CI/CD" },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore\\(deps\\)", group = "Dependencies" },
+    { message = "^chore", group = "Maintenance" },
+    # Dependabot uses gitmoji style: ":arrow_up:(deps): Bump X from Y to Z"
+    { message = "^:arrow_up:", group = "Dependencies" },
+    { message = "^Merge", skip = true },
+    { message = "^\\[pre-commit\\.ci\\]", skip = true },
+    { body = ".*BREAKING CHANGE.*", group = "Breaking Changes" },
+    { message = ".*", group = "Other" },
+]
+
+# Strip Dependabot's signed-off-by trailers and other noise from message bodies.
+commit_preprocessors = [
+    { pattern = "Signed-off-by:.*", replace = "" },
+    { pattern = "Co-authored-by:.*", replace = "" },
+    { pattern = "\\(#(\\d+)\\)", replace = "([#${1}](https://github.com/voltcyclone/PCILeechFWGenerator/pull/${1}))" },
+]

@@ -365,7 +365,7 @@ class TestBuildOrchestrator(unittest.TestCase):
             # podman --version
             MagicMock(returncode=0),
             # podman images
-            MagicMock(returncode=0, stdout="pcileech-fw-generator"),
+            MagicMock(returncode=0, stdout="pcileechfwgenerator"),
         ]
 
         # Run test
@@ -547,7 +547,7 @@ class TestBuildOrchestrator(unittest.TestCase):
         self.assertIn("run", cmd)
         self.assertIn("--privileged", cmd)
         self.assertIn("--device=/dev/vfio/42", " ".join(cmd))
-        self.assertIn("pcileech-fw-generator:latest", " ".join(cmd))
+        self.assertIn("pcileechfwgenerator:latest", " ".join(cmd))
 
         # Check build flags are passed to container
         self.assertIn("--bdf 0000:00:00.0", " ".join(cmd))

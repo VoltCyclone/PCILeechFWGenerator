@@ -24,110 +24,68 @@ from pcileechfwgenerator.utils.version_resolver import get_package_version
 
 
 class TestGetPackageVersion:
-    """Test the get_package_version function."""
+    """Test the get_package_version resolver chain.
 
-    def test_get_version_from_version_file(self):
-        """Test extracting version from __version__.py file."""
-        with TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
+    The resolver tries (in order): importlib.metadata, the setuptools-scm
+    generated _version.py, then ``git describe``. Tests stub each path
+    and assert the right value is returned.
+    """
 
-            # Create a mock version file
-            version_file = tmp_path / "__version__.py"
-            version_file.write_text('__version__ = "2.5.0"')
-
-            with patch("pcileechfwgenerator.utils.version_resolver.Path") as mock_path:
-                # Mock the path resolution
-                mock_version_file = MagicMock()
-                mock_version_file.exists.return_value = True
-
-                # Set up the path traversal
-                mock_parent = MagicMock()
-                mock_parent.parent = MagicMock()
-                mock_parent.parent.__truediv__.return_value = mock_version_file
-                mock_path.return_value = MagicMock()
-                mock_path.return_value.parent = mock_parent
-
-                with patch(
-                    "builtins.open", mock_open(read_data='__version__ = "2.5.0"')
-                ):
-                    version = get_package_version()
-                    assert version == "2.5.0"
-
-    def test_get_version_setuptools_scm_fallback(self):
-        """Test fallback to setuptools_scm."""
-        # Force version file miss and hit setuptools_scm fallback
-        # without requiring the external package.
+    def test_importlib_metadata_path(self):
         with patch(
-            "pcileechfwgenerator.utils.version_resolver._try_version_file",
+            "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
+            return_value="2.5.0",
+        ):
+            assert get_package_version() == "2.5.0"
+
+    def test_scm_version_file_fallback(self):
+        with patch(
+            "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
+            return_value=None,
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_scm_version_file",
+            return_value="1.2.3",
+        ):
+            assert get_package_version() == "1.2.3"
+
+    def test_git_describe_fallback(self):
+        with patch(
+            "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
+            return_value=None,
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_scm_version_file",
+            return_value=None,
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_git_describe",
+            return_value="3.4.5",
+        ):
+            assert get_package_version() == "3.4.5"
+
+    def test_final_sentinel(self):
+        with patch(
+            "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
+            return_value=None,
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_scm_version_file",
+            return_value=None,
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_git_describe",
             return_value=None,
         ):
-            with patch(
-                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
-                return_value="1.2.3",
-            ):
-                version = get_package_version()
-                assert version == "1.2.3"
+            assert get_package_version() == "0.0.0+unknown"
 
-    def test_get_version_importlib_fallback(self):
-        """Test fallback to importlib.metadata."""
+    def test_exception_in_resolver_does_not_propagate(self):
         with patch(
-            "pcileechfwgenerator.utils.version_resolver._try_version_file",
+            "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
+            side_effect=RuntimeError("boom"),
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_scm_version_file",
+            return_value=None,
+        ), patch(
+            "pcileechfwgenerator.utils.version_resolver._try_git_describe",
             return_value=None,
         ):
-            with patch(
-                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
-                return_value=None,
-            ):
-                with patch(
-                    "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
-                    return_value="3.4.5",
-                ):
-                    version = get_package_version()
-                    assert version == "3.4.5"
-
-    def test_get_version_final_fallback(self):
-        """Test final fallback to default version."""
-        with patch(
-            "pcileechfwgenerator.utils.version_resolver._try_version_file",
-            return_value=None,
-        ):
-            with patch(
-                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
-                return_value=None,
-            ):
-                with patch(
-                    "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
-                    return_value=None,
-                ):
-                    with patch(
-                        "pcileechfwgenerator.utils.version_resolver._try_git_describe",
-                        return_value=None,
-                    ):
-                        version = get_package_version()
-                        assert version == "unknown"
-
-    def test_get_version_exception_handling(self):
-        """Test exception handling returns default version."""
-        # Force exceptions inside helpers (caught internally) and ensure
-        # we return the safe fallback without requiring external packages.
-        with patch(
-            "pcileechfwgenerator.utils.version_resolver.Path",
-            side_effect=Exception("Test error"),
-        ):
-            with patch(
-                "pcileechfwgenerator.utils.version_resolver._try_setuptools_scm",
-                return_value=None,
-            ):
-                with patch(
-                    "pcileechfwgenerator.utils.version_resolver._try_importlib_metadata",
-                    return_value=None,
-                ):
-                    with patch(
-                        "pcileechfwgenerator.utils.version_resolver._try_git_describe",
-                        return_value=None,
-                    ):
-                        version = get_package_version()
-                        assert version == "unknown"
+            assert get_package_version() == "0.0.0+unknown"
 
 
 class TestTemplateObject:

@@ -258,6 +258,21 @@ class WritemaskGenerator:
                 break
             seen_std.add(cap_ptr)
 
+            # PCIe spec requires capability structures to be DWORD-aligned.
+            # A misaligned cap_ptr means the config space is malformed; the
+            # byte-shift below would silently extract the wrong bytes.
+            if cap_ptr & 0x3:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Misaligned standard capability pointer 0x{ptr:02X}; "
+                        "stopping walk",
+                        ptr=cap_ptr,
+                    ),
+                    prefix="WRITEMASK",
+                )
+                break
+
             # Read capability header
             dword = self._get_dword(dword_map, cap_ptr)
             byte_shift = (cap_ptr & 0x3) * 8

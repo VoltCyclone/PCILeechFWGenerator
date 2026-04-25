@@ -1074,11 +1074,15 @@ def test_setup_module_success(temp_dir, mock_subprocess):
                 with mock.patch.object(
                     manager, "read_device_info", return_value=device_info
                 ):
-                    with mock.patch("builtins.open", mock.mock_open()) as mock_open:
+                    with mock.patch("builtins.open", mock.mock_open()) as mock_open, \
+                         mock.patch("os.replace") as mock_replace:
                         result = manager.setup_module("0000:03:00.0")
 
                         assert result == device_info
                         mock_open.assert_called()
+                        # _atomic_json_dump writes via .tmp then renames in
+                        # place; verify the rename happened.
+                        mock_replace.assert_called()
 
 
 def test_setup_module_kernel_headers_missing():

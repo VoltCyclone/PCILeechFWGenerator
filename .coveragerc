@@ -1,13 +1,16 @@
 # .coveragerc to control coverage.py
 [run]
 branch = True
-source = pcileechfwgenerator
+# Match pytest's --cov=src so coverage targets the working tree rather than
+# the installed package name. The [paths] section below maps installed
+# locations back to src/ when combining coverage across environments.
+source = src
 # omit = bad_file.py
 
 [paths]
 source =
     src/
-    */site-packages/
+    */site-packages/pcileechfwgenerator/
 
 [report]
 # Regexes for lines to exclude from consideration

@@ -1,6 +1,6 @@
 # Makefile for PCILeech Firmware Generator
 
-.PHONY: help clean install install-dev test lint format build build-pypi upload-test upload-pypi release container container-rebuild docker-build build-container vfio-constants vfio-constants-clean check-templates check-templates-strict check-templates-fix check-templates-errors sv-lint
+.PHONY: help clean install install-dev test lint format build build-pypi upload-test upload-pypi release show-version changelog container container-rebuild docker-build build-container vfio-constants vfio-constants-clean check-templates check-templates-strict check-templates-fix check-templates-errors sv-lint
 
 # Default target
 help:
@@ -33,9 +33,9 @@ help:
 	@echo "  release      - Full release process"
 	@echo ""
 	@echo "Container:"
-	@echo "  container         - Build container image (dma-fw) with --no-cache"
+	@echo "  container         - Build container image (pcileechfwgenerator:latest)"
 	@echo "  container-rebuild - Force rebuild container (alias for container)"
-	@echo "  docker-build      - Build container image (default tag) with --no-cache"
+	@echo "  docker-build      - Build container image (alias for container)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  check-deps      - Check system dependencies"
@@ -45,11 +45,14 @@ help:
 	@echo "  bar-viz         - Show BAR visualization tool usage"
 	@echo ""
 	@echo "Version Management:"
-	@echo "  set-version VERSION=X.Y.Z     - Set explicit version"
-	@echo "  bump-version TYPE=patch|minor|major - Bump version automatically"
-	@echo "  bump-version-complete TYPE=patch|minor|major - Complete version bump with changelog"
-	@echo "  update-changelog VERSION=X.Y.Z - Update changelog for specific version"
-	@echo "  update-changelog-custom VERSION=X.Y.Z MESSAGE='...' - Update changelog with custom message"
+	@echo "  show-version                  - Show the version setuptools-scm currently resolves"
+	@echo "  changelog                     - Regenerate CHANGELOG.md from git history (git-cliff)"
+	@echo "  release VERSION=X.Y.Z         - Regenerate changelog, commit, tag v<VERSION>, push"
+	@echo ""
+	@echo "  Versioning is driven by git tags via setuptools-scm. The changelog"
+	@echo "  is generated from conventional-commit messages by git-cliff. To cut"
+	@echo "  a release, run 'make release VERSION=X.Y.Z' which tags the repo;"
+	@echo "  release.yml takes over from there."
 
 # Development targets
 install:
@@ -139,9 +142,47 @@ upload-pypi:
 	@echo "Building and uploading to PyPI..."
 	python3 scripts/generate_pypi_package.py
 
+# Cut a release: regenerate the changelog (git-cliff), commit, tag, push.
+# setuptools-scm reads the tag at build time and the release.yml workflow
+# publishes the wheel. Usage: make release VERSION=0.14.16
+#
+# Safety:
+#  - Refuses to run with a dirty working tree (so the changelog commit
+#    can't accidentally pick up unrelated edits).
+#  - Tolerates an empty changelog diff (no new commits since last tag).
 release:
-	@echo "Running full release process..."
-	./scripts/build_release.sh release $(VERSION)
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Usage: make release VERSION=X.Y.Z"; exit 1; \
+	fi
+	@command -v git-cliff >/dev/null 2>&1 || { \
+		echo "git-cliff is required: brew install git-cliff (or see https://git-cliff.org/docs/installation)"; \
+		exit 1; \
+	}
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Working tree is not clean. Commit or stash changes first."; \
+		git status --short; \
+		exit 1; \
+	fi
+	git-cliff --tag v$(VERSION) -o CHANGELOG.md
+	@if git diff --quiet -- CHANGELOG.md; then \
+		echo "CHANGELOG.md unchanged — tagging v$(VERSION) directly"; \
+	else \
+		git add CHANGELOG.md && \
+		git commit -m "docs(changelog): release v$(VERSION)"; \
+	fi
+	git tag v$(VERSION)
+	git push origin HEAD --tags
+
+# Regenerate CHANGELOG.md from the full git history.
+changelog:
+	@command -v git-cliff >/dev/null 2>&1 || { \
+		echo "git-cliff is required: brew install git-cliff"; exit 1; \
+	}
+	git-cliff -o CHANGELOG.md
+
+# Show the version setuptools-scm currently resolves to.
+show-version:
+	@python3 -m setuptools_scm
 
 # Utility targets
 check-deps:
@@ -153,44 +194,17 @@ security:
 	bandit -r src/
 	safety check
 
-# Version utilities
-set-version:
-	@echo "Set explicit package version (use: make set-version VERSION=1.2.3)"
-	python3 scripts/set_version.py --version $(VERSION)
 
-bump-version:
-	@echo "Bump package version using automation (patch/minor/major)"
-	python3 scripts/update_version.py --bump-type $${TYPE:-patch} --force
-
-bump-version-complete:
-	@echo "Complete version bump with changelog (use: make bump-version-complete TYPE=patch|minor|major)"
-	python3 scripts/bump_version.py --type $${TYPE:-patch}
-
-update-changelog:
-	@echo "Update changelog for specific version (use: make update-changelog VERSION=1.2.3)"
-	python3 scripts/update_changelog.py --version $(VERSION)
-
-update-changelog-custom:
-	@echo "Update changelog with custom message (use: make update-changelog-custom VERSION=1.2.3 MESSAGE='Custom message')"
-	python3 scripts/update_changelog.py --version $(VERSION) --message "$(MESSAGE)"
-
-# Convenience pattern target so maintainers can run:
-#   make set-version-1.2.3
-.PHONY: set-version-%
-set-version-%:
-	@echo "Set explicit package version -> $*"
-	python3 scripts/set_version.py --version $*
-
-# Container targets
-container:
-	./scripts/build_container.sh --tag dma-fw
+# Container targets. The container image bundles VFIO constants, so
+# `vfio-constants` is a prerequisite. ``container-rebuild``,
+# ``docker-build``, and ``build-container`` are all aliases.
+container: vfio-constants
+	./scripts/build_container.sh
 
 container-rebuild: container
 
-docker-build:
-	./scripts/build_container.sh
+docker-build: container
 
-# Alias for container
 build-container: container
 
 # Test package build
@@ -226,10 +240,10 @@ help-upload:
 	@echo "  - Or set TWINE_USERNAME and TWINE_PASSWORD environment variables"
 	@echo ""
 	@echo "Test PyPI installation:"
-	@echo "  pip install --index-url https://test.pypi.org/simple/ pcileech-fw-generator"
+	@echo "  pip install --index-url https://test.pypi.org/simple/ pcileechfwgenerator"
 	@echo ""
 	@echo "Production PyPI installation:"
-	@echo "  pip install pcileech-fw-generator"
+	@echo "  pip install pcileechfwgenerator"
 
 # VFIO Constants targets
 vfio-constants:
@@ -241,10 +255,9 @@ vfio-constants-clean:
 	rm -f vfio_helper vfio_helper.exe
 	@echo "VFIO build artifacts cleaned"
 
-# Integration targets - build VFIO constants before container build
-container: vfio-constants
-	./scripts/build_container.sh --tag dma-fw
-
+# Integration target: build VFIO constants before the PyPI build.
+# (The container target's vfio-constants prerequisite is declared at
+# the canonical definition above.)
 build-pypi: vfio-constants
 	@echo "Running full PyPI package generation with VFIO constants..."
 	python3 scripts/generate_pypi_package.py --skip-upload

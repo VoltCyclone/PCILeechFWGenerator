@@ -55,10 +55,12 @@ class CommandManager:
         if not self.history:
             return False
 
-        command = self.history.pop()
+        # Peek so a failed undo doesn't lose the command from history.
+        command = self.history[-1]
         success = await command.undo()
 
         if success:
+            self.history.pop()
             self.undone.append(command)
 
         return success
@@ -73,10 +75,12 @@ class CommandManager:
         if not self.undone:
             return False
 
-        command = self.undone.pop()
+        # Peek so a failed redo doesn't lose the command from the undone stack.
+        command = self.undone[-1]
         success = await command.execute()
 
         if success:
+            self.undone.pop()
             self.history.append(command)
 
         return success
