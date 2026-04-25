@@ -7,23 +7,16 @@ from conventional-commit messages by git-cliff.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Bug Fixes
-
-- Address findings from in-depth review (edbfe35)
+## [0.15.0] - 2026-04-25
 
 ### Dependencies
 
 - :arrow_up:(deps): Bump softprops/action-gh-release from 2 to 3 ([#577](https://github.com/voltcyclone/PCILeechFWGenerator/pull/577)) (601d594)
 - :arrow_up:(deps): Bump actions/github-script from 8 to 9 ([#578](https://github.com/voltcyclone/PCILeechFWGenerator/pull/578)) (f00923c)
 
-### Maintenance
+### Other
 
-- Switch to setuptools-scm as the single version source (5be202a)
-- Untrack junit-unit.xml and bump site/wiki submodule pointers (af607a9)
-- Clean build, test, release pipelines and refresh README (48912bf)
-- Rename pcileech-fw-generator to pcileechfwgenerator (6f82ca5)
+- Comprehensive cleanup: review fixes, rename, pipelines, docs ([#580](https://github.com/voltcyclone/PCILeechFWGenerator/pull/580)) (b8d5bd1)
 
 ## [0.14.15] - 2026-03-31
 
