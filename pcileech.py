@@ -29,24 +29,29 @@ def _bootstrap_pcileechfwgenerator() -> None:
     ``cli.py``) we synthesize the namespace mapping so the rest of the file's
     ``from pcileechfwgenerator.*`` imports resolve.
 
-    Idempotent: safe to call multiple times.
+    Idempotent: safe to call multiple times. When the package is already
+    importable (installed via pip or already cached in ``sys.modules``) the
+    function is a no-op and does not mutate ``sys.path`` — that avoids
+    accidentally shadowing other modules in the user's environment.
     """
-    paths = (str(project_root), str(project_root / "src"))
-    for p in paths:
-        if p not in sys.path:
-            sys.path.insert(0, p)
-
-    src_path = project_root / "src"
-    if not src_path.exists():
-        return
     if "pcileechfwgenerator" in sys.modules:
         return
 
     import importlib.util
 
     if importlib.util.find_spec("pcileechfwgenerator") is not None:
-        # Package is installed (editable or regular); use that.
+        # Package is installed (editable or regular); nothing to do.
         return
+
+    src_path = project_root / "src"
+    if not src_path.exists():
+        return
+
+    # Source checkout without a pip install: extend sys.path and synthesize
+    # the namespace mapping.
+    for p in (str(project_root), str(src_path)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
     import types
 

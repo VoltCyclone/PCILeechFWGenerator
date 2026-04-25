@@ -145,6 +145,11 @@ upload-pypi:
 # Cut a release: regenerate the changelog (git-cliff), commit, tag, push.
 # setuptools-scm reads the tag at build time and the release.yml workflow
 # publishes the wheel. Usage: make release VERSION=0.14.16
+#
+# Safety:
+#  - Refuses to run with a dirty working tree (so the changelog commit
+#    can't accidentally pick up unrelated edits).
+#  - Tolerates an empty changelog diff (no new commits since last tag).
 release:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Usage: make release VERSION=X.Y.Z"; exit 1; \
@@ -153,9 +158,18 @@ release:
 		echo "git-cliff is required: brew install git-cliff (or see https://git-cliff.org/docs/installation)"; \
 		exit 1; \
 	}
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Working tree is not clean. Commit or stash changes first."; \
+		git status --short; \
+		exit 1; \
+	fi
 	git-cliff --tag v$(VERSION) -o CHANGELOG.md
-	git add CHANGELOG.md
-	git commit -m "docs(changelog): release v$(VERSION)"
+	@if git diff --quiet -- CHANGELOG.md; then \
+		echo "CHANGELOG.md unchanged — tagging v$(VERSION) directly"; \
+	else \
+		git add CHANGELOG.md && \
+		git commit -m "docs(changelog): release v$(VERSION)"; \
+	fi
 	git tag v$(VERSION)
 	git push origin HEAD --tags
 

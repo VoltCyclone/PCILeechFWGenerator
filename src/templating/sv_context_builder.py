@@ -355,10 +355,11 @@ class SVContextBuilder:
         # Use SHA-256 for good distribution
         hash_bytes = hashlib.sha256(seed_str.encode()).digest()
         
-        # Extract 64 bits from hash
+        # Extract upper 32 bits from hash. The lower 32 bits are
+        # structured separately below per PCIe spec; we don't reuse the
+        # raw hash bytes there.
         dsn_upper = int.from_bytes(hash_bytes[0:4], byteorder='big')
-        dsn_lower = int.from_bytes(hash_bytes[4:8], byteorder='big')
-        
+
         # Structure the lower 32 bits per PCIe spec:
         # Bits [23:0]: OUI derived from vendor ID (same derivation as
         #             _add_vendor_oui so both paths agree).

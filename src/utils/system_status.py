@@ -14,7 +14,7 @@ import platform
 import shutil
 import subprocess
 from functools import wraps
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Sequence, Union
 
 try:
     import psutil
@@ -46,7 +46,9 @@ def status_check(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-async def run_command(command) -> subprocess.CompletedProcess:
+async def run_command(
+    command: Union[str, Sequence[str]],
+) -> subprocess.CompletedProcess:
     """
     Run a command asynchronously.
 
