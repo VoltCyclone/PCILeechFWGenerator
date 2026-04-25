@@ -500,31 +500,31 @@ class BuildOrchestrator:
 
         # Check if container image exists
         result = await self._run_shell(
-            "podman images pcileech-fw-generator --format '{{.Repository}}'",
+            "podman images pcileechfwgenerator --format '{{.Repository}}'",
             monitor=False,
         )
 
-        if "pcileech-fw-generator" not in result.stdout:
+        if "pcileechfwgenerator" not in result.stdout:
             await self._build_container_image()
 
     async def _build_container_image(self) -> None:
         """
-        Build the pcileech-fw-generator container image.
+        Build the pcileechfwgenerator container image.
 
         Raises:
             RuntimeError: If container build fails
         """
         if self._current_progress:
             self._current_progress.current_operation = (
-                "Building container image 'pcileech-fw-generator'"
+                "Building container image 'pcileechfwgenerator'"
             )
             await self._notify_progress()
 
         try:
-            logger.info("Container image 'pcileech-fw-generator' not found.")
+            logger.info("Container image 'pcileechfwgenerator' not found.")
             logger.info("Building it now...")
             build_result = await self._run_shell(
-                "podman build -t pcileech-fw-generator:latest .", monitor=False
+                "podman build -t pcileechfwgenerator:latest .", monitor=False
             )
 
             if build_result.returncode != 0:
@@ -537,7 +537,7 @@ class BuildOrchestrator:
         except Exception as e:
             raise RuntimeError(
                 safe_format(
-                    "Container image 'pcileech-fw-generator' not found and build "
+                    "Container image 'pcileechfwgenerator' not found and build "
                     "failed: {msg}",
                     msg=str(e),
                 )
@@ -1304,7 +1304,7 @@ class BuildOrchestrator:
                 "--device=/dev/vfio/vfio",
                 "-v",
                 f"{os.getcwd()}/output:/app/output",
-                "pcileech-fw-generator:latest",
+                "pcileechfwgenerator:latest",
                 (
                     f"python3 /app/src/build.py --bdf {device.bdf} "
                     f"--board {config.board_type}"

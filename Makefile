@@ -33,9 +33,9 @@ help:
 	@echo "  release      - Full release process"
 	@echo ""
 	@echo "Container:"
-	@echo "  container         - Build container image (dma-fw) with --no-cache"
+	@echo "  container         - Build container image (pcileechfwgenerator:latest)"
 	@echo "  container-rebuild - Force rebuild container (alias for container)"
-	@echo "  docker-build      - Build container image (default tag) with --no-cache"
+	@echo "  docker-build      - Build container image (alias for container)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  check-deps      - Check system dependencies"
@@ -183,7 +183,7 @@ set-version-%:
 
 # Container targets
 container:
-	./scripts/build_container.sh --tag dma-fw
+	./scripts/build_container.sh
 
 container-rebuild: container
 
@@ -226,10 +226,10 @@ help-upload:
 	@echo "  - Or set TWINE_USERNAME and TWINE_PASSWORD environment variables"
 	@echo ""
 	@echo "Test PyPI installation:"
-	@echo "  pip install --index-url https://test.pypi.org/simple/ pcileech-fw-generator"
+	@echo "  pip install --index-url https://test.pypi.org/simple/ pcileechfwgenerator"
 	@echo ""
 	@echo "Production PyPI installation:"
-	@echo "  pip install pcileech-fw-generator"
+	@echo "  pip install pcileechfwgenerator"
 
 # VFIO Constants targets
 vfio-constants:
@@ -243,7 +243,7 @@ vfio-constants-clean:
 
 # Integration targets - build VFIO constants before container build
 container: vfio-constants
-	./scripts/build_container.sh --tag dma-fw
+	./scripts/build_container.sh
 
 build-pypi: vfio-constants
 	@echo "Running full PyPI package generation with VFIO constants..."

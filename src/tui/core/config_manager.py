@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Default cache directory for PCILeech
 CACHE_DIR = Path(
     os.environ.get(
-        "PCILEECH_CACHE_DIR", os.path.expanduser("~/.cache/pcileech-fw-generator")
+        "PCILEECH_CACHE_DIR", os.path.expanduser("~/.cache/pcileechfwgenerator")
     )
 )
 

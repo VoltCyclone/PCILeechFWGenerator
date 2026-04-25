@@ -31,12 +31,12 @@ except ImportError:
 logger = get_logger(__name__)
 
 # Cache file to avoid checking too frequently
-CACHE_FILE = Path.home() / ".cache" / "pcileech-fw-generator" / "version_check.json"
+CACHE_FILE = Path.home() / ".cache" / "pcileechfwgenerator" / "version_check.json"
 CHECK_INTERVAL_DAYS = 1  # Check once per day
 GITHUB_API_URL = (
     "https://api.github.com/repos/voltcyclone/PCILeechFWGenerator/releases/latest"
 )
-PYPI_API_URL = "https://pypi.org/pypi/pcileech-fw-generator/json"
+PYPI_API_URL = "https://pypi.org/pypi/pcileechfwgenerator/json"
 # Env var to control version source behaviour. Defaults to 'github'.
 # Allowed: 'github' (only GitHub), 'pypi' (only PyPI), 'auto' (try GitHub then PyPI).
 VERSION_SOURCE_ENV = "PCILEECH_VERSION_SOURCE"
@@ -181,7 +181,7 @@ def fetch_latest_version_github() -> Optional[str]:
         # Use a User-Agent and optional token to reduce rate-limit issues
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "pcileech-fw-generator-version-check/1",
+            "User-Agent": "pcileechfwgenerator-version-check/1",
         }
 
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -309,7 +309,7 @@ def prompt_for_update(latest_version: str):
         f"   Commit hash:     {build_info['commit_hash']}\n"
         "\n"
         "   Update with one of these commands:\n"
-        "   • pip install --upgrade pcileech-fw-generator\n"
+        "   • pip install --upgrade pcileechfwgenerator\n"
         "   • git pull (if installed from source)\n"
         "\n"
         f"   Release notes: {__url__}/releases\n" + "=" * 60 + "\n",

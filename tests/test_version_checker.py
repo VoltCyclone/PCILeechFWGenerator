@@ -138,7 +138,7 @@ class TestFetching:
         """Test successful PyPI API fetch."""
         mock_response = Mock()
         mock_response.read.return_value = json.dumps(
-            {"info": {"version": "0.6.0", "name": "pcileech-fw-generator"}}
+            {"info": {"version": "0.6.0", "name": "pcileechfwgenerator"}}
         ).encode()
         mock_urlopen.return_value.__enter__.return_value = mock_response
 

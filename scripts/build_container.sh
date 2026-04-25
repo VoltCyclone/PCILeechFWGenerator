@@ -5,7 +5,7 @@
 set -e
 
 # Default values
-CONTAINER_TAG="pcileech-fw-generator:latest"
+CONTAINER_TAG="pcileechfwgenerator:latest"
 RUN_TESTS=false
 PUSH_IMAGE=false
 CONTAINER_ENGINE="podman"
@@ -237,7 +237,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --test                  Run tests after building"
             echo "  --push                  Push image to registry after building"
-            echo "  --tag TAG               Use custom tag (default: pcileech-fw-generator:latest)"
+            echo "  --tag TAG               Use custom tag (default: pcileechfwgenerator:latest)"
             echo "  --container-engine ENG  Specify container engine to use (podman or docker)"
             echo "  --help, -h              Show this help message"
             echo
