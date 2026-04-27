@@ -1,4 +1,4 @@
 # Additional security-focused dependencies
 cryptography>=41.0.0  # For secure random generation
 paramiko>=3.0.0       # For secure connections if needed
-requests>=2.31.0      # For secure HTTP requests with vulnerability fixes
+requests>=2.33.1      # For secure HTTP requests with vulnerability fixes
