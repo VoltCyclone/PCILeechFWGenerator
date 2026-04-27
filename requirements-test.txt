@@ -34,7 +34,7 @@ sphinx-rtd-theme>=1.2.0
 testcontainers>=3.7.0
 
 # Hardware simulation (for testing without real hardware)
-pyfakefs>=5.2.0
+pyfakefs>=6.2.0
 
 # Additional utilities
 tox>=4.0.0
