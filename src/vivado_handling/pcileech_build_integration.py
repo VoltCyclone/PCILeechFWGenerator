@@ -23,6 +23,7 @@ from ..string_utils import (
     safe_format,
 )
 from ..templating.tcl_builder import BuildContext, TCLBuilder
+from ..utils.file_manifest import FileManifestTracker
 
 logger = logging.getLogger(__name__)
 
@@ -267,36 +268,10 @@ class PCILeechBuildIntegration:
                     prefix=self.prefix,
                 )
 
-        # Also copy core PCILeech files to the same src/ directory
-        core_files = TemplateDiscovery.get_pcileech_core_files(self.repo_root)
-        for filename, filepath in core_files.items():
-            dest_path = src_output_dir / filename
-            try:
-                # Use manifest tracker if available to prevent duplicates
-                if self.file_manifest:
-                    added = self.file_manifest.add_copy_operation(
-                        filepath, dest_path
-                    )
-                    if not added:
-                        continue  # Skip duplicate
-
-                shutil.copy2(filepath, dest_path)
-                copied_files.append(dest_path)
-                log_info_safe(
-                    logger,
-                    safe_format("Copied core file: {filename}", filename=filename),
-                    prefix=self.prefix,
-                )
-            except Exception as e:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Failed to copy core file {filename}: {error}",
-                        filename=filename,
-                        error=e,
-                    ),
-                    prefix=self.prefix,
-                )
+        # No "core file" fallback: every board ships its own pcileech_com.sv,
+        # pcileech_fifo.sv, etc. with board-specific FIFO/IP wiring. A repo-wide
+        # rglob would non-deterministically pick another board's variant and
+        # overwrite the correct board files, breaking synthesis (issue #581).
 
         log_info_safe(
             logger,
@@ -845,7 +820,14 @@ def integrate_pcileech_build(
     Returns:
         Path to the unified build script
     """
-    integration = PCILeechBuildIntegration(output_dir, repo_root)
+    # Provide a manifest tracker so any cross-pass copy collisions get
+    # surfaced instead of silently overwriting (defense in depth alongside
+    # the Stage-B removal in `_copy_source_files`).
+    integration = PCILeechBuildIntegration(
+        output_dir,
+        repo_root,
+        manifest_tracker=FileManifestTracker(logger=logger),
+    )
 
     # Validate compatibility if device config provided
     if device_config:

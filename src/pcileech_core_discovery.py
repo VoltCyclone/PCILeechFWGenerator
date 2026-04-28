@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .file_management.repo_manager import RepoManager
-from .file_management.template_discovery import TemplateDiscovery
 from .string_utils import log_info_safe, log_warning_safe
 
 logger = logging.getLogger(__name__)
@@ -196,19 +195,11 @@ def discover_pcileech_files(
                 path=str(found_path),
             )
 
-    # Use existing discovery mechanism for any files we haven't found yet (from cached repo)
-    core_files = TemplateDiscovery.get_pcileech_core_files(cached_repo_root)
-
-    # Only add cached files if we don't already have versions
-    for filename, filepath in core_files.items():
-        if filename not in discovered_files:
-            discovered_files[filename] = filepath
-            log_info_safe(
-                logger,
-                "Added cached file {file} at {path}",
-                file=filename,
-                path=str(filepath),
-            )
+    # Note: TemplateDiscovery.get_pcileech_core_files is intentionally not used
+    # here. It rglob's the entire cached repo and would non-deterministically
+    # pick a different board's variant of pcileech_com.sv / pcileech_fifo.sv /
+    # etc. (issue #581). The board-scoped `_enhanced_file_search` above plus
+    # the targeted critical-file fallback below are sufficient.
 
     # Report discovery statistics
     critical_found = len(CRITICAL_PCILEECH_FILES & set(discovered_files.keys()))

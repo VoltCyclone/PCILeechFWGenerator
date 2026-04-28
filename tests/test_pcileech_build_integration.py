@@ -190,42 +190,34 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
 
     @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files(self, mock_copy2):
-        """Test copying source files."""
+        """Test copying source files.
+
+        Only board-scoped source files are copied; the cross-board "core file"
+        rglob fallback was removed (issue #581) because it could non-deterministically
+        overwrite board-correct files with another board's variant.
+        """
         integration = PCILeechBuildIntegration(self.output_dir, self.repo_root)
 
         # Setup mock source files (class methods now, not instance methods)
         src_files = [Path("/tmp/test_repo/boards/artix7/src/top.v")]
         self.mock_template_discovery.get_source_files.return_value = src_files
 
-        # Setup mock core files (class methods now, not instance methods)
-        core_files = {"pcileech_core.v": Path("/tmp/test_repo/common/pcileech_core.v")}
-        self.mock_template_discovery.get_pcileech_core_files.return_value = (
-            core_files
-        )
-
         # Call the method - pass base output dir, files will go to output_dir/src/
         output_dir = Path("/tmp/output")
         result = integration._copy_source_files("artix7", output_dir)
 
-        # Check results - should have 2 files (1 source + 1 core)
-        self.assertEqual(len(result), 2)
+        # Check results - should have 1 file (board-scoped source only)
+        self.assertEqual(len(result), 1)
 
-        # Verify files are copied to src/ subdirectory with flat structure
-        expected_calls = [
-            call(src_files[0], output_dir / "src" / "top.v"),
-            call(core_files["pcileech_core.v"], output_dir / "src" / "pcileech_core.v"),
-        ]
-        mock_copy2.assert_has_calls(expected_calls, any_order=True)
+        # Verify the board-scoped source file is copied to src/
+        mock_copy2.assert_called_once_with(src_files[0], output_dir / "src" / "top.v")
 
         # Verify method calls (class methods now)
         self.mock_template_discovery.get_source_files.assert_called_once_with(
             "artix7", self.repo_root
         )
-        self.mock_template_discovery.get_pcileech_core_files.assert_called_once_with(
-            self.repo_root
-        )
-        # Note: get_board_path is no longer called with flat structure design
-        self.assertEqual(mock_copy2.call_count, 2)
+        # get_pcileech_core_files must NOT be called - it was the source of #581
+        self.mock_template_discovery.get_pcileech_core_files.assert_not_called()
 
     @patch("pcileechfwgenerator.vivado_handling.pcileech_build_integration.shutil.copy2")
     def test_copy_source_files_no_nested_src_directory(self, mock_copy2):
@@ -825,7 +817,9 @@ class TestPCILeechBuildIntegration(unittest.TestCase):
             self.assertEqual(result, Path("/tmp/output/artix7/build_all.tcl"))
 
             # Verify method calls - validate_board_compatibility should NOT be called when device_config is None
-            mock_integration_class.assert_called_once_with(self.output_dir, None)
+            args, kwargs = mock_integration_class.call_args
+            self.assertEqual(args, (self.output_dir, None))
+            self.assertIn("manifest_tracker", kwargs)
             mock_integration.create_unified_build_script.assert_called_once_with(
                 "artix7", None
             )

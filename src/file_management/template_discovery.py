@@ -603,7 +603,16 @@ class TemplateDiscovery:
         cls, repo_root: Optional[Path] = None
     ) -> Dict[str, Path]:
         """
-        Get paths to core PCILeech files that are common across boards.
+        DEPRECATED. Do not use for build copies.
+
+        The premise of "core files common across boards" is false in upstream
+        voltcyclone-fpga: every board ships its own variant of pcileech_com.sv,
+        pcileech_fifo.sv, pcileech_mux.sv, pcileech_header.svh, etc. with
+        board-specific FIFO and IP wiring. A repo-wide rglob picks an arbitrary
+        board's file (filesystem-order dependent) which corrupts synthesis when
+        used for a different target board (issue #581).
+
+        Use `get_source_files(board_name)` for board-scoped copies instead.
 
         Args:
             repo_root: Optional repository root path

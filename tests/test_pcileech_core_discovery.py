@@ -10,12 +10,6 @@ def test_discover_pcileech_files_generic(monkeypatch):
     monkeypatch.setattr(
         pcileech_core_discovery.RepoManager, "ensure_repo", lambda: Path("/tmp")
     )
-    # Patch TemplateDiscovery.get_pcileech_core_files to return a dummy file
-    monkeypatch.setattr(
-        pcileech_core_discovery.TemplateDiscovery,
-        "get_pcileech_core_files",
-        lambda repo: {"pcileech_header.svh": Path("/tmp/pcileech_header.svh")},
-    )
     # Patch _enhanced_file_search to always return a dummy path
     monkeypatch.setattr(
         pcileech_core_discovery,
@@ -48,11 +42,6 @@ def test_discover_pcileech_files_board(monkeypatch):
     # Patch board config and search
     monkeypatch.setattr(
         pcileech_core_discovery.RepoManager, "ensure_repo", lambda: Path("/tmp")
-    )
-    monkeypatch.setattr(
-        pcileech_core_discovery.TemplateDiscovery,
-        "get_pcileech_core_files",
-        lambda repo: {},
     )
 
     class DummyBoardConfig(dict):
@@ -101,11 +90,6 @@ def test_discover_pcileech_files_board_config_error(monkeypatch):
     monkeypatch.setattr(
         pcileech_core_discovery.RepoManager, "ensure_repo", lambda: Path("/tmp")
     )
-    monkeypatch.setattr(
-        pcileech_core_discovery.TemplateDiscovery,
-        "get_pcileech_core_files",
-        lambda repo: {},
-    )
 
     def raise_import_error(*args, **kwargs):
         raise ImportError("fail")
@@ -125,11 +109,6 @@ def test_discover_pcileech_files_board_path_error(monkeypatch):
     # Simulate board path lookup error
     monkeypatch.setattr(
         pcileech_core_discovery.RepoManager, "ensure_repo", lambda: Path("/tmp")
-    )
-    monkeypatch.setattr(
-        pcileech_core_discovery.TemplateDiscovery,
-        "get_pcileech_core_files",
-        lambda repo: {},
     )
 
     class DummyBoardConfig(dict):
