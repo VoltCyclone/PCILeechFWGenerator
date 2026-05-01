@@ -31,7 +31,7 @@ sphinx>=6.0.0
 sphinx-rtd-theme>=3.1.0
 
 # Container testing
-testcontainers>=3.7.0
+testcontainers>=4.14.2
 
 # Hardware simulation (for testing without real hardware)
 pyfakefs>=6.2.0
