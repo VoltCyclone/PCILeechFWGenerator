@@ -23,7 +23,7 @@ memory-profiler>=0.60.0
 
 # Mock and testing utilities
 responses>=0.23.0
-freezegun>=1.2.0
+freezegun>=1.5.5
 factory-boy>=3.2.0
 
 # Documentation testing
