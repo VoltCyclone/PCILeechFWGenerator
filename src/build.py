@@ -1808,6 +1808,121 @@ class FirmwareBuilder:
             )
             raise
 
+        # Patch staged sources with donor IDs. Kept outside the copy try/except
+        # so a FifoPatchError doesn't get logged as "Failed to copy TCL scripts".
+        self._patch_fifo_with_donor_ids(result)
+
+    def _patch_fifo_with_donor_ids(self, result: Dict[str, Any]) -> None:
+        """Rewrite donor PCIe IDs into the staged ``pcileech_fifo.sv``.
+
+        Closes issue #593: upstream ships the FIFO with hardcoded Xilinx IDs
+        in the RW reset block, and the CaptainDMA/75t484_x1 fifo references
+        ``IfPCIeFifoCore`` fields its header doesn't declare. Both are fixed
+        post-copy so the upstream submodule stays unmodified.
+
+        Also writes a Vivado TCL override for the PCIe IP's CONFIG.* fields so
+        the host sees donor IDs during PCIe enumeration (T2).
+        """
+        from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
+            FifoPatchError,
+            apply_fifo_donor_patch,
+            donor_ids_from_template_context,
+        )
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            PcieIpOverrideError,
+            apply_pcie_ip_donor_override,
+        )
+
+        donor = donor_ids_from_template_context(
+            result.get("template_context", {})
+        )
+        if donor is None:
+            log_warning_safe(
+                self.logger,
+                "Skipping FIFO donor-ID patch: vendor/device IDs missing "
+                "from template context. Generated firmware will report "
+                "Xilinx defaults (issue #593).",
+                prefix="BUILD",
+            )
+            return
+
+        src_dir = self.config.output_dir / "src"
+        try:
+            summary = apply_fifo_donor_patch(src_dir, donor)
+        except FifoPatchError as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "FIFO donor-ID patch failed: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
+            raise
+
+        if not summary.get("processed"):
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "FIFO not patched: {reason}",
+                    reason=summary.get("reason", "unknown"),
+                ),
+                prefix="BUILD",
+            )
+        else:
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "  • Patched FIFO with donor IDs "
+                    "(vendor=0x{vid:04X} device=0x{did:04X} rev=0x{rev:02X})",
+                    vid=donor.vendor_id,
+                    did=donor.device_id,
+                    rev=donor.revision_id,
+                ),
+                prefix="BUILD",
+            )
+            if summary.get("cfg_assigns_commented"):
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Board {board}: pcileech_fifo.sv writes to "
+                        "dpcie.pcie_cfg_* fields the staged "
+                        "pcileech_header.svh does not declare. The patcher "
+                        "commented those assigns out so synthesis succeeds; "
+                        "donor IDs reach the design via the cfgspace shadow "
+                        "and the IP CONFIG override (issue #593).",
+                        board=self.config.board,
+                    ),
+                    prefix="BUILD",
+                )
+
+        # Override the Vivado PCIe IP CONFIG so donor IDs reach the IP
+        # block itself, not just the cfgspace shadow.
+        try:
+            ip_summary = apply_pcie_ip_donor_override(
+                self.config.output_dir, donor
+            )
+        except PcieIpOverrideError as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "PCIe IP donor override skipped: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
+            return
+
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "  • Wired PCIe IP CONFIG override into {count} "
+                "generate-project script(s)",
+                count=len(ip_summary["wired_scripts"]),
+            ),
+            prefix="BUILD",
+        )
+
     def _write_xdc_files(self, result: Dict[str, Any]) -> None:
         """Write XDC constraint files to output directory."""
         ctx = result.get("template_context", {})
