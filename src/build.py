@@ -1788,6 +1788,8 @@ class FirmwareBuilder:
             fm.copy_pcileech_sources(self.config.board)
             tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
 
+            self._patch_fifo_with_donor_ids(result)
+
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1807,6 +1809,76 @@ class FirmwareBuilder:
                 prefix="BUILD",
             )
             raise
+
+    def _patch_fifo_with_donor_ids(self, result: Dict[str, Any]) -> None:
+        """Rewrite donor PCIe IDs into the staged ``pcileech_fifo.sv``.
+
+        Closes issue #593: upstream ships the FIFO with hardcoded Xilinx IDs
+        in the RW reset block, and the CaptainDMA/75t484_x1 fifo references
+        ``IfPCIeFifoCore`` fields its header doesn't declare. Both are fixed
+        post-copy so the upstream submodule stays unmodified.
+        """
+        from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
+            FifoPatchError,
+            apply_fifo_donor_patch,
+            donor_ids_from_template_context,
+        )
+
+        donor = donor_ids_from_template_context(
+            result.get("template_context", {})
+        )
+        if donor is None:
+            log_warning_safe(
+                self.logger,
+                "Skipping FIFO donor-ID patch: vendor/device IDs missing "
+                "from template context. Generated firmware will report "
+                "Xilinx defaults (issue #593).",
+                prefix="BUILD",
+            )
+            return
+
+        src_dir = self.config.output_dir / "src"
+        try:
+            summary = apply_fifo_donor_patch(src_dir, donor)
+        except FifoPatchError as e:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "FIFO donor-ID patch failed: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
+            raise
+
+        if not summary.get("patched"):
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "FIFO not patched: {reason}",
+                    reason=summary.get("reason", "unknown"),
+                ),
+                prefix="BUILD",
+            )
+            return
+
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "  • Patched FIFO with donor IDs "
+                "(vendor=0x{vid:04X} device=0x{did:04X} rev=0x{rev:02X}"
+                "{cmt})",
+                vid=donor.vendor_id,
+                did=donor.device_id,
+                rev=donor.revision_id,
+                cmt=(
+                    "; commented undefined cfg-id assigns"
+                    if summary.get("cfg_assigns_commented")
+                    else ""
+                ),
+            ),
+            prefix="BUILD",
+        )
 
     def _write_xdc_files(self, result: Dict[str, Any]) -> None:
         """Write XDC constraint files to output directory."""
