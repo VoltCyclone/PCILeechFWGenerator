@@ -1817,11 +1817,18 @@ class FirmwareBuilder:
         in the RW reset block, and the CaptainDMA/75t484_x1 fifo references
         ``IfPCIeFifoCore`` fields its header doesn't declare. Both are fixed
         post-copy so the upstream submodule stays unmodified.
+
+        Also writes a Vivado TCL override for the PCIe IP's CONFIG.* fields so
+        the host sees donor IDs during PCIe enumeration (T2).
         """
         from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
             FifoPatchError,
             apply_fifo_donor_patch,
             donor_ids_from_template_context,
+        )
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            PcieIpOverrideError,
+            apply_pcie_ip_donor_override,
         )
 
         donor = donor_ids_from_template_context(
@@ -1860,22 +1867,48 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD",
             )
+        else:
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "  • Patched FIFO with donor IDs "
+                    "(vendor=0x{vid:04X} device=0x{did:04X} rev=0x{rev:02X}"
+                    "{cmt})",
+                    vid=donor.vendor_id,
+                    did=donor.device_id,
+                    rev=donor.revision_id,
+                    cmt=(
+                        "; commented undefined cfg-id assigns"
+                        if summary.get("cfg_assigns_commented")
+                        else ""
+                    ),
+                ),
+                prefix="BUILD",
+            )
+
+        # Override the Vivado PCIe IP CONFIG so donor IDs reach the IP
+        # block itself, not just the cfgspace shadow.
+        try:
+            ip_summary = apply_pcie_ip_donor_override(
+                self.config.output_dir, donor
+            )
+        except PcieIpOverrideError as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "PCIe IP donor override skipped: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
             return
 
         log_info_safe(
             self.logger,
             safe_format(
-                "  • Patched FIFO with donor IDs "
-                "(vendor=0x{vid:04X} device=0x{did:04X} rev=0x{rev:02X}"
-                "{cmt})",
-                vid=donor.vendor_id,
-                did=donor.device_id,
-                rev=donor.revision_id,
-                cmt=(
-                    "; commented undefined cfg-id assigns"
-                    if summary.get("cfg_assigns_commented")
-                    else ""
-                ),
+                "  • Wired PCIe IP CONFIG override into {count} "
+                "generate-project script(s)",
+                count=len(ip_summary["wired_scripts"]),
             ),
             prefix="BUILD",
         )
