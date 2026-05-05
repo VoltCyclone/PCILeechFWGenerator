@@ -342,6 +342,45 @@ class TestApplyFifoDonorPatch:
         assert result["patched"] is True
         assert result["cfg_assigns_commented"] is False
 
+    def test_raises_on_unpatchable_unknown_field(self, tmp_path):
+        # A fifo that writes to an interface field neither in the header nor
+        # in the patcher's known set of "comment me out" fields. Patcher must
+        # not silently leave the broken assign — raise so the build aborts
+        # before Vivado does.
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        rogue_fifo = CAPTAIN_75T_FIFO + textwrap.dedent(
+            """
+            assign dpcie.totally_made_up_field = 1'b0;
+            """
+        )
+        (src_dir / "pcileech_fifo.sv").write_text(rogue_fifo)
+        (src_dir / "pcileech_header.svh").write_text(HEADER_WITHOUT_CFG_FIELDS)
+
+        with pytest.raises(FifoPatchError) as exc:
+            apply_fifo_donor_patch(src_dir, _intel_donor())
+        assert "totally_made_up_field" in str(exc.value)
+
+    def test_unknown_field_passes_when_declared_in_header(self, tmp_path):
+        # Same rogue field, but the header declares it — no error.
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        rogue_fifo = CAPTAIN_75T_FIFO + textwrap.dedent(
+            """
+            assign dpcie.totally_made_up_field = 1'b0;
+            """
+        )
+        (src_dir / "pcileech_fifo.sv").write_text(rogue_fifo)
+        (src_dir / "pcileech_header.svh").write_text(
+            HEADER_WITH_CFG_FIELDS.replace(
+                "endinterface",
+                "    wire totally_made_up_field;\nendinterface",
+            )
+        )
+
+        result = apply_fifo_donor_patch(src_dir, _intel_donor())
+        assert result["patched"] is True
+
     def test_propagates_patch_errors(self, tmp_path):
         src_dir = tmp_path / "src"
         src_dir.mkdir()

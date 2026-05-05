@@ -64,6 +64,19 @@ _CFG_ID_ASSIGN_RE = re.compile(
     r"(subsys_vend_id|subsys_id|vend_id|dev_id|rev_id)\b"
 )
 
+# Active (non-commented) assign to any dpcie field. Used to detect mismatches
+# between the staged fifo and header that the patcher can't auto-fix.
+_DPCIE_ASSIGN_RE = re.compile(
+    r"^\s*assign\s+dpcie\.([A-Za-z_][A-Za-z0-9_]*)\b"
+)
+
+# A wire/reg/logic declaration name inside an interface body. Conservative
+# regex: matches "wire <field>" / "wire [N:0] <field>" forms. We're only
+# checking presence-by-name, so this doesn't need to be a full SV parser.
+_INTERFACE_WIRE_RE = re.compile(
+    r"\b(?:wire|reg|logic)\b(?:\s*\[[^\]]+\])?\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+
 _HEADER_FIELD_TOKENS = (
     "pcie_cfg_subsys_vend_id",
     "pcie_cfg_subsys_id",
@@ -267,6 +280,56 @@ def donor_ids_from_template_context(
     )
 
 
+def _extract_interface_member_names(header_text: str) -> set:
+    """Return the union of wire/reg/logic names declared in the header.
+
+    We don't scope the search to a single interface block — substring presence
+    anywhere in the header is enough to decide whether a fifo's
+    ``assign dpcie.<field>`` will resolve.
+    """
+    names: set = set()
+    for match in _INTERFACE_WIRE_RE.finditer(header_text):
+        names.add(match.group(1))
+    return names
+
+
+def _detect_unpatched_dpcie_mismatches(
+    fifo_text: str, header_text: Optional[str]
+) -> list:
+    """Return dpcie fields the fifo writes to that the header doesn't declare.
+
+    Lines that are commented out are skipped. The patcher's known cfg-id
+    fields are also excluded (they're handled by the comment-out branch).
+    """
+    if header_text is None:
+        return []
+
+    declared = _extract_interface_member_names(header_text)
+    known_cfg_fields = {f"pcie_cfg_{tag}" for tag in (
+        "subsys_vend_id", "subsys_id", "vend_id", "dev_id", "rev_id"
+    )}
+
+    missing = []
+    for line in fifo_text.splitlines():
+        if line.lstrip().startswith("//"):
+            continue
+        match = _DPCIE_ASSIGN_RE.match(line)
+        if not match:
+            continue
+        field = match.group(1)
+        if field in declared or field in known_cfg_fields:
+            continue
+        missing.append(field)
+    # Stable, de-duplicated.
+    seen = set()
+    out = []
+    for field in missing:
+        if field not in seen:
+            seen.add(field)
+            out.append(field)
+    return out
+
+
 def apply_fifo_donor_patch(
     src_dir: Path,
     donor: DonorIDs,
@@ -292,10 +355,28 @@ def apply_fifo_donor_patch(
 
     new_text = patch_pcileech_fifo(fifo_text, donor, header_text=header_text)
 
+    def _active_cfg_id_assigns(text: str) -> int:
+        return sum(
+            1
+            for line in text.splitlines()
+            if not line.lstrip().startswith("//")
+            and _CFG_ID_ASSIGN_RE.match(line) is not None
+        )
+
     cfg_commented = (
-        header_text is not None
-        and not _header_declares_cfg_fields(header_text)
+        _active_cfg_id_assigns(fifo_text) > _active_cfg_id_assigns(new_text)
     )
+
+    # After the patcher has commented-out the known cfg-id mismatches, any
+    # remaining dpcie.<field> assigned in the fifo but absent from the header
+    # is a mismatch we can't auto-fix. Surface it before Vivado runs.
+    leftover = _detect_unpatched_dpcie_mismatches(new_text, header_text)
+    if leftover:
+        raise FifoPatchError(
+            "FIFO writes to dpcie fields not declared in the staged header: "
+            + ", ".join(leftover)
+            + f" ({fifo_path.name})"
+        )
 
     if new_text != fifo_text:
         fifo_path.write_text(new_text)

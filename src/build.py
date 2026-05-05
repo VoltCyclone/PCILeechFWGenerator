@@ -1872,19 +1872,27 @@ class FirmwareBuilder:
                 self.logger,
                 safe_format(
                     "  • Patched FIFO with donor IDs "
-                    "(vendor=0x{vid:04X} device=0x{did:04X} rev=0x{rev:02X}"
-                    "{cmt})",
+                    "(vendor=0x{vid:04X} device=0x{did:04X} rev=0x{rev:02X})",
                     vid=donor.vendor_id,
                     did=donor.device_id,
                     rev=donor.revision_id,
-                    cmt=(
-                        "; commented undefined cfg-id assigns"
-                        if summary.get("cfg_assigns_commented")
-                        else ""
-                    ),
                 ),
                 prefix="BUILD",
             )
+            if summary.get("cfg_assigns_commented"):
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "Board {board}: pcileech_fifo.sv writes to "
+                        "dpcie.pcie_cfg_* fields the staged "
+                        "pcileech_header.svh does not declare. The patcher "
+                        "commented those assigns out so synthesis succeeds; "
+                        "donor IDs reach the design via the cfgspace shadow "
+                        "and the IP CONFIG override (issue #593).",
+                        board=self.config.board,
+                    ),
+                    prefix="BUILD",
+                )
 
         # Override the Vivado PCIe IP CONFIG so donor IDs reach the IP
         # block itself, not just the cfgspace shadow.
