@@ -77,7 +77,8 @@ class TestBoard75t:
         staging_root = staged_board("75t")
         result = _apply_patch(staging_root)
 
-        assert result["patched"] is True
+        assert result["processed"] is True
+        assert result["changed"] is True
         # EnigmaX1 has no cfg-id assigns to begin with.
         assert result["cfg_assigns_commented"] is False
 
@@ -118,7 +119,8 @@ class TestBoardPcileech75t484x1:
         staging_root = staged_board("pcileech_75t484_x1")
         result = _apply_patch(staging_root)
 
-        assert result["patched"] is True
+        assert result["processed"] is True
+        assert result["changed"] is True
         # CaptainDMA/75t484_x1 ships fifo writes to interface fields the
         # header doesn't declare — patcher must comment them.
         assert result["cfg_assigns_commented"] is True
@@ -160,9 +162,7 @@ class TestBoardPcileech75t484x1:
         _apply_patch(staging_root)
 
         fifo = (staging_root / "src" / "pcileech_fifo.sv").read_text()
-        # The patcher does textual rewrites; the rough structure should
-        # still be balanced. begin/end and (/) counts are a cheap canary.
-        assert fifo.count("begin") == fifo.count("end") - fifo.count("endmodule") - fifo.count("endcase") - fifo.count("endtask") - fifo.count("endinterface") - fifo.count("endgenerate") or True  # noqa: PLR1714
-        # parens/brackets must be exactly balanced
+        # The patcher does textual rewrites; parens/brackets must remain
+        # exactly balanced (a cheap canary against truncating mid-expression).
         assert fifo.count("(") == fifo.count(")")
         assert fifo.count("[") == fifo.count("]")

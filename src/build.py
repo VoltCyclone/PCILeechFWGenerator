@@ -1788,8 +1788,6 @@ class FirmwareBuilder:
             fm.copy_pcileech_sources(self.config.board)
             tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
 
-            self._patch_fifo_with_donor_ids(result)
-
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -1809,6 +1807,10 @@ class FirmwareBuilder:
                 prefix="BUILD",
             )
             raise
+
+        # Patch staged sources with donor IDs. Kept outside the copy try/except
+        # so a FifoPatchError doesn't get logged as "Failed to copy TCL scripts".
+        self._patch_fifo_with_donor_ids(result)
 
     def _patch_fifo_with_donor_ids(self, result: Dict[str, Any]) -> None:
         """Rewrite donor PCIe IDs into the staged ``pcileech_fifo.sv``.
@@ -1858,7 +1860,7 @@ class FirmwareBuilder:
             )
             raise
 
-        if not summary.get("patched"):
+        if not summary.get("processed"):
             log_warning_safe(
                 self.logger,
                 safe_format(

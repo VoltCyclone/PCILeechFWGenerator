@@ -304,7 +304,8 @@ class TestApplyFifoDonorPatch:
 
         result = apply_fifo_donor_patch(src_dir, _intel_donor())
 
-        assert result["patched"] is True
+        assert result["processed"] is True
+        assert result["changed"] is True
         assert result["fifo_path"] == fifo_path
         assert result["cfg_assigns_commented"] is True
 
@@ -328,7 +329,8 @@ class TestApplyFifoDonorPatch:
 
         result = apply_fifo_donor_patch(src_dir, _intel_donor())
 
-        assert result["patched"] is False
+        assert result["processed"] is False
+        assert result["changed"] is False
         assert result.get("reason") == "fifo_not_found"
 
     def test_leaves_assigns_when_header_declares_fields(self, tmp_path):
@@ -339,7 +341,7 @@ class TestApplyFifoDonorPatch:
 
         result = apply_fifo_donor_patch(src_dir, _intel_donor())
 
-        assert result["patched"] is True
+        assert result["processed"] is True
         assert result["cfg_assigns_commented"] is False
 
     def test_raises_on_unpatchable_unknown_field(self, tmp_path):
@@ -379,7 +381,29 @@ class TestApplyFifoDonorPatch:
         )
 
         result = apply_fifo_donor_patch(src_dir, _intel_donor())
-        assert result["patched"] is True
+        assert result["processed"] is True
+
+    def test_xilinx_donor_does_not_rewrite_file(self, tmp_path):
+        # Round-trip case: donor IDs match upstream Xilinx defaults, so the
+        # patch is a no-op. processed=True (we ran the pipeline) but
+        # changed=False (file untouched on disk).
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
+        same = DonorIDs(
+            vendor_id=0x10EE,
+            device_id=0x0666,
+            subsystem_vendor_id=0x10EE,
+            subsystem_id=0x0007,
+            revision_id=0x02,
+        )
+        mtime_before = (src_dir / "pcileech_fifo.sv").stat().st_mtime_ns
+        result = apply_fifo_donor_patch(src_dir, same)
+        mtime_after = (src_dir / "pcileech_fifo.sv").stat().st_mtime_ns
+
+        assert result["processed"] is True
+        assert result["changed"] is False
+        assert mtime_before == mtime_after
 
     def test_propagates_patch_errors(self, tmp_path):
         src_dir = tmp_path / "src"
@@ -469,13 +493,20 @@ class TestBuildWiring:
     """The build's _patch_fifo_with_donor_ids step calls into the patcher."""
 
     def _make_builder(self, output_dir):
-        # Some other tests in the suite stub `pcileechfwgenerator.build`
-        # via sys.modules and never restore it. Force a real reimport so
-        # FirmwareBuilder resolves regardless of test ordering.
+        # Some other tests stub `pcileechfwgenerator.build` via sys.modules
+        # (test_container_unit, test_orchestration_local) and never restore it.
+        # Force a reimport only when the cached FirmwareBuilder is missing
+        # the method under test — popping an already-loaded real module would
+        # invalidate other tests' patches against it.
         import importlib
         import sys as _sys
-        _sys.modules.pop("pcileechfwgenerator.build", None)
-        build_module = importlib.import_module("pcileechfwgenerator.build")
+        cached = _sys.modules.get("pcileechfwgenerator.build")
+        builder_cls = getattr(cached, "FirmwareBuilder", None)
+        if builder_cls is None or not hasattr(builder_cls, "_patch_fifo_with_donor_ids"):
+            _sys.modules.pop("pcileechfwgenerator.build", None)
+            build_module = importlib.import_module("pcileechfwgenerator.build")
+        else:
+            build_module = cached
         FirmwareBuilder = build_module.FirmwareBuilder
 
         builder = FirmwareBuilder.__new__(FirmwareBuilder)

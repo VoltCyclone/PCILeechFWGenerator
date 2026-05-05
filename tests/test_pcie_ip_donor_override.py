@@ -148,20 +148,20 @@ class TestApplyPcieIpDonorOverride:
             apply_pcie_ip_donor_override(tmp_path, _intel_donor())
         assert "vivado_generate_project" in str(exc.value)
 
-    def test_picks_first_matching_script(self, tmp_path):
-        # Some boards ship multiple variants (e.g. _35t and _100t); pick the
-        # first deterministically and wire into it.
+    def test_wires_into_all_matching_scripts(self, tmp_path):
+        # Some boards ship multiple variants (e.g. _35t and _100t). We can't
+        # know which one vivado_build.tcl will actually source, so wire the
+        # override into every match instead of guessing.
         (tmp_path / "vivado_generate_project_35t.tcl").write_text(_FAKE_GENERATE_PROJECT)
         (tmp_path / "vivado_generate_project_100t.tcl").write_text(_FAKE_GENERATE_PROJECT)
 
         result = apply_pcie_ip_donor_override(tmp_path, _intel_donor())
 
-        # Both should get the source line — applying overrides to whichever
-        # script Vivado ends up calling is safer than guessing.
         for name in ("vivado_generate_project_35t.tcl", "vivado_generate_project_100t.tcl"):
             assert "pcileech_donor_ip_overrides.tcl" in (tmp_path / name).read_text()
 
         assert result["override_path"].is_file()
+        assert len(result["wired_scripts"]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -173,13 +173,20 @@ class TestBuildWiringIpOverride:
     """FirmwareBuilder._patch_fifo_with_donor_ids also wires the IP override."""
 
     def _make_builder(self, output_dir):
-        # Some other tests in the suite stub `pcileechfwgenerator.build`
-        # via sys.modules and never restore it. Force a real reimport so
-        # FirmwareBuilder resolves regardless of test ordering.
+        # Some other tests stub `pcileechfwgenerator.build` via sys.modules
+        # (test_container_unit, test_orchestration_local) and never restore it.
+        # Force a reimport only when the cached FirmwareBuilder is missing
+        # the method under test — popping an already-loaded real module would
+        # invalidate other tests' patches against it.
         import importlib
         import sys as _sys
-        _sys.modules.pop("pcileechfwgenerator.build", None)
-        build_module = importlib.import_module("pcileechfwgenerator.build")
+        cached = _sys.modules.get("pcileechfwgenerator.build")
+        builder_cls = getattr(cached, "FirmwareBuilder", None)
+        if builder_cls is None or not hasattr(builder_cls, "_patch_fifo_with_donor_ids"):
+            _sys.modules.pop("pcileechfwgenerator.build", None)
+            build_module = importlib.import_module("pcileechfwgenerator.build")
+        else:
+            build_module = cached
         FirmwareBuilder = build_module.FirmwareBuilder
 
         builder = FirmwareBuilder.__new__(FirmwareBuilder)

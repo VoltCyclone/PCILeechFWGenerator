@@ -340,14 +340,19 @@ def apply_fifo_donor_patch(
     """Patch ``<src_dir>/pcileech_fifo.sv`` in place.
 
     Returns a summary dict with keys:
-      - ``patched``: whether the fifo file was rewritten.
-      - ``fifo_path``: Path of the fifo file (only when patched).
-      - ``cfg_assigns_commented``: whether the cfg-id assigns were commented.
-      - ``reason``: present only when ``patched`` is False.
+      - ``processed``: whether the fifo file was found and run through the
+        patch pipeline. ``False`` when the file is missing.
+      - ``changed``: whether the fifo was actually rewritten on disk.
+        ``False`` for round-trip cases (e.g. donor matches the upstream
+        Xilinx defaults).
+      - ``fifo_path``: Path of the fifo file (only when ``processed``).
+      - ``cfg_assigns_commented``: whether any cfg-id assigns were
+        commented out (only when ``processed``).
+      - ``reason``: present only when ``processed`` is ``False``.
     """
     fifo_path = Path(src_dir) / fifo_filename
     if not fifo_path.is_file():
-        return {"patched": False, "reason": "fifo_not_found"}
+        return {"processed": False, "changed": False, "reason": "fifo_not_found"}
 
     fifo_text = fifo_path.read_text()
     header_path = Path(src_dir) / header_filename
@@ -378,11 +383,13 @@ def apply_fifo_donor_patch(
             + f" ({fifo_path.name})"
         )
 
-    if new_text != fifo_text:
+    changed = new_text != fifo_text
+    if changed:
         fifo_path.write_text(new_text)
 
     return {
-        "patched": True,
+        "processed": True,
+        "changed": changed,
         "fifo_path": fifo_path,
         "cfg_assigns_commented": cfg_commented,
     }

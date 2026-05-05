@@ -25,7 +25,11 @@ class PcieIpOverrideError(RuntimeError):
 
 
 _OVERRIDE_FILENAME = "pcileech_donor_ip_overrides.tcl"
-_SOURCE_MARKER = f"source [file dirname [info script]]/{_OVERRIDE_FILENAME}"
+# Use ``file join`` so paths containing spaces don't tokenize incorrectly
+# in Tcl. Equivalent for sane paths but more idiomatic and robust.
+_SOURCE_MARKER = (
+    f"source [file join [file dirname [info script]] {_OVERRIDE_FILENAME}]"
+)
 
 
 def generate_pcie_ip_override_tcl(
