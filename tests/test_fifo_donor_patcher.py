@@ -469,7 +469,14 @@ class TestBuildWiring:
     """The build's _patch_fifo_with_donor_ids step calls into the patcher."""
 
     def _make_builder(self, output_dir):
-        from pcileechfwgenerator.build import FirmwareBuilder
+        # Some other tests in the suite stub `pcileechfwgenerator.build`
+        # via sys.modules and never restore it. Force a real reimport so
+        # FirmwareBuilder resolves regardless of test ordering.
+        import importlib
+        import sys as _sys
+        _sys.modules.pop("pcileechfwgenerator.build", None)
+        build_module = importlib.import_module("pcileechfwgenerator.build")
+        FirmwareBuilder = build_module.FirmwareBuilder
 
         builder = FirmwareBuilder.__new__(FirmwareBuilder)
         builder.config = type(
