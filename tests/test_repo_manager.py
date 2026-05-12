@@ -50,3 +50,63 @@ def test_ensure_repo_incomplete_boards(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setattr(repo_manager.RepoManager, "_is_valid_repo", classmethod(lambda cls, p: True))
     with pytest.raises(RuntimeError):
         repo_manager.RepoManager.ensure_repo()
+
+
+def test_is_repository_accessible_unknown_board_chains_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad board_type must produce a chained RuntimeError that names the
+    board and preserves the underlying exception via __cause__."""
+    assets = tmp_path / "voltcyclone-fpga"
+    _seed_minimal_submodule(assets)
+    monkeypatch.setattr(
+        repo_manager.RepoManager,
+        "_is_valid_repo",
+        classmethod(lambda cls, p: True),
+    )
+
+    underlying = FileNotFoundError("no such board")
+
+    def _boom(*_args, **_kwargs):
+        raise underlying
+
+    monkeypatch.setattr(repo_manager.RepoManager, "get_board_path", _boom)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        repo_manager.is_repository_accessible(
+            "Nonexistent_Board", repo_root=assets
+        )
+
+    msg = str(excinfo.value)
+    # The board name and underlying cause must both survive the
+    # double-wrap (inner "Board not found" + outer "Repository not accessible").
+    assert "Nonexistent_Board" in msg
+    # Walk the __cause__ chain to the original FileNotFoundError.
+    cause = excinfo.value.__cause__
+    causes = []
+    while cause is not None:
+        causes.append(cause)
+        cause = cause.__cause__
+    assert underlying in causes
+
+
+def test_is_repository_accessible_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: returns True when repo is valid and the board resolves."""
+    assets = tmp_path / "voltcyclone-fpga"
+    _seed_minimal_submodule(assets)
+    monkeypatch.setattr(
+        repo_manager.RepoManager,
+        "_is_valid_repo",
+        classmethod(lambda cls, p: True),
+    )
+    monkeypatch.setattr(
+        repo_manager.RepoManager,
+        "get_board_path",
+        classmethod(lambda cls, board, repo_root=None: assets / board),
+    )
+    assert (
+        repo_manager.is_repository_accessible("CaptainDMA", repo_root=assets)
+        is True
+    )
