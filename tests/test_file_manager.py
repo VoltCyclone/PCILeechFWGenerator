@@ -794,8 +794,9 @@ def test_bug528_coe_files_overwrite_template_with_device_ids(
     file_manager = FileManager(output_dir=output_dir)
     
     # Mock RepoManager to return our mock repository
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
+    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager_class:
+        repo_manager_instance = mock_repo_manager_class.return_value
+        repo_manager_instance.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
         
         # Execute: Copy IP files (this should copy templates then overwrite with generated)
         copied_files = file_manager.copy_ip_files(board="CaptainDMA_75t")

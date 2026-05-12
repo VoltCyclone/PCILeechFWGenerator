@@ -155,7 +155,7 @@ class DeviceIdentification:
         """Validate device identification values."""
         if not (0x0001 <= self.vendor_id <= 0xFFFE):
             raise ValueError(f"Invalid vendor ID: 0x{self.vendor_id:04X}")
-        if not (0x0001 <= self.device_id <= 0xFFFF):
+        if not (0x0000 <= self.device_id <= 0xFFFF):
             raise ValueError(f"Invalid device ID: 0x{self.device_id:04X}")
         if not (0x000000 <= self.class_code <= 0xFFFFFF):
             raise ValueError(f"Invalid class code: 0x{self.class_code:06X}")
