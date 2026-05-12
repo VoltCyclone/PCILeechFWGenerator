@@ -8,9 +8,10 @@ assignees: ''
 
 <!--
 Before filing:
-- Search existing issues and discussions to avoid duplicates.
-- For open-ended ideas or "would it be possible to..." questions, please open
-  a Discussion instead — issues are for concrete proposals we can act on.
+- Search existing issues to avoid duplicates.
+- For open-ended ideas or "would it be possible to..." questions, please ask
+  in the support Discord (https://discord.gg/dwQfMNsb7W) — issues are for
+  concrete proposals we can act on.
 -->
 
 ## Problem / motivation

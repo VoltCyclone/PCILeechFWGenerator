@@ -6,6 +6,6 @@ contact_links:
   - name: 📚 Documentation
     url: https://github.com/VoltCyclone/PCILeechFWGenerator#readme
     about: Check the README and docs/ before filing — your question may already be answered.
-  - name: 💬 Question or open-ended idea
-    url: https://github.com/VoltCyclone/PCILeechFWGenerator/discussions
-    about: For "does this work with…" / "how do I…" / brainstorming, please use Discussions.
+  - name: 💬 Question, hardware compatibility, or open-ended idea
+    url: https://discord.gg/dwQfMNsb7W
+    about: For "does this work with…" / "how do I…" / brainstorming, please ask in the support Discord.
