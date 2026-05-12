@@ -21,7 +21,7 @@
 [![Wheel](https://img.shields.io/badge/wheel-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
 [![Source Distribution](https://img.shields.io/badge/sdist-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
 
-![Discord](https://dcbadge.limes.pink/api/shield/429866199833247744)
+[![Discord](https://img.shields.io/badge/Discord-Support-5865F2?logo=discord&logoColor=white)](https://discord.gg/dwQfMNsb7W)
 
 Generate authentic PCIe DMA firmware from real donor hardware using a **3-stage host-container-host pipeline**. This tool extracts donor configurations from a local device via VFIO and generates unique PCILeech FPGA bitstreams.
 

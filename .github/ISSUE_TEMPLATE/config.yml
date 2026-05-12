@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔐 Security vulnerability
+    url: https://github.com/VoltCyclone/PCILeechFWGenerator/security/advisories/new
+    about: Please report security issues privately via GitHub Security Advisories, not public issues.
+  - name: 📚 Documentation
+    url: https://github.com/VoltCyclone/PCILeechFWGenerator#readme
+    about: Check the README and docs/ before filing — your question may already be answered.
+  - name: 💬 Question, hardware compatibility, or open-ended idea
+    url: https://discord.gg/dwQfMNsb7W
+    about: For "does this work with…" / "how do I…" / brainstorming, please ask in the support Discord.

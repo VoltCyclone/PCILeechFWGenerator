@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-mcp.json",
+  "_comment": "Shared MCP servers for PCILeechFWGenerator. Contributors using Claude Code pick these up automatically. The GitHub server needs GITHUB_PERSONAL_ACCESS_TOKEN set in your shell (a fine-grained PAT with repo + pull-request + workflow scopes is sufficient).",
+  "mcpServers": {
+    "github": {
+      "args": [ "-y", "@modelcontextprotocol/server-github" ],
+      "command": "npx",
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
