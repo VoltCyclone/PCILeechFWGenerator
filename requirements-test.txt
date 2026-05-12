@@ -37,7 +37,7 @@ testcontainers>=4.14.2
 pyfakefs>=6.2.0
 
 # Additional utilities
-tox>=4.53.0
+tox>=4.53.1
 coverage[toml]>=7.14.0
 
 # HTTP client for GitHub integration
