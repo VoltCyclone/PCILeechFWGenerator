@@ -18,9 +18,10 @@ Expected kernel layout:
 import os
 import pathlib
 import platform
+import shutil
 import subprocess
 import tarfile
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from pcileechfwgenerator.log_config import get_logger
 
@@ -59,22 +60,30 @@ def check_linux_requirement(operation: str) -> None:
         raise RuntimeError(msg)
 
 
-def run_command(cmd: str) -> str:
-    """Run shell command and return stdout; raise RuntimeError on failure."""
+def run_command(cmd: Sequence[str]) -> str:
+    """Run a command (argv list) and return stdout; raise RuntimeError on failure.
+
+    Always invoked without a shell to avoid command injection. Callers must pass
+    a list/tuple of arguments; pipes or redirects must be implemented in Python.
+    """
+    if isinstance(cmd, str):
+        raise TypeError(
+            "run_command requires an argv sequence (list/tuple), not a shell string"
+        )
     try:
         log_debug_safe(
             logger,
-            safe_format("Executing command: {c}", c=cmd),
+            safe_format("Executing command: {c}", c=" ".join(cmd)),
             prefix="KERNEL",
         )
         result = subprocess.run(
-            cmd, shell=True, check=True, capture_output=True, text=True
+            list(cmd), check=True, capture_output=True, text=True
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
         msg = safe_format(
             "Command failed: {cmd}\nExit code: {code}\nError output: {err}",
-            cmd=cmd,
+            cmd=" ".join(cmd),
             code=e.returncode,
             err=e.stderr.strip(),
         )
@@ -96,40 +105,20 @@ def setup_debugfs() -> None:
 
     try:
         # First, check if /sys/kernel exists
-        try:
-            result = subprocess.run(
-                "ls -la /sys/kernel", shell=True, capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    safe_format(
-                        (
-                            "/sys/kernel directory not accessible. "
-                            "Exit code: {code}, Error: {err}"
-                        ),
-                        code=result.returncode,
-                        err=result.stderr.strip(),
-                    )
-                )
-        except Exception as e:
-            raise RuntimeError(
-                safe_format("Cannot access /sys/kernel: {e}", e=e)
-            ) from e
+        if not os.path.isdir("/sys/kernel"):
+            raise RuntimeError("/sys/kernel directory not accessible")
 
         # Check current user privileges
         try:
-            result = subprocess.run("id -u", shell=True, capture_output=True, text=True)
-            uid = result.stdout.strip()
+            uid = os.geteuid()
 
             # Check if we can write to /sys/kernel/debug (privileged container check)
             can_access_sys = False
             try:
-                # Test if we can access privileged paths
                 test_path = "/sys/kernel/debug"
                 if os.path.exists(test_path):
                     can_access_sys = os.access(test_path, os.W_OK)
                 else:
-                    # Try to create the directory to test privileges
                     try:
                         os.makedirs(test_path, exist_ok=True)
                         can_access_sys = True
@@ -138,17 +127,9 @@ def setup_debugfs() -> None:
             except Exception:
                 can_access_sys = False
 
-            # If not root and can't access sys, try with sudo
-            if uid != "0" and not can_access_sys:
-                # Check if sudo is available
-                sudo_available = (
-                    subprocess.run(
-                        "which sudo", shell=True, capture_output=True
-                    ).returncode
-                    == 0
-                )
-
-                if not sudo_available:
+            # If not root and can't access sys, ensure sudo is available
+            if uid != 0 and not can_access_sys:
+                if shutil.which("sudo") is None:
                     raise RuntimeError(
                         safe_format(
                             (
@@ -163,83 +144,83 @@ def setup_debugfs() -> None:
                 safe_format("Cannot determine user privileges: {e}", e=e)
             ) from e
 
-        # Check if debugfs is already mounted
+        # Check if debugfs is already mounted (read /proc/mounts directly)
         try:
-            mount_output = run_command("mount | grep debugfs")
-            if "/sys/kernel/debug" in mount_output:
-                return  # Already mounted
-        except RuntimeError:
-            # grep returns non-zero if no matches found, which is expected
-            # Attempt to mount debugfs directly if grep fails
+            with open("/proc/mounts", "r") as f:
+                mounts = f.read()
+            for line in mounts.splitlines():
+                if " /sys/kernel/debug " in f" {line} " and "debugfs" in line:
+                    return  # Already mounted
+        except OSError:
+            # /proc not readable; fall through to mount attempt
             log_debug_safe(
-                logger, "No debugfs mount found, attempting to mount", prefix="KERNEL"
+                logger, "Could not read /proc/mounts; attempting mount", prefix="KERNEL"
             )
-            try:
-                # Try mounting debugfs without check=True to avoid failing on mount errors
-                result = subprocess.run(
-                    ["mount", "-t", "debugfs", "none", "/sys/kernel/debug"],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode == 0:
-                    log_info_safe(
-                        logger,
-                        "Successfully mounted debugfs at /sys/kernel/debug",
-                        prefix="KERNEL",
-                    )
-                    return
-                else:
-                    log_warning_safe(
-                        logger,
-                        safe_format(
-                            "Failed to mount debugfs (non-fatal): {err}",
-                            err=result.stderr.strip(),
-                        ),
-                        prefix="KERNEL",
-                    )
-            except Exception as mount_e:
-                log_warning_safe(
+
+        # Attempt direct mount as a best-effort fast path
+        log_debug_safe(
+            logger, "No debugfs mount found, attempting to mount", prefix="KERNEL"
+        )
+        try:
+            result = subprocess.run(
+                ["mount", "-t", "debugfs", "none", "/sys/kernel/debug"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                log_info_safe(
                     logger,
-                    safe_format(
-                        "Debugfs mount attempt failed (non-fatal): {e}", e=mount_e
-                    ),
+                    "Successfully mounted debugfs at /sys/kernel/debug",
                     prefix="KERNEL",
                 )
+                return
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Failed to mount debugfs (non-fatal): {err}",
+                    err=result.stderr.strip(),
+                ),
+                prefix="KERNEL",
+            )
+        except Exception as mount_e:
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Debugfs mount attempt failed (non-fatal): {e}", e=mount_e
+                ),
+                prefix="KERNEL",
+            )
 
         # Check if debugfs is supported in kernel
         try:
-            result = subprocess.run(
-                "grep -q debugfs /proc/filesystems", shell=True, capture_output=True
-            )
-            if result.returncode != 0:
+            with open("/proc/filesystems", "r") as f:
+                supported = f.read()
+            if "debugfs" not in supported:
                 raise RuntimeError(
-                    (
-                        "debugfs filesystem not supported by kernel. "
-                        "Ensure debugfs is compiled in or available as a module."
-                    )
+                    "debugfs filesystem not supported by kernel. "
+                    "Ensure debugfs is compiled in or available as a module."
                 )
-        except Exception as e:
+        except OSError as e:
             raise RuntimeError(
                 safe_format("Cannot check debugfs kernel support: {e}", e=e)
             ) from e
 
         # Create the debug directory if it doesn't exist
         try:
-            run_command("mkdir -p /sys/kernel/debug")
-        except RuntimeError as e:
-            # Provide more specific error information
-            if "Permission denied" in str(e):
-                raise RuntimeError(
-                    safe_format(
-                        (
-                            "Permission denied creating /sys/kernel/debug. "
-                            "Root privileges required. Original error: {e}"
-                        ),
-                        e=e,
-                    )
-                ) from e
-            elif "Read-only file system" in str(e):
+            os.makedirs("/sys/kernel/debug", exist_ok=True)
+        except PermissionError as e:
+            raise RuntimeError(
+                safe_format(
+                    (
+                        "Permission denied creating /sys/kernel/debug. "
+                        "Root privileges required. Original error: {e}"
+                    ),
+                    e=e,
+                )
+            ) from e
+        except OSError as e:
+            if "Read-only file system" in str(e):
                 raise RuntimeError(
                     safe_format(
                         (
@@ -249,14 +230,13 @@ def setup_debugfs() -> None:
                         e=e,
                     )
                 ) from e
-            else:
-                raise RuntimeError(
-                    safe_format("Failed to create /sys/kernel/debug: {e}", e=e)
-                ) from e
+            raise RuntimeError(
+                safe_format("Failed to create /sys/kernel/debug: {e}", e=e)
+            ) from e
 
         # Mount debugfs
         try:
-            run_command("mount -t debugfs debugfs /sys/kernel/debug")
+            run_command(["mount", "-t", "debugfs", "debugfs", "/sys/kernel/debug"])
         except RuntimeError as e:
             error_str = str(e).lower()
             if "already mounted" in error_str or "debugfs already mounted" in error_str:
@@ -352,11 +332,11 @@ def resolve_driver_module(vendor_id: str, device_id: str) -> str:
 
     try:
         alias_line = run_command(
-            safe_format(
-                "modprobe --resolve-alias pci:v0000{vid}d0000{did}*",
-                vid=vendor_id,
-                did=device_id,
-            )
+            [
+                "modprobe",
+                "--resolve-alias",
+                f"pci:v0000{vendor_id}d0000{device_id}*",
+            ]
         ).splitlines()
 
         if not alias_line:

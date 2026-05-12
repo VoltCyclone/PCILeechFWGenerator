@@ -763,7 +763,7 @@ class VFIOBinder:
             # Open the group to ensure it's accessible
             self._check_privilege("access VFIO group")
             try:
-                with open(group_path, "r") as f:
+                with open(group_path, "r"):
                     logger.debug(f"Successfully opened VFIO group {self.group_id}")
             except (OSError, IOError) as e:
                 raise VFIOGroupError(
@@ -1164,10 +1164,9 @@ def render_pretty(data: Dict[str, Any], use_color: bool = True) -> str:
     if use_color:
         GREEN = "\033[32m"
         RED = "\033[31m"
-        YELLOW = "\033[33m"
         RESET = "\033[0m"
     else:
-        GREEN = RED = YELLOW = RESET = ""
+        GREEN = RED = RESET = ""
     
     for key, value in data.items():
         if isinstance(value, bool):

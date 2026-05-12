@@ -23,7 +23,7 @@ from pcileechfwgenerator.device_clone.behavior_profiler import (
 )
 
 # Import the module itself for patching purposes
-from pcileechfwgenerator.device_clone import board_config
+from pcileechfwgenerator.device_clone import board_config  # noqa: F401
 
 # Core device cloning functionality
 from pcileechfwgenerator.device_clone.board_config import (

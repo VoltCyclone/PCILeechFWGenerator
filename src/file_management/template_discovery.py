@@ -518,7 +518,7 @@ class TemplateDiscovery:
             )
 
         # First copy repository templates
-        repo_templates = cls.copy_board_templates(board_name, output_dir, repo_root)
+        cls.copy_board_templates(board_name, output_dir, repo_root)
 
         # Then overlay local templates if they exist
         if not local_template_dir.exists():

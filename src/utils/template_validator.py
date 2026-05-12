@@ -224,7 +224,6 @@ class TemplateValidator:
     def _validate_constraints(self, board_path: Path) -> Tuple[bool, List[str]]:
         """Validate constraint files exist."""
         warnings = []
-        missing = []
 
         # Look for constraint files
         search_paths = [

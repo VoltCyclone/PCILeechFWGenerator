@@ -91,7 +91,7 @@ class DeviceOperations:
                 )
 
             return devices
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to scan devices")
             raise
 

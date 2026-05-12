@@ -244,9 +244,9 @@ class DeviceCapabilities:
             PayloadSizeError,
         )
 
-        # Validate payload size using the new payload size configuration
+        # Validate payload size (constructor raises on invalid input).
         try:
-            payload_config = PayloadSizeConfig(self.max_payload_size)
+            PayloadSizeConfig(self.max_payload_size)
         except PayloadSizeError as e:
             raise ValueError(str(e))
 

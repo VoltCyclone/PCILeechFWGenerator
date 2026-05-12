@@ -236,9 +236,9 @@ class FallbackManager:
     def _register_default_critical_variables(self) -> None:
         critical_vars: List[str] = []
 
-        for field in DEVICE_IDENTIFICATION_FIELDS:
-            critical_vars.append(f"device.{field}")
-            critical_vars.append(field)
+        for field_name in DEVICE_IDENTIFICATION_FIELDS:
+            critical_vars.append(f"device.{field_name}")
+            critical_vars.append(field_name)
 
         for token in SENSITIVE_TOKENS:
             if token == "bars":

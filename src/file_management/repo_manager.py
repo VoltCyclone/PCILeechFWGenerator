@@ -480,7 +480,7 @@ def is_repository_accessible(
         if board_type is not None:
             try:
                 RepoManager.get_board_path(board_type, repo_root=repo_root)
-            except:
+            except Exception:
                 raise RuntimeError("Board not found")
                 
         return True

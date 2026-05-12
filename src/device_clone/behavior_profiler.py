@@ -304,16 +304,33 @@ class BehaviorProfiler:
             return
 
         try:
-            # Enable function tracing for PCI config space accesses
-            ftrace_cmds = [
-                "echo 0 > /sys/kernel/debug/tracing/tracing_on",
-                "echo function > /sys/kernel/debug/tracing/current_tracer",
-                "echo 'pci_read_config* pci_write_config*' > /sys/kernel/debug/tracing/set_ftrace_filter",
-                "echo 1 > /sys/kernel/debug/tracing/tracing_on",
+            # Enable function tracing for PCI config space accesses.
+            # Writes go directly via Python to avoid shell invocation.
+            tracing_writes = [
+                ("/sys/kernel/debug/tracing/tracing_on", "0"),
+                ("/sys/kernel/debug/tracing/current_tracer", "function"),
+                (
+                    "/sys/kernel/debug/tracing/set_ftrace_filter",
+                    "pci_read_config* pci_write_config*",
+                ),
+                ("/sys/kernel/debug/tracing/tracing_on", "1"),
             ]
 
-            for cmd in ftrace_cmds:
-                subprocess.run(cmd, shell=True, check=False)
+            for path, value in tracing_writes:
+                try:
+                    with open(path, "w") as f:
+                        f.write(value)
+                except OSError as write_err:
+                    log_debug_safe(
+                        self.logger,
+                        safe_format(
+                            "ftrace write {path}={value} failed: {err}",
+                            path=path,
+                            value=value,
+                            err=write_err,
+                        ),
+                        prefix="PROFILER",
+                    )
 
             log_debug_safe(self.logger, "Ftrace monitoring enabled", prefix="PROFILER")
 
@@ -425,9 +442,10 @@ class BehaviorProfiler:
                 # Check for configuration space changes
                 config_path = f"{sysfs_path}/config"
                 if Path(config_path).exists():
-                    # Read current configuration state
+                    # Read current configuration state (side effect triggers
+                    # an event we want to observe via ftrace).
                     with open(config_path, "rb") as f:
-                        config_data = f.read(256)  # Standard config space
+                        f.read(256)  # Standard config space
 
                     # Generate access event for configuration reads
                     access = RegisterAccess(
@@ -656,12 +674,11 @@ class BehaviorProfiler:
                 )
             else:
                 try:
-                    subprocess.run(
-                        "echo 0 > /sys/kernel/debug/tracing/tracing_on",
-                        shell=True,
-                        check=False,
-                    )
-                except Exception as e:
+                    with open(
+                        "/sys/kernel/debug/tracing/tracing_on", "w"
+                    ) as f:
+                        f.write("0")
+                except OSError as e:
                     # Ignore tracing cleanup errors as they're not critical
                     log_debug_safe(
                         self.logger,
@@ -690,12 +707,11 @@ class BehaviorProfiler:
                 )
             else:
                 try:
-                    subprocess.run(
-                        "echo 0 > /sys/kernel/debug/tracing/tracing_on",
-                        shell=True,
-                        check=False,
-                    )
-                except Exception as e:
+                    with open(
+                        "/sys/kernel/debug/tracing/tracing_on", "w"
+                    ) as f:
+                        f.write("0")
+                except OSError as e:
                     # Ignore tracing cleanup errors as they're not critical
                     log_debug_safe(
                         self.logger,

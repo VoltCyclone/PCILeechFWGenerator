@@ -148,9 +148,6 @@ class DriverAnalyzer:
             "access_pattern": "unknown",
         }
 
-        # Find function containing the register usage with improved pattern
-        func_pattern = self._get_function_pattern(reg_name)
-
         # Search through content with brace balancing for nested blocks
         content = self.all_content
         for match in re.finditer(r"(\w+)\s*\([^)]*\)\s*\{", content):

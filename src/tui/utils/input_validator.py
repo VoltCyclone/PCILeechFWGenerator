@@ -232,7 +232,7 @@ class InputValidator:
         if result.valid:
             return True, ""
         else:
-            return False, result.errors[0] if result.errors else f"Invalid hex value"
+            return False, result.errors[0] if result.errors else "Invalid hex value"
 
     @staticmethod
     def validate_email(value: str) -> Tuple[bool, str]:

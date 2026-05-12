@@ -408,7 +408,7 @@ if __name__ == "__main__":
             print(f"  {name}: {path}")
 
         if issues:
-            print(f"\nValidation issues:")
+            print("\nValidation issues:")
             for issue in issues:
                 print(f"  - {issue}")
         else:

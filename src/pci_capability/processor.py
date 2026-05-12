@@ -1429,7 +1429,6 @@ class CapabilityProcessor:
                 return patches
 
             ea_header = self.config_space.read_word(ea_header_offset)
-            num_entries = ea_header & 0x003F
 
             # For safety, disable all Enhanced Allocation entries
             new_ea_header = ea_header & ~0x003F  # Set NumEntries to 0
