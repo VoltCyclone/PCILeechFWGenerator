@@ -18,10 +18,11 @@ Expected kernel layout:
 import os
 import pathlib
 import platform
+import shlex
 import shutil
 import subprocess
 import tarfile
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Union
 
 from pcileechfwgenerator.log_config import get_logger
 
@@ -60,30 +61,33 @@ def check_linux_requirement(operation: str) -> None:
         raise RuntimeError(msg)
 
 
-def run_command(cmd: Sequence[str]) -> str:
+def run_command(cmd: Sequence[Union[str, os.PathLike]]) -> str:
     """Run a command (argv list) and return stdout; raise RuntimeError on failure.
 
     Always invoked without a shell to avoid command injection. Callers must pass
     a list/tuple of arguments; pipes or redirects must be implemented in Python.
+    Path-like elements are accepted (subprocess.run handles them natively).
     """
     if isinstance(cmd, str):
         raise TypeError(
             "run_command requires an argv sequence (list/tuple), not a shell string"
         )
+    argv = [os.fspath(a) for a in cmd]
+    pretty = shlex.join(argv)
     try:
         log_debug_safe(
             logger,
-            safe_format("Executing command: {c}", c=" ".join(cmd)),
+            safe_format("Executing command: {c}", c=pretty),
             prefix="KERNEL",
         )
         result = subprocess.run(
-            list(cmd), check=True, capture_output=True, text=True
+            argv, check=True, capture_output=True, text=True
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
         msg = safe_format(
             "Command failed: {cmd}\nExit code: {code}\nError output: {err}",
-            cmd=" ".join(cmd),
+            cmd=pretty,
             code=e.returncode,
             err=e.stderr.strip(),
         )
