@@ -9,6 +9,7 @@ This module contains utilities and tools for working with Xilinx Vivado:
 - pcileech_build_integration: Integration with pcileech-fpga repository
 """
 
+from .build_state_cleaner import clean_stale_build_state
 from .pcileech_build_integration import (
     PCILeechBuildIntegration,
     integrate_pcileech_build,
@@ -44,4 +45,6 @@ __all__ = [
     # pcileech_build_integration exports
     "PCILeechBuildIntegration",
     "integrate_pcileech_build",
+    # build_state_cleaner exports
+    "clean_stale_build_state",
 ]

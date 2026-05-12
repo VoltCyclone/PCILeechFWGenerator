@@ -910,6 +910,22 @@ class FirmwareBuilder:
         self._init_components()
         self._device_config: Optional[DeviceConfiguration] = None
 
+    def _clean_stale_build_state(self) -> None:
+        """Wipe Vivado project/scratch state left over from a prior build.
+
+        Prevents the "IP locked / file already in project / no reference
+        checkpoint" warning cascade when re-running in the same output dir.
+        Source files and final artifacts (bit/mcs/dcp/rpt/log) are preserved;
+        only Vivado-generated state is removed.
+        """
+        from pcileechfwgenerator.vivado_handling import clean_stale_build_state
+
+        clean_stale_build_state(
+            self.config.output_dir,
+            logger=self.logger,
+            prefix="BUILD",
+        )
+
     def _validate_board_template(self) -> None:
         """Validate board template before build."""
         self.build_logger.info(
@@ -956,6 +972,10 @@ class FirmwareBuilder:
     def build(self) -> List[str]:
         """Run the full firmware generation flow."""
         try:
+            self.build_logger.push_phase("stale_state_cleanup")
+            self._clean_stale_build_state()
+            self.build_logger.pop_phase("stale_state_cleanup")
+
             self.build_logger.push_phase("template_validation")
             self._validate_board_template()
             self.build_logger.pop_phase("template_validation")
