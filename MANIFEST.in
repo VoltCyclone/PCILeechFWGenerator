@@ -3,8 +3,7 @@ include README.md
 include LICENSE.txt
 include CHANGELOG.md
 include cliff.toml
-include CONTRIBUTING.rst
-include AUTHORS.rst
+include CONTRIBUTING.md
 include pyproject.toml
 include setup.cfg
 

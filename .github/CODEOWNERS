@@ -1,0 +1,32 @@
+# CODEOWNERS for PCILeechFWGenerator
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# Owners listed here are automatically requested for review on PRs that touch
+# matching paths. The last matching pattern wins, so more specific rules go
+# below the catch-all.
+
+# Default owner for everything not matched below.
+*                                   @ramseymcgrath
+
+# Build, release, and CI plumbing.
+/.github/                           @ramseymcgrath
+/.github/workflows/                 @ramseymcgrath
+/Containerfile                      @ramseymcgrath
+/Makefile                           @ramseymcgrath
+/cliff.toml                         @ramseymcgrath
+/entrypoint.sh                      @ramseymcgrath
+/install-sudo-wrapper.sh            @ramseymcgrath
+/build_vfio_constants.sh            @ramseymcgrath
+/force_vfio_binds.sh                @ramseymcgrath
+
+# Security-sensitive surfaces: VFIO, kernel interaction, donor handling,
+# firmware generation. Reviews here should be careful.
+/src/                               @ramseymcgrath
+
+# Docs and policy.
+/README.md                          @ramseymcgrath
+/SECURITY.md                        @ramseymcgrath
+/CONTRIBUTING.rst                   @ramseymcgrath
+/CODE_OF_CONDUCT.md                 @ramseymcgrath
+/CHANGELOG.md                       @ramseymcgrath
+/docs/                              @ramseymcgrath
