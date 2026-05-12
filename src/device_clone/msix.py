@@ -138,8 +138,6 @@ class MSIXManager:
                     with open(msix_json_path, "r") as f:
                         payload = json.load(f)
 
-                    # Optional: ensure BDF matches if present
-                    bdf_in = payload.get("bdf")
                     msix_info = payload.get("msix_info")
                     cfg_hex = payload.get("config_space_hex")
                     if msix_info and isinstance(msix_info, dict):

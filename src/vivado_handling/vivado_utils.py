@@ -258,7 +258,7 @@ def run_vivado_command(
             # Generate report if there were issues
             if errors or warnings:
                 output_dir = Path(cwd) if cwd else Path(".")
-                report = reporter.generate_error_report(
+                reporter.generate_error_report(
                     errors,
                     warnings,
                     "Vivado Command",

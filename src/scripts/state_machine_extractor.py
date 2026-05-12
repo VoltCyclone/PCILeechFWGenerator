@@ -205,7 +205,7 @@ class StateMachine:
                         )
                     else:
                         sm_logic += (
-                            f"\n                "
+                            "\n                "
                             + f"{self.name}_next_state = {transition.to_state.upper()};"
                         )
 

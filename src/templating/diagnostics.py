@@ -117,7 +117,7 @@ class TemplateDiagnostics:
             return f"Template '{template_name}' failed: {original_error}"
 
         error_parts = [
-            f"=== Template Rendering Error ===",
+            "=== Template Rendering Error ===",
             f"Template: {template_name}",
             f"Error Type: {type(original_error).__name__}",
             f"Message: {original_error}",

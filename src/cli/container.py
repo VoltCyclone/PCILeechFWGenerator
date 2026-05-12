@@ -681,9 +681,9 @@ def run_build(cfg: BuildConfig) -> None:
             # Fallback to legacy signature: (bdf, logger)
             collector = HostDeviceCollector(cfg.bdf, logger)
         try:
-            # Collect all device info (MSI-X, config space, BARs, etc.) in one go
-            # Returns collected_data dict saved to output_dir for container use
-            collected_data = collector.collect_device_context(output_dir)
+            # Collect all device info (MSI-X, config space, BARs, etc.) in one go.
+            # Side effect: data is written to output_dir for container use.
+            collector.collect_device_context(output_dir)
             
             log_info_safe(
                 logger,
@@ -963,7 +963,7 @@ def run_build(cfg: BuildConfig) -> None:
                         # build attempt can re-bind cleanly.
                         try:
                             with open(
-                                f"/sys/bus/pci/drivers/vfio-pci/unbind", "w"
+                                "/sys/bus/pci/drivers/vfio-pci/unbind", "w"
                             ) as f:
                                 f.write(f"{cfg.bdf}\n")
                         except Exception:

@@ -557,16 +557,7 @@ class ConfigManager:
                     )
                     return False
                 except Exception as e:
-                    error = TUIError(
-                        severity=ErrorSeverity.ERROR,
-                        category="config",
-                        message=f"Failed to export profile to {export_path}",
-                        details=str(e),
-                        suggested_actions=[
-                            "Check if the target directory exists",
-                            "Verify that you have sufficient disk space",
-                        ],
-                    )
+                    print(f"Failed to export profile to {export_path}: {e}")
                     return False
             print(f"Cannot export profile '{name}' - profile not loaded")
             return False
@@ -585,46 +576,17 @@ class ConfigManager:
         """
         try:
             if not import_path.exists():
-                error = TUIError(
-                    severity=ErrorSeverity.ERROR,
-                    category="config",
-                    message=f"Import file not found: {import_path}",
-                    suggested_actions=[
-                        "Check if the file path is correct",
-                        "Verify that the file exists",
-                    ],
-                )
                 print(f"Import file not found: {import_path}")
                 return None
 
             try:
                 config = BuildConfiguration.load_from_file(import_path)
             except json.JSONDecodeError as e:
-                error = TUIError(
-                    severity=ErrorSeverity.ERROR,
-                    category="config",
-                    message="Invalid JSON in import file",
-                    details=f"Error at line {e.lineno}, column {e.colno}: {e.msg}",
-                    suggested_actions=[
-                        "Check if the file contains valid JSON data",
-                        "Verify that the file is a valid configuration profile",
-                    ],
-                )
                 print(
                     f"Invalid JSON in import file: Error at line {e.lineno}, column {e.colno}: {e.msg}"
                 )
                 return None
             except Exception as e:
-                error = TUIError(
-                    severity=ErrorSeverity.ERROR,
-                    category="config",
-                    message="Failed to parse import file",
-                    details=str(e),
-                    suggested_actions=[
-                        "Check if the file is a valid configuration profile",
-                        "Verify that the file is not corrupted",
-                    ],
-                )
                 print(f"Failed to parse import file: {e}")
                 return None
 
@@ -645,17 +607,9 @@ class ConfigManager:
             return profile_name
 
         except PermissionError as e:
-            error = TUIError(
-                severity=ErrorSeverity.ERROR,
-                category="config",
-                message=f"Permission denied when importing profile from {import_path}",
-                details=str(e),
-                suggested_actions=[
-                    "Check if you have read permissions for the source file",
-                    f"Ensure you have write access to {CACHE_DIR}/profiles/",
-                ],
+            print(
+                f"Permission denied when importing profile from {import_path}: {e}"
             )
-            print(f"Permission denied when importing profile: {e}")
             return None
         except Exception as e:
             print(f"Failed to import profile from {import_path}: {e}")

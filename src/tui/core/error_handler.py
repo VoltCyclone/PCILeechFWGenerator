@@ -42,10 +42,8 @@ class ErrorHandler:
             context: Description of where/when the error occurred
             severity: Error severity level ("error", "warning", "critical")
         """
-        error_msg = f"{context}: {str(error)}"
-
         # Log error details
-        logger.error(f"Error in {context}", exc_info=True)
+        logger.error(f"Error in {context}: {error}", exc_info=True)
 
         # Show user-friendly message
         user_msg = self._get_user_friendly_message(error, context)

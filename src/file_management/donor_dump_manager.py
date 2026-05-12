@@ -628,7 +628,7 @@ class DonorDumpManager:
 
             # Build the module
             try:
-                result = subprocess.run(
+                subprocess.run(
                     ["make"],
                     cwd=self.module_source_dir,
                     check=True,
@@ -641,7 +641,7 @@ class DonorDumpManager:
                     prefix=LOG_PREFIX,
                 )
                 return True
-            except subprocess.CalledProcessError as e:
+            except subprocess.CalledProcessError:
                 # If the build fails, try with KERNELRELEASE explicitly set
                 log_warning_safe(
                     logger,
@@ -651,7 +651,7 @@ class DonorDumpManager:
                     prefix=LOG_PREFIX,
                 )
                 try:
-                    result = subprocess.run(
+                    subprocess.run(
                         ["make", f"KERNELRELEASE={kernel_version}"],
                         cwd=self.module_source_dir,
                         check=True,
@@ -847,14 +847,10 @@ class DonorDumpManager:
         )
 
         # Import vendor ID constants
-        from pcileechfwgenerator.device_clone.constants import (
-            VENDOR_ID_INTEL,
-            get_fallback_vendor_id,
-        )
+        from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL
 
         # Convert to hex string format
         intel_vid_str = f"0x{VENDOR_ID_INTEL:04x}"
-        fallback_vid_str = f"0x{get_fallback_vendor_id():04x}"
 
         # Common device profiles
         device_profiles = {

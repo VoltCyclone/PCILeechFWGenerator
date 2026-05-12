@@ -2053,7 +2053,6 @@ class FirmwareBuilder:
         """Generate and save donor info template if requested."""
         from .device_clone.donor_info_template import DonorInfoTemplateGenerator
 
-        device_info = result.get("config_space_data", {}).get("device_info", {})
         template_context = result.get("template_context", {})
         device_config = template_context.get("device_config", {})
 

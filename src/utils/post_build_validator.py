@@ -316,10 +316,7 @@ class PostBuildValidator:
 
         # Walk capability list
         found_caps = self._walk_capabilities(raw_config, cap_ptr)
-        
-        # Check for common capabilities
-        device_config = template_context.get("device_config", {})
-        
+
         # MSI or MSI-X expected for modern devices
         has_msi = 0x05 in found_caps
         has_msix = 0x11 in found_caps

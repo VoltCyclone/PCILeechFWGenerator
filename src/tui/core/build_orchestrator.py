@@ -692,7 +692,6 @@ class BuildOrchestrator:
             return
 
         status = module_status.get("status", "")
-        details = module_status.get("details", "")
 
         if status != "installed":
             # Report module status issues
@@ -844,7 +843,7 @@ class BuildOrchestrator:
             self._current_progress.add_warning(
                 f"Please try installing headers manually: {install_cmd}"
             )
-        except Exception as e:
+        except Exception:
             self._current_progress.add_warning(
                 "Could not determine header install command for your distro"
             )
@@ -1101,15 +1100,7 @@ class BuildOrchestrator:
         Args:
             device: The PCIe device to analyze
         """
-        # Import existing functions
-
-        from ...cli.vfio import get_current_driver
         from ...cli.vfio_handler import _get_iommu_group
-
-        # Get current device state
-        current_driver = await asyncio.get_event_loop().run_in_executor(
-            None, get_current_driver, device.bdf
-        )
 
         iommu_group = await asyncio.get_event_loop().run_in_executor(
             None, _get_iommu_group, device.bdf

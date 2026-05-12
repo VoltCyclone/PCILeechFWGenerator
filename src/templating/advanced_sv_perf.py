@@ -175,7 +175,6 @@ class PerformanceCounterGenerator:
         perf_config = template_context.get("perf_config", {})
         timing_config = template_context.get("timing_config", {})
         device_config = template_context.get("device_config", {})
-        board_config = template_context.get("board_config", {})
 
         # Use template context to derive parameters dynamically
         context = {

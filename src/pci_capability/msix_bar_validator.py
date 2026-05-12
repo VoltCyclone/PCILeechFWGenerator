@@ -32,11 +32,15 @@ MSIX_MIN_TABLE_ENTRIES: int = 1
 MSIX_MAX_TABLE_ENTRIES: int = 2048
 MSIX_OFFSET_MIN_ALIGNMENT: int = 8
 
-compute_table_bytes = lambda entries: entries * MSIX_TABLE_ENTRY_SIZE_BYTES
-compute_pba_bytes = lambda entries: (
-    ((entries + (PBA_VECTORS_PER_DWORD - 1)) // PBA_VECTORS_PER_DWORD)
-    * DWORD_SIZE_BYTES
-)
+def compute_table_bytes(entries: int) -> int:
+    return entries * MSIX_TABLE_ENTRY_SIZE_BYTES
+
+
+def compute_pba_bytes(entries: int) -> int:
+    return (
+        ((entries + (PBA_VECTORS_PER_DWORD - 1)) // PBA_VECTORS_PER_DWORD)
+        * DWORD_SIZE_BYTES
+    )
 
 logger = logging.getLogger(__name__)
 

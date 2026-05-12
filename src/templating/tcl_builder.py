@@ -1143,7 +1143,7 @@ class TCLBuilder:
             raise ValueError(
                 "Board selection failed: EOF while reading input. "
                 "This typically occurs in non-interactive environments (containers, CI/CD). "
-                f"Please specify board explicitly using --board parameter."
+                "Please specify board explicitly using --board parameter."
             ) from e
 
     def create_build_context(
