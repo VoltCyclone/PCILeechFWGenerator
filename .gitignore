@@ -83,3 +83,8 @@ site/venv/
 
 # setuptools-scm-generated version file
 src/_version.py
+
+# Claude Code: keep shared config (settings.json, skills/, agents/) tracked,
+# ignore user-local overrides and transient state.
+.claude/settings.local.json
+.claude/.cache/
