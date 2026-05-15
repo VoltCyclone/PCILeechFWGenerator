@@ -68,3 +68,31 @@ class TestGenerateTclWithEmptyExtra:
             _intel_donor(), extra=DonorPCIeIPConfig()
         )
         assert baseline == with_empty
+
+
+class TestExtraEmissionMechanism:
+    """The TCL builder emits one CONFIG.<key> line per non-None extra field."""
+
+    def test_omits_keys_for_none_fields(self):
+        # An extra with every field None must not introduce any new CONFIG.*
+        # lines beyond the original five.
+        tcl = generate_pcie_ip_override_tcl(
+            _intel_donor(), extra=DonorPCIeIPConfig()
+        )
+        config_lines = [
+            line for line in tcl.splitlines()
+            if line.strip().startswith("CONFIG.")
+        ]
+        assert len(config_lines) == 5  # Vendor, Device, SVID, SID, Rev
+
+    def test_emits_backslash_continuation_consistently(self):
+        # All CONFIG.* lines must end with " \\" so Vivado's set_property -dict
+        # parses the list across newlines. Regressing this is a synthesis-time
+        # syntax error that's annoying to debug.
+        tcl = generate_pcie_ip_override_tcl(_intel_donor())
+        for line in tcl.splitlines():
+            stripped = line.rstrip()
+            if "CONFIG." in stripped:
+                assert stripped.endswith("\\"), (
+                    f"missing line-continuation backslash: {line!r}"
+                )

@@ -85,21 +85,41 @@ def generate_pcie_ip_override_tcl(
     """Render the donor-ID CONFIG override as a Vivado TCL string.
 
     Guarded by ``[get_ips -quiet]`` so a board variant that ships a
-    differently-named PCIe IP doesn't abort the build.
+    differently-named PCIe IP doesn't abort the build. Optional ``extra``
+    contributes additional ``CONFIG.<key> <value>`` lines for fields the
+    donor profile exposed (class code, MPS, MSI-X, LinkCap, AER, ARI,
+    cpl-timeout, DSN — see ``DonorPCIeIPConfig``).
     """
+    lines: list[str] = [
+        f"CONFIG.Vendor_ID 0x{donor.vendor_id:04X}",
+        f"CONFIG.Device_ID 0x{donor.device_id:04X}",
+        f"CONFIG.Subsystem_Vendor_ID 0x{donor.subsystem_vendor_id:04X}",
+        f"CONFIG.Subsystem_ID 0x{donor.subsystem_id:04X}",
+        f"CONFIG.Revision_ID 0x{donor.revision_id:02X}",
+    ]
+    if extra is not None:
+        lines.extend(_format_extra_config_lines(extra))
+
+    set_property_block = "\n".join(f"        {line} \\" for line in lines)
+
     return (
         "# === PCILeechFWGenerator donor-ID override (issue #593) ===\n"
         f"if {{[llength [get_ips -quiet {ip_name}]] > 0}} {{\n"
         f"    set_property -dict [list \\\n"
-        f"        CONFIG.Vendor_ID 0x{donor.vendor_id:04X} \\\n"
-        f"        CONFIG.Device_ID 0x{donor.device_id:04X} \\\n"
-        f"        CONFIG.Subsystem_Vendor_ID 0x{donor.subsystem_vendor_id:04X} \\\n"
-        f"        CONFIG.Subsystem_ID 0x{donor.subsystem_id:04X} \\\n"
-        f"        CONFIG.Revision_ID 0x{donor.revision_id:02X} \\\n"
+        f"{set_property_block}\n"
         f"    ] [get_ips {ip_name}]\n"
         f"    generate_target all [get_ips {ip_name}]\n"
         "}\n"
     )
+
+
+def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
+    """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*.
+
+    Later tasks extend this function — each capability group is added as its
+    own block. Empty for now.
+    """
+    return []
 
 
 def _find_generate_project_scripts(staging_dir: Path) -> List[Path]:
