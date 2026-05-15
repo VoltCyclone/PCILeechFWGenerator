@@ -14,14 +14,58 @@ the synthesizable HDL. The fragment is wired in by appending a guarded
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from .fifo_donor_patcher import DonorIDs
 
 
 class PcieIpOverrideError(RuntimeError):
     """Raised when the donor IP override cannot be wired into the staged build."""
+
+
+@dataclass(frozen=True)
+class DonorPCIeIPConfig:
+    """Optional donor PCIe IP CONFIG values beyond the five identification IDs.
+
+    Every field is optional. A ``None`` value means "the donor profile did not
+    expose this; leave the Xilinx IP default in place." That keeps the override
+    safe when the donor profile is partial (e.g. an older capture without DSN).
+
+    See ``docs/plans/firmware-fidelity-gaps.md`` for the rationale behind each
+    field.
+    """
+
+    # A4 — Class Code (24-bit, packed base/sub/interface)
+    class_code: Optional[int] = None
+
+    # A8 — Max Payload Size (DevCap.MPS in bytes: 128/256/512/1024/2048/4096)
+    max_payload_size: Optional[int] = None
+
+    # A7 — LinkCap negotiated ceiling
+    link_speed: Optional[int] = None  # PCIe gen: 1, 2, 3, 4, 5
+    link_width: Optional[int] = None  # x1/x2/x4/x8/x16 as integer 1/2/4/8/16
+
+    # A6 — MSI-X capability layout
+    msix_enabled: Optional[bool] = None
+    msix_table_size: Optional[int] = None  # number of vectors (1..2048)
+    msix_table_bir: Optional[int] = None  # 0..5
+    msix_table_offset: Optional[int] = None
+    msix_pba_bir: Optional[int] = None  # 0..5
+    msix_pba_offset: Optional[int] = None
+
+    # C1 / C3 — Capability enables
+    aer_enabled: Optional[bool] = None
+    ari_forwarding_supported: Optional[bool] = None
+
+    # D2 — Completion-timeout policy
+    # one of: "none", "A", "B", "C", "D", "AB", "BC", "BCD", "ABCD"
+    cpl_timeout_ranges: Optional[str] = None
+    cpl_timeout_disable_supported: Optional[bool] = None
+
+    # C2 — Device Serial Number (64-bit; emitted as two 32-bit halves into the IP)
+    dsn_value: Optional[int] = None
 
 
 _OVERRIDE_FILENAME = "pcileech_donor_ip_overrides.tcl"
@@ -36,6 +80,7 @@ def generate_pcie_ip_override_tcl(
     donor: DonorIDs,
     *,
     ip_name: str = "pcie_7x_0",
+    extra: "DonorPCIeIPConfig | None" = None,
 ) -> str:
     """Render the donor-ID CONFIG override as a Vivado TCL string.
 
