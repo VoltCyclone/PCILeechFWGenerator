@@ -6,6 +6,7 @@ exposes class code, MPS, MSI-X layout, link speed/width, AER, ARI,
 completion-timeout, and DSN values.
 """
 import sys
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -54,7 +55,7 @@ class TestDonorPCIeIPConfigDataclass:
 
     def test_is_frozen(self):
         cfg = DonorPCIeIPConfig()
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             cfg.class_code = 0x020000  # type: ignore[misc]
 
 
