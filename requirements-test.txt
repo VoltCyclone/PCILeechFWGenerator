@@ -19,7 +19,7 @@ safety>=2.3.0
 
 # Performance and profiling
 psutil>=5.9.0
-memory-profiler>=0.60.0
+memory-profiler>=0.61.0
 
 # Mock and testing utilities
 responses>=0.23.0
