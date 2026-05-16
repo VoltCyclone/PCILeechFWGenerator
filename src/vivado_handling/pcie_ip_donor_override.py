@@ -195,7 +195,7 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
                 ("msix_table_bir", extra.msix_table_bir),
                 ("msix_pba_bir", extra.msix_pba_bir),
             ):
-                if bir is None or not (0 <= bir <= 5):
+                if not (0 <= bir <= 5):
                     raise ValueError(f"{label} {bir} is not a valid BAR index (0..5)")
 
             out.append("CONFIG.MSIx_Enabled true")

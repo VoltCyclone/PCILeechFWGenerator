@@ -222,12 +222,13 @@ class TestMsixBundleEmission:
         assert "MSIx_Table_BIR" not in tcl
 
     def test_raises_when_enabled_but_layout_missing(self):
-        with pytest.raises(ValueError) as exc:
+        # Match pins the actual contract — the error must enumerate the
+        # missing fields via "missing: ..." (UX win for partial donor profiles).
+        with pytest.raises(ValueError, match=r"missing: msix_table_size"):
             generate_pcie_ip_override_tcl(
                 _intel_donor(),
                 extra=DonorPCIeIPConfig(msix_enabled=True),
             )
-        assert "msix" in str(exc.value).lower()
 
     @pytest.mark.parametrize("bad_bir", [-1, 6, 8])
     def test_raises_on_invalid_bir(self, bad_bir):
