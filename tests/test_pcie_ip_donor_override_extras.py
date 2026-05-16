@@ -496,3 +496,31 @@ class TestDonorPCIeIPConfigExtractor:
         cfg = donor_pcie_ip_config_from_result(result)
         assert cfg.class_code is None
         assert cfg.link_speed is None
+
+    def test_partial_msix_data_drops_entire_msix_block(self):
+        # If is_valid=True but one of the layout fields is non-coercible,
+        # the extractor must return all-None for MSI-X rather than producing
+        # partial state that the emitter would later reject.
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        result = {
+            "template_context": {"device_config": {}},
+            "msix_data": {
+                "enabled": True,
+                "table_size": 16,
+                "table_bir": 2,
+                "table_offset": 0x2000,
+                "pba_bir": 2,
+                "pba_offset": "not-a-number",  # parser-unfriendly value
+                "is_valid": True,
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        # All six MSI-X fields must be None — partial state is worse than off.
+        assert cfg.msix_enabled is None
+        assert cfg.msix_table_size is None
+        assert cfg.msix_table_bir is None
+        assert cfg.msix_table_offset is None
+        assert cfg.msix_pba_bir is None
+        assert cfg.msix_pba_offset is None

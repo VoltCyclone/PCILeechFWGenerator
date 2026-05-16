@@ -338,18 +338,33 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
 
     dsn_value = _coerce_int(template_context.get("device_serial_number_int"))
 
-    # MSI-X — only honor the block if the parser flagged it valid.
+    # MSI-X — only honor the block if the parser flagged it valid AND every
+    # layout field coerced. Partial state would crash the emitter downstream;
+    # all-or-nothing means the rest of the override still ships.
     msix = (result or {}).get("msix_data") or {}
+    msix_enabled = msix_table_size = msix_table_bir = None
+    msix_table_offset = msix_pba_bir = msix_pba_offset = None
     if msix.get("is_valid"):
-        msix_enabled = _coerce_bool(msix.get("enabled"))
-        msix_table_size = _coerce_int(msix.get("table_size"))
-        msix_table_bir = _coerce_int(msix.get("table_bir"))
-        msix_table_offset = _coerce_int(msix.get("table_offset"))
-        msix_pba_bir = _coerce_int(msix.get("pba_bir"))
-        msix_pba_offset = _coerce_int(msix.get("pba_offset"))
-    else:
-        msix_enabled = msix_table_size = msix_table_bir = None
-        msix_table_offset = msix_pba_bir = msix_pba_offset = None
+        candidate_enabled = _coerce_bool(msix.get("enabled"))
+        candidate_size = _coerce_int(msix.get("table_size"))
+        candidate_table_bir = _coerce_int(msix.get("table_bir"))
+        candidate_table_off = _coerce_int(msix.get("table_offset"))
+        candidate_pba_bir = _coerce_int(msix.get("pba_bir"))
+        candidate_pba_off = _coerce_int(msix.get("pba_offset"))
+        if None not in (
+            candidate_enabled,
+            candidate_size,
+            candidate_table_bir,
+            candidate_table_off,
+            candidate_pba_bir,
+            candidate_pba_off,
+        ):
+            msix_enabled = candidate_enabled
+            msix_table_size = candidate_size
+            msix_table_bir = candidate_table_bir
+            msix_table_offset = candidate_table_off
+            msix_pba_bir = candidate_pba_bir
+            msix_pba_offset = candidate_pba_off
 
     return DonorPCIeIPConfig(
         class_code=class_code,
