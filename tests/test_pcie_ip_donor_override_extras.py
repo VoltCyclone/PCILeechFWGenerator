@@ -6,6 +6,7 @@ exposes class code, MPS, MSI-X layout, link speed/width, AER, ARI,
 completion-timeout, and DSN values.
 """
 import sys
+import textwrap
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -348,3 +349,48 @@ class TestDsnEmission:
         tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
         assert "DSN_HEX1" not in tcl
         assert "DSN_HEX2" not in tcl
+
+
+_FAKE_GENERATE_PROJECT = textwrap.dedent(
+    """\
+    create_project pcileech ./vivado_project -part xc7a75tfgg484-2
+    """
+)
+
+
+class TestApplyWithExtra:
+    def test_extra_is_forwarded_to_override_file(self, tmp_path):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            apply_pcie_ip_donor_override,
+        )
+        (tmp_path / "vivado_generate_project.tcl").write_text(_FAKE_GENERATE_PROJECT)
+
+        extra = DonorPCIeIPConfig(
+            class_code=0x020000,
+            aer_enabled=True,
+            link_speed=2,
+            link_width=4,
+        )
+        result = apply_pcie_ip_donor_override(tmp_path, _intel_donor(), extra=extra)
+
+        body = result["override_path"].read_text()
+        assert "CONFIG.Class_Code_Base 02" in body
+        assert "CONFIG.AER_Enabled true" in body
+        assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 2" in body
+        assert "CONFIG.LINK_CAP_MAX_LINK_WIDTH 4" in body
+
+    def test_extra_default_none_preserves_original_behavior(self, tmp_path):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            apply_pcie_ip_donor_override,
+        )
+        (tmp_path / "vivado_generate_project.tcl").write_text(_FAKE_GENERATE_PROJECT)
+
+        # No `extra=` kwarg — must behave exactly like the pre-change code path.
+        result = apply_pcie_ip_donor_override(tmp_path, _intel_donor())
+        body = result["override_path"].read_text()
+        # Only the five identification lines, no extras.
+        config_lines = [
+            line for line in body.splitlines()
+            if line.strip().startswith("CONFIG.")
+        ]
+        assert len(config_lines) == 5

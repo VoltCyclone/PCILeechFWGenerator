@@ -266,6 +266,7 @@ def apply_pcie_ip_donor_override(
     donor: DonorIDs,
     *,
     ip_name: str = "pcie_7x_0",
+    extra: "DonorPCIeIPConfig | None" = None,
 ) -> dict:
     """Write the override TCL and wire it into the staged generate-project script.
 
@@ -284,7 +285,7 @@ def apply_pcie_ip_donor_override(
 
     override_path = staging_dir / _OVERRIDE_FILENAME
     override_path.write_text(
-        generate_pcie_ip_override_tcl(donor, ip_name=ip_name)
+        generate_pcie_ip_override_tcl(donor, ip_name=ip_name, extra=extra)
     )
 
     for script in scripts:
