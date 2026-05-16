@@ -122,6 +122,9 @@ _MPS_TOKENS = {
     4096: "4096_bytes",
 }
 
+_LINK_SPEED_ENCODING = {1: 1, 2: 2, 3: 4, 4: 8, 5: 16}
+_VALID_LINK_WIDTHS = (1, 2, 4, 8, 16)
+
 
 def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
     """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*."""
@@ -147,6 +150,22 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
                 f"{sorted(_MPS_TOKENS)}"
             )
         out.append(f"CONFIG.Max_Payload_Size {token}")
+
+    if extra.link_speed is not None:
+        encoded = _LINK_SPEED_ENCODING.get(extra.link_speed)
+        if encoded is None:
+            raise ValueError(
+                f"link_speed {extra.link_speed} is not a valid PCIe generation "
+                f"(supported: {sorted(_LINK_SPEED_ENCODING)})"
+            )
+        out.append(f"CONFIG.LINK_CAP_MAX_LINK_SPEED {encoded}")
+
+    if extra.link_width is not None:
+        if extra.link_width not in _VALID_LINK_WIDTHS:
+            raise ValueError(
+                f"link_width {extra.link_width} is not one of {_VALID_LINK_WIDTHS}"
+            )
+        out.append(f"CONFIG.LINK_CAP_MAX_LINK_WIDTH {extra.link_width}")
 
     return out
 

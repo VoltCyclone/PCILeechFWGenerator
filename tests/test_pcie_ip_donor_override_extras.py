@@ -156,3 +156,39 @@ class TestMaxPayloadSizeEmission:
     def test_none_emits_nothing(self):
         tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
         assert "Max_Payload_Size" not in tcl
+
+
+class TestLinkCapEmission:
+    @pytest.mark.parametrize("gen,encoded", [
+        (1, 1),  # Gen1 -> 2.5 GT/s -> encoding 1
+        (2, 2),  # Gen2 -> 5.0 GT/s -> encoding 2
+        (3, 4),  # Gen3 -> 8.0 GT/s -> encoding 4
+        (4, 8),  # Gen4 -> 16.0 GT/s -> encoding 8
+    ])
+    def test_emits_link_speed_per_pcie_encoding(self, gen, encoded):
+        extra = DonorPCIeIPConfig(link_speed=gen)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert f"CONFIG.LINK_CAP_MAX_LINK_SPEED {encoded}" in tcl
+
+    def test_invalid_link_speed_raises(self):
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(), extra=DonorPCIeIPConfig(link_speed=6)
+            )
+
+    @pytest.mark.parametrize("width", [1, 2, 4, 8, 16])
+    def test_emits_link_width_as_integer(self, width):
+        extra = DonorPCIeIPConfig(link_width=width)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert f"CONFIG.LINK_CAP_MAX_LINK_WIDTH {width}" in tcl
+
+    def test_invalid_link_width_raises(self):
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(), extra=DonorPCIeIPConfig(link_width=3)
+            )
+
+    def test_none_emits_neither(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "LINK_CAP_MAX_LINK_SPEED" not in tcl
+        assert "LINK_CAP_MAX_LINK_WIDTH" not in tcl
