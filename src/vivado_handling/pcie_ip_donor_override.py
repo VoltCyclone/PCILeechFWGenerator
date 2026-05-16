@@ -127,6 +127,10 @@ _VALID_LINK_WIDTHS = (1, 2, 4, 8, 16)
 _VALID_CPL_TIMEOUT_RANGES = {"none", "A", "B", "C", "D", "AB", "BC", "BCD", "ABCD"}
 
 
+def _tcl_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
 def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
     """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*."""
     out: list[str] = []
@@ -207,12 +211,11 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
             out.append(f"CONFIG.MSIx_PBA_Offset {extra.msix_pba_offset}")
 
     if extra.aer_enabled is not None:
-        out.append(f"CONFIG.AER_Enabled {'true' if extra.aer_enabled else 'false'}")
+        out.append(f"CONFIG.AER_Enabled {_tcl_bool(extra.aer_enabled)}")
 
     if extra.ari_forwarding_supported is not None:
         out.append(
-            "CONFIG.ARI_Forwarding_Supported "
-            f"{'true' if extra.ari_forwarding_supported else 'false'}"
+            f"CONFIG.ARI_Forwarding_Supported {_tcl_bool(extra.ari_forwarding_supported)}"
         )
 
     if extra.cpl_timeout_ranges is not None:
@@ -227,8 +230,7 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
 
     if extra.cpl_timeout_disable_supported is not None:
         out.append(
-            "CONFIG.Cpl_Timeout_Disable_Sup "
-            f"{'true' if extra.cpl_timeout_disable_supported else 'false'}"
+            f"CONFIG.Cpl_Timeout_Disable_Sup {_tcl_bool(extra.cpl_timeout_disable_supported)}"
         )
 
     return out
