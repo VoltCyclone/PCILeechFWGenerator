@@ -303,7 +303,7 @@ class TestBuildWiringIpOverride:
         assert "CONFIG.DSN_HEX1 01001B21" in override_text
         assert "CONFIG.DSN_HEX2 DEADBEEF" in override_text
 
-    def test_valueerror_from_emitter_does_not_crash_build(self, tmp_path):
+    def test_valueerror_from_emitter_does_not_crash_build(self, tmp_path, caplog):
         """A bad donor field must warn-and-skip the override, not kill the build."""
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -346,23 +346,11 @@ class TestBuildWiringIpOverride:
             )
 
         # Now the build path: must NOT raise.
-        import logging
-
-        caplog_records: list[logging.LogRecord] = []
-
-        class _Handler(logging.Handler):
-            def emit(self, record):
-                caplog_records.append(record)
-
-        h = _Handler(level=logging.WARNING)
-        builder.logger.addHandler(h)
-        try:
-            builder._patch_fifo_with_donor_ids(result)  # must not raise
-        finally:
-            builder.logger.removeHandler(h)
+        with caplog.at_level("WARNING"):
+            builder._patch_fifo_with_donor_ids(result)
 
         assert any(
-            "donor override skipped" in r.message.lower()
-            or "valueerror" in r.message.lower()
-            for r in caplog_records
-        ), f"expected warn-and-skip; logs were: {[r.message for r in caplog_records]}"
+            "donor override skipped" in rec.message.lower()
+            or "valueerror" in rec.message.lower()
+            for rec in caplog.records
+        ), f"expected warn-and-skip; logs were: {[rec.message for rec in caplog.records]}"
