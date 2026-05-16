@@ -1,16 +1,29 @@
-"""Override Vivado PCIe IP CONFIG with donor IDs (issue #593, T2).
+"""Override Vivado PCIe IP CONFIG with donor IDs and capabilities (issue #593).
 
 The upstream ``vivado_generate_project_*.tcl`` imports ``pcie_7x_0.xci``
-verbatim. The .xci ships with Xilinx default IDs (Vendor_ID=10EE,
-Device_ID=0666, Subsystem_Vendor_ID=10EE, Subsystem_ID=0007, Revision_ID=02),
-and the upstream never overrides them. Without a CONFIG override the host
-sees those defaults during PCIe enumeration regardless of what the cfgspace
-shadow contains.
+verbatim. The .xci ships with Xilinx default values (Vendor_ID=10EE,
+Device_ID=0666, Class_Code_Base=02, MSIx_Enabled=false, AER_Enabled=false,
+LINK_CAP_MAX_LINK_WIDTH=1, etc.). Without an override the host sees those
+defaults during PCIe enumeration -- even when the cfgspace shadow has the
+donor's real bytes -- because the hard PCIe block emits IP-baked values
+during the window between LTSSM up and the first cfg-read.
 
-This module emits a small TCL fragment that runs ``set_property -dict ...``
-against the staged IP and re-runs ``generate_target`` so the change reaches
-the synthesizable HDL. The fragment is wired in by appending a guarded
+This module emits a TCL fragment that ``set_property -dict`` the donor's
+collected values onto the staged IP, then re-runs ``generate_target`` so the
+change reaches the synthesizable HDL. It is wired in by appending a guarded
 ``source`` line to the staged ``vivado_generate_project_*.tcl``.
+
+Coverage as of Step 2 (see docs/superpowers/plans/2026-05-15-pcie-ip-donor-override-*.md):
+
+- closed end-to-end: Class_Code (gap A4), MSI-X (A6), LinkCap (A7), MPS (A8)
+- scaffolded but no upstream producer yet: DSN (C2), AER (C1), ARI (C3),
+  Cpl_Timeout (D2). The DonorPCIeIPConfig fields and emission paths exist
+  but the extractor reads keys nothing currently writes; these fields stay
+  None in production. Step 3 will add donor-side capability-chain parsing
+  in ``src/device_clone/pcileech_context.py`` to populate them.
+- not yet implemented: BAR Type/Size emission (gap A5), UltraScale+ IP
+  property names. The emitter targets the Xilinx 7-series IP property
+  schema only.
 """
 from __future__ import annotations
 
