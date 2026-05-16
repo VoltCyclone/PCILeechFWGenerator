@@ -265,3 +265,22 @@ class TestMsixBundleEmission:
     def test_none_emits_nothing(self):
         tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
         assert "MSIx_Enabled" not in tcl
+
+
+class TestAerAndAriEmission:
+    @pytest.mark.parametrize("value,token", [(True, "true"), (False, "false")])
+    def test_emits_aer_enabled(self, value, token):
+        extra = DonorPCIeIPConfig(aer_enabled=value)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert f"CONFIG.AER_Enabled {token}" in tcl
+
+    @pytest.mark.parametrize("value,token", [(True, "true"), (False, "false")])
+    def test_emits_ari_forwarding(self, value, token):
+        extra = DonorPCIeIPConfig(ari_forwarding_supported=value)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert f"CONFIG.ARI_Forwarding_Supported {token}" in tcl
+
+    def test_none_emits_neither(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "AER_Enabled" not in tcl
+        assert "ARI_Forwarding_Supported" not in tcl

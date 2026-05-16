@@ -205,6 +205,15 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
             out.append(f"CONFIG.MSIx_PBA_BIR BAR_{extra.msix_pba_bir}")
             out.append(f"CONFIG.MSIx_PBA_Offset {extra.msix_pba_offset}")
 
+    if extra.aer_enabled is not None:
+        out.append(f"CONFIG.AER_Enabled {'true' if extra.aer_enabled else 'false'}")
+
+    if extra.ari_forwarding_supported is not None:
+        out.append(
+            "CONFIG.ARI_Forwarding_Supported "
+            f"{'true' if extra.ari_forwarding_supported else 'false'}"
+        )
+
     return out
 
 
