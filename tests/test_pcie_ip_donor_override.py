@@ -258,3 +258,47 @@ class TestBuildWiringIpOverride:
             "PCIe IP donor override skipped" in rec.message
             for rec in caplog.records
         )
+
+    def test_forwards_donor_pcie_ip_config_to_override_file(self, tmp_path):
+        """The build wires extracted DonorPCIeIPConfig fields into the override TCL."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
+            ENIGMAX1_FIFO,
+        )
+        (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
+        (tmp_path / "vivado_generate_project.tcl").write_text(
+            _FAKE_GENERATE_PROJECT
+        )
+
+        builder = self._make_builder(tmp_path)
+        result = {
+            "template_context": {
+                "max_payload_size": 256,
+                "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
+                "device_config": {
+                    "vendor_id_int": 0x8086,
+                    "device_id_int": 0x1533,
+                    "subsystem_vendor_id_int": 0x8086,
+                    "subsystem_device_id_int": 0x0001,
+                    "revision_id_int": 0x03,
+                    "class_code": 0x020000,
+                    "link_speed": 2,
+                    "link_width": 4,
+                    "supports_aer": True,
+                },
+            },
+        }
+        builder._patch_fifo_with_donor_ids(result)
+
+        override_text = (tmp_path / "pcileech_donor_ip_overrides.tcl").read_text()
+        # Core IDs still emitted.
+        assert "CONFIG.Vendor_ID 0x8086" in override_text
+        # Extras are now emitted too.
+        assert "CONFIG.Class_Code_Base 02" in override_text
+        assert "CONFIG.Max_Payload_Size 256_bytes" in override_text
+        assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 2" in override_text
+        assert "CONFIG.LINK_CAP_MAX_LINK_WIDTH 4" in override_text
+        assert "CONFIG.AER_Enabled true" in override_text
+        assert "CONFIG.DSN_HEX1 01001B21" in override_text
+        assert "CONFIG.DSN_HEX2 DEADBEEF" in override_text
