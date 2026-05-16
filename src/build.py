@@ -1924,7 +1924,7 @@ class FirmwareBuilder:
             ip_summary = apply_pcie_ip_donor_override(
                 self.config.output_dir, donor, extra=extra_ip_cfg
             )
-        except PcieIpOverrideError as e:
+        except (PcieIpOverrideError, ValueError) as e:
             log_warning_safe(
                 self.logger,
                 safe_format(

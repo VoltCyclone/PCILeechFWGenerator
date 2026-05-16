@@ -302,3 +302,67 @@ class TestBuildWiringIpOverride:
         assert "CONFIG.AER_Enabled true" in override_text
         assert "CONFIG.DSN_HEX1 01001B21" in override_text
         assert "CONFIG.DSN_HEX2 DEADBEEF" in override_text
+
+    def test_valueerror_from_emitter_does_not_crash_build(self, tmp_path):
+        """A bad donor field must warn-and-skip the override, not kill the build."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
+            ENIGMAX1_FIFO,
+        )
+        (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
+        (tmp_path / "vivado_generate_project.tcl").write_text(
+            _FAKE_GENERATE_PROJECT
+        )
+
+        builder = self._make_builder(tmp_path)
+        # cpl_timeout_ranges="ZZ" is invalid per the IP's accepted set; the
+        # emitter raises ValueError. The build must absorb it.
+        result = {
+            "template_context": {
+                "device_config": {
+                    "vendor_id_int": 0x8086,
+                    "device_id_int": 0x1533,
+                    "subsystem_vendor_id_int": 0x8086,
+                    "subsystem_device_id_int": 0x0001,
+                    "revision_id_int": 0x03,
+                    "cpl_timeout_ranges": "ZZ",
+                },
+            },
+        }
+
+        # Sanity check that our bad-input fixture really triggers the emitter to raise.
+        from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
+            DonorIDs,
+        )
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            DonorPCIeIPConfig,
+            generate_pcie_ip_override_tcl,
+        )
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                DonorIDs(1, 2, 3, 4, 5),
+                extra=DonorPCIeIPConfig(cpl_timeout_ranges="ZZ"),
+            )
+
+        # Now the build path: must NOT raise.
+        import logging
+
+        caplog_records: list[logging.LogRecord] = []
+
+        class _Handler(logging.Handler):
+            def emit(self, record):
+                caplog_records.append(record)
+
+        h = _Handler(level=logging.WARNING)
+        builder.logger.addHandler(h)
+        try:
+            builder._patch_fifo_with_donor_ids(result)  # must not raise
+        finally:
+            builder.logger.removeHandler(h)
+
+        assert any(
+            "donor override skipped" in r.message.lower()
+            or "valueerror" in r.message.lower()
+            for r in caplog_records
+        ), f"expected warn-and-skip; logs were: {[r.message for r in caplog_records]}"
