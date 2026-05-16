@@ -233,6 +233,16 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
             f"CONFIG.Cpl_Timeout_Disable_Sup {_tcl_bool(extra.cpl_timeout_disable_supported)}"
         )
 
+    if extra.dsn_value is not None:
+        if not (0 <= extra.dsn_value <= 0xFFFFFFFFFFFFFFFF):
+            raise ValueError(
+                f"dsn_value 0x{extra.dsn_value:X} does not fit in 64 bits"
+            )
+        lower = extra.dsn_value & 0xFFFFFFFF
+        upper = (extra.dsn_value >> 32) & 0xFFFFFFFF
+        out.append(f"CONFIG.DSN_HEX1 {lower:08X}")
+        out.append(f"CONFIG.DSN_HEX2 {upper:08X}")
+
     return out
 
 

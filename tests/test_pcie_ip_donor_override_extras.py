@@ -317,3 +317,34 @@ class TestCplTimeoutEmission:
         tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
         assert "Cpl_Timeout_Range" not in tcl
         assert "Cpl_Timeout_Disable_Sup" not in tcl
+
+
+class TestDsnEmission:
+    def test_emits_both_halves(self):
+        # Intel OUI 0x001B21, extension 0x01, upper 0xDEADBEEF
+        dsn = (0xDEADBEEF << 32) | 0x01001B21
+        extra = DonorPCIeIPConfig(dsn_value=dsn)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert "CONFIG.DSN_HEX1 01001B21" in tcl
+        assert "CONFIG.DSN_HEX2 DEADBEEF" in tcl
+
+    def test_emits_zero_dsn_safely(self):
+        # DSN of zero is unusual but legal; donor profile may report it on
+        # devices with no real OUI assignment. Both halves should be emitted
+        # as zero-padded 8-digit hex.
+        extra = DonorPCIeIPConfig(dsn_value=0)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert "CONFIG.DSN_HEX1 00000000" in tcl
+        assert "CONFIG.DSN_HEX2 00000000" in tcl
+
+    def test_raises_on_oversized_dsn(self):
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(dsn_value=1 << 64),
+            )
+
+    def test_none_emits_nothing(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "DSN_HEX1" not in tcl
+        assert "DSN_HEX2" not in tcl
