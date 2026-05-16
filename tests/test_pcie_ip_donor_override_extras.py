@@ -192,3 +192,75 @@ class TestLinkCapEmission:
         tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
         assert "LINK_CAP_MAX_LINK_SPEED" not in tcl
         assert "LINK_CAP_MAX_LINK_WIDTH" not in tcl
+
+
+class TestMsixBundleEmission:
+    def test_emits_full_bundle_when_enabled(self):
+        extra = DonorPCIeIPConfig(
+            msix_enabled=True,
+            msix_table_size=16,
+            msix_table_bir=2,
+            msix_table_offset=0x2000,
+            msix_pba_bir=2,
+            msix_pba_offset=0x3000,
+        )
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert "CONFIG.MSIx_Enabled true" in tcl
+        assert "CONFIG.MSIx_Table_Size 16" in tcl
+        assert "CONFIG.MSIx_Table_BIR BAR_2" in tcl
+        assert "CONFIG.MSIx_Table_Offset 8192" in tcl  # 0x2000 = 8192 decimal
+        assert "CONFIG.MSIx_PBA_BIR BAR_2" in tcl
+        assert "CONFIG.MSIx_PBA_Offset 12288" in tcl
+
+    def test_emits_disabled_when_explicit_false(self):
+        # An explicit msix_enabled=False asserts the donor has no MSI-X; emit
+        # only the enable=false line and skip the layout fields.
+        extra = DonorPCIeIPConfig(msix_enabled=False)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert "CONFIG.MSIx_Enabled false" in tcl
+        assert "MSIx_Table_Size" not in tcl
+        assert "MSIx_Table_BIR" not in tcl
+
+    def test_raises_when_enabled_but_layout_missing(self):
+        with pytest.raises(ValueError) as exc:
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(msix_enabled=True),
+            )
+        assert "msix" in str(exc.value).lower()
+
+    @pytest.mark.parametrize("bad_bir", [-1, 6, 8])
+    def test_raises_on_invalid_bir(self, bad_bir):
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(
+                    msix_enabled=True,
+                    msix_table_size=4,
+                    msix_table_bir=bad_bir,
+                    msix_table_offset=0,
+                    msix_pba_bir=0,
+                    msix_pba_offset=0x1000,
+                ),
+            )
+
+    def test_raises_on_zero_table_size(self):
+        # The PCIe spec encodes MSI-X table size as N-1, so size=0 means a
+        # single-vector device. We expect callers to feed the post-decoded
+        # vector count (>=1); zero is meaningless and likely a bug.
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(
+                    msix_enabled=True,
+                    msix_table_size=0,
+                    msix_table_bir=0,
+                    msix_table_offset=0,
+                    msix_pba_bir=0,
+                    msix_pba_offset=0,
+                ),
+            )
+
+    def test_none_emits_nothing(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "MSIx_Enabled" not in tcl

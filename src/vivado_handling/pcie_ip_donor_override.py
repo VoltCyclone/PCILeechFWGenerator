@@ -167,6 +167,44 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
             )
         out.append(f"CONFIG.LINK_CAP_MAX_LINK_WIDTH {extra.link_width}")
 
+    if extra.msix_enabled is not None:
+        if not extra.msix_enabled:
+            out.append("CONFIG.MSIx_Enabled false")
+        else:
+            # When enabled, the full layout must be present — partial state
+            # makes the IP synthesize with default offsets and the donor's
+            # advertised offsets disagree → driver mmap mismatch.
+            required = {
+                "msix_table_size": extra.msix_table_size,
+                "msix_table_bir": extra.msix_table_bir,
+                "msix_table_offset": extra.msix_table_offset,
+                "msix_pba_bir": extra.msix_pba_bir,
+                "msix_pba_offset": extra.msix_pba_offset,
+            }
+            missing = [name for name, value in required.items() if value is None]
+            if missing:
+                raise ValueError(
+                    "msix_enabled=True requires the full MSI-X layout; missing: "
+                    + ", ".join(missing)
+                )
+            if extra.msix_table_size < 1 or extra.msix_table_size > 2048:
+                raise ValueError(
+                    f"msix_table_size {extra.msix_table_size} outside spec range 1..2048"
+                )
+            for label, bir in (
+                ("msix_table_bir", extra.msix_table_bir),
+                ("msix_pba_bir", extra.msix_pba_bir),
+            ):
+                if bir is None or not (0 <= bir <= 5):
+                    raise ValueError(f"{label} {bir} is not a valid BAR index (0..5)")
+
+            out.append("CONFIG.MSIx_Enabled true")
+            out.append(f"CONFIG.MSIx_Table_Size {extra.msix_table_size}")
+            out.append(f"CONFIG.MSIx_Table_BIR BAR_{extra.msix_table_bir}")
+            out.append(f"CONFIG.MSIx_Table_Offset {extra.msix_table_offset}")
+            out.append(f"CONFIG.MSIx_PBA_BIR BAR_{extra.msix_pba_bir}")
+            out.append(f"CONFIG.MSIx_PBA_Offset {extra.msix_pba_offset}")
+
     return out
 
 
