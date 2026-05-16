@@ -96,3 +96,36 @@ class TestExtraEmissionMechanism:
                 assert stripped.endswith("\\"), (
                     f"missing line-continuation backslash: {line!r}"
                 )
+
+
+class TestClassCodeEmission:
+    def test_emits_three_class_code_keys_when_set(self):
+        # 0x020000 = Ethernet controller (Intel 82574L donor)
+        extra = DonorPCIeIPConfig(class_code=0x020000)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        # Xilinx wants two-hex-digit strings, no 0x prefix.
+        assert "CONFIG.Class_Code_Base 02" in tcl
+        assert "CONFIG.Class_Code_Sub 00" in tcl
+        assert "CONFIG.Class_Code_Interface 00" in tcl
+
+    def test_nvme_class_code_unpacks_correctly(self):
+        # 0x010802 = NVMe (base=01 mass storage, sub=08 NVM, interface=02 NVMe)
+        extra = DonorPCIeIPConfig(class_code=0x010802)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert "CONFIG.Class_Code_Base 01" in tcl
+        assert "CONFIG.Class_Code_Sub 08" in tcl
+        assert "CONFIG.Class_Code_Interface 02" in tcl
+
+    def test_class_code_none_emits_nothing(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "Class_Code_Base" not in tcl
+        assert "Class_Code_Sub" not in tcl
+        assert "Class_Code_Interface" not in tcl
+
+    def test_class_code_out_of_range_raises(self):
+        # 24-bit field; values that don't fit must surface, not silently truncate.
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(class_code=0x1000000),
+            )

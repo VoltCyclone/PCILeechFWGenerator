@@ -114,12 +114,22 @@ def generate_pcie_ip_override_tcl(
 
 
 def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
-    """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*.
+    """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*."""
+    out: list[str] = []
 
-    Later tasks extend this function — each capability group is added as its
-    own block. Empty for now.
-    """
-    return []
+    if extra.class_code is not None:
+        if not (0 <= extra.class_code <= 0xFFFFFF):
+            raise ValueError(
+                f"class_code 0x{extra.class_code:X} does not fit in 24 bits"
+            )
+        base = (extra.class_code >> 16) & 0xFF
+        sub = (extra.class_code >> 8) & 0xFF
+        interface = extra.class_code & 0xFF
+        out.append(f"CONFIG.Class_Code_Base {base:02X}")
+        out.append(f"CONFIG.Class_Code_Sub {sub:02X}")
+        out.append(f"CONFIG.Class_Code_Interface {interface:02X}")
+
+    return out
 
 
 def _find_generate_project_scripts(staging_dir: Path) -> List[Path]:
