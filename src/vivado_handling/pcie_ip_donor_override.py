@@ -338,7 +338,13 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
     device_config = template_context.get("device_config") or {}
 
     class_code = _coerce_int(device_config.get("class_code"))
-    max_payload_size = _coerce_int(template_context.get("max_payload_size"))
+    # Canonical producer path: template_context["pcileech_config"]["max_payload_size"]
+    # (see src/device_clone/pcileech_context.py:2323). Fall back to top-level for
+    # legacy callers that pre-populate it directly.
+    pcileech_config = template_context.get("pcileech_config") or {}
+    max_payload_size = _coerce_int(
+        pcileech_config.get("max_payload_size")
+    ) or _coerce_int(template_context.get("max_payload_size"))
     # The producer writes spec-encoded link speed/width at top level — see
     # src/device_clone/pcileech_context.py:850-952. device_config["link_speed"]
     # carries a human-readable string ("2.5GT/s") that's not useful here.

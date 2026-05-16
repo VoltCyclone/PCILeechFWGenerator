@@ -570,3 +570,48 @@ class TestDonorPCIeIPConfigExtractor:
         assert cfg.link_width == 8
         # The generation field stays None — caller didn't say "Gen3."
         assert cfg.link_speed is None
+
+    def test_max_payload_size_extracted_from_pcileech_config(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        # Producer writes MPS inside pcileech_config (see pcileech_context.py:2323).
+        result = {
+            "template_context": {
+                "pcileech_config": {"max_payload_size": 512},
+                "device_config": {},
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        assert cfg.max_payload_size == 512
+
+    def test_max_payload_size_top_level_fallback(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        # Defensive fallback: top-level value still honored for callers that
+        # haven't migrated to nesting it under pcileech_config.
+        result = {
+            "template_context": {
+                "max_payload_size": 256,
+                "device_config": {},
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        assert cfg.max_payload_size == 256
+
+    def test_max_payload_size_pcileech_config_takes_precedence_over_top_level(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        # If both paths are set (shouldn't happen in practice but defensive),
+        # pcileech_config wins — it's the canonical producer.
+        result = {
+            "template_context": {
+                "max_payload_size": 128,
+                "pcileech_config": {"max_payload_size": 512},
+                "device_config": {},
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        assert cfg.max_payload_size == 512
