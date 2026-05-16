@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from .fifo_donor_patcher import DonorIDs
+from .fifo_donor_patcher import DonorIDs, _coerce_int
 
 
 class PcieIpOverrideError(RuntimeError):
@@ -295,12 +295,6 @@ def apply_pcie_ip_donor_override(
         "override_path": override_path,
         "wired_scripts": scripts,
     }
-
-
-# Re-use the private coercion helper from the sibling FIFO patcher rather
-# than duplicating the logic — it already handles int / 0x-prefixed strings /
-# decimal / hex-without-prefix exactly the way this extractor needs.
-from .fifo_donor_patcher import _coerce_int  # noqa: E402
 
 
 def _coerce_bool(value) -> Optional[bool]:
