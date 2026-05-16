@@ -284,3 +284,36 @@ class TestAerAndAriEmission:
         tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
         assert "AER_Enabled" not in tcl
         assert "ARI_Forwarding_Supported" not in tcl
+
+
+class TestCplTimeoutEmission:
+    @pytest.mark.parametrize("token", [
+        "none", "A", "B", "C", "D", "AB", "BC", "BCD", "ABCD",
+    ])
+    def test_emits_valid_range_token(self, token):
+        extra = DonorPCIeIPConfig(cpl_timeout_ranges=token)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        # Xilinx prefixes the token with "Range_" for non-"none" values; "none"
+        # passes through verbatim.
+        if token == "none":
+            assert "CONFIG.Cpl_Timeout_Range none" in tcl
+        else:
+            assert f"CONFIG.Cpl_Timeout_Range Range_{token}" in tcl
+
+    def test_invalid_range_raises(self):
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(cpl_timeout_ranges="ZZ"),
+            )
+
+    @pytest.mark.parametrize("value,token", [(True, "true"), (False, "false")])
+    def test_emits_cpl_timeout_disable(self, value, token):
+        extra = DonorPCIeIPConfig(cpl_timeout_disable_supported=value)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert f"CONFIG.Cpl_Timeout_Disable_Sup {token}" in tcl
+
+    def test_none_emits_neither(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "Cpl_Timeout_Range" not in tcl
+        assert "Cpl_Timeout_Disable_Sup" not in tcl

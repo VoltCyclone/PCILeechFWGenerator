@@ -124,6 +124,7 @@ _MPS_TOKENS = {
 
 _LINK_SPEED_ENCODING = {1: 1, 2: 2, 3: 4, 4: 8, 5: 16}
 _VALID_LINK_WIDTHS = (1, 2, 4, 8, 16)
+_VALID_CPL_TIMEOUT_RANGES = {"none", "A", "B", "C", "D", "AB", "BC", "BCD", "ABCD"}
 
 
 def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
@@ -212,6 +213,22 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
         out.append(
             "CONFIG.ARI_Forwarding_Supported "
             f"{'true' if extra.ari_forwarding_supported else 'false'}"
+        )
+
+    if extra.cpl_timeout_ranges is not None:
+        if extra.cpl_timeout_ranges not in _VALID_CPL_TIMEOUT_RANGES:
+            raise ValueError(
+                f"cpl_timeout_ranges {extra.cpl_timeout_ranges!r} is not one of "
+                f"{sorted(_VALID_CPL_TIMEOUT_RANGES)}"
+            )
+        token = extra.cpl_timeout_ranges
+        encoded = "none" if token == "none" else f"Range_{token}"
+        out.append(f"CONFIG.Cpl_Timeout_Range {encoded}")
+
+    if extra.cpl_timeout_disable_supported is not None:
+        out.append(
+            "CONFIG.Cpl_Timeout_Disable_Sup "
+            f"{'true' if extra.cpl_timeout_disable_supported else 'false'}"
         )
 
     return out
