@@ -113,6 +113,16 @@ def generate_pcie_ip_override_tcl(
     )
 
 
+_MPS_TOKENS = {
+    128: "128_bytes",
+    256: "256_bytes",
+    512: "512_bytes",
+    1024: "1024_bytes",
+    2048: "2048_bytes",
+    4096: "4096_bytes",
+}
+
+
 def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
     """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*."""
     out: list[str] = []
@@ -128,6 +138,15 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
         out.append(f"CONFIG.Class_Code_Base {base:02X}")
         out.append(f"CONFIG.Class_Code_Sub {sub:02X}")
         out.append(f"CONFIG.Class_Code_Interface {interface:02X}")
+
+    if extra.max_payload_size is not None:
+        token = _MPS_TOKENS.get(extra.max_payload_size)
+        if token is None:
+            raise ValueError(
+                f"max_payload_size {extra.max_payload_size} is not one of "
+                f"{sorted(_MPS_TOKENS)}"
+            )
+        out.append(f"CONFIG.Max_Payload_Size {token}")
 
     return out
 

@@ -129,3 +129,30 @@ class TestClassCodeEmission:
                 _intel_donor(),
                 extra=DonorPCIeIPConfig(class_code=0x1000000),
             )
+
+
+class TestMaxPayloadSizeEmission:
+    @pytest.mark.parametrize("mps,token", [
+        (128, "128_bytes"),
+        (256, "256_bytes"),
+        (512, "512_bytes"),
+        (1024, "1024_bytes"),
+        (2048, "2048_bytes"),
+        (4096, "4096_bytes"),
+    ])
+    def test_emits_valid_mps_token(self, mps, token):
+        extra = DonorPCIeIPConfig(max_payload_size=mps)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert f"CONFIG.Max_Payload_Size {token}" in tcl
+
+    def test_invalid_mps_raises(self):
+        # Anything not in the Xilinx-accepted set must fail loudly rather
+        # than silently emitting a token Vivado will reject during IP elab.
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(), extra=DonorPCIeIPConfig(max_payload_size=384)
+            )
+
+    def test_none_emits_nothing(self):
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=DonorPCIeIPConfig())
+        assert "Max_Payload_Size" not in tcl
