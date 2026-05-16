@@ -276,6 +276,11 @@ class TestBuildWiringIpOverride:
             "template_context": {
                 "max_payload_size": 256,
                 "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
+                # Producer writes spec-encoded link speed/width at top level
+                # (see src/device_clone/pcileech_context.py). 2 == 5.0 GT/s
+                # (Gen2 spec encoding), 4 == x4 lanes.
+                "pcie_max_link_speed": 2,
+                "pcie_max_link_width": 4,
                 "device_config": {
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x1533,
@@ -283,8 +288,6 @@ class TestBuildWiringIpOverride:
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
                     "class_code": 0x020000,
-                    "link_speed": 2,
-                    "link_width": 4,
                     "supports_aer": True,
                 },
             },

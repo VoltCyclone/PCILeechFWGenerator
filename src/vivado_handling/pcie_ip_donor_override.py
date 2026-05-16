@@ -44,8 +44,9 @@ class DonorPCIeIPConfig:
     max_payload_size: Optional[int] = None
 
     # A7 — LinkCap negotiated ceiling
-    link_speed: Optional[int] = None  # PCIe gen: 1, 2, 3, 4, 5
-    link_width: Optional[int] = None  # x1/x2/x4/x8/x16 as integer 1/2/4/8/16
+    link_speed: Optional[int] = None  # PCIe gen: 1, 2, 3, 4, 5 (mapped to spec)
+    link_speed_code: Optional[int] = None  # Spec-encoded value 1/2/4/8/16 (direct)
+    link_width: Optional[int] = None  # Lane count 1/2/4/8/16
 
     # A6 — MSI-X capability layout
     msix_enabled: Optional[bool] = None
@@ -156,6 +157,11 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
             )
         out.append(f"CONFIG.Max_Payload_Size {token}")
 
+    if extra.link_speed is not None and extra.link_speed_code is not None:
+        raise ValueError(
+            "set exactly one of link_speed (generation) or "
+            "link_speed_code (spec-encoded), not both"
+        )
     if extra.link_speed is not None:
         encoded = _LINK_SPEED_ENCODING.get(extra.link_speed)
         if encoded is None:
@@ -164,6 +170,13 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
                 f"(supported: {sorted(_LINK_SPEED_ENCODING)})"
             )
         out.append(f"CONFIG.LINK_CAP_MAX_LINK_SPEED {encoded}")
+    elif extra.link_speed_code is not None:
+        if extra.link_speed_code not in _LINK_SPEED_ENCODING.values():
+            raise ValueError(
+                f"link_speed_code {extra.link_speed_code} is not a valid PCIe "
+                f"spec encoding (supported: {sorted(_LINK_SPEED_ENCODING.values())})"
+            )
+        out.append(f"CONFIG.LINK_CAP_MAX_LINK_SPEED {extra.link_speed_code}")
 
     if extra.link_width is not None:
         if extra.link_width not in _VALID_LINK_WIDTHS:
@@ -326,8 +339,11 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
 
     class_code = _coerce_int(device_config.get("class_code"))
     max_payload_size = _coerce_int(template_context.get("max_payload_size"))
-    link_speed = _coerce_int(device_config.get("link_speed"))
-    link_width = _coerce_int(device_config.get("link_width"))
+    # The producer writes spec-encoded link speed/width at top level — see
+    # src/device_clone/pcileech_context.py:850-952. device_config["link_speed"]
+    # carries a human-readable string ("2.5GT/s") that's not useful here.
+    link_speed_code = _coerce_int(template_context.get("pcie_max_link_speed"))
+    link_width = _coerce_int(template_context.get("pcie_max_link_width"))
     aer_enabled = _coerce_bool(device_config.get("supports_aer"))
     ari_forwarding_supported = _coerce_bool(device_config.get("ari_capable"))
 
@@ -369,7 +385,7 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
     return DonorPCIeIPConfig(
         class_code=class_code,
         max_payload_size=max_payload_size,
-        link_speed=link_speed,
+        link_speed_code=link_speed_code,
         link_width=link_width,
         msix_enabled=msix_enabled,
         msix_table_size=msix_table_size,

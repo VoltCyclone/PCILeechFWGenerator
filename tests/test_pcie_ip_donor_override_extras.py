@@ -177,6 +177,28 @@ class TestLinkCapEmission:
                 _intel_donor(), extra=DonorPCIeIPConfig(link_speed=6)
             )
 
+    def test_emits_link_speed_code_directly_when_set(self):
+        # Direct spec-encoded value (skips the generation→encoding map).
+        extra = DonorPCIeIPConfig(link_speed_code=4)
+        tcl = generate_pcie_ip_override_tcl(_intel_donor(), extra=extra)
+        assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 4" in tcl
+
+    def test_raises_if_both_link_speed_and_link_speed_code_set(self):
+        with pytest.raises(ValueError, match=r"link_speed.*link_speed_code"):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(link_speed=3, link_speed_code=4),
+            )
+
+    @pytest.mark.parametrize("bad_code", [3, 5, 6, 7, 9, 17])
+    def test_invalid_link_speed_code_raises(self, bad_code):
+        # Spec-encoded value must be one of {1, 2, 4, 8, 16}.
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                _intel_donor(),
+                extra=DonorPCIeIPConfig(link_speed_code=bad_code),
+            )
+
     @pytest.mark.parametrize("width", [1, 2, 4, 8, 16])
     def test_emits_link_width_as_integer(self, width):
         extra = DonorPCIeIPConfig(link_width=width)
@@ -406,10 +428,12 @@ class TestDonorPCIeIPConfigExtractor:
             "template_context": {
                 "max_payload_size": 256,
                 "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
+                # Producer writes spec-encoded link speed/width at top level.
+                # 2 == Gen2 (5.0 GT/s) spec encoding, 4 == x4 lanes.
+                "pcie_max_link_speed": 2,
+                "pcie_max_link_width": 4,
                 "device_config": {
                     "class_code": "0x020000",
-                    "link_speed": 2,
-                    "link_width": 4,
                     "supports_aer": True,
                     "ari_capable": False,
                     "cpl_timeout_ranges": "BCD",
@@ -431,7 +455,9 @@ class TestDonorPCIeIPConfigExtractor:
 
         assert cfg.class_code == 0x020000
         assert cfg.max_payload_size == 256
-        assert cfg.link_speed == 2
+        # Extractor populates link_speed_code (spec-encoded), not link_speed (gen).
+        assert cfg.link_speed_code == 2
+        assert cfg.link_speed is None
         assert cfg.link_width == 4
         assert cfg.msix_enabled is True
         assert cfg.msix_table_size == 16
@@ -524,3 +550,23 @@ class TestDonorPCIeIPConfigExtractor:
         assert cfg.msix_table_offset is None
         assert cfg.msix_pba_bir is None
         assert cfg.msix_pba_offset is None
+
+    def test_link_speed_extracted_from_pcie_max_link_speed_top_level(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        # Producer writes the SPEC-ENCODED value at the top level (not generation).
+        # 4 == 8.0 GT/s (Gen3). The extractor must store it as link_speed_code,
+        # not as the generation field.
+        result = {
+            "template_context": {
+                "pcie_max_link_speed": 4,
+                "pcie_max_link_width": 8,
+                "device_config": {},
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        assert cfg.link_speed_code == 4
+        assert cfg.link_width == 8
+        # The generation field stays None — caller didn't say "Gen3."
+        assert cfg.link_speed is None
