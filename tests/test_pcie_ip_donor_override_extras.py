@@ -394,3 +394,105 @@ class TestApplyWithExtra:
             if line.strip().startswith("CONFIG.")
         ]
         assert len(config_lines) == 5
+
+
+class TestDonorPCIeIPConfigExtractor:
+    def test_extracts_all_fields_from_well_formed_result(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+
+        result = {
+            "template_context": {
+                "max_payload_size": 256,
+                "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
+                "device_config": {
+                    "class_code": "0x020000",
+                    "link_speed": 2,
+                    "link_width": 4,
+                    "supports_aer": True,
+                    "ari_capable": False,
+                    "cpl_timeout_ranges": "BCD",
+                    "cpl_timeout_disable_sup": True,
+                },
+            },
+            "msix_data": {
+                "enabled": True,
+                "table_size": 16,
+                "table_bir": 2,
+                "table_offset": 0x2000,
+                "pba_bir": 2,
+                "pba_offset": 0x3000,
+                "is_valid": True,
+            },
+        }
+
+        cfg = donor_pcie_ip_config_from_result(result)
+
+        assert cfg.class_code == 0x020000
+        assert cfg.max_payload_size == 256
+        assert cfg.link_speed == 2
+        assert cfg.link_width == 4
+        assert cfg.msix_enabled is True
+        assert cfg.msix_table_size == 16
+        assert cfg.msix_table_bir == 2
+        assert cfg.msix_table_offset == 0x2000
+        assert cfg.msix_pba_bir == 2
+        assert cfg.msix_pba_offset == 0x3000
+        assert cfg.aer_enabled is True
+        assert cfg.ari_forwarding_supported is False
+        assert cfg.cpl_timeout_ranges == "BCD"
+        assert cfg.cpl_timeout_disable_supported is True
+        assert cfg.dsn_value == (0xDEADBEEF << 32) | 0x01001B21
+
+    def test_empty_result_returns_all_none_config(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        cfg = donor_pcie_ip_config_from_result({})
+        assert cfg.class_code is None
+        assert cfg.max_payload_size is None
+        assert cfg.msix_enabled is None
+        assert cfg.dsn_value is None
+
+    def test_invalid_msix_data_does_not_set_msix_fields(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        result = {
+            "template_context": {"device_config": {}},
+            "msix_data": {
+                "enabled": True,
+                "table_size": 16,
+                "is_valid": False,  # parser flagged it as bad
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        assert cfg.msix_enabled is None
+        assert cfg.msix_table_size is None
+
+    def test_class_code_accepts_int_or_string(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        for value in (0x020000, "0x020000", "020000", "131072"):
+            result = {
+                "template_context": {"device_config": {"class_code": value}},
+            }
+            cfg = donor_pcie_ip_config_from_result(result)
+            assert cfg.class_code == 0x020000, f"class_code={value!r}"
+
+    def test_malformed_values_silently_drop(self):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            donor_pcie_ip_config_from_result,
+        )
+        # Garbage donor data must not raise — extractor returns None for the
+        # bad field and emission skips the corresponding CONFIG line.
+        result = {
+            "template_context": {
+                "device_config": {"class_code": "not-a-number", "link_speed": "x"},
+            },
+        }
+        cfg = donor_pcie_ip_config_from_result(result)
+        assert cfg.class_code is None
+        assert cfg.link_speed is None

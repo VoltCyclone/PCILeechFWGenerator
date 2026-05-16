@@ -295,3 +295,82 @@ def apply_pcie_ip_donor_override(
         "override_path": override_path,
         "wired_scripts": scripts,
     }
+
+
+# Re-use the private coercion helper from the sibling FIFO patcher rather
+# than duplicating the logic — it already handles int / 0x-prefixed strings /
+# decimal / hex-without-prefix exactly the way this extractor needs.
+from .fifo_donor_patcher import _coerce_int  # noqa: E402
+
+
+def _coerce_bool(value) -> Optional[bool]:
+    """Best-effort bool coercion: accept True/False/1/0/"true"/"false"."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "1", "yes"):
+            return True
+        if s in ("false", "0", "no"):
+            return False
+    return None
+
+
+def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
+    """Build a DonorPCIeIPConfig from the build's ``result`` dict.
+
+    Defensive: every field is independently extracted and set to None when the
+    source data is missing or unparseable. Never raises. Mirrors the pattern of
+    ``donor_ids_from_template_context`` in ``fifo_donor_patcher.py``.
+    """
+    template_context = (result or {}).get("template_context") or {}
+    device_config = template_context.get("device_config") or {}
+
+    class_code = _coerce_int(device_config.get("class_code"))
+    max_payload_size = _coerce_int(template_context.get("max_payload_size"))
+    link_speed = _coerce_int(device_config.get("link_speed"))
+    link_width = _coerce_int(device_config.get("link_width"))
+    aer_enabled = _coerce_bool(device_config.get("supports_aer"))
+    ari_forwarding_supported = _coerce_bool(device_config.get("ari_capable"))
+
+    cpl_ranges = device_config.get("cpl_timeout_ranges")
+    if not isinstance(cpl_ranges, str) or not cpl_ranges:
+        cpl_ranges = None
+    cpl_disable = _coerce_bool(device_config.get("cpl_timeout_disable_sup"))
+
+    dsn_value = _coerce_int(template_context.get("device_serial_number_int"))
+
+    # MSI-X — only honor the block if the parser flagged it valid.
+    msix = (result or {}).get("msix_data") or {}
+    if msix.get("is_valid"):
+        msix_enabled = _coerce_bool(msix.get("enabled"))
+        msix_table_size = _coerce_int(msix.get("table_size"))
+        msix_table_bir = _coerce_int(msix.get("table_bir"))
+        msix_table_offset = _coerce_int(msix.get("table_offset"))
+        msix_pba_bir = _coerce_int(msix.get("pba_bir"))
+        msix_pba_offset = _coerce_int(msix.get("pba_offset"))
+    else:
+        msix_enabled = msix_table_size = msix_table_bir = None
+        msix_table_offset = msix_pba_bir = msix_pba_offset = None
+
+    return DonorPCIeIPConfig(
+        class_code=class_code,
+        max_payload_size=max_payload_size,
+        link_speed=link_speed,
+        link_width=link_width,
+        msix_enabled=msix_enabled,
+        msix_table_size=msix_table_size,
+        msix_table_bir=msix_table_bir,
+        msix_table_offset=msix_table_offset,
+        msix_pba_bir=msix_pba_bir,
+        msix_pba_offset=msix_pba_offset,
+        aer_enabled=aer_enabled,
+        ari_forwarding_supported=ari_forwarding_supported,
+        cpl_timeout_ranges=cpl_ranges,
+        cpl_timeout_disable_supported=cpl_disable,
+        dsn_value=dsn_value,
+    )
