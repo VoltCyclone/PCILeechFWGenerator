@@ -72,3 +72,46 @@ class TestExtractDsnValue:
             ]
         )
         assert extract_dsn_value(hex_cs) == (0xDEADBEEF << 32) | 0x01001B21
+
+
+from pcileechfwgenerator.device_clone.donor_capability_extractor import (
+    extract_aer_supported,
+    extract_ari_supported,
+)
+
+
+class TestExtractAerSupported:
+    def test_returns_true_when_aer_ext_cap_present(self):
+        hex_cs = _make_config_space(
+            ext_caps=[(0x0001, 0, [0, 0, 0, 0, 0])]
+        )
+        assert extract_aer_supported(hex_cs) is True
+
+    def test_returns_false_when_aer_absent(self):
+        hex_cs = _make_config_space(
+            ext_caps=[(0x0003, 0, [0x01001B21, 0xDEADBEEF])]
+        )
+        assert extract_aer_supported(hex_cs) is False
+
+    def test_returns_false_on_empty_chain(self):
+        assert extract_aer_supported(_make_config_space(ext_caps=None)) is False
+
+    def test_returns_none_on_malformed_hex(self):
+        assert extract_aer_supported("not-hex") is None
+
+
+class TestExtractAriSupported:
+    def test_returns_true_when_ari_ext_cap_present(self):
+        hex_cs = _make_config_space(
+            ext_caps=[(0x000E, 0, [0])]
+        )
+        assert extract_ari_supported(hex_cs) is True
+
+    def test_returns_false_when_ari_absent(self):
+        hex_cs = _make_config_space(
+            ext_caps=[(0x0001, 0, [0, 0])]
+        )
+        assert extract_ari_supported(hex_cs) is False
+
+    def test_returns_none_on_malformed_hex(self):
+        assert extract_ari_supported("") is None

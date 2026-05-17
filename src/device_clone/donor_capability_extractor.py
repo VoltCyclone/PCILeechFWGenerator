@@ -51,3 +51,28 @@ def extract_dsn_value(hex_data: str) -> Optional[int]:
     except (IndexError, ValueError):
         return None
     return None
+
+
+def _has_ext_cap(hex_data: str, cap_id: int) -> Optional[bool]:
+    """Return True/False if the ext cap is present, None on parse failure."""
+    cs = _safe_config_space(hex_data)
+    if cs is None:
+        return None
+    try:
+        walker = CapabilityWalker(cs)
+        for cap in walker.walk_extended_capabilities():
+            if cap.cap_id == cap_id:
+                return True
+        return False
+    except (IndexError, ValueError):
+        return None
+
+
+def extract_aer_supported(hex_data: str) -> Optional[bool]:
+    """Return True if AER (ext cap 0x0001) is in the donor's cap chain."""
+    return _has_ext_cap(hex_data, _EXT_CAP_ID_AER)
+
+
+def extract_ari_supported(hex_data: str) -> Optional[bool]:
+    """Return True if ARI (ext cap 0x000E) is in the donor's cap chain."""
+    return _has_ext_cap(hex_data, _EXT_CAP_ID_ARI)
