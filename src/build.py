@@ -1919,8 +1919,8 @@ class FirmwareBuilder:
 
         # Override the Vivado PCIe IP CONFIG so donor IDs reach the IP
         # block itself, not just the cfgspace shadow.
-        extra_ip_cfg = donor_pcie_ip_config_from_result(result)
         try:
+            extra_ip_cfg = donor_pcie_ip_config_from_result(result)
             ip_summary = apply_pcie_ip_donor_override(
                 self.config.output_dir, donor, extra=extra_ip_cfg
             )
