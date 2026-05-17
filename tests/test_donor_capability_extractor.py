@@ -198,3 +198,54 @@ class TestExtractCplTimeoutCaps:
             "cpl_timeout_ranges": None,
             "cpl_timeout_disable_supported": None,
         }
+
+
+from pcileechfwgenerator.device_clone.donor_capability_extractor import (
+    extract_donor_capabilities,
+)
+
+
+class TestExtractDonorCapabilities:
+    def test_aggregates_all_four_capability_groups(self):
+        size = 4096
+        data = bytearray(size)
+        data[0x06] = 0x10
+        data[0x34] = 0x40
+        data[0x40] = 0x10
+        devcap2 = 0b00011111
+        data[0x64 : 0x68] = devcap2.to_bytes(4, "little")
+        data[0x100 : 0x104] = ((0x140 << 20) | (1 << 16) | 0x0001).to_bytes(4, "little")
+        data[0x140 : 0x144] = ((0x180 << 20) | (1 << 16) | 0x0003).to_bytes(4, "little")
+        data[0x144 : 0x148] = (0x01001B21).to_bytes(4, "little")
+        data[0x148 : 0x14C] = (0xDEADBEEF).to_bytes(4, "little")
+        data[0x180 : 0x184] = ((0 << 20) | (1 << 16) | 0x000E).to_bytes(4, "little")
+        hex_cs = data.hex()
+
+        result = extract_donor_capabilities(hex_cs)
+        assert result == {
+            "dsn_value": (0xDEADBEEF << 32) | 0x01001B21,
+            "supports_aer": True,
+            "ari_capable": True,
+            "cpl_timeout_ranges": "ABCD",
+            "cpl_timeout_disable_sup": True,
+        }
+
+    def test_returns_all_none_on_malformed_hex(self):
+        result = extract_donor_capabilities("not-hex")
+        assert result == {
+            "dsn_value": None,
+            "supports_aer": None,
+            "ari_capable": None,
+            "cpl_timeout_ranges": None,
+            "cpl_timeout_disable_sup": None,
+        }
+
+    def test_keys_match_override_extractor_read_paths(self):
+        result = extract_donor_capabilities(_make_config_space(ext_caps=None))
+        assert set(result.keys()) == {
+            "dsn_value",
+            "supports_aer",
+            "ari_capable",
+            "cpl_timeout_ranges",
+            "cpl_timeout_disable_sup",
+        }

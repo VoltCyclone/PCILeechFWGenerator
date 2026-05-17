@@ -135,3 +135,20 @@ def extract_cpl_timeout_caps(hex_data: str) -> dict:
         "cpl_timeout_ranges": _CTRS_BITS_TO_TOKEN.get(ctrs_bits),
         "cpl_timeout_disable_supported": disable_sup,
     }
+
+
+def extract_donor_capabilities(hex_data: str) -> dict:
+    """Extract all donor capabilities relevant to the IP override.
+
+    Keys match what the override extractor reads from template_context
+    (for ``dsn_value``) and device_config (for the others). Pure function,
+    never raises — caller can splat into device_config.
+    """
+    cpl = extract_cpl_timeout_caps(hex_data)
+    return {
+        "dsn_value": extract_dsn_value(hex_data),
+        "supports_aer": extract_aer_supported(hex_data),
+        "ari_capable": extract_ari_supported(hex_data),
+        "cpl_timeout_ranges": cpl["cpl_timeout_ranges"],
+        "cpl_timeout_disable_sup": cpl["cpl_timeout_disable_supported"],
+    }
