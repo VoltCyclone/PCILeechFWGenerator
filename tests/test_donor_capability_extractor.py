@@ -7,6 +7,7 @@ accepts them.
 import sys
 from pathlib import Path
 
+import pytest
 
 project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
@@ -115,3 +116,85 @@ class TestExtractAriSupported:
 
     def test_returns_none_on_malformed_hex(self):
         assert extract_ari_supported("") is None
+
+
+from pcileechfwgenerator.device_clone.donor_capability_extractor import (
+    extract_cpl_timeout_caps,
+)
+
+
+def _make_cs_with_pcie_cap(
+    *,
+    pcie_cap_offset: int = 0x40,
+    devcap2_value: int = 0,
+) -> str:
+    """Build a config-space hex with the PCIe capability at pcie_cap_offset."""
+    size = 4096
+    data = bytearray(size)
+    data[0x06] = 0x10
+    data[0x34] = pcie_cap_offset
+    data[pcie_cap_offset] = 0x10
+    data[pcie_cap_offset + 1] = 0x00
+    devcap2_off = pcie_cap_offset + 0x24
+    data[devcap2_off : devcap2_off + 4] = devcap2_value.to_bytes(4, "little")
+    return data.hex()
+
+
+class TestExtractCplTimeoutCaps:
+    @pytest.mark.parametrize("ctrs_bits,expected_ranges", [
+        (0b0000, "none"),
+        (0b0001, "A"),
+        (0b0010, "B"),
+        (0b0100, "C"),
+        (0b1000, "D"),
+        (0b0011, "AB"),
+        (0b0110, "BC"),
+        (0b1110, "BCD"),
+        (0b1111, "ABCD"),
+    ])
+    def test_decodes_ctrs_bits_to_xilinx_token(self, ctrs_bits, expected_ranges):
+        hex_cs = _make_cs_with_pcie_cap(devcap2_value=ctrs_bits)
+        result = extract_cpl_timeout_caps(hex_cs)
+        assert result["cpl_timeout_ranges"] == expected_ranges
+        assert result["cpl_timeout_disable_supported"] is False
+
+    def test_decodes_disable_supported_bit(self):
+        hex_cs = _make_cs_with_pcie_cap(devcap2_value=0b00010000)
+        result = extract_cpl_timeout_caps(hex_cs)
+        assert result["cpl_timeout_disable_supported"] is True
+        assert result["cpl_timeout_ranges"] == "none"
+
+    @pytest.mark.parametrize("unsupported_bits", [
+        0b0101,
+        0b1001,
+        0b1010,
+        0b1100,
+        0b0111,
+        0b1011,
+        0b1101,
+    ])
+    def test_returns_none_ranges_for_unsupported_combinations(self, unsupported_bits):
+        hex_cs = _make_cs_with_pcie_cap(devcap2_value=unsupported_bits)
+        result = extract_cpl_timeout_caps(hex_cs)
+        assert result["cpl_timeout_ranges"] is None
+
+    def test_returns_all_none_when_pcie_cap_absent(self):
+        size = 4096
+        data = bytearray(size)
+        data[0x06] = 0x10
+        data[0x34] = 0x40
+        data[0x40] = 0x01
+        data[0x41] = 0x00
+        hex_cs = data.hex()
+        result = extract_cpl_timeout_caps(hex_cs)
+        assert result == {
+            "cpl_timeout_ranges": None,
+            "cpl_timeout_disable_supported": None,
+        }
+
+    def test_returns_all_none_on_malformed_hex(self):
+        result = extract_cpl_timeout_caps("not-hex")
+        assert result == {
+            "cpl_timeout_ranges": None,
+            "cpl_timeout_disable_supported": None,
+        }
