@@ -615,3 +615,28 @@ class TestDonorPCIeIPConfigExtractor:
         }
         cfg = donor_pcie_ip_config_from_result(result)
         assert cfg.max_payload_size == 512
+
+
+class TestCoerceBoolHelperBranches:
+    """Direct tests for the _coerce_bool string-form branches."""
+
+    @pytest.mark.parametrize("truthy", ["true", "TRUE", " True ", "1", "yes", "YES"])
+    def test_truthy_strings_coerce_to_true(self, truthy):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            _coerce_bool,
+        )
+        assert _coerce_bool(truthy) is True
+
+    @pytest.mark.parametrize("falsy", ["false", "FALSE", " False ", "0", "no", "NO"])
+    def test_falsy_strings_coerce_to_false(self, falsy):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            _coerce_bool,
+        )
+        assert _coerce_bool(falsy) is False
+
+    @pytest.mark.parametrize("invalid", ["maybe", "", "  ", "2", "tru", "y"])
+    def test_unparseable_strings_return_none(self, invalid):
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            _coerce_bool,
+        )
+        assert _coerce_bool(invalid) is None

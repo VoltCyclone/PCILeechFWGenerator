@@ -13,17 +13,20 @@ collected values onto the staged IP, then re-runs ``generate_target`` so the
 change reaches the synthesizable HDL. It is wired in by appending a guarded
 ``source`` line to the staged ``vivado_generate_project_*.tcl``.
 
-Coverage as of Step 2 (see docs/superpowers/plans/2026-05-15-pcie-ip-donor-override-*.md):
+Coverage as of Step 3 (see docs/superpowers/plans/2026-05-*-pcie-ip-donor-override-*.md):
 
-- closed end-to-end: Class_Code (gap A4), MSI-X (A6), LinkCap (A7), MPS (A8)
-- scaffolded but no upstream producer yet: DSN (C2), AER (C1), ARI (C3),
-  Cpl_Timeout (D2). The DonorPCIeIPConfig fields and emission paths exist
-  but the extractor reads keys nothing currently writes; these fields stay
-  None in production. Step 3 will add donor-side capability-chain parsing
-  in ``src/device_clone/pcileech_context.py`` to populate them.
+- closed end-to-end: Class_Code (A4), MSI-X (A6), LinkCap (A7), MPS (A8),
+  AER (C1), DSN (C2), ARI (C3), Cpl_Timeout (D2)
 - not yet implemented: BAR Type/Size emission (gap A5), UltraScale+ IP
   property names. The emitter targets the Xilinx 7-series IP property
   schema only.
+
+Note on DSN: sv_context_builder.py also writes ``device_serial_number_int``
+into an ``enhanced_context`` dict (separate from template_context) used for
+SystemVerilog rendering. Our override pipeline uses the producer added by
+donor_capability_extractor.py in Step 3, which writes directly into
+template_context where this module's extractor reads. The two paths are
+independent and write the same value computed from the same donor cap.
 """
 from __future__ import annotations
 
