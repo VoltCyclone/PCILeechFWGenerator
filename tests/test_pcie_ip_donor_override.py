@@ -268,15 +268,12 @@ class TestBuildWiringIpOverride:
         )
 
     def test_forwards_donor_pcie_ip_config_to_override_file(self, tmp_path):
-        """Build wires extracted DonorPCIeIPConfig fields into the override TCL.
+        """End-to-end: build wires all 8 donor fields into the override TCL.
 
-        Fixture mirrors what PCILeechContextBuilder.build_context() actually
-        produces — *not* a hand-crafted shape matching the extractor's reads.
-        That way a future path drift between producer and extractor is caught.
-
-        Today, four gaps land in the override end-to-end: class_code (A4),
-        MSI-X (A6), LinkCap speed/width (A7), MPS (A8). DSN/AER/ARI/Cpl_Timeout
-        are not yet produced upstream — see Step 3 plan.
+        Fixture mirrors what PCILeechContextBuilder.build_context() produces
+        AND simulates the Step 3 producers that flow from ext-cap parsing
+        (DSN at template_context top-level; AER/ARI/Cpl_Timeout inside
+        device_config).
         """
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -289,20 +286,11 @@ class TestBuildWiringIpOverride:
         )
 
         builder = self._make_builder(tmp_path)
-        # Shape mirrors src/device_clone/pcileech_context.py:776-808
-        # (template_context construction) and src/device_clone/msix.py:306-317
-        # (msix_data shape).
         result = {
             "template_context": {
-                # Top-level keys per pcileech_context.py:850, 852.
-                "pcie_max_link_speed": 4,  # spec-encoded: Gen3 (8.0 GT/s)
+                "pcie_max_link_speed": 4,
                 "pcie_max_link_width": 8,
-                # Nested config per pcileech_context.py:2323.
-                "pcileech_config": {
-                    "max_payload_size": 512,
-                },
-                # device_config carries identification + class_code, but NOT
-                # link_speed/width/MPS — those live elsewhere as above.
+                "pcileech_config": {"max_payload_size": 512},
                 "device_config": {
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x1533,
@@ -310,9 +298,13 @@ class TestBuildWiringIpOverride:
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
                     "class_code": 0x020000,
+                    "supports_aer": True,
+                    "ari_capable": True,
+                    "cpl_timeout_ranges": "ABCD",
+                    "cpl_timeout_disable_sup": True,
                 },
+                "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
             },
-            # msix_data sibling per pcileech_generator.py:280 and msix.py:306.
             "msix_data": {
                 "enabled": True,
                 "table_size": 16,
@@ -326,21 +318,19 @@ class TestBuildWiringIpOverride:
         builder._patch_fifo_with_donor_ids(result)
 
         override_text = (tmp_path / "pcileech_donor_ip_overrides.tcl").read_text()
-        # Core IDs always emitted.
         assert "CONFIG.Vendor_ID 0x8086" in override_text
-        # End-to-end gap closures:
         assert "CONFIG.Class_Code_Base 02" in override_text  # A4
         assert "CONFIG.MSIx_Enabled true" in override_text  # A6
         assert "CONFIG.MSIx_Table_Size 16" in override_text
         assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 4" in override_text  # A7
         assert "CONFIG.LINK_CAP_MAX_LINK_WIDTH 8" in override_text
         assert "CONFIG.Max_Payload_Size 512_bytes" in override_text  # A8
-        # Step-3 gaps — assert explicitly that nothing emits, so the test
-        # catches the day a producer lands without us updating expectations.
-        assert "DSN_HEX1" not in override_text  # C2 — needs ext-cap-3 walker
-        assert "AER_Enabled" not in override_text  # C1 — needs ext-cap-1 walker
-        assert "ARI_Forwarding_Supported" not in override_text  # C3
-        assert "Cpl_Timeout_Range" not in override_text  # D2
+        assert "CONFIG.AER_Enabled true" in override_text  # C1
+        assert "CONFIG.DSN_HEX1 01001B21" in override_text  # C2
+        assert "CONFIG.DSN_HEX2 DEADBEEF" in override_text
+        assert "CONFIG.ARI_Forwarding_Supported true" in override_text  # C3
+        assert "CONFIG.Cpl_Timeout_Range Range_ABCD" in override_text  # D2
+        assert "CONFIG.Cpl_Timeout_Disable_Sup true" in override_text
 
     def test_valueerror_from_emitter_does_not_crash_build(self, tmp_path, caplog):
         """A bad donor field must warn-and-skip the override, not kill the build."""
