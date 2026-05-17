@@ -122,7 +122,7 @@ def generate_pcie_ip_override_tcl(
         f"    set_property -dict [list \\\n"
         f"{set_property_block}\n"
         f"    ] [get_ips {ip_name}]\n"
-        f"    generate_target all [get_ips {ip_name}]\n"
+        f"    generate_target -force all [get_ips {ip_name}]\n"
         "}\n"
     )
 

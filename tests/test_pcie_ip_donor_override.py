@@ -69,6 +69,14 @@ class TestGeneratePcieIpOverrideTcl:
         assert "generate_target" in tcl
         assert re.search(r"generate_target.*\[get_ips pcie_7x_0\]", tcl)
 
+    def test_generate_target_uses_force_flag(self):
+        # -force bypasses Vivado's up-to-date heuristic per UG835. Without it
+        # there are known cases where DCP timestamp drift causes Vivado to
+        # skip regeneration even when CONFIG.* properties changed. Cheap
+        # belt-and-suspenders against the failure mode.
+        tcl = generate_pcie_ip_override_tcl(_intel_donor())
+        assert "generate_target -force" in tcl
+
     def test_skips_silently_when_ip_absent(self):
         # If the IP can't be found (e.g. running on a board variant that
         # ships a different PCIe IP), the script must not abort the build.
