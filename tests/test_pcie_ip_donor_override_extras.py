@@ -428,8 +428,8 @@ class TestDonorPCIeIPConfigExtractor:
             "template_context": {
                 "max_payload_size": 256,
                 "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
-                # Producer writes spec-encoded link speed/width at top level.
-                # 2 == Gen2 (5.0 GT/s) spec encoding, 4 == x4 lanes.
+                # Producer writes the PCIe generation number (1..5) at top level.
+                # 2 == Gen2 (5.0 GT/s), 4 == x4 lanes.
                 "pcie_max_link_speed": 2,
                 "pcie_max_link_width": 4,
                 "device_config": {
@@ -455,9 +455,9 @@ class TestDonorPCIeIPConfigExtractor:
 
         assert cfg.class_code == 0x020000
         assert cfg.max_payload_size == 256
-        # Extractor populates link_speed_code (spec-encoded), not link_speed (gen).
-        assert cfg.link_speed_code == 2
-        assert cfg.link_speed is None
+        # Extractor populates link_speed (generation), not link_speed_code.
+        assert cfg.link_speed == 2
+        assert cfg.link_speed_code is None
         assert cfg.link_width == 4
         assert cfg.msix_enabled is True
         assert cfg.msix_table_size == 16
@@ -555,21 +555,23 @@ class TestDonorPCIeIPConfigExtractor:
         from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
             donor_pcie_ip_config_from_result,
         )
-        # Producer writes the SPEC-ENCODED value at the top level (not generation).
-        # 4 == 8.0 GT/s (Gen3). The extractor must store it as link_speed_code,
-        # not as the generation field.
+        # Producer writes the PCIe generation number (1..5) at the top level —
+        # see src/pci_capability/processor.py:452 (LinkCap bits[3:0] is a 1..5
+        # code) and the sysfs fallback in pcileech_context.py:912-918.
+        # The extractor must pass it as ``link_speed`` (generation), so the
+        # emitter encodes via _LINK_SPEED_ENCODING. Treating it as
+        # ``link_speed_code`` would reject Gen3 outright.
         result = {
             "template_context": {
-                "pcie_max_link_speed": 4,
+                "pcie_max_link_speed": 3,  # Gen3
                 "pcie_max_link_width": 8,
                 "device_config": {},
             },
         }
         cfg = donor_pcie_ip_config_from_result(result)
-        assert cfg.link_speed_code == 4
+        assert cfg.link_speed == 3
         assert cfg.link_width == 8
-        # The generation field stays None — caller didn't say "Gen3."
-        assert cfg.link_speed is None
+        assert cfg.link_speed_code is None
 
     def test_max_payload_size_extracted_from_pcileech_config(self):
         from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (

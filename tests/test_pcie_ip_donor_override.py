@@ -288,7 +288,7 @@ class TestBuildWiringIpOverride:
         builder = self._make_builder(tmp_path)
         result = {
             "template_context": {
-                "pcie_max_link_speed": 4,
+                "pcie_max_link_speed": 3,  # Gen3 (LinkCap encoding == generation)
                 "pcie_max_link_width": 8,
                 "pcileech_config": {"max_payload_size": 512},
                 "device_config": {
@@ -322,6 +322,7 @@ class TestBuildWiringIpOverride:
         assert "CONFIG.Class_Code_Base 02" in override_text  # A4
         assert "CONFIG.MSIx_Enabled true" in override_text  # A6
         assert "CONFIG.MSIx_Table_Size 16" in override_text
+        # Gen3 (3) → Xilinx-encoded 4 via _LINK_SPEED_ENCODING.
         assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 4" in override_text  # A7
         assert "CONFIG.LINK_CAP_MAX_LINK_WIDTH 8" in override_text
         assert "CONFIG.Max_Payload_Size 512_bytes" in override_text  # A8

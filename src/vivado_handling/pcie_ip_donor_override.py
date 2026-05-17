@@ -361,10 +361,13 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
     max_payload_size = _coerce_int(
         pcileech_config.get("max_payload_size")
     ) or _coerce_int(template_context.get("max_payload_size"))
-    # The producer writes spec-encoded link speed/width at top level — see
-    # src/device_clone/pcileech_context.py:850-952. device_config["link_speed"]
-    # carries a human-readable string ("2.5GT/s") that's not useful here.
-    link_speed_code = _coerce_int(template_context.get("pcie_max_link_speed"))
+    # The producer writes the PCIe generation number (1..5) at top level — see
+    # src/pci_capability/processor.py:452 (LinkCap bits[3:0]) and
+    # src/device_clone/pcileech_context.py:912-918 (sysfs fallback maps
+    # 2.5/5.0/8.0/16.0/32.0 GT/s to codes 1..5). Pass it as ``link_speed`` so
+    # the emitter converts via _LINK_SPEED_ENCODING — passing it as
+    # ``link_speed_code`` would reject Gen3 (3) and silently mis-emit Gen4 (4).
+    link_speed = _coerce_int(template_context.get("pcie_max_link_speed"))
     link_width = _coerce_int(template_context.get("pcie_max_link_width"))
     aer_enabled = _coerce_bool(device_config.get("supports_aer"))
     ari_forwarding_supported = _coerce_bool(device_config.get("ari_capable"))
@@ -407,7 +410,7 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
     return DonorPCIeIPConfig(
         class_code=class_code,
         max_payload_size=max_payload_size,
-        link_speed_code=link_speed_code,
+        link_speed=link_speed,
         link_width=link_width,
         msix_enabled=msix_enabled,
         msix_table_size=msix_table_size,
