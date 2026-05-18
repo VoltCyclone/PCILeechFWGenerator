@@ -850,11 +850,13 @@ class PCILeechTUI(App):
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle device table row selection"""
         row_key = event.row_key
+        # RowKey is a wrapper around the str key supplied to add_row(); compare
+        # against its .value so we don't depend on Textual's RowKey __eq__.
+        key_value = str(getattr(row_key, "value", row_key))
 
-        # Find selected device
         selected_device = None
-        for device in self.filtered_devices:  # Use computed property
-            if device.bdf == row_key:
+        for device in self.filtered_devices:
+            if device.bdf == key_value:
                 selected_device = device
                 break
 
