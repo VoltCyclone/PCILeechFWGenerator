@@ -1851,6 +1851,7 @@ class FirmwareBuilder:
         from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
             PcieIpOverrideError,
             apply_pcie_ip_donor_override,
+            donor_pcie_ip_config_from_result,
         )
 
         donor = donor_ids_from_template_context(
@@ -1919,10 +1920,11 @@ class FirmwareBuilder:
         # Override the Vivado PCIe IP CONFIG so donor IDs reach the IP
         # block itself, not just the cfgspace shadow.
         try:
+            extra_ip_cfg = donor_pcie_ip_config_from_result(result)
             ip_summary = apply_pcie_ip_donor_override(
-                self.config.output_dir, donor
+                self.config.output_dir, donor, extra=extra_ip_cfg
             )
-        except PcieIpOverrideError as e:
+        except (PcieIpOverrideError, ValueError) as e:
             log_warning_safe(
                 self.logger,
                 safe_format(

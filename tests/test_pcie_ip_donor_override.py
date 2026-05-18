@@ -69,6 +69,14 @@ class TestGeneratePcieIpOverrideTcl:
         assert "generate_target" in tcl
         assert re.search(r"generate_target.*\[get_ips pcie_7x_0\]", tcl)
 
+    def test_generate_target_uses_force_flag(self):
+        # -force bypasses Vivado's up-to-date heuristic per UG835. Without it
+        # there are known cases where DCP timestamp drift causes Vivado to
+        # skip regeneration even when CONFIG.* properties changed. Cheap
+        # belt-and-suspenders against the failure mode.
+        tcl = generate_pcie_ip_override_tcl(_intel_donor())
+        assert "generate_target -force" in tcl
+
     def test_skips_silently_when_ip_absent(self):
         # If the IP can't be found (e.g. running on a board variant that
         # ships a different PCIe IP), the script must not abort the build.
@@ -258,3 +266,121 @@ class TestBuildWiringIpOverride:
             "PCIe IP donor override skipped" in rec.message
             for rec in caplog.records
         )
+
+    def test_forwards_donor_pcie_ip_config_to_override_file(self, tmp_path):
+        """End-to-end: build wires all 8 donor fields into the override TCL.
+
+        Fixture mirrors what PCILeechContextBuilder.build_context() produces
+        AND simulates the Step 3 producers that flow from ext-cap parsing
+        (DSN at template_context top-level; AER/ARI/Cpl_Timeout inside
+        device_config).
+        """
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
+            ENIGMAX1_FIFO,
+        )
+        (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
+        (tmp_path / "vivado_generate_project.tcl").write_text(
+            _FAKE_GENERATE_PROJECT
+        )
+
+        builder = self._make_builder(tmp_path)
+        result = {
+            "template_context": {
+                "pcie_max_link_speed": 3,  # Gen3 (LinkCap encoding == generation)
+                "pcie_max_link_width": 8,
+                "pcileech_config": {"max_payload_size": 512},
+                "device_config": {
+                    "vendor_id_int": 0x8086,
+                    "device_id_int": 0x1533,
+                    "subsystem_vendor_id_int": 0x8086,
+                    "subsystem_device_id_int": 0x0001,
+                    "revision_id_int": 0x03,
+                    "class_code": 0x020000,
+                    "supports_aer": True,
+                    "ari_capable": True,
+                    "cpl_timeout_ranges": "ABCD",
+                    "cpl_timeout_disable_sup": True,
+                },
+                "device_serial_number_int": (0xDEADBEEF << 32) | 0x01001B21,
+            },
+            "msix_data": {
+                "enabled": True,
+                "table_size": 16,
+                "table_bir": 2,
+                "table_offset": 0x2000,
+                "pba_bir": 2,
+                "pba_offset": 0x3000,
+                "is_valid": True,
+            },
+        }
+        builder._patch_fifo_with_donor_ids(result)
+
+        override_text = (tmp_path / "pcileech_donor_ip_overrides.tcl").read_text()
+        assert "CONFIG.Vendor_ID 0x8086" in override_text
+        assert "CONFIG.Class_Code_Base 02" in override_text  # A4
+        assert "CONFIG.MSIx_Enabled true" in override_text  # A6
+        assert "CONFIG.MSIx_Table_Size 16" in override_text
+        # Gen3 (3) → Xilinx-encoded 4 via _LINK_SPEED_ENCODING.
+        assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 4" in override_text  # A7
+        assert "CONFIG.LINK_CAP_MAX_LINK_WIDTH 8" in override_text
+        assert "CONFIG.Max_Payload_Size 512_bytes" in override_text  # A8
+        assert "CONFIG.AER_Enabled true" in override_text  # C1
+        assert "CONFIG.DSN_HEX1 01001B21" in override_text  # C2
+        assert "CONFIG.DSN_HEX2 DEADBEEF" in override_text
+        assert "CONFIG.ARI_Forwarding_Supported true" in override_text  # C3
+        assert "CONFIG.Cpl_Timeout_Range Range_ABCD" in override_text  # D2
+        assert "CONFIG.Cpl_Timeout_Disable_Sup true" in override_text
+
+    def test_valueerror_from_emitter_does_not_crash_build(self, tmp_path, caplog):
+        """A bad donor field must warn-and-skip the override, not kill the build."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
+            ENIGMAX1_FIFO,
+        )
+        (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
+        (tmp_path / "vivado_generate_project.tcl").write_text(
+            _FAKE_GENERATE_PROJECT
+        )
+
+        builder = self._make_builder(tmp_path)
+        # cpl_timeout_ranges="ZZ" is invalid per the IP's accepted set; the
+        # emitter raises ValueError. The build must absorb it.
+        result = {
+            "template_context": {
+                "device_config": {
+                    "vendor_id_int": 0x8086,
+                    "device_id_int": 0x1533,
+                    "subsystem_vendor_id_int": 0x8086,
+                    "subsystem_device_id_int": 0x0001,
+                    "revision_id_int": 0x03,
+                    "cpl_timeout_ranges": "ZZ",
+                },
+            },
+        }
+
+        # Sanity check that our bad-input fixture really triggers the emitter to raise.
+        from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
+            DonorIDs,
+        )
+        from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+            DonorPCIeIPConfig,
+            generate_pcie_ip_override_tcl,
+        )
+        with pytest.raises(ValueError):
+            generate_pcie_ip_override_tcl(
+                DonorIDs(1, 2, 3, 4, 5),
+                extra=DonorPCIeIPConfig(cpl_timeout_ranges="ZZ"),
+            )
+
+        # Now the build path: must NOT raise.
+        with caplog.at_level("WARNING"):
+            builder._patch_fifo_with_donor_ids(result)
+
+        assert any(
+            "donor override skipped" in rec.message.lower()
+            or "valueerror" in rec.message.lower()
+            for rec in caplog.records
+        ), f"expected warn-and-skip; logs were: {[rec.message for rec in caplog.records]}"

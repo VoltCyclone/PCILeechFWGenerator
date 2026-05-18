@@ -1,27 +1,88 @@
-"""Override Vivado PCIe IP CONFIG with donor IDs (issue #593, T2).
+"""Override Vivado PCIe IP CONFIG with donor IDs and capabilities (issue #593).
 
 The upstream ``vivado_generate_project_*.tcl`` imports ``pcie_7x_0.xci``
-verbatim. The .xci ships with Xilinx default IDs (Vendor_ID=10EE,
-Device_ID=0666, Subsystem_Vendor_ID=10EE, Subsystem_ID=0007, Revision_ID=02),
-and the upstream never overrides them. Without a CONFIG override the host
-sees those defaults during PCIe enumeration regardless of what the cfgspace
-shadow contains.
+verbatim. The .xci ships with Xilinx default values (Vendor_ID=10EE,
+Device_ID=0666, Class_Code_Base=02, MSIx_Enabled=false, AER_Enabled=false,
+LINK_CAP_MAX_LINK_WIDTH=1, etc.). Without an override the host sees those
+defaults during PCIe enumeration -- even when the cfgspace shadow has the
+donor's real bytes -- because the hard PCIe block emits IP-baked values
+during the window between LTSSM up and the first cfg-read.
 
-This module emits a small TCL fragment that runs ``set_property -dict ...``
-against the staged IP and re-runs ``generate_target`` so the change reaches
-the synthesizable HDL. The fragment is wired in by appending a guarded
+This module emits a TCL fragment that ``set_property -dict`` the donor's
+collected values onto the staged IP, then re-runs ``generate_target`` so the
+change reaches the synthesizable HDL. It is wired in by appending a guarded
 ``source`` line to the staged ``vivado_generate_project_*.tcl``.
+
+Coverage as of Step 3 (see docs/superpowers/plans/2026-05-*-pcie-ip-donor-override-*.md):
+
+- closed end-to-end: Class_Code (A4), MSI-X (A6), LinkCap (A7), MPS (A8),
+  AER (C1), DSN (C2), ARI (C3), Cpl_Timeout (D2)
+- not yet implemented: BAR Type/Size emission (gap A5), UltraScale+ IP
+  property names. The emitter targets the Xilinx 7-series IP property
+  schema only.
+
+Note on DSN: sv_context_builder.py also writes ``device_serial_number_int``
+into an ``enhanced_context`` dict (separate from template_context) used for
+SystemVerilog rendering. Our override pipeline uses the producer added by
+donor_capability_extractor.py in Step 3, which writes directly into
+template_context where this module's extractor reads. The two paths are
+independent and write the same value computed from the same donor cap.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from .fifo_donor_patcher import DonorIDs
+from .fifo_donor_patcher import DonorIDs, _coerce_int
 
 
 class PcieIpOverrideError(RuntimeError):
     """Raised when the donor IP override cannot be wired into the staged build."""
+
+
+@dataclass(frozen=True)
+class DonorPCIeIPConfig:
+    """Optional donor PCIe IP CONFIG values beyond the five identification IDs.
+
+    Every field is optional. A ``None`` value means "the donor profile did not
+    expose this; leave the Xilinx IP default in place." That keeps the override
+    safe when the donor profile is partial (e.g. an older capture without DSN).
+
+    See ``docs/plans/firmware-fidelity-gaps.md`` for the rationale behind each
+    field.
+    """
+
+    # A4 — Class Code (24-bit, packed base/sub/interface)
+    class_code: Optional[int] = None
+
+    # A8 — Max Payload Size (DevCap.MPS in bytes: 128/256/512/1024/2048/4096)
+    max_payload_size: Optional[int] = None
+
+    # A7 — LinkCap negotiated ceiling
+    link_speed: Optional[int] = None  # PCIe gen: 1, 2, 3, 4, 5 (mapped to spec)
+    link_speed_code: Optional[int] = None  # Spec-encoded value 1/2/4/8/16 (direct)
+    link_width: Optional[int] = None  # Lane count 1/2/4/8/16
+
+    # A6 — MSI-X capability layout
+    msix_enabled: Optional[bool] = None
+    msix_table_size: Optional[int] = None  # number of vectors (1..2048)
+    msix_table_bir: Optional[int] = None  # 0..5
+    msix_table_offset: Optional[int] = None
+    msix_pba_bir: Optional[int] = None  # 0..5
+    msix_pba_offset: Optional[int] = None
+
+    # C1 / C3 — Capability enables
+    aer_enabled: Optional[bool] = None
+    ari_forwarding_supported: Optional[bool] = None
+
+    # D2 — Completion-timeout policy
+    # one of: "none", "A", "B", "C", "D", "AB", "BC", "BCD", "ABCD"
+    cpl_timeout_ranges: Optional[str] = None
+    cpl_timeout_disable_supported: Optional[bool] = None
+
+    # C2 — Device Serial Number (64-bit; emitted as two 32-bit halves into the IP)
+    dsn_value: Optional[int] = None
 
 
 _OVERRIDE_FILENAME = "pcileech_donor_ip_overrides.tcl"
@@ -36,25 +97,182 @@ def generate_pcie_ip_override_tcl(
     donor: DonorIDs,
     *,
     ip_name: str = "pcie_7x_0",
+    extra: "DonorPCIeIPConfig | None" = None,
 ) -> str:
     """Render the donor-ID CONFIG override as a Vivado TCL string.
 
     Guarded by ``[get_ips -quiet]`` so a board variant that ships a
-    differently-named PCIe IP doesn't abort the build.
+    differently-named PCIe IP doesn't abort the build. Optional ``extra``
+    contributes additional ``CONFIG.<key> <value>`` lines for fields the
+    donor profile exposed (class code, MPS, MSI-X, LinkCap, AER, ARI,
+    cpl-timeout, DSN — see ``DonorPCIeIPConfig``).
     """
+    lines: list[str] = [
+        f"CONFIG.Vendor_ID 0x{donor.vendor_id:04X}",
+        f"CONFIG.Device_ID 0x{donor.device_id:04X}",
+        f"CONFIG.Subsystem_Vendor_ID 0x{donor.subsystem_vendor_id:04X}",
+        f"CONFIG.Subsystem_ID 0x{donor.subsystem_id:04X}",
+        f"CONFIG.Revision_ID 0x{donor.revision_id:02X}",
+    ]
+    if extra is not None:
+        lines.extend(_format_extra_config_lines(extra))
+
+    set_property_block = "\n".join(f"        {line} \\" for line in lines)
+
     return (
         "# === PCILeechFWGenerator donor-ID override (issue #593) ===\n"
         f"if {{[llength [get_ips -quiet {ip_name}]] > 0}} {{\n"
         f"    set_property -dict [list \\\n"
-        f"        CONFIG.Vendor_ID 0x{donor.vendor_id:04X} \\\n"
-        f"        CONFIG.Device_ID 0x{donor.device_id:04X} \\\n"
-        f"        CONFIG.Subsystem_Vendor_ID 0x{donor.subsystem_vendor_id:04X} \\\n"
-        f"        CONFIG.Subsystem_ID 0x{donor.subsystem_id:04X} \\\n"
-        f"        CONFIG.Revision_ID 0x{donor.revision_id:02X} \\\n"
+        f"{set_property_block}\n"
         f"    ] [get_ips {ip_name}]\n"
-        f"    generate_target all [get_ips {ip_name}]\n"
+        f"    generate_target -force all [get_ips {ip_name}]\n"
         "}\n"
     )
+
+
+_MPS_TOKENS = {
+    128: "128_bytes",
+    256: "256_bytes",
+    512: "512_bytes",
+    1024: "1024_bytes",
+    2048: "2048_bytes",
+    4096: "4096_bytes",
+}
+
+_LINK_SPEED_ENCODING = {1: 1, 2: 2, 3: 4, 4: 8, 5: 16}
+_VALID_LINK_WIDTHS = (1, 2, 4, 8, 16)
+_VALID_CPL_TIMEOUT_RANGES = {"none", "A", "B", "C", "D", "AB", "BC", "BCD", "ABCD"}
+
+
+def _tcl_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
+    """Return one ``CONFIG.<key> <value>`` string per non-None field in *extra*."""
+    out: list[str] = []
+
+    if extra.class_code is not None:
+        if not (0 <= extra.class_code <= 0xFFFFFF):
+            raise ValueError(
+                f"class_code 0x{extra.class_code:X} does not fit in 24 bits"
+            )
+        base = (extra.class_code >> 16) & 0xFF
+        sub = (extra.class_code >> 8) & 0xFF
+        interface = extra.class_code & 0xFF
+        out.append(f"CONFIG.Class_Code_Base {base:02X}")
+        out.append(f"CONFIG.Class_Code_Sub {sub:02X}")
+        out.append(f"CONFIG.Class_Code_Interface {interface:02X}")
+
+    if extra.max_payload_size is not None:
+        token = _MPS_TOKENS.get(extra.max_payload_size)
+        if token is None:
+            raise ValueError(
+                f"max_payload_size {extra.max_payload_size} is not one of "
+                f"{sorted(_MPS_TOKENS)}"
+            )
+        out.append(f"CONFIG.Max_Payload_Size {token}")
+
+    if extra.link_speed is not None and extra.link_speed_code is not None:
+        raise ValueError(
+            "set exactly one of link_speed (generation) or "
+            "link_speed_code (spec-encoded), not both"
+        )
+    if extra.link_speed is not None:
+        encoded = _LINK_SPEED_ENCODING.get(extra.link_speed)
+        if encoded is None:
+            raise ValueError(
+                f"link_speed {extra.link_speed} is not a valid PCIe generation "
+                f"(supported: {sorted(_LINK_SPEED_ENCODING)})"
+            )
+        out.append(f"CONFIG.LINK_CAP_MAX_LINK_SPEED {encoded}")
+    elif extra.link_speed_code is not None:
+        if extra.link_speed_code not in _LINK_SPEED_ENCODING.values():
+            raise ValueError(
+                f"link_speed_code {extra.link_speed_code} is not a valid PCIe "
+                f"spec encoding (supported: {sorted(_LINK_SPEED_ENCODING.values())})"
+            )
+        out.append(f"CONFIG.LINK_CAP_MAX_LINK_SPEED {extra.link_speed_code}")
+
+    if extra.link_width is not None:
+        if extra.link_width not in _VALID_LINK_WIDTHS:
+            raise ValueError(
+                f"link_width {extra.link_width} is not one of {_VALID_LINK_WIDTHS}"
+            )
+        out.append(f"CONFIG.LINK_CAP_MAX_LINK_WIDTH {extra.link_width}")
+
+    if extra.msix_enabled is not None:
+        if not extra.msix_enabled:
+            out.append("CONFIG.MSIx_Enabled false")
+        else:
+            # When enabled, the full layout must be present — partial state
+            # makes the IP synthesize with default offsets and the donor's
+            # advertised offsets disagree → driver mmap mismatch.
+            required = {
+                "msix_table_size": extra.msix_table_size,
+                "msix_table_bir": extra.msix_table_bir,
+                "msix_table_offset": extra.msix_table_offset,
+                "msix_pba_bir": extra.msix_pba_bir,
+                "msix_pba_offset": extra.msix_pba_offset,
+            }
+            missing = [name for name, value in required.items() if value is None]
+            if missing:
+                raise ValueError(
+                    "msix_enabled=True requires the full MSI-X layout; missing: "
+                    + ", ".join(missing)
+                )
+            if extra.msix_table_size < 1 or extra.msix_table_size > 2048:
+                raise ValueError(
+                    f"msix_table_size {extra.msix_table_size} outside spec range 1..2048"
+                )
+            for label, bir in (
+                ("msix_table_bir", extra.msix_table_bir),
+                ("msix_pba_bir", extra.msix_pba_bir),
+            ):
+                if not (0 <= bir <= 5):
+                    raise ValueError(f"{label} {bir} is not a valid BAR index (0..5)")
+
+            out.append("CONFIG.MSIx_Enabled true")
+            out.append(f"CONFIG.MSIx_Table_Size {extra.msix_table_size}")
+            out.append(f"CONFIG.MSIx_Table_BIR BAR_{extra.msix_table_bir}")
+            out.append(f"CONFIG.MSIx_Table_Offset {extra.msix_table_offset}")
+            out.append(f"CONFIG.MSIx_PBA_BIR BAR_{extra.msix_pba_bir}")
+            out.append(f"CONFIG.MSIx_PBA_Offset {extra.msix_pba_offset}")
+
+    if extra.aer_enabled is not None:
+        out.append(f"CONFIG.AER_Enabled {_tcl_bool(extra.aer_enabled)}")
+
+    if extra.ari_forwarding_supported is not None:
+        out.append(
+            f"CONFIG.ARI_Forwarding_Supported {_tcl_bool(extra.ari_forwarding_supported)}"
+        )
+
+    if extra.cpl_timeout_ranges is not None:
+        if extra.cpl_timeout_ranges not in _VALID_CPL_TIMEOUT_RANGES:
+            raise ValueError(
+                f"cpl_timeout_ranges {extra.cpl_timeout_ranges!r} is not one of "
+                f"{sorted(_VALID_CPL_TIMEOUT_RANGES)}"
+            )
+        token = extra.cpl_timeout_ranges
+        encoded = "none" if token == "none" else f"Range_{token}"
+        out.append(f"CONFIG.Cpl_Timeout_Range {encoded}")
+
+    if extra.cpl_timeout_disable_supported is not None:
+        out.append(
+            f"CONFIG.Cpl_Timeout_Disable_Sup {_tcl_bool(extra.cpl_timeout_disable_supported)}"
+        )
+
+    if extra.dsn_value is not None:
+        if not (0 <= extra.dsn_value <= 0xFFFFFFFFFFFFFFFF):
+            raise ValueError(
+                f"dsn_value 0x{extra.dsn_value:X} does not fit in 64 bits"
+            )
+        lower = extra.dsn_value & 0xFFFFFFFF
+        upper = (extra.dsn_value >> 32) & 0xFFFFFFFF
+        out.append(f"CONFIG.DSN_HEX1 {lower:08X}")
+        out.append(f"CONFIG.DSN_HEX2 {upper:08X}")
+
+    return out
 
 
 def _find_generate_project_scripts(staging_dir: Path) -> List[Path]:
@@ -77,6 +295,7 @@ def apply_pcie_ip_donor_override(
     donor: DonorIDs,
     *,
     ip_name: str = "pcie_7x_0",
+    extra: "DonorPCIeIPConfig | None" = None,
 ) -> dict:
     """Write the override TCL and wire it into the staged generate-project script.
 
@@ -95,7 +314,7 @@ def apply_pcie_ip_donor_override(
 
     override_path = staging_dir / _OVERRIDE_FILENAME
     override_path.write_text(
-        generate_pcie_ip_override_tcl(donor, ip_name=ip_name)
+        generate_pcie_ip_override_tcl(donor, ip_name=ip_name, extra=extra)
     )
 
     for script in scripts:
@@ -105,3 +324,103 @@ def apply_pcie_ip_donor_override(
         "override_path": override_path,
         "wired_scripts": scripts,
     }
+
+
+def _coerce_bool(value) -> Optional[bool]:
+    """Best-effort bool coercion: accept True/False/1/0/"true"/"false"."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "1", "yes"):
+            return True
+        if s in ("false", "0", "no"):
+            return False
+    return None
+
+
+def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
+    """Build a DonorPCIeIPConfig from the build's ``result`` dict.
+
+    Defensive: every field is independently extracted and set to None when the
+    source data is missing or unparseable. Never raises. Mirrors the pattern of
+    ``donor_ids_from_template_context`` in ``fifo_donor_patcher.py``.
+    """
+    template_context = (result or {}).get("template_context") or {}
+    device_config = template_context.get("device_config") or {}
+
+    class_code = _coerce_int(device_config.get("class_code"))
+    # Canonical producer path: template_context["pcileech_config"]["max_payload_size"]
+    # (see src/device_clone/pcileech_context.py:2323). Fall back to top-level for
+    # legacy callers that pre-populate it directly.
+    pcileech_config = template_context.get("pcileech_config") or {}
+    max_payload_size = _coerce_int(
+        pcileech_config.get("max_payload_size")
+    ) or _coerce_int(template_context.get("max_payload_size"))
+    # The producer writes the PCIe generation number (1..5) at top level — see
+    # src/pci_capability/processor.py:452 (LinkCap bits[3:0]) and
+    # src/device_clone/pcileech_context.py:912-918 (sysfs fallback maps
+    # 2.5/5.0/8.0/16.0/32.0 GT/s to codes 1..5). Pass it as ``link_speed`` so
+    # the emitter converts via _LINK_SPEED_ENCODING — passing it as
+    # ``link_speed_code`` would reject Gen3 (3) and silently mis-emit Gen4 (4).
+    link_speed = _coerce_int(template_context.get("pcie_max_link_speed"))
+    link_width = _coerce_int(template_context.get("pcie_max_link_width"))
+    aer_enabled = _coerce_bool(device_config.get("supports_aer"))
+    ari_forwarding_supported = _coerce_bool(device_config.get("ari_capable"))
+
+    cpl_ranges = device_config.get("cpl_timeout_ranges")
+    if not isinstance(cpl_ranges, str) or not cpl_ranges:
+        cpl_ranges = None
+    cpl_disable = _coerce_bool(device_config.get("cpl_timeout_disable_sup"))
+
+    dsn_value = _coerce_int(template_context.get("device_serial_number_int"))
+
+    # MSI-X — only honor the block if the parser flagged it valid AND every
+    # layout field coerced. Partial state would crash the emitter downstream;
+    # all-or-nothing means the rest of the override still ships.
+    msix = (result or {}).get("msix_data") or {}
+    msix_enabled = msix_table_size = msix_table_bir = None
+    msix_table_offset = msix_pba_bir = msix_pba_offset = None
+    if msix.get("is_valid"):
+        candidate_enabled = _coerce_bool(msix.get("enabled"))
+        candidate_size = _coerce_int(msix.get("table_size"))
+        candidate_table_bir = _coerce_int(msix.get("table_bir"))
+        candidate_table_off = _coerce_int(msix.get("table_offset"))
+        candidate_pba_bir = _coerce_int(msix.get("pba_bir"))
+        candidate_pba_off = _coerce_int(msix.get("pba_offset"))
+        if None not in (
+            candidate_enabled,
+            candidate_size,
+            candidate_table_bir,
+            candidate_table_off,
+            candidate_pba_bir,
+            candidate_pba_off,
+        ):
+            msix_enabled = candidate_enabled
+            msix_table_size = candidate_size
+            msix_table_bir = candidate_table_bir
+            msix_table_offset = candidate_table_off
+            msix_pba_bir = candidate_pba_bir
+            msix_pba_offset = candidate_pba_off
+
+    return DonorPCIeIPConfig(
+        class_code=class_code,
+        max_payload_size=max_payload_size,
+        link_speed=link_speed,
+        link_width=link_width,
+        msix_enabled=msix_enabled,
+        msix_table_size=msix_table_size,
+        msix_table_bir=msix_table_bir,
+        msix_table_offset=msix_table_offset,
+        msix_pba_bir=msix_pba_bir,
+        msix_pba_offset=msix_pba_offset,
+        aer_enabled=aer_enabled,
+        ari_forwarding_supported=ari_forwarding_supported,
+        cpl_timeout_ranges=cpl_ranges,
+        cpl_timeout_disable_supported=cpl_disable,
+        dsn_value=dsn_value,
+    )

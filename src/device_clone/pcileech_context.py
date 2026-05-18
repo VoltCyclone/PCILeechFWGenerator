@@ -42,6 +42,10 @@ from pcileechfwgenerator.device_clone.constants import (
     POWER_STATE_D0,
 )
 from pcileechfwgenerator.device_clone.device_config import get_device_config
+from pcileechfwgenerator.device_clone.donor_capability_extractor import (
+    extract_donor_capabilities,
+    extract_dsn_value,
+)
 from pcileechfwgenerator.device_clone.fallback_manager import (
     FallbackManager,
     get_global_fallback_manager,
@@ -1029,6 +1033,12 @@ class PCILeechContextBuilder:
         except Exception:
             context.setdefault("vfio_binding_verified", False)
 
+        hex_data = config_space_data.get("config_space_hex", "")
+        if hex_data:
+            dsn = extract_dsn_value(hex_data)
+            if dsn is not None:
+                context["device_serial_number_int"] = dsn
+
         return context
 
     def _add_numeric_id_aliases(self, context):
@@ -1300,6 +1310,13 @@ class PCILeechContextBuilder:
                 device_config_dict["pattern_analysis"] = (
                     behavior_profile.pattern_analysis
                 )
+
+        hex_data = config_space_data.get("config_space_hex", "")
+        if hex_data:
+            donor_caps = extract_donor_capabilities(hex_data)
+            for key, value in donor_caps.items():
+                if value is not None and key != "dsn_value":
+                    device_config_dict[key] = value
 
         return device_config_dict
 
