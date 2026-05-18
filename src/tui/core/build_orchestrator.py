@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import logging
 import os
+import shlex
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -859,7 +860,9 @@ class BuildOrchestrator:
             RuntimeError: If command fails
         """
         if isinstance(cmd, list):
-            cmd_str = " ".join(cmd)
+            # shlex.join quotes args that contain spaces so paths and other
+            # spaced values survive create_subprocess_shell's reparse.
+            cmd_str = shlex.join(cmd)
         else:
             cmd_str = cmd
 
@@ -1276,48 +1279,46 @@ class BuildOrchestrator:
             "skip_board_check": bool(config.skip_board_check),
         }
 
-        # Build command parts
-        build_cmd_parts = [
-            f"python3 src/build.py --bdf {device.bdf} --board {config.board_type}"
+        # Build the command as a list[str] from the start — strings with
+        # embedded spaces (paths, multi-word args) survive intact this way.
+        # Common build args (everything after the script name):
+        build_args: List[str] = [
+            "--bdf",
+            device.bdf,
+            "--board",
+            config.board_type,
         ]
-
         if cli_args.get("advanced_sv"):
-            build_cmd_parts.append("--advanced-sv")
+            build_args.append("--advanced-sv")
         if cli_args.get("enable_variance"):
-            build_cmd_parts.append("--enable-variance")
+            build_args.append("--enable-variance")
         if cli_args.get("enable_behavior_profiling"):
-            build_cmd_parts.append("--enable-behavior-profiling")
-            build_cmd_parts.append(
-                f"--profile-duration {cli_args['behavior_profile_duration']}"
+            build_args.extend(
+                [
+                    "--enable-behavior-profiling",
+                    "--profile-duration",
+                    str(cli_args["behavior_profile_duration"]),
+                ]
             )
-
-        # Add donor dump options
         if cli_args.get("use_donor_dump"):
-            build_cmd_parts.append("--use-donor-dump")
-        # Only add donor_info_file when explicitly provided and not empty
+            build_args.append("--use-donor-dump")
         donor_info_file = cli_args.get("donor_info_file")
         if (
             donor_info_file
             and isinstance(donor_info_file, str)
             and donor_info_file.strip()
         ):
-            build_cmd_parts.append(f"--donor-info-file {donor_info_file}")
+            build_args.extend(["--donor-info-file", donor_info_file])
         if cli_args.get("skip_board_check"):
-            build_cmd_parts.append("--skip-board-check")
-
-        # Add Vivado execution flag to actually run Vivado
-        build_cmd_parts.append("--run-vivado")
-
-        build_cmd = " ".join(build_cmd_parts)
+            build_args.append("--skip-board-check")
+        build_args.append("--run-vivado")
 
         if config.local_build:
-            # Run locally
             if self._current_progress:
                 self._current_progress.current_operation = "Running local build"
                 await self._notify_progress()
 
-            # Run the build command directly
-            await self._run_shell(build_cmd.split())
+            await self._run_shell(["python3", "src/build.py", *build_args])
         else:
             # Get IOMMU group for VFIO device
             from ...cli.vfio_handler import _get_iommu_group
@@ -1327,8 +1328,7 @@ class BuildOrchestrator:
             )
             vfio_device = f"/dev/vfio/{iommu_group}"
 
-            # Construct container command
-            container_cmd = [
+            container_cmd: List[str] = [
                 "podman",
                 "run",
                 "--rm",
@@ -1339,19 +1339,11 @@ class BuildOrchestrator:
                 "-v",
                 f"{os.getcwd()}/output:/app/output",
                 "pcileechfwgenerator:latest",
-                (
-                    f"python3 /app/src/build.py --bdf {device.bdf} "
-                    f"--board {config.board_type}"
-                ),
+                "python3",
+                "/app/src/build.py",
+                *build_args,
             ]
 
-            # Add the same options to the container command
-            for option in build_cmd_parts[
-                1:
-            ]:  # Skip the first part (python3 src/build.py)
-                container_cmd.append(option)
-
-            # Run container with progress monitoring
             await self._run_shell(container_cmd)
 
     async def _generate_bitstream(self, config: BuildConfiguration) -> None:
