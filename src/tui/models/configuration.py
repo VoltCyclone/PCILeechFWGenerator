@@ -205,15 +205,29 @@ class BuildConfiguration(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def set_timestamps(cls, values):
-        """Set timestamps if not provided."""
+        """Set timestamps only when missing.
+
+        Previously this unconditionally rewrote ``last_used`` on every
+        construction, so every read-path that round-tripped through
+        BuildConfiguration(...) clobbered the value. Now the validator
+        treats existing values as authoritative. Use ``mark_used()`` to
+        record an intentional usage.
+        """
         if isinstance(values, dict):
             if values.get("created_at") is None:
                 values["created_at"] = datetime.now().isoformat()
-
-            # Always update last_used when validated
-            values["last_used"] = datetime.now().isoformat()
+            if values.get("last_used") is None:
+                values["last_used"] = datetime.now().isoformat()
 
         return values
+
+    def mark_used(self) -> None:
+        """Update ``last_used`` to the current time.
+
+        Call this from the *real* load-to-use path. Don't call it from
+        validation, listing, or any other read-only probe.
+        """
+        self.last_used = datetime.now().isoformat()
 
     model_config = {
         "validate_assignment": True,  # Validate when attributes are assigned

@@ -239,16 +239,11 @@ class ConfigManager:
                     # If conversion fails, continue with legacy model
                     pass
 
-            # Update last used timestamp
-            timestamp = datetime.now().isoformat()
+            # This is the real load-to-use path — stamp it explicitly.
             if isinstance(config, BuildConfiguration):
-                # For Pydantic model, create a new instance with updated timestamp
-                config_dict = config.dict()
-                config_dict["last_used"] = timestamp
-                config = BuildConfiguration(**config_dict)
+                config.mark_used()
             else:
-                # For legacy model, set attribute directly
-                config.last_used = timestamp
+                config.last_used = datetime.now().isoformat()
             success = self.save_profile(name, config)  # Save updated timestamp
             if not success:
                 # If we couldn't save the updated timestamp, just log and
