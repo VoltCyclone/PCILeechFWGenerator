@@ -920,21 +920,17 @@ class PCILeechTUI(App):
             return False
 
     async def _generate_donor_template(self) -> None:
-        """Generate a donor info template file"""
-        try:
-            # Delegate generation to the coordinator which centralizes logic
-            output_path = await self.ui_coordinator.generate_donor_template()
-            if output_path:
-                self.log_notification(
-                    f"✓ Donor info template saved to: {output_path}", severity="success"
-                )
-                self.log_notification(
-                    "Fill in the device-specific values and use it for advanced cloning",
-                    severity="information",
-                )
+        """Generate a donor info template file.
 
-        except Exception as e:
-            self.log_notification(f"Failed to generate donor template: {e}", severity="error")
+        The coordinator owns the success/failure notification; here we only
+        layer on the secondary hint about how to use the file.
+        """
+        output_path = await self.ui_coordinator.generate_donor_template()
+        if output_path:
+            self.log_notification(
+                "Fill in the device-specific values and use it for advanced cloning",
+                severity="information",
+            )
 
     # App state handler
     def _on_state_change(
