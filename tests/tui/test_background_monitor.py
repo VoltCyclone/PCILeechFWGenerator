@@ -13,8 +13,26 @@ import pytest
 from pcileechfwgenerator.tui.core.background_monitor import BackgroundMonitor
 
 
-def _make_device(bdf: str, driver: str = "vfio-pci", is_suitable: bool = True):
-    return SimpleNamespace(bdf=bdf, driver=driver, is_suitable=is_suitable)
+def _make_device(
+    bdf: str,
+    driver: str = "vfio-pci",
+    is_suitable: bool = True,
+    vendor_name: str = "Acme",
+    device_name: str = "Widget",
+    iommu_group: str = "0",
+    suitability_score: float = 1.0,
+    status_indicator: str = "✅",
+):
+    return SimpleNamespace(
+        bdf=bdf,
+        driver=driver,
+        is_suitable=is_suitable,
+        vendor_name=vendor_name,
+        device_name=device_name,
+        iommu_group=iommu_group,
+        suitability_score=suitability_score,
+        status_indicator=status_indicator,
+    )
 
 
 def _make_app(devices):
@@ -62,11 +80,33 @@ async def test_monitor_skips_update_when_device_signature_unchanged():
     app = _make_app(devices)
     monitor = BackgroundMonitor(app)
 
-    monitor._last_status["devices_signature"] = (
-        ("0000:01:00.0", "vfio-pci", True),
-    )
+    # Prime the cache with the same fields the monitor will compute.
+    await _run_one_iteration(monitor)
+    app.app_state.set_devices.reset_mock()
+    app.ui_coordinator.apply_device_filters.reset_mock()
+    app.device_manager.scan_devices.return_value = devices
+    monitor._running = True
 
     await _run_one_iteration(monitor)
 
     app.app_state.set_devices.assert_not_called()
     app.ui_coordinator.apply_device_filters.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_monitor_detects_rendered_field_changes():
+    """A name change with same bdf/driver/is_suitable must still re-render."""
+    initial = [_make_device("0000:01:00.0", vendor_name="OldName")]
+    app = _make_app(initial)
+    monitor = BackgroundMonitor(app)
+
+    await _run_one_iteration(monitor)
+    app.app_state.set_devices.reset_mock()
+
+    updated = [_make_device("0000:01:00.0", vendor_name="NewName")]
+    app.device_manager.scan_devices.return_value = updated
+    monitor._running = True
+
+    await _run_one_iteration(monitor)
+
+    app.app_state.set_devices.assert_called_once_with(updated)

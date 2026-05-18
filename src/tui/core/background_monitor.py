@@ -123,8 +123,22 @@ class BackgroundMonitor:
         while self._running:
             try:
                 devices = await self.app.device_manager.scan_devices()
+                # Signature covers every field that influences a rendered row
+                # in VirtualDeviceTable._add_device_row plus stable identity.
+                # Updates to vendor/device names, IOMMU group, score, or the
+                # status indicator must trigger a re-render.
                 signature = tuple(
-                    (d.bdf, d.driver, d.is_suitable) for d in devices
+                    (
+                        d.bdf,
+                        getattr(d, "driver", None),
+                        getattr(d, "is_suitable", None),
+                        getattr(d, "vendor_name", None),
+                        getattr(d, "device_name", None),
+                        getattr(d, "iommu_group", None),
+                        round(float(getattr(d, "suitability_score", 0.0)), 4),
+                        getattr(d, "status_indicator", None),
+                    )
+                    for d in devices
                 )
 
                 if signature != self._last_status.get("devices_signature"):
