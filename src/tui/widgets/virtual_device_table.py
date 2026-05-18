@@ -72,6 +72,8 @@ class VirtualDeviceTable(DataTable):
                     key="__empty_state__",
                 )
             except Exception:
+                # Empty-state row is decorative; a missing widget should
+                # not break the rest of the redraw.
                 pass
             return
 
@@ -235,4 +237,6 @@ class VirtualDeviceTable(DataTable):
             try:
                 self.cursor_row = target
             except Exception:
+                # Cursor restoration is best-effort; if the Textual version
+                # rejects both APIs, the redraw still completes correctly.
                 pass

@@ -105,12 +105,14 @@ class ProfileManagerDialog(BaseDialog[Optional[str]]):
         try:
             self.app.log_notification(message, severity="error")
         except Exception:
+            # Best-effort UI notification — never raise from this path.
             pass
 
     def _notify_info(self, message: str) -> None:
         try:
             self.app.log_notification(message, severity="information")
         except Exception:
+            # Best-effort UI notification — never raise from this path.
             pass
 
     # ---- button actions -------------------------------------------------

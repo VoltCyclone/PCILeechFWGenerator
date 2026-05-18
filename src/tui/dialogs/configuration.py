@@ -21,8 +21,8 @@ class ConfigurationDialog(BaseDialog[dict | None]):
 
     Bool fields render as a Checkbox; dict/list fields render as JSON in an
     Input and parse with json.loads on save; int/float fields parse with
-    their constructor and surface errors via app.notify instead of silently
-    corrupting the value.
+    their constructor and surface errors via ``app.log_notification`` (T7
+    rename) instead of silently corrupting the value.
     """
 
     def __init__(self, title: str, config: Dict[str, Any]):
@@ -55,6 +55,7 @@ class ConfigurationDialog(BaseDialog[dict | None]):
         try:
             self.app.log_notification(message, severity="error")
         except Exception:
+            # Best-effort UI notification — never raise from this path.
             pass
 
     def _coerce(self, key: str, original: Any, raw: Any) -> Any:
