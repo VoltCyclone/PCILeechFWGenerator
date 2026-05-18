@@ -54,9 +54,11 @@ async def test_process_that_closes_stdout_but_keeps_running_observed():
     the exit (not hang on readline)."""
     orch = BuildOrchestrator()
     # Child: print then close stdout; exit ~0.5s later.
+    # sys.stdout.close() already closes fd 1 — a subsequent os.close(1)
+    # raises OSError and would taint the return code. One close is enough.
     cmd = (
-        'python3 -c "import os,sys,time; '
-        'print(\'hello\'); sys.stdout.close(); os.close(1); time.sleep(0.5)"'
+        'python3 -c "import sys,time; '
+        'print(\'hello\'); sys.stdout.close(); time.sleep(0.5)"'
     )
 
     start = time.monotonic()
