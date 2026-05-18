@@ -886,13 +886,18 @@ class PCILeechTUI(App):
             result = await self.push_screen(
                 ConfigurationDialog("Build Configuration", self.current_config.to_dict())
             )
-            if result is not None:
-                # Convert dict back to BuildConfiguration
+            if result is None:
+                return
+            try:
                 config = BuildConfiguration.from_dict(result)
-                # Update app state first
-                self.app_state.set_config(config)
-                # Then delegate configuration update to UI coordinator
-                await self.ui_coordinator.handle_configuration_update(config)
+            except Exception as exc:
+                # Surface validation failures; leave the live config intact.
+                self.log_notification(
+                    f"Invalid configuration: {exc}", severity="error"
+                )
+                return
+            self.app_state.set_config(config)
+            await self.ui_coordinator.handle_configuration_update(config)
         except Exception as e:
             if hasattr(self, "error_handler"):
                 self.error_handler.handle_operation_error(
