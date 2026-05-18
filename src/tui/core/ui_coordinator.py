@@ -160,7 +160,9 @@ class UICoordinator:
             self.app.current_config.donor_dump
             and not self.app.current_config.local_build
         ):
-            await self._validate_donor_module()
+            if not await self._validate_donor_module():
+                self.app.notify("Build cancelled", severity="warning")
+                return
 
         try:
             # Update button states
