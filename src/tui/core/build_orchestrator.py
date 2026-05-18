@@ -35,6 +35,9 @@ RESOURCE_MONITOR_INTERVAL = 1.0  # Seconds between resource usage updates
 PROCESS_TERMINATION_TIMEOUT = 2.0  # Seconds to wait for process termination
 
 # Progress parsing tokens for easier maintenance
+READLINE_TIMEOUT_SEC = 1.0  # readline polling cadence in _run_shell
+
+
 LOG_PROGRESS_TOKENS = {
     "Running synthesis": (
         BuildStage.VIVADO_SYNTHESIS,
@@ -869,42 +872,90 @@ class BuildOrchestrator:
                 stderr=stderr.decode("utf-8"),
             )
 
-        # Monitored command execution
+        # Monitored command execution — drain stdout and stderr concurrently
+        # with a short readline timeout so we can poll _should_cancel even
+        # when a grandchild (Vivado) keeps the pipe open indefinitely.
         self._build_process = await asyncio.create_subprocess_shell(
             cmd_str,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
-        # Monitor process output for progress updates
-        while True:
-            if self._build_process.stdout:
-                line = await self._build_process.stdout.readline()
+        stderr_chunks: List[bytes] = []
+
+        async def _drain(stream, sink: Optional[List[bytes]]) -> None:
+            """Read one stream until EOF or cancel, never blocking forever."""
+            if stream is None:
+                return
+            while True:
+                try:
+                    line = await asyncio.wait_for(
+                        stream.readline(), timeout=READLINE_TIMEOUT_SEC
+                    )
+                except asyncio.TimeoutError:
+                    # Pipe is idle. Bail if we've been cancelled or the
+                    # process has exited and the pipe is closed.
+                    if self._should_cancel:
+                        return
+                    if self._build_process.returncode is not None:
+                        return
+                    continue
+
                 if not line:
+                    return
+
+                if sink is not None:
+                    sink.append(line)
+
+                # Only stdout drives progress updates.
+                if sink is None:
+                    line_str = line.decode("utf-8", errors="replace").strip()
+                    if line_str:
+                        for pattern, (stage, percent, msg) in LOG_PROGRESS_TOKENS.items():
+                            if pattern in line_str:
+                                await self._update_progress(stage, percent, msg)
+                                break
+
+        stdout_task = asyncio.create_task(_drain(self._build_process.stdout, None))
+        stderr_task = asyncio.create_task(_drain(self._build_process.stderr, stderr_chunks))
+
+        try:
+            while True:
+                if self._should_cancel:
+                    self._build_process.terminate()
+                    try:
+                        await asyncio.wait_for(self._build_process.wait(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        self._build_process.kill()
+                        await self._build_process.wait()
                     break
 
-                line_str = line.decode("utf-8").strip()
-                if line_str:
-                    # Update progress based on output using LOG_PROGRESS_TOKENS
-                    for pattern, (stage, percent, msg) in LOG_PROGRESS_TOKENS.items():
-                        if pattern in line_str:
-                            await self._update_progress(stage, percent, msg)
-                            break
+                if self._build_process.returncode is not None:
+                    break
 
-            # Check if process has completed
-            if self._build_process.returncode is not None:
-                break
+                try:
+                    await asyncio.wait_for(
+                        self._build_process.wait(), timeout=READLINE_TIMEOUT_SEC
+                    )
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            # Ensure both drain tasks finish before we read stderr_chunks.
+            for task in (stdout_task, stderr_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
-            await asyncio.sleep(0.1)
-
-        # Wait for process to complete
-        await self._build_process.wait()
+        if self._should_cancel:
+            return subprocess.CompletedProcess(
+                args=cmd_str,
+                returncode=self._build_process.returncode or -1,
+                stdout="",
+                stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
+            )
 
         if self._build_process.returncode != 0:
-            error_msg = ""
-            if self._build_process.stderr:
-                stderr = await self._build_process.stderr.read()
-                error_msg = stderr.decode("utf-8")
+            error_msg = b"".join(stderr_chunks).decode("utf-8", errors="replace")
             self._add_progress_error(
                 "Build command failed: {msg}", msg=error_msg or "unknown error"
             )
@@ -915,12 +966,11 @@ class BuildOrchestrator:
                 )
             )
 
-        # Return a CompletedProcess-like object for compatibility
         return subprocess.CompletedProcess(
             args=cmd_str,
             returncode=self._build_process.returncode,
-            stdout="",  # stdout was consumed during monitoring
-            stderr="",  # stderr will be read if there's an error
+            stdout="",
+            stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
         )
 
     async def _validate_pci_config(
