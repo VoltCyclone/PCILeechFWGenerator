@@ -93,6 +93,7 @@ class PCILeechTUI(App):
 
         # Initialize app state
         self.app_state = AppState()
+        self.app_state.subscribe(self._on_state_change)
 
         # Core services
         self.device_manager = DeviceManager()
@@ -133,9 +134,6 @@ class PCILeechTUI(App):
         except Exception:
             # Don't fail initialization if handlers can't be installed
             pass
-
-        # Set up state change handler
-        self.app_state.subscribe(self._on_state_change)
 
     # Keyboard action handlers
     def action_quit(self) -> None:

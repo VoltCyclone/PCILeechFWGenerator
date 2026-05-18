@@ -2,11 +2,12 @@ from typing import Dict, List, Optional
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
+from .base import BaseDialog
 
-class ProfileManagerDialog(ModalScreen[Optional[str]]):
+
+class ProfileManagerDialog(BaseDialog[Optional[str]]):
     """Modal dialog for managing configuration profiles"""
 
     def __init__(self, config_manager) -> None:
@@ -16,7 +17,7 @@ class ProfileManagerDialog(ModalScreen[Optional[str]]):
 
     def compose(self) -> ComposeResult:
         with Container(id="profile-manager-dialog"):
-            yield Static("📋 Configuration Profiles", id="dialog-title")
+            yield Static("📋 Configuration Profiles", classes="dialog-title")
 
             with Horizontal():
                 with Vertical(id="profile-list-panel"):
@@ -42,8 +43,8 @@ class ProfileManagerDialog(ModalScreen[Optional[str]]):
                             "Create New", id="create-profile-btn", variant="primary"
                         )
 
-            with Horizontal(id="dialog-buttons"):
-                yield Button("Close", id="close-profiles", variant="default")
+            with Horizontal(classes="dialog-buttons"):
+                yield Button("Close", id="close-profiles", variant="primary")
 
     def on_mount(self) -> None:
         self._refresh_profiles()

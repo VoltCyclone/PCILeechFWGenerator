@@ -4,11 +4,12 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
+from .base import BaseDialog
 
-class DeviceDetailsDialog(ModalScreen[bool]):
+
+class DeviceDetailsDialog(BaseDialog[bool]):
     """Modal dialog for displaying detailed device information.
 
     This implementation uses plain Containers/VerticalScroll instead of
@@ -29,7 +30,7 @@ class DeviceDetailsDialog(ModalScreen[bool]):
         with Container(id="device-details-dialog"):
             yield Static(
                 f"📡 Device Details: {self._get_device_attr('bdf', 'unknown')}",
-                id="dialog-title",
+                classes="dialog-title",
             )
 
             # Basic Info section
@@ -99,9 +100,9 @@ class DeviceDetailsDialog(ModalScreen[bool]):
                     ).items():
                         yield Static(f"{key}: {value}")
 
-            with Horizontal(id="dialog-buttons"):
-                yield Button("Export Details", id="export-details", variant="primary")
+            with Horizontal(classes="dialog-buttons"):
                 yield Button("Close", id="close-details", variant="default")
+                yield Button("Export Details", id="export-details", variant="primary")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close-details":

@@ -59,6 +59,22 @@ class VirtualDeviceTable(DataTable):
         This is the key optimization for handling large device lists.
         """
         self.clear()
+
+        if not self.virtual_rows:
+            try:
+                self.add_row(
+                    "ℹ️",
+                    "—",
+                    "No PCIe devices found — verify Linux + lspci access",
+                    "—",
+                    "—",
+                    "—",
+                    key="__empty_state__",
+                )
+            except Exception:
+                pass
+            return
+
         end = min(self.visible_start + self.visible_count, len(self.virtual_rows))
 
         for i in range(self.visible_start, end):

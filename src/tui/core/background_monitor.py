@@ -122,20 +122,22 @@ class BackgroundMonitor:
         """
         while self._running:
             try:
-                # Check for device changes
-                has_changes = await self.app.device_manager.check_for_changes()
+                devices = await self.app.device_manager.scan_devices()
+                signature = tuple(
+                    (d.bdf, d.driver, d.is_suitable) for d in devices
+                )
 
-                if has_changes:
-                    # Only update if devices have changed
-                    devices = await self.app.device_manager.get_devices()
+                if signature != self._last_status.get("devices_signature"):
+                    self._last_status["devices_signature"] = signature
 
-                    # Store current filtered devices
-                    self.app._devices = devices
-
-                    # Apply filters and update UI
+                    self.app.app_state.set_devices(devices)
                     self.app.ui_coordinator.apply_device_filters()
                     self.app.ui_coordinator.update_device_table()
-                    logger.debug("Device list updated due to changes")
+                    self.app.ui_coordinator._update_device_panel_title()
+                    logger.debug(
+                        "Device list updated due to changes (%d devices)",
+                        len(devices),
+                    )
             except Exception as e:
                 # Handle error without stopping the monitoring task
                 logger.error(f"Error monitoring device changes: {e}")

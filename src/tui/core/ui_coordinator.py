@@ -92,6 +92,8 @@ class UICoordinator:
 
             if search_text:
                 current_filters["search_text"] = search_text
+            else:
+                current_filters.pop("search_text", None)
 
             # Update app state with filters
             self.app.app_state.set_filters(current_filters)
