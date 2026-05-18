@@ -195,15 +195,14 @@ class ConfigManager:
             print(f"Error saving profile: {error.message}")
             return False
 
-    def load_profile(self, name: str) -> Optional[BuildConfiguration]:
-        """
-        Load configuration profile.
+    def _load_profile_raw(self, name: str) -> Optional[BuildConfiguration]:
+        """Read and parse a profile without stamping ``last_used``.
 
-        Returns:
-            Configuration if successful, None otherwise
+        Use this for read-only probes (export, validation, listing). The
+        public ``load_profile`` is the load-to-use path: it stamps and
+        persists; this internal sibling does neither.
         """
         try:
-            # Ensure directory exists
             self._ensure_config_directory()
 
             profile_path = self.config_dir / f"{self._sanitize_filename(name)}.json"
@@ -221,39 +220,18 @@ class ConfigManager:
                 print(f"Profile not found: {error.message}")
                 return None
 
-            # Load the profile data
             with open(profile_path, "r") as f:
                 profile_data = json.load(f)
 
-            # Try to create a Pydantic BuildConfiguration
             try:
-                config = BuildConfiguration(**profile_data)
+                return BuildConfiguration(**profile_data)
             except ValidationError as e:
                 print(f"Warning: Validation errors in profile '{name}': {e}")
-                # Fall back to legacy model if validation fails
                 config = LegacyBuildConfiguration(**profile_data)
-                # Attempt to convert to new model with default values for missing fields
                 try:
-                    config = BuildConfiguration(**config.to_dict())
+                    return BuildConfiguration(**config.to_dict())
                 except ValidationError:
-                    # If conversion fails, continue with legacy model
-                    pass
-
-            # This is the real load-to-use path — stamp it explicitly.
-            if isinstance(config, BuildConfiguration):
-                config.mark_used()
-            else:
-                config.last_used = datetime.now().isoformat()
-            success = self.save_profile(name, config)  # Save updated timestamp
-            if not success:
-                # If we couldn't save the updated timestamp, just log and
-                # continue
-                print(
-                    f"Warning: Could not update last_used timestamp for profile '{name}'"
-                )
-
-            return config
-
+                    return config
         except PermissionError as e:
             error = TUIError(
                 severity=ErrorSeverity.ERROR,
@@ -293,6 +271,35 @@ class ConfigManager:
             )
             print(f"Error loading profile: {error.message}")
             return None
+
+    def load_profile(self, name: str) -> Optional[BuildConfiguration]:
+        """
+        Load configuration profile for *use* — stamps ``last_used`` and
+        persists the change.
+
+        Returns:
+            Configuration if successful, None otherwise.
+        """
+        config = self._load_profile_raw(name)
+        if config is None:
+            return None
+
+        try:
+            if isinstance(config, BuildConfiguration):
+                config.mark_used()
+            else:
+                config.last_used = datetime.now().isoformat()
+            success = self.save_profile(name, config)
+            if not success:
+                print(
+                    f"Warning: Could not update last_used timestamp for profile '{name}'"
+                )
+            return config
+        except Exception as e:
+            # Stamping/persistence failed but the read succeeded — return
+            # the in-memory config so the caller can still use it.
+            print(f"Warning: load_profile stamping failed for '{name}': {e}")
+            return config
 
     def list_profiles(self) -> List[Dict[str, str]]:
         """
@@ -534,28 +541,28 @@ class ConfigManager:
         """
         Export a profile to a specific path.
 
+        Uses the read-only loader so exporting does not re-stamp ``last_used``
+        or rewrite the source profile.
+
         Returns:
             Boolean indicating success
         """
         try:
-            config = self.load_profile(name)
-            if not config:
+            config = self._load_profile_raw(name)
+            if config is None:
                 return False
 
-            if config:
-                try:
-                    config.save_to_file(export_path)
-                    return True
-                except PermissionError as e:
-                    print(
-                        f"Permission denied when exporting profile to {export_path}: {e}"
-                    )
-                    return False
-                except Exception as e:
-                    print(f"Failed to export profile to {export_path}: {e}")
-                    return False
-            print(f"Cannot export profile '{name}' - profile not loaded")
-            return False
+            try:
+                config.save_to_file(export_path)
+                return True
+            except PermissionError as e:
+                print(
+                    f"Permission denied when exporting profile to {export_path}: {e}"
+                )
+                return False
+            except Exception as e:
+                print(f"Failed to export profile to {export_path}: {e}")
+                return False
         except Exception as e:
             print(f"Unexpected error when exporting profile '{name}': {e}")
             return False

@@ -32,6 +32,32 @@ def test_mark_used_updates_timestamp():
     assert cfg.last_used != "2025-01-01T00:00:00"
 
 
+def test_export_profile_does_not_touch_source_mtime(tmp_path, monkeypatch):
+    """export_profile must be read-only on the source file."""
+    from pcileechfwgenerator.tui.core import config_manager as cm_mod
+    from pcileechfwgenerator.tui.core.config_manager import ConfigManager
+
+    monkeypatch.setattr(cm_mod, "CACHE_DIR", tmp_path)
+    mgr = ConfigManager()
+    mgr.config_dir = tmp_path / "profiles"
+    mgr.config_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg = BuildConfiguration(name="probe", last_used="2025-01-01T00:00:00")
+    source = mgr.config_dir / "probe.json"
+    source.write_text(json.dumps(cfg.dict()))
+    source_mtime_before = source.stat().st_mtime
+    source_text_before = source.read_text()
+
+    target = tmp_path / "exported.json"
+    time.sleep(0.05)
+    ok = mgr.export_profile("probe", target)
+
+    assert ok is True
+    assert target.exists()
+    assert source.stat().st_mtime == source_mtime_before
+    assert source.read_text() == source_text_before
+
+
 def test_validate_config_does_not_touch_file_mtime(tmp_path, monkeypatch):
     """validate_config must be read-only — no save-back side effect."""
     from pcileechfwgenerator.tui.core import config_manager as cm_mod
