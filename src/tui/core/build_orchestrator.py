@@ -80,7 +80,10 @@ class BuildOrchestrator:
         self._progress_callback: Optional[Callable[[BuildProgress], None]] = None
         self._is_building = False
         self._should_cancel = False
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        # Executor is build-scoped: created at the top of start_build,
+        # shutdown in its finally. A late _update_resource_usage tick after
+        # shutdown must be a no-op, not a RuntimeError.
+        self._executor: Optional[ThreadPoolExecutor] = None
         self._last_resource_update = 0
         self._config: Optional[BuildConfiguration] = None
 
@@ -173,6 +176,7 @@ class BuildOrchestrator:
         self._should_cancel = False
         self._progress_callback = progress_callback
         self._config = config
+        self._executor = ThreadPoolExecutor(max_workers=4)
 
         # Initialize progress tracking
         self._current_progress = BuildProgress(
@@ -206,7 +210,10 @@ class BuildOrchestrator:
             raise
         finally:
             self._is_building = False
-            self._executor.shutdown(wait=True)
+            executor = self._executor
+            self._executor = None
+            if executor is not None:
+                executor.shutdown(wait=True)
 
     def _create_build_stages(
         self, device: PCIDevice, config: BuildConfiguration
@@ -407,9 +414,10 @@ class BuildOrchestrator:
         """
         Update system resource usage metrics in the progress state.
 
-        Collects CPU, memory, and disk usage information.
+        Collects CPU, memory, and disk usage information. A late tick after
+        the build's executor has been shut down is a graceful no-op.
         """
-        if not self._current_progress:
+        if not self._current_progress or self._executor is None:
             return
 
         try:
