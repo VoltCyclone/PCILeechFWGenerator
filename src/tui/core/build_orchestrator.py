@@ -79,6 +79,7 @@ class BuildOrchestrator:
         self._should_cancel = False
         self._executor = ThreadPoolExecutor(max_workers=4)
         self._last_resource_update = 0
+        self._config: Optional[BuildConfiguration] = None
 
     # -----------------------------
     # Internal helpers (errors/logs)
@@ -168,6 +169,7 @@ class BuildOrchestrator:
         self._is_building = True
         self._should_cancel = False
         self._progress_callback = progress_callback
+        self._config = config
 
         # Initialize progress tracking
         self._current_progress = BuildProgress(
@@ -445,10 +447,8 @@ class BuildOrchestrator:
         Raises:
             RuntimeError: If environment validation fails
         """
-        # Get current configuration
-        app = self._get_app()
-        config = getattr(app, "current_config", None)
-        local_build = config and config.local_build
+        config = self._config
+        local_build = bool(config and config.local_build)
 
         if not local_build:
             await self._validate_container_environment()
@@ -461,21 +461,6 @@ class BuildOrchestrator:
 
         # Ensure pcileech-fpga repository is available
         await self._ensure_git_repo()
-
-    def _get_app(self):
-        """
-        Get the parent app instance.
-
-        Returns:
-            The parent app instance or None if not found
-        """
-        # Find the app instance in the widget tree
-        widget = getattr(self, "_progress_callback", None)
-        while widget:
-            if hasattr(widget, "app"):
-                return widget.app
-            widget = getattr(widget, "parent", None)
-        return None
 
     async def _validate_container_environment(self) -> None:
         """
