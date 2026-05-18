@@ -47,7 +47,7 @@ class ErrorHandler:
 
         # Show user-friendly message
         user_msg = self._get_user_friendly_message(error, context)
-        self.app.notify(user_msg, severity=severity)
+        self.app.log_notification(user_msg, severity=severity)
 
         # Persist full traceback to an error log for later inspection
         try:
@@ -133,7 +133,7 @@ class ErrorHandler:
         # 3. Show a more prominent UI notification
 
         # For now, we'll just show an additional notification with recovery instructions
-        self.app.notify(
+        self.app.log_notification(
             "A critical error occurred. Please save your work and restart the application.",
             severity="error",
         )

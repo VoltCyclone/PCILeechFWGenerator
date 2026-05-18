@@ -2,8 +2,9 @@ from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Button, Static
+
+from .base import BaseDialog
 
 DEFAULT_HELP_TEXT = """
 PCILeech Firmware Generator - Keyboard Shortcuts
@@ -38,7 +39,7 @@ Tips:
 """
 
 
-class HelpDialog(ModalScreen[bool]):
+class HelpDialog(BaseDialog[bool]):
     """Modal dialog that displays help text."""
 
     def __init__(self, help_text: Optional[str] = None) -> None:
@@ -47,13 +48,16 @@ class HelpDialog(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Container(id="help-dialog"):
-            yield Static("📚 PCILeech Help", id="dialog-title")
+            yield Static("📚 PCILeech Help", classes="dialog-title")
 
             with VerticalScroll():
                 yield Static(self.help_text, id="help-content")
 
-            with Horizontal(id="dialog-buttons"):
+            with Horizontal(classes="dialog-buttons"):
                 yield Button("Close", variant="primary", id="close-help")
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close-help":

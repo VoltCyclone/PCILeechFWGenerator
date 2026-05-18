@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import logging
 import os
+import shlex
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -35,6 +36,9 @@ RESOURCE_MONITOR_INTERVAL = 1.0  # Seconds between resource usage updates
 PROCESS_TERMINATION_TIMEOUT = 2.0  # Seconds to wait for process termination
 
 # Progress parsing tokens for easier maintenance
+READLINE_TIMEOUT_SEC = 1.0  # readline polling cadence in _run_shell
+
+
 LOG_PROGRESS_TOKENS = {
     "Running synthesis": (
         BuildStage.VIVADO_SYNTHESIS,
@@ -77,8 +81,12 @@ class BuildOrchestrator:
         self._progress_callback: Optional[Callable[[BuildProgress], None]] = None
         self._is_building = False
         self._should_cancel = False
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        # Executor is build-scoped: created at the top of start_build,
+        # shutdown in its finally. A late _update_resource_usage tick after
+        # shutdown must be a no-op, not a RuntimeError.
+        self._executor: Optional[ThreadPoolExecutor] = None
         self._last_resource_update = 0
+        self._config: Optional[BuildConfiguration] = None
 
     # -----------------------------
     # Internal helpers (errors/logs)
@@ -168,6 +176,8 @@ class BuildOrchestrator:
         self._is_building = True
         self._should_cancel = False
         self._progress_callback = progress_callback
+        self._config = config
+        self._executor = ThreadPoolExecutor(max_workers=4)
 
         # Initialize progress tracking
         self._current_progress = BuildProgress(
@@ -201,7 +211,10 @@ class BuildOrchestrator:
             raise
         finally:
             self._is_building = False
-            self._executor.shutdown(wait=True)
+            executor = self._executor
+            self._executor = None
+            if executor is not None:
+                executor.shutdown(wait=True)
 
     def _create_build_stages(
         self, device: PCIDevice, config: BuildConfiguration
@@ -402,9 +415,10 @@ class BuildOrchestrator:
         """
         Update system resource usage metrics in the progress state.
 
-        Collects CPU, memory, and disk usage information.
+        Collects CPU, memory, and disk usage information. A late tick after
+        the build's executor has been shut down is a graceful no-op.
         """
-        if not self._current_progress:
+        if not self._current_progress or self._executor is None:
             return
 
         try:
@@ -445,10 +459,8 @@ class BuildOrchestrator:
         Raises:
             RuntimeError: If environment validation fails
         """
-        # Get current configuration
-        app = self._get_app()
-        config = getattr(app, "current_config", None)
-        local_build = config and config.local_build
+        config = self._config
+        local_build = bool(config and config.local_build)
 
         if not local_build:
             await self._validate_container_environment()
@@ -461,21 +473,6 @@ class BuildOrchestrator:
 
         # Ensure pcileech-fpga repository is available
         await self._ensure_git_repo()
-
-    def _get_app(self):
-        """
-        Get the parent app instance.
-
-        Returns:
-            The parent app instance or None if not found
-        """
-        # Find the app instance in the widget tree
-        widget = getattr(self, "_progress_callback", None)
-        while widget:
-            if hasattr(widget, "app"):
-                return widget.app
-            widget = getattr(widget, "parent", None)
-        return None
 
     async def _validate_container_environment(self) -> None:
         """
@@ -863,7 +860,9 @@ class BuildOrchestrator:
             RuntimeError: If command fails
         """
         if isinstance(cmd, list):
-            cmd_str = " ".join(cmd)
+            # shlex.join quotes args that contain spaces so paths and other
+            # spaced values survive create_subprocess_shell's reparse.
+            cmd_str = shlex.join(cmd)
         else:
             cmd_str = cmd
 
@@ -884,42 +883,90 @@ class BuildOrchestrator:
                 stderr=stderr.decode("utf-8"),
             )
 
-        # Monitored command execution
+        # Monitored command execution — drain stdout and stderr concurrently
+        # with a short readline timeout so we can poll _should_cancel even
+        # when a grandchild (Vivado) keeps the pipe open indefinitely.
         self._build_process = await asyncio.create_subprocess_shell(
             cmd_str,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
-        # Monitor process output for progress updates
-        while True:
-            if self._build_process.stdout:
-                line = await self._build_process.stdout.readline()
+        stderr_chunks: List[bytes] = []
+
+        async def _drain(stream, sink: Optional[List[bytes]]) -> None:
+            """Read one stream until EOF or cancel, never blocking forever."""
+            if stream is None:
+                return
+            while True:
+                try:
+                    line = await asyncio.wait_for(
+                        stream.readline(), timeout=READLINE_TIMEOUT_SEC
+                    )
+                except asyncio.TimeoutError:
+                    # Pipe is idle. Bail if we've been cancelled or the
+                    # process has exited and the pipe is closed.
+                    if self._should_cancel:
+                        return
+                    if self._build_process.returncode is not None:
+                        return
+                    continue
+
                 if not line:
+                    return
+
+                if sink is not None:
+                    sink.append(line)
+
+                # Only stdout drives progress updates.
+                if sink is None:
+                    line_str = line.decode("utf-8", errors="replace").strip()
+                    if line_str:
+                        for pattern, (stage, percent, msg) in LOG_PROGRESS_TOKENS.items():
+                            if pattern in line_str:
+                                await self._update_progress(stage, percent, msg)
+                                break
+
+        stdout_task = asyncio.create_task(_drain(self._build_process.stdout, None))
+        stderr_task = asyncio.create_task(_drain(self._build_process.stderr, stderr_chunks))
+
+        try:
+            while True:
+                if self._should_cancel:
+                    self._build_process.terminate()
+                    try:
+                        await asyncio.wait_for(self._build_process.wait(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        self._build_process.kill()
+                        await self._build_process.wait()
                     break
 
-                line_str = line.decode("utf-8").strip()
-                if line_str:
-                    # Update progress based on output using LOG_PROGRESS_TOKENS
-                    for pattern, (stage, percent, msg) in LOG_PROGRESS_TOKENS.items():
-                        if pattern in line_str:
-                            await self._update_progress(stage, percent, msg)
-                            break
+                if self._build_process.returncode is not None:
+                    break
 
-            # Check if process has completed
-            if self._build_process.returncode is not None:
-                break
+                try:
+                    await asyncio.wait_for(
+                        self._build_process.wait(), timeout=READLINE_TIMEOUT_SEC
+                    )
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            # Ensure both drain tasks finish before we read stderr_chunks.
+            for task in (stdout_task, stderr_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
-            await asyncio.sleep(0.1)
-
-        # Wait for process to complete
-        await self._build_process.wait()
+        if self._should_cancel:
+            return subprocess.CompletedProcess(
+                args=cmd_str,
+                returncode=self._build_process.returncode or -1,
+                stdout="",
+                stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
+            )
 
         if self._build_process.returncode != 0:
-            error_msg = ""
-            if self._build_process.stderr:
-                stderr = await self._build_process.stderr.read()
-                error_msg = stderr.decode("utf-8")
+            error_msg = b"".join(stderr_chunks).decode("utf-8", errors="replace")
             self._add_progress_error(
                 "Build command failed: {msg}", msg=error_msg or "unknown error"
             )
@@ -930,12 +977,11 @@ class BuildOrchestrator:
                 )
             )
 
-        # Return a CompletedProcess-like object for compatibility
         return subprocess.CompletedProcess(
             args=cmd_str,
             returncode=self._build_process.returncode,
-            stdout="",  # stdout was consumed during monitoring
-            stderr="",  # stderr will be read if there's an error
+            stdout="",
+            stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
         )
 
     async def _validate_pci_config(
@@ -1233,48 +1279,46 @@ class BuildOrchestrator:
             "skip_board_check": bool(config.skip_board_check),
         }
 
-        # Build command parts
-        build_cmd_parts = [
-            f"python3 src/build.py --bdf {device.bdf} --board {config.board_type}"
+        # Build the command as a list[str] from the start — strings with
+        # embedded spaces (paths, multi-word args) survive intact this way.
+        # Common build args (everything after the script name):
+        build_args: List[str] = [
+            "--bdf",
+            device.bdf,
+            "--board",
+            config.board_type,
         ]
-
         if cli_args.get("advanced_sv"):
-            build_cmd_parts.append("--advanced-sv")
+            build_args.append("--advanced-sv")
         if cli_args.get("enable_variance"):
-            build_cmd_parts.append("--enable-variance")
+            build_args.append("--enable-variance")
         if cli_args.get("enable_behavior_profiling"):
-            build_cmd_parts.append("--enable-behavior-profiling")
-            build_cmd_parts.append(
-                f"--profile-duration {cli_args['behavior_profile_duration']}"
+            build_args.extend(
+                [
+                    "--enable-behavior-profiling",
+                    "--profile-duration",
+                    str(cli_args["behavior_profile_duration"]),
+                ]
             )
-
-        # Add donor dump options
         if cli_args.get("use_donor_dump"):
-            build_cmd_parts.append("--use-donor-dump")
-        # Only add donor_info_file when explicitly provided and not empty
+            build_args.append("--use-donor-dump")
         donor_info_file = cli_args.get("donor_info_file")
         if (
             donor_info_file
             and isinstance(donor_info_file, str)
             and donor_info_file.strip()
         ):
-            build_cmd_parts.append(f"--donor-info-file {donor_info_file}")
+            build_args.extend(["--donor-info-file", donor_info_file])
         if cli_args.get("skip_board_check"):
-            build_cmd_parts.append("--skip-board-check")
-
-        # Add Vivado execution flag to actually run Vivado
-        build_cmd_parts.append("--run-vivado")
-
-        build_cmd = " ".join(build_cmd_parts)
+            build_args.append("--skip-board-check")
+        build_args.append("--run-vivado")
 
         if config.local_build:
-            # Run locally
             if self._current_progress:
                 self._current_progress.current_operation = "Running local build"
                 await self._notify_progress()
 
-            # Run the build command directly
-            await self._run_shell(build_cmd.split())
+            await self._run_shell(["python3", "src/build.py", *build_args])
         else:
             # Get IOMMU group for VFIO device
             from ...cli.vfio_handler import _get_iommu_group
@@ -1284,8 +1328,7 @@ class BuildOrchestrator:
             )
             vfio_device = f"/dev/vfio/{iommu_group}"
 
-            # Construct container command
-            container_cmd = [
+            container_cmd: List[str] = [
                 "podman",
                 "run",
                 "--rm",
@@ -1296,19 +1339,11 @@ class BuildOrchestrator:
                 "-v",
                 f"{os.getcwd()}/output:/app/output",
                 "pcileechfwgenerator:latest",
-                (
-                    f"python3 /app/src/build.py --bdf {device.bdf} "
-                    f"--board {config.board_type}"
-                ),
+                "python3",
+                "/app/src/build.py",
+                *build_args,
             ]
 
-            # Add the same options to the container command
-            for option in build_cmd_parts[
-                1:
-            ]:  # Skip the first part (python3 src/build.py)
-                container_cmd.append(option)
-
-            # Run container with progress monitoring
             await self._run_shell(container_cmd)
 
     async def _generate_bitstream(self, config: BuildConfiguration) -> None:

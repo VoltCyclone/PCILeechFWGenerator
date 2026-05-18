@@ -122,20 +122,36 @@ class BackgroundMonitor:
         """
         while self._running:
             try:
-                # Check for device changes
-                has_changes = await self.app.device_manager.check_for_changes()
+                devices = await self.app.device_manager.scan_devices()
+                # Signature covers every field that influences a rendered row
+                # in VirtualDeviceTable._add_device_row plus stable identity.
+                # Updates to vendor/device names, IOMMU group, score, or the
+                # status indicator must trigger a re-render.
+                signature = tuple(
+                    (
+                        d.bdf,
+                        getattr(d, "driver", None),
+                        getattr(d, "is_suitable", None),
+                        getattr(d, "vendor_name", None),
+                        getattr(d, "device_name", None),
+                        getattr(d, "iommu_group", None),
+                        round(float(getattr(d, "suitability_score", 0.0)), 4),
+                        getattr(d, "status_indicator", None),
+                    )
+                    for d in devices
+                )
 
-                if has_changes:
-                    # Only update if devices have changed
-                    devices = await self.app.device_manager.get_devices()
+                if signature != self._last_status.get("devices_signature"):
+                    self._last_status["devices_signature"] = signature
 
-                    # Store current filtered devices
-                    self.app._devices = devices
-
-                    # Apply filters and update UI
+                    self.app.app_state.set_devices(devices)
                     self.app.ui_coordinator.apply_device_filters()
                     self.app.ui_coordinator.update_device_table()
-                    logger.debug("Device list updated due to changes")
+                    self.app.ui_coordinator._update_device_panel_title()
+                    logger.debug(
+                        "Device list updated due to changes (%d devices)",
+                        len(devices),
+                    )
             except Exception as e:
                 # Handle error without stopping the monitoring task
                 logger.error(f"Error monitoring device changes: {e}")

@@ -16,11 +16,12 @@ except ImportError:
 # Third-party imports
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, RichLog, Static
 
+from .base import BaseDialog
 
-class BuildLogDialog(ModalScreen[bool]):
+
+class BuildLogDialog(BaseDialog[bool]):
     """Modal dialog showing current build log, history and system info.
 
     This implementation uses simple Container elements instead of TabbedContent/TabPane
@@ -63,7 +64,7 @@ class BuildLogDialog(ModalScreen[bool]):
             ComposeResult: The composed UI elements.
         """
         with Container(id="build-log-dialog"):
-            yield Static("Build Logs & History", id="dialog-title")
+            yield Static("Build Logs & History", classes="dialog-title")
 
             # Current build log section
             with Container(id="current-build"):
@@ -106,8 +107,8 @@ class BuildLogDialog(ModalScreen[bool]):
                 with VerticalScroll():
                     yield Static(id="system-info-content")
 
-            with Horizontal(id="dialog-buttons"):
-                yield Button("Close", id="close-logs", variant="default")
+            with Horizontal(classes="dialog-buttons"):
+                yield Button("Close", id="close-logs", variant="primary")
 
     def on_mount(self) -> None:
         """Initialize the dialog content when it's mounted."""
@@ -123,7 +124,7 @@ class BuildLogDialog(ModalScreen[bool]):
             severity: The severity level (error, warning, information, success).
         """
         try:
-            self.app.notify(message, severity=severity)
+            self.app.log_notification(message, severity=severity)
         except Exception:
             # If notification fails, we can't do much - silent failure
             pass

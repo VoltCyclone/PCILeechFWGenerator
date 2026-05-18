@@ -1,12 +1,16 @@
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
+from .base import BaseDialog
+from .confirmation import ConfirmationDialog
+from .file_path_input import FilePathInputDialog
 
-class ProfileManagerDialog(ModalScreen[Optional[str]]):
+
+class ProfileManagerDialog(BaseDialog[Optional[str]]):
     """Modal dialog for managing configuration profiles"""
 
     def __init__(self, config_manager) -> None:
@@ -16,7 +20,7 @@ class ProfileManagerDialog(ModalScreen[Optional[str]]):
 
     def compose(self) -> ComposeResult:
         with Container(id="profile-manager-dialog"):
-            yield Static("📋 Configuration Profiles", id="dialog-title")
+            yield Static("📋 Configuration Profiles", classes="dialog-title")
 
             with Horizontal():
                 with Vertical(id="profile-list-panel"):
@@ -42,8 +46,8 @@ class ProfileManagerDialog(ModalScreen[Optional[str]]):
                             "Create New", id="create-profile-btn", variant="primary"
                         )
 
-            with Horizontal(id="dialog-buttons"):
-                yield Button("Close", id="close-profiles", variant="default")
+            with Horizontal(classes="dialog-buttons"):
+                yield Button("Close", id="close-profiles", variant="primary")
 
     def on_mount(self) -> None:
         self._refresh_profiles()
@@ -65,7 +69,7 @@ class ProfileManagerDialog(ModalScreen[Optional[str]]):
                 )
         except Exception:
             try:
-                self.app.notify("Failed to load profiles", severity="error")
+                self.app.log_notification("Failed to load profiles", severity="error")
             except Exception:
                 pass
 
@@ -84,4 +88,128 @@ class ProfileManagerDialog(ModalScreen[Optional[str]]):
         elif button_id == "create-profile-btn":
             await self._create_new_profile()
 
-    # The rest of the helper methods are intentionally left in the main app where they are coupled to app services
+    # ---- helpers --------------------------------------------------------
+
+    def _selected_profile_name(self) -> Optional[str]:
+        """Return the profile name corresponding to the highlighted row."""
+        try:
+            table = self.query_one("#profiles-table", DataTable)
+            row = table.cursor_row
+        except Exception:
+            return None
+        if row is None or row < 0 or row >= len(self.profiles):
+            return None
+        return self.profiles[row].get("name")
+
+    def _notify_error(self, message: str) -> None:
+        try:
+            self.app.log_notification(message, severity="error")
+        except Exception:
+            # Best-effort UI notification — never raise from this path.
+            pass
+
+    def _notify_info(self, message: str) -> None:
+        try:
+            self.app.log_notification(message, severity="information")
+        except Exception:
+            # Best-effort UI notification — never raise from this path.
+            pass
+
+    # ---- button actions -------------------------------------------------
+
+    async def _load_selected_profile(self) -> None:
+        name = self._selected_profile_name()
+        if not name:
+            self._notify_error("Select a profile to load")
+            return
+        # Caller in main.py reads the dismiss value and applies the profile.
+        self.dismiss(name)
+
+    async def _delete_selected_profile(self) -> None:
+        name = self._selected_profile_name()
+        if not name:
+            self._notify_error("Select a profile to delete")
+            return
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmationDialog(
+                "Delete Profile",
+                f"Delete profile '{name}'? This cannot be undone.",
+            )
+        )
+        if not confirmed:
+            return
+
+        try:
+            ok = self.config_manager.delete_profile(name)
+            if not ok:
+                self._notify_error(f"Failed to delete profile '{name}'")
+                return
+            self._notify_info(f"Deleted profile '{name}'")
+            self._refresh_profiles()
+        except Exception as exc:
+            self._notify_error(f"Delete failed: {exc}")
+
+    async def _export_selected_profile(self) -> None:
+        name = self._selected_profile_name()
+        if not name:
+            self._notify_error("Select a profile to export")
+            return
+
+        path_str = await self.app.push_screen_wait(
+            FilePathInputDialog(
+                f"Export '{name}' to file path:",
+                default=f"{name}.json",
+            )
+        )
+        if not path_str:
+            return
+
+        try:
+            ok = self.config_manager.export_profile(name, Path(path_str))
+            if ok:
+                self._notify_info(f"Exported profile '{name}' to {path_str}")
+            else:
+                self._notify_error(f"Failed to export profile '{name}'")
+        except Exception as exc:
+            self._notify_error(f"Export failed: {exc}")
+
+    async def _import_profile(self) -> None:
+        path_str = await self.app.push_screen_wait(
+            FilePathInputDialog("Import profile from file path:")
+        )
+        if not path_str:
+            return
+
+        try:
+            new_name = self.config_manager.import_profile(Path(path_str))
+            if not new_name:
+                self._notify_error(f"Failed to import profile from {path_str}")
+                return
+            self._notify_info(f"Imported profile '{new_name}'")
+            self._refresh_profiles()
+        except Exception as exc:
+            self._notify_error(f"Import failed: {exc}")
+
+    async def _create_new_profile(self) -> None:
+        # TODO(tui-pass-2): replace FilePathInputDialog with a dedicated
+        # name-input primitive. Reusing it here keeps scope contained.
+        name = await self.app.push_screen_wait(
+            FilePathInputDialog("New profile name:")
+        )
+        if not name:
+            return
+
+        try:
+            current = getattr(self.app, "current_config", None)
+            if current is None:
+                self._notify_error("No current configuration to save")
+                return
+            ok = self.config_manager.save_profile(name, current)
+            if not ok:
+                self._notify_error(f"Failed to save profile '{name}'")
+                return
+            self._notify_info(f"Created profile '{name}'")
+            self._refresh_profiles()
+        except Exception as exc:
+            self._notify_error(f"Create failed: {exc}")

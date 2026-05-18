@@ -119,7 +119,7 @@ class GracefulDegradation:
             "timestamp": _time.time(),
         }
 
-        self.app.notify(
+        self.app.log_notification(
             f"Feature '{feature_name}' disabled due to error: {error_message}",
             severity="warning",
         )
@@ -139,7 +139,7 @@ class GracefulDegradation:
             if feature_name in self.degradation_history:
                 del self.degradation_history[feature_name]
 
-            self.app.notify(
+            self.app.log_notification(
                 f"Feature '{feature_name}' has been reset and will be available on next use",
                 severity="info",
             )

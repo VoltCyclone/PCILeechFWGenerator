@@ -52,7 +52,7 @@ class UICoordinator:
         self._update_buttons_for_device_selection(device)
 
         # Notify user
-        self.app.notify(f"Selected device: {device.bdf}", severity="info")
+        self.app.log_notification(f"Selected device: {device.bdf}", severity="info")
 
     async def scan_devices(self) -> List[PCIDevice]:
         """
@@ -76,7 +76,7 @@ class UICoordinator:
             if hasattr(self.app, "error_handler"):
                 self.app.error_handler.handle_operation_error("scanning devices", e)
             else:
-                self.app.notify(f"Failed to scan devices: {e}", severity="error")
+                self.app.log_notification(f"Failed to scan devices: {e}", severity="error")
             return []
 
     def apply_device_filters(self) -> None:
@@ -92,6 +92,8 @@ class UICoordinator:
 
             if search_text:
                 current_filters["search_text"] = search_text
+            else:
+                current_filters.pop("search_text", None)
 
             # Update app state with filters
             self.app.app_state.set_filters(current_filters)
@@ -146,11 +148,11 @@ class UICoordinator:
         Start the build process with validation and error handling
         """
         if not self.app.selected_device:
-            self.app.notify("Please select a device first", severity="error")
+            self.app.log_notification("Please select a device first", severity="error")
             return
 
         if self.build_orchestrator.is_building():
-            self.app.notify("Build already in progress", severity="warning")
+            self.app.log_notification("Build already in progress", severity="warning")
             return
 
         # Check donor module status before starting build if donor_dump is enabled
@@ -158,7 +160,9 @@ class UICoordinator:
             self.app.current_config.donor_dump
             and not self.app.current_config.local_build
         ):
-            await self._validate_donor_module()
+            if not await self._validate_donor_module():
+                self.app.log_notification("Build cancelled", severity="warning")
+                return
 
         try:
             # Update button states
@@ -173,9 +177,9 @@ class UICoordinator:
             )
 
             if success:
-                self.app.notify("Build completed successfully!", severity="success")
+                self.app.log_notification("Build completed successfully!", severity="success")
             else:
-                self.app.notify("Build was cancelled", severity="warning")
+                self.app.log_notification("Build was cancelled", severity="warning")
 
         except Exception as e:
             error_msg = str(e)
@@ -188,12 +192,12 @@ class UICoordinator:
                     or "platform incompatibility" in error_msg
                     or "only available on Linux" in error_msg
                 ):
-                    self.app.notify(
+                    self.app.log_notification(
                         "Build skipped: Platform compatibility issue (see logs)",
                         severity="warning",
                     )
                 else:
-                    self.app.notify(f"Build failed: {e}", severity="error")
+                    self.app.log_notification(f"Build failed: {e}", severity="error")
         finally:
             # Reset button states
             self.app.query_one("#start-build").disabled = False
@@ -202,7 +206,7 @@ class UICoordinator:
     async def handle_build_stop(self) -> None:
         """Stop the current build process"""
         await self.build_orchestrator.cancel_build()
-        self.app.notify("Build cancelled", severity="info")
+        self.app.log_notification("Build cancelled", severity="info")
 
     def handle_build_progress(self, progress: BuildProgress) -> None:
         """
@@ -262,7 +266,7 @@ class UICoordinator:
 
         if module_status and module_status.get("status") != "installed":
             # Show warning dialog with issues and fixes
-            self.app.notify(
+            self.app.log_notification(
                 "⚠️ Donor module is not properly installed. This may affect the build.",
                 severity="warning",
             )
@@ -272,9 +276,9 @@ class UICoordinator:
             fixes = module_status.get("fixes", [])
 
             if issues:
-                self.app.notify(f"Issues: {issues[0]}", severity="warning")
+                self.app.log_notification(f"Issues: {issues[0]}", severity="warning")
             if fixes:
-                self.app.notify(
+                self.app.log_notification(
                     f"Suggested fix: {fixes[0]}",
                     severity="information",
                 )
@@ -286,7 +290,7 @@ class UICoordinator:
             )
 
             if not should_continue:
-                self.app.notify("Build cancelled by user", severity="information")
+                self.app.log_notification("Build cancelled by user", severity="information")
                 return False
 
         return True
@@ -309,7 +313,7 @@ class UICoordinator:
                 self.config_manager.set_current_config(config)
                 # Update UI displays
                 self._update_config_display()
-                self.app.notify(f"Loaded profile: {profile_name}", severity="success")
+                self.app.log_notification(f"Loaded profile: {profile_name}", severity="success")
                 return config
             return None
         except Exception as e:
@@ -317,7 +321,7 @@ class UICoordinator:
                 self.app.error_handler.handle_operation_error("loading profile", e)
             else:
                 if hasattr(self.app, "notify"):
-                    self.app.notify(f"Failed to load profile: {e}", severity="error")
+                    self.app.log_notification(f"Failed to load profile: {e}", severity="error")
             return None
 
     async def apply_filters(self, filters: Dict[str, Any]) -> None:
@@ -330,13 +334,13 @@ class UICoordinator:
             # Update device panel title
             self._update_device_panel_title()
             if hasattr(self.app, "notify"):
-                self.app.notify("Filters applied", severity="success")
+                self.app.log_notification("Filters applied", severity="success")
         except Exception as e:
             if hasattr(self.app, "error_handler"):
                 self.app.error_handler.handle_operation_error("applying filters", e)
             else:
                 if hasattr(self.app, "notify"):
-                    self.app.notify(f"Failed to apply filters: {e}", severity="error")
+                    self.app.log_notification(f"Failed to apply filters: {e}", severity="error")
 
     def get_current_build_log(self) -> List[str]:
         """Return current build log lines via the build orchestrator."""
@@ -379,7 +383,7 @@ class UICoordinator:
                 DonorInfoTemplateGenerator.save_template(output_path, pretty=True)
 
             if hasattr(self.app, "notify"):
-                self.app.notify(
+                self.app.log_notification(
                     f"✓ Donor info template saved to: {output_path}", severity="success"
                 )
             return output_path
@@ -390,7 +394,7 @@ class UICoordinator:
                 )
             else:
                 if hasattr(self.app, "notify"):
-                    self.app.notify(
+                    self.app.log_notification(
                         f"Failed to generate donor template: {e}", severity="error"
                     )
             return None
@@ -418,15 +422,15 @@ class UICoordinator:
                 status = module_status.get("status")
                 details = module_status.get("details")
                 if status == "installed":
-                    self.app.notify(
+                    self.app.log_notification(
                         f"Donor module status: {details}", severity="success"
                     )
                 elif status in ["built_not_loaded", "loaded_but_error"]:
-                    self.app.notify(
+                    self.app.log_notification(
                         f"Donor module status: {details}", severity="warning"
                     )
                 else:
-                    self.app.notify(f"Donor module status: {details}", severity="error")
+                    self.app.log_notification(f"Donor module status: {details}", severity="error")
 
             return module_status
         except Exception as e:
@@ -440,7 +444,7 @@ class UICoordinator:
                 ],
             }
             if show_notification and hasattr(self.app, "notify"):
-                self.app.notify(
+                self.app.log_notification(
                     f"Failed to check donor module status: {e}", severity="error"
                 )
             if getattr(self.app, "_system_status", None) is not None:
@@ -489,7 +493,7 @@ class UICoordinator:
             # Save the configuration to the config manager
             self.config_manager.set_current_config(config)
             self._update_config_display()
-            self.app.notify("Configuration updated successfully", severity="success")
+            self.app.log_notification("Configuration updated successfully", severity="success")
 
     def _update_config_display(self) -> None:
         """Update configuration display in the UI"""
@@ -527,7 +531,7 @@ class UICoordinator:
                 )
             else:
                 print(f"Error updating configuration display: {e}")
-                self.app.notify("Error displaying configuration", severity="error")
+                self.app.log_notification("Error displaying configuration", severity="error")
 
     def _update_donor_dump_button(self) -> None:
         """Update the donor dump button text and style based on current state"""
@@ -780,7 +784,7 @@ class UICoordinator:
 
             # Notify through app
             if hasattr(self.app, "notify"):
-                self.app.notify(
+                self.app.log_notification(
                     f"Device list exported to {export_path}", severity="success"
                 )
         except Exception as e:
@@ -790,6 +794,6 @@ class UICoordinator:
                 )
             else:
                 if hasattr(self.app, "notify"):
-                    self.app.notify(
+                    self.app.log_notification(
                         f"Failed to export device list: {e}", severity="error"
                     )

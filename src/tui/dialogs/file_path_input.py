@@ -1,10 +1,11 @@
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
 
+from .base import BaseDialog
 
-class FilePathInputDialog(ModalScreen[str | None]):
+
+class FilePathInputDialog(BaseDialog[str | None]):
     """Modal input dialog to get a file path from the user."""
 
     def __init__(self, prompt: str, default: str | None = None) -> None:
@@ -14,7 +15,7 @@ class FilePathInputDialog(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="file-path-dialog"):
-            yield Static(self.prompt, id="dialog-prompt")
+            yield Static(self.prompt, classes="dialog-title")
 
             with Vertical(id="file-path-input"):
                 yield Input(
@@ -23,7 +24,7 @@ class FilePathInputDialog(ModalScreen[str | None]):
                     id="path-input",
                 )
 
-            with Horizontal(id="dialog-buttons"):
+            with Horizontal(classes="dialog-buttons"):
                 yield Button("Cancel", id="cancel-path", variant="default")
                 yield Button("Ok", id="confirm-path", variant="primary")
 

@@ -2,16 +2,17 @@ from typing import Any, Dict
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
 
+from .base import BaseDialog
 
-class SearchFilterDialog(ModalScreen[Dict[str, Any]]):
+
+class SearchFilterDialog(BaseDialog[Dict[str, Any]]):
     """Modal dialog for searching and filtering devices"""
 
     def compose(self) -> ComposeResult:
         with Container(id="search-filter-dialog"):
-            yield Static("🔍 Search & Filter Devices", id="dialog-title")
+            yield Static("🔍 Search & Filter Devices", classes="dialog-title")
 
             with Vertical(id="search-form"):
                 yield Label("Search by Device Name:")
@@ -50,16 +51,13 @@ class SearchFilterDialog(ModalScreen[Dict[str, Any]]):
                 yield Label("Minimum Suitability Score:")
                 yield Input(placeholder="0.0 - 1.0", value="0.0", id="score-filter")
 
-            with Horizontal(id="dialog-buttons"):
+            with Horizontal(classes="dialog-buttons"):
                 yield Button("Clear", id="clear-filters", variant="default")
                 yield Button("Apply", id="apply-filters", variant="primary")
-                yield Button("Cancel", id="cancel-search", variant="default")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "cancel-search":
-            self.dismiss(None)
-        elif button_id == "clear-filters":
+        if button_id == "clear-filters":
             self._clear_all_filters()
         elif button_id == "apply-filters":
             filters = self._get_filter_criteria()

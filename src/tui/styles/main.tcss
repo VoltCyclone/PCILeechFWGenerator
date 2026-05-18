@@ -171,14 +171,14 @@ Footer {
     padding: 1;
 }
 
-#dialog-title {
+.dialog-title {
     text-style: bold;
     color: $accent;
     text-align: center;
     margin-bottom: 1;
 }
 
-#dialog-buttons {
+.dialog-buttons {
     height: 3;
     dock: bottom;
     align: center middle;

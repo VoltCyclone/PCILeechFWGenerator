@@ -59,6 +59,24 @@ class VirtualDeviceTable(DataTable):
         This is the key optimization for handling large device lists.
         """
         self.clear()
+
+        if not self.virtual_rows:
+            try:
+                self.add_row(
+                    "ℹ️",
+                    "—",
+                    "No PCIe devices found — verify Linux + lspci access",
+                    "—",
+                    "—",
+                    "—",
+                    key="__empty_state__",
+                )
+            except Exception:
+                # Empty-state row is decorative; a missing widget should
+                # not break the rest of the redraw.
+                pass
+            return
+
         end = min(self.visible_start + self.visible_count, len(self.virtual_rows))
 
         for i in range(self.visible_start, end):
@@ -176,38 +194,49 @@ class VirtualDeviceTable(DataTable):
         """
         Update the viewport to show rows starting from new_start.
 
+        Cursor restoration is keyed on the *absolute index* of the selected
+        device into ``virtual_rows`` (not the on-screen row index, which
+        becomes stale after the shift). DataTable.rows is an OrderedDict
+        keyed by RowKey, so iterating it like a sequence and subscripting
+        row[0] is the bug we replaced.
+
         Args:
             new_start: New starting index for visible rows
         """
-        # Ensure new_start is within valid range
         max_start = max(0, len(self.virtual_rows) - self.visible_count)
         new_start = max(0, min(max_start, new_start))
 
-        if new_start != self.visible_start:
-            # Save current cursor position relative to visible rows
-            current_key = None
-            cursor_row = getattr(self, "cursor_row", None)
+        if new_start == self.visible_start:
+            return
 
-            if cursor_row is not None:
-                row_index = cursor_row
-                row_count = getattr(self, "row_count", 0)
-                if 0 <= row_index < row_count:
-                    try:
-                        current_key = self.get_row_at(row_index)[0]
-                    except (IndexError, AttributeError):
-                        current_key = None
+        cursor_row = getattr(self, "cursor_row", None)
+        absolute_index: int | None = None
+        if cursor_row is not None and 0 <= cursor_row < self.visible_count:
+            candidate = self.visible_start + cursor_row
+            if 0 <= candidate < len(self.virtual_rows):
+                absolute_index = candidate
 
-            # Update visible range and re-render
-            self.visible_start = new_start
-            self._render_visible_rows()
+        self.visible_start = new_start
+        self._render_visible_rows()
 
-            # Restore cursor position if possible
-            if current_key is not None and hasattr(self, "cursor_row"):
-                rows = getattr(self, "rows", [])
-                for i, row in enumerate(rows):
-                    try:
-                        if row and row[0] == current_key:
-                            self.cursor_row = i
-                            break
-                    except (IndexError, TypeError):
-                        continue
+        if absolute_index is None:
+            return
+
+        on_screen = absolute_index - self.visible_start
+        if 0 <= on_screen < min(self.visible_count, len(self.virtual_rows) - self.visible_start):
+            target = on_screen
+        else:
+            # Selected device scrolled out of the new viewport.
+            target = 0
+
+        try:
+            self.move_cursor(row=target)
+        except Exception:
+            # Older Textual versions may not expose move_cursor — fall back
+            # to direct assignment, which is allowed at the Reactive level.
+            try:
+                self.cursor_row = target
+            except Exception:
+                # Cursor restoration is best-effort; if the Textual version
+                # rejects both APIs, the redraw still completes correctly.
+                pass
