@@ -50,15 +50,22 @@ class AppState:
         """
         Update the state with the provided values.
 
+        Subscribers receive shallow *copies* of the old and new state so that
+        a re-entrant update (or an accidental in-place mutation in a
+        subscriber) cannot corrupt the live store mid-iteration. Subscribers
+        MUST treat both arguments as read-only.
+
         Args:
             updates: Dictionary of state updates to apply
         """
         old_state = self._state.copy()
         self._state.update(updates)
+        new_snapshot = self._state.copy()
 
-        # Notify subscribers of changes
-        for callback in self._subscribers:
-            callback(old_state, self._state)
+        # Iterate a copy of subscribers so a callback that unsubscribes
+        # itself doesn't skip the next one.
+        for callback in list(self._subscribers):
+            callback(old_state, new_snapshot)
 
     def get_state(self, key: Optional[str] = None) -> Any:
         """
