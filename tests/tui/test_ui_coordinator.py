@@ -1,6 +1,4 @@
-import asyncio
 import json
-from pathlib import Path
 
 import pytest
 
@@ -71,6 +69,10 @@ class DummyApp:
 
     def notify(self, *_args, **_kwargs):
         # no-op for tests
+        pass
+
+    def log_notification(self, *_args, **_kwargs):
+        # no-op — persistent notification stub for tests
         pass
 
     def _get_current_timestamp(self):

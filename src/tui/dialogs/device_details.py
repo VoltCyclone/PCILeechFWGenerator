@@ -167,7 +167,7 @@ class DeviceDetailsDialog(BaseDialog[bool]):
             severity: The severity level (success, error, information)
         """
         try:
-            self.app.notify(message, severity=severity)
+            self.app.log_notification(message, severity=severity)
         except Exception:
             # notify may not exist on minimal test harnesses
             pass

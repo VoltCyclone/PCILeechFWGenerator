@@ -124,7 +124,7 @@ class BuildLogDialog(BaseDialog[bool]):
             severity: The severity level (error, warning, information, success).
         """
         try:
-            self.app.notify(message, severity=severity)
+            self.app.log_notification(message, severity=severity)
         except Exception:
             # If notification fails, we can't do much - silent failure
             pass

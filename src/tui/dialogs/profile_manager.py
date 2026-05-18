@@ -69,7 +69,7 @@ class ProfileManagerDialog(BaseDialog[Optional[str]]):
                 )
         except Exception:
             try:
-                self.app.notify("Failed to load profiles", severity="error")
+                self.app.log_notification("Failed to load profiles", severity="error")
             except Exception:
                 pass
 
@@ -103,13 +103,13 @@ class ProfileManagerDialog(BaseDialog[Optional[str]]):
 
     def _notify_error(self, message: str) -> None:
         try:
-            self.app.notify(message, severity="error")
+            self.app.log_notification(message, severity="error")
         except Exception:
             pass
 
     def _notify_info(self, message: str) -> None:
         try:
-            self.app.notify(message, severity="information")
+            self.app.log_notification(message, severity="information")
         except Exception:
             pass
 

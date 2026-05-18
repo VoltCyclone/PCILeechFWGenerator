@@ -383,12 +383,12 @@ class PCILeechTUI(App):
         # Load default configuration profiles with error handling
         success = self.config_manager.create_default_profiles()
         if not success:
-            self.notify(
+            self.log_notification(
                 "Warning: Failed to create default profiles", severity="warning"
             )
 
             # No longer have error object with suggested actions
-            self.notify(
+            self.log_notification(
                 "Check configuration directory permissions", severity="information"
             )
 
@@ -402,7 +402,7 @@ class PCILeechTUI(App):
         self._update_config_display()
 
         # Show welcome message with keyboard shortcuts
-        self.notify(
+        self.log_notification(
             "Welcome! Press F1 or Ctrl+H for help, Ctrl+Q to quit", severity="info"
         )
 
@@ -430,7 +430,7 @@ class PCILeechTUI(App):
                 await self.ui_coordinator.scan_devices()
             except Exception as e:
                 # Fallback to notify on failure
-                self.notify(f"Failed to scan devices: {e}", severity="error")
+                self.log_notification(f"Failed to scan devices: {e}", severity="error")
 
         elif button_id == "start-build":
             await self.ui_coordinator.handle_build_start()
@@ -491,7 +491,7 @@ class PCILeechTUI(App):
                 # Delegate profile loading and state update to coordinator
                 await self.ui_coordinator.load_profile_by_name(result)
         except Exception as e:
-            self.notify(f"Failed to open profile manager: {e}", severity="error")
+            self.log_notification(f"Failed to open profile manager: {e}", severity="error")
 
     async def _open_search_filter(self) -> None:
         """Open the search/filter dialog"""
@@ -501,14 +501,14 @@ class PCILeechTUI(App):
                 # Delegate applying filters to coordinator
                 await self.ui_coordinator.apply_filters(result)
         except Exception as e:
-            self.notify(f"Failed to open search dialog: {e}", severity="error")
+            self.log_notification(f"Failed to open search dialog: {e}", severity="error")
 
     async def _show_device_details(self, device: PCIDevice) -> None:
         """Show detailed device information"""
         try:
             await self.push_screen(DeviceDetailsDialog(device))
         except Exception as e:
-            self.notify(f"Failed to show device details: {e}", severity="error")
+            self.log_notification(f"Failed to show device details: {e}", severity="error")
 
     async def _open_build_logs(self) -> None:
         """Open the build logs dialog"""
@@ -516,7 +516,7 @@ class PCILeechTUI(App):
             # Use coordinator helpers to get logs when populating the dialog
             await self.push_screen(BuildLogDialog(self.build_orchestrator))
         except Exception as e:
-            self.notify(f"Failed to open build logs: {e}", severity="error")
+            self.log_notification(f"Failed to open build logs: {e}", severity="error")
 
     async def _show_help(self) -> None:
         """Show help information"""
@@ -538,9 +538,9 @@ class PCILeechTUI(App):
             with open(backup_path, "w") as f:
                 json.dump(config_data, f, indent=2)
 
-            self.notify(f"Configuration backed up to {backup_path}", severity="success")
+            self.log_notification(f"Configuration backed up to {backup_path}", severity="success")
         except Exception as e:
-            self.notify(f"Failed to backup configuration: {e}", severity="error")
+            self.log_notification(f"Failed to backup configuration: {e}", severity="error")
 
     async def _open_output_directory(self) -> None:
         """Open the output directory"""
@@ -563,18 +563,18 @@ class PCILeechTUI(App):
                                     ["explorer", str(output_dir)], check=False
                                 )  # Windows
                             except (FileNotFoundError, subprocess.CalledProcessError):
-                                self.notify(
+                                self.log_notification(
                                     f"Please manually open: {output_dir.absolute()}",
                                     severity="info",
                                 )
                 else:
-                    self.notify(
+                    self.log_notification(
                         f"Output directory: {output_dir.absolute()}", severity="info"
                     )
             else:
-                self.notify("Output directory does not exist yet", severity="warning")
+                self.log_notification("Output directory does not exist yet", severity="warning")
         except Exception as e:
-            self.notify(f"Failed to open output directory: {e}", severity="error")
+            self.log_notification(f"Failed to open output directory: {e}", severity="error")
 
     async def _view_last_build_report(self) -> None:
         """View the last build report"""
@@ -589,13 +589,13 @@ class PCILeechTUI(App):
                 status = report_data.get("status", "Unknown")
                 device = report_data.get("device", "Unknown")
 
-                self.notify(
+                self.log_notification(
                     f"Last build: {device} - {status} at {build_time}", severity="info"
                 )
             else:
-                self.notify("No build report found", severity="warning")
+                self.log_notification("No build report found", severity="warning")
         except Exception as e:
-            self.notify(f"Failed to read build report: {e}", severity="error")
+            self.log_notification(f"Failed to read build report: {e}", severity="error")
 
     async def _open_documentation(self) -> None:
         """Open documentation"""
@@ -604,17 +604,17 @@ class PCILeechTUI(App):
             docs_path = Path("docs/_build/html/index.html")
             if docs_path.exists():
                 webbrowser.open(f"file://{docs_path.absolute()}")
-                self.notify("Opening local documentation", severity="info")
+                self.log_notification("Opening local documentation", severity="info")
             else:
                 # Fallback to online documentation
                 webbrowser.open("https://pcileechfwgenerator.voltcyclone.info")
-                self.notify("Opening online documentation", severity="info")
+                self.log_notification("Opening online documentation", severity="info")
         except Exception as e:
-            self.notify(f"Failed to open documentation: {e}", severity="error")
+            self.log_notification(f"Failed to open documentation: {e}", severity="error")
 
     async def _open_advanced_settings(self) -> None:
         """Open advanced settings"""
-        self.notify(
+        self.log_notification(
             "Advanced settings - use Configure button for full options", severity="info"
         )
 
@@ -624,13 +624,16 @@ class PCILeechTUI(App):
 
         return datetime.now().isoformat()
 
-    def notify(self, message: str, severity: str = "info") -> None:
+    def log_notification(self, message: str, severity: str = "info") -> None:
         """
-        Display a persistent notification in the notification log and log it.
+        Append a timestamped entry to the persistent `#notification-log`.
 
-        This replaces ephemeral notifications that could be overwritten when
-        the terminal redraws or when the mouse moves. Important messages
-        (warnings/errors) will remain in the `#notification-log` area.
+        Use this for messages that must remain visible after the moment they
+        fire. For ephemeral toasts (Textual's `Notification`), call
+        `self.log_notification(...)` directly — that's now Textual's built-in.
+
+        Accepts `"info"`, `"success"`, `"warning"`, `"error"`, or
+        `"information"` for severity; only used as a tag in the log line.
         """
         try:
             from datetime import datetime
@@ -639,18 +642,16 @@ class PCILeechTUI(App):
             sev = severity.upper()
             line = f"[{ts}] [{sev}] {message}"
 
-            # Append to RichLog if present
             try:
                 log_widget = self.query_one("#notification-log", RichLog)
                 log_widget.write(line)
             except Exception:
-                # If UI not yet ready, or widget missing, fall back to logger
                 import logging
 
                 logging.getLogger(__name__).info(line)
 
         except Exception:
-            # Never raise from notify - best effort only
+            # Best effort — never raise from a notification path.
             pass
 
     def _install_global_exception_handlers(self) -> None:
@@ -692,7 +693,7 @@ class PCILeechTUI(App):
                     # Only show a short one-line notification to avoid UI corruption
                     short = f"Unhandled {exc_type.__name__}: {str(exc_value)}"
                     if hasattr(self, "notify"):
-                        self.notify(short, severity="error")
+                        self.log_notification(short, severity="error")
                 except Exception:
                     # Ignore notification errors
                     pass
@@ -900,7 +901,7 @@ class PCILeechTUI(App):
             else:
                 error_msg = f"Failed to open configuration dialog: {e}"
                 print(f"ERROR: {error_msg}")
-                self.notify(error_msg, severity="error")
+                self.log_notification(error_msg, severity="error")
 
     async def _confirm_with_warnings(self, title: str, message: str) -> bool:
         """Open a confirmation dialog with warnings and return user's choice"""
@@ -913,7 +914,7 @@ class PCILeechTUI(App):
                     "opening confirmation dialog", e
                 )
             else:
-                self.notify(
+                self.log_notification(
                     f"Failed to open confirmation dialog: {e}", severity="error"
                 )
             return False
@@ -924,16 +925,16 @@ class PCILeechTUI(App):
             # Delegate generation to the coordinator which centralizes logic
             output_path = await self.ui_coordinator.generate_donor_template()
             if output_path:
-                self.notify(
+                self.log_notification(
                     f"✓ Donor info template saved to: {output_path}", severity="success"
                 )
-                self.notify(
+                self.log_notification(
                     "Fill in the device-specific values and use it for advanced cloning",
                     severity="information",
                 )
 
         except Exception as e:
-            self.notify(f"Failed to generate donor template: {e}", severity="error")
+            self.log_notification(f"Failed to generate donor template: {e}", severity="error")
 
     # App state handler
     def _on_state_change(
@@ -1072,7 +1073,7 @@ class PCILeechTUI(App):
 
         except Exception as e:
             if show_notification:
-                self.notify(
+                self.log_notification(
                     f"Failed to check donor module status: {e}", severity="error"
                 )
 
@@ -1109,7 +1110,7 @@ class PCILeechTUI(App):
             self.config_manager.set_current_config(current_config)
             self._update_config_display()
             self._update_donor_dump_button()
-            self.notify("Donor dump disabled - using local build mode", severity="info")
+            self.log_notification("Donor dump disabled - using local build mode", severity="info")
         else:
             # Enable donor dump
             current_config.donor_dump = True
@@ -1118,7 +1119,7 @@ class PCILeechTUI(App):
             self.config_manager.set_current_config(current_config)
             self._update_config_display()
             self._update_donor_dump_button()
-            self.notify(
+            self.log_notification(
                 "Donor dump enabled - device analysis will be performed",
                 severity="success",
             )

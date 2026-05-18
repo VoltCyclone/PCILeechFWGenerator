@@ -36,8 +36,8 @@ async def test_donor_validation_cancel_aborts_build():
     await coord.handle_build_start()
 
     app.build_orchestrator.start_build.assert_not_called()
-    # The cancel notice fires; we don't pin the exact text.
-    assert app.notify.called
+    # The cancel notice fires through the persistent log; don't pin text.
+    assert app.log_notification.called or app.notify.called
 
 
 @pytest.mark.asyncio

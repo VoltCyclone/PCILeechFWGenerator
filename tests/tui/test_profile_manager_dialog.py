@@ -42,7 +42,7 @@ def _make_dialog(holder, selected_name: str | None = "profile-a"):
 
     app = MagicMock()
     app.push_screen_wait = AsyncMock()
-    app.notify = MagicMock()
+    app.log_notification = MagicMock()
     app.current_config = SimpleNamespace()
     holder["app"] = app
     return dialog, app, cm
@@ -60,7 +60,7 @@ async def test_load_no_selection_notifies_error(patch_dialog_app):
     dialog, app, _ = _make_dialog(patch_dialog_app, selected_name=None)
     await dialog._load_selected_profile()
     dialog.dismiss.assert_not_called()
-    app.notify.assert_called()
+    app.log_notification.assert_called()
 
 
 @pytest.mark.asyncio
@@ -140,8 +140,7 @@ async def test_export_failure_notifies_error(patch_dialog_app, tmp_path):
 
     await dialog._export_selected_profile()
 
-    # Last notify call records the failure with severity=error.
     severities = [
-        c.kwargs.get("severity") for c in app.notify.call_args_list
+        c.kwargs.get("severity") for c in app.log_notification.call_args_list
     ]
     assert "error" in severities
