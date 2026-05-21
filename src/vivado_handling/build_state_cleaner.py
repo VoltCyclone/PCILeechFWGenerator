@@ -51,7 +51,7 @@ def _remove(path: Path, *, is_dir: bool, prefix: str, logger) -> int:
 def _iter_xil_dirs(root: Path) -> Iterable[Path]:
     """Yield every ``.Xil`` directory under *root*, de-duped via resolved path
     so a symlink loop can't cause repeat visits."""
-    seen: set = set()
+    seen: set[Path] = set()
     for candidate in root.rglob(".Xil"):
         if not candidate.is_dir():
             continue

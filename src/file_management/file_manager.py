@@ -816,6 +816,73 @@ class FileManager:
         
         return copied_scripts
 
+    def _inject_generated_coe_files(self, ip_dir: Path, copied_files: List[Path]) -> None:
+        """Overwrite template .coe files with generated ones from output/src."""
+        src_dir = self.output_dir / "src"
+        if src_dir.exists():
+            generated_coe_files = list(src_dir.glob("*.coe"))
+            if generated_coe_files:
+                log_info_safe(
+                    logger,
+                    "Injecting device IDs into IP configuration files",
+                    prefix="FILEMGR",
+                )
+
+                # Extract and display device IDs from config space file
+                for coe_file in generated_coe_files:
+                    if "cfgspace" in coe_file.name and "writemask" not in coe_file.name:
+                        try:
+                            content = coe_file.read_text()
+                            # .coe config-space files are expected to contain hex words; for cfgspace files
+                            # the first relevant word is the PCI config dword at offset 0x00.
+                            # That dword is encoded as 8 hex chars in the form DDDDVVVV (0xDDDDVVVV):
+                            # - chars [0:4]  => Device ID (DDDD)
+                            # - chars [4:8]  => Vendor ID (VVVV)
+                            # We therefore capture the first 8-hex token at line start and split accordingly.
+                            match = re.search(
+                                r'^\s*([0-9a-fA-F]{8})',
+                                content,
+                                re.MULTILINE
+                            )
+                            if match:
+                                hex_value = match.group(1)
+                                vendor_id = hex_value[4:8].upper()
+                                device_id = hex_value[0:4].upper()
+                                log_info_safe(
+                                    logger,
+                                    safe_format(
+                                        "Device: 0x{device}  Vendor: 0x{vendor}",
+                                        device=device_id,
+                                        vendor=vendor_id
+                                    ),
+                                    prefix="FILEMGR",
+                                )
+                        except Exception as exc:
+                            log_error_safe(
+                                logger,
+                                safe_format(
+                                    "Failed to parse device IDs from COE file {file}: {error}",
+                                    file=coe_file,
+                                    error=exc,
+                                ),
+                                prefix="FILEMGR",
+                            )
+
+                # Copy generated files over templates
+                for coe_file in generated_coe_files:
+                    dest_file = ip_dir / coe_file.name
+                    shutil.copy2(coe_file, dest_file)
+
+                    log_info_safe(
+                        logger,
+                        safe_format("✓ {ip_name}", ip_name=coe_file.name),
+                        prefix="FILEMGR",
+                    )
+
+                    # Add to copied files if not already there
+                    if dest_file not in copied_files:
+                        copied_files.append(dest_file)
+
     def copy_ip_files(self, board: str) -> List[Path]:
         """Copy IP files (.coe, .xci) from voltcyclone-fpga submodule to output.
         
@@ -872,64 +939,7 @@ class FileManager:
                 # CRITICAL FIX: Overwrite template .coe files with generated ones
                 # The generator creates device-specific .coe files in output/src/
                 # These must replace the template .coe files to inject device IDs
-                src_dir = self.output_dir / "src"
-                if src_dir.exists():
-                    generated_coe_files = list(src_dir.glob("*.coe"))
-                    if generated_coe_files:
-                        log_info_safe(
-                            logger,
-                            "Injecting device IDs into IP configuration files",
-                            prefix="FILEMGR",
-                        )
-                        
-                        # Extract and display device IDs from config space file
-                        for coe_file in generated_coe_files:
-                            if "cfgspace" in coe_file.name and "writemask" not in coe_file.name:
-                                try:
-                                    content = coe_file.read_text()
-                                    match = re.search(
-                                        r'^\s*([0-9a-fA-F]{8})', 
-                                        content, 
-                                        re.MULTILINE
-                                    )
-                                    if match:
-                                        hex_value = match.group(1)
-                                        vendor_id = hex_value[4:8].upper()
-                                        device_id = hex_value[0:4].upper()
-                                        log_info_safe(
-                                            logger,
-                                            safe_format(
-                                                "Device: 0x{device}  Vendor: 0x{vendor}",
-                                                device=device_id,
-                                                vendor=vendor_id
-                                            ),
-                                            prefix="FILEMGR",
-                                        )
-                                except Exception as exc:
-                                    log_error_safe(
-                                        logger,
-                                        safe_format(
-                                            "Failed to parse device IDs from COE file {file}: {error}",
-                                            file=coe_file,
-                                            error=exc,
-                                        ),
-                                        prefix="FILEMGR",
-                                    )
-                    
-                    # Copy generated files over templates
-                    for coe_file in generated_coe_files:
-                        dest_file = ip_dir / coe_file.name
-                        shutil.copy2(coe_file, dest_file)
-                        
-                        log_info_safe(
-                            logger,
-                            safe_format("✓ {ip_name}", ip_name=coe_file.name),
-                            prefix="FILEMGR",
-                        )
-                        
-                        # Add to copied files if not already there
-                        if dest_file not in copied_files:
-                            copied_files.append(dest_file)
+                self._inject_generated_coe_files(ip_dir, copied_files)
                 
                 log_info_safe(
                     logger,
