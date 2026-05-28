@@ -51,7 +51,7 @@ class HostCollector:
             self._visualize(cfg[:64])
 
             cfg_hex = cfg.hex()
-            msix_info = self._parse_msix(cfg)
+            msix_info = self._parse_msix(cfg_hex)
             
             # Extract device identifiers from config space
             device_ids = self._extract_device_ids(cfg)
@@ -134,9 +134,11 @@ class HostCollector:
             )
             return None
 
-    def _parse_msix(self, cfg: bytes) -> Dict[str, Any]:
+    def _parse_msix(self, cfg_hex: str) -> Dict[str, Any]:
+        # parse_msix_capability expects the config space as a hex string,
+        # not raw bytes (see issue #612).
         try:
-            info = parse_msix_capability(cfg)
+            info = parse_msix_capability(cfg_hex)
             if not info:
                 return {}
             # Normalize keys expected by MSI-X manager
