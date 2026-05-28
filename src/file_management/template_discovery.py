@@ -43,7 +43,7 @@ class TemplateDiscovery:
             "hdl/*.sv", "hdl/*.svh"
         ],
         "verilog": ["*.v", "src/*.v", "rtl/*.v", "hdl/*.v"],
-        "constraints": ["*.xdc", "constraints/*.xdc", "xdc/*.xdc"],
+        "constraints": ["*.xdc", "constraints/*.xdc", "xdc/*.xdc", "src/*.xdc"],
         "ip_config": ["*.xci", "ip/*.xci", "ips/*.xci"],
     }
 
