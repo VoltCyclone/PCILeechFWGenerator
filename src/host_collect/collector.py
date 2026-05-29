@@ -52,7 +52,7 @@ class HostCollector:
 
             cfg_hex = cfg.hex()
             msix_info = self._parse_msix(cfg_hex)
-            
+
             # Extract device identifiers from config space
             device_ids = self._extract_device_ids(cfg)
 
