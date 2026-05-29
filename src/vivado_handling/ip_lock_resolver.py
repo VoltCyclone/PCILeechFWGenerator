@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from stat import S_IWGRP, S_IWOTH, S_IWUSR
 from typing import Dict, List, Optional
@@ -17,6 +18,32 @@ from pcileechfwgenerator.string_utils import (
 
 LOCK_SUFFIXES = (".lck", ".lock")
 IP_FILE_SUFFIXES = (".xci", ".xcix")
+
+
+def _is_pcie_core_xci(name: str) -> bool:
+    """True if an XCI filename is the PCIe core whose stale IDs cause #622."""
+    return name.lower().startswith("pcie_7x")
+
+
+@dataclass
+class XciPatchSummary:
+    """Outcome of :func:`patch_xci_donor_ids` across all discovered XCIs."""
+
+    patched: List[str] = field(default_factory=list)
+    unmatched: List[str] = field(default_factory=list)
+    failed: List[str] = field(default_factory=list)
+    total_files: int = 0
+
+    @property
+    def num_patched(self) -> int:
+        return len(self.patched)
+
+    def has_unmatched_core(self) -> bool:
+        """True if any unmatched OR failed file is the PCIe core."""
+        return any(
+            _is_pcie_core_xci(name)
+            for name in (*self.unmatched, *self.failed)
+        )
 
 
 def _discover_ip_dirs(root: Path) -> List[Path]:

@@ -5,17 +5,22 @@ from __future__ import annotations
 
 import importlib.util
 import stat
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 MODULE_PATH = SRC_DIR / "vivado_handling" / "ip_lock_resolver.py"
 
+_MODULE_NAME = "vivado_handling.ip_lock_resolver"
 spec = importlib.util.spec_from_file_location(
-    "vivado_handling.ip_lock_resolver",
+    _MODULE_NAME,
     MODULE_PATH,
 )
 ip_lock_resolver = importlib.util.module_from_spec(spec)
+# Register in sys.modules before exec_module so that dataclasses (Python 3.13+)
+# can resolve the module dict when processing @dataclass fields.
+sys.modules.setdefault(_MODULE_NAME, ip_lock_resolver)
 assert spec and spec.loader  # pragma: no cover - importlib contract
 spec.loader.exec_module(ip_lock_resolver)
 
@@ -229,3 +234,25 @@ def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
 
     assert result == 0
     assert xci.read_text(encoding="utf-8") == xml_content
+
+
+def test_xci_patch_summary_helpers():
+    XciPatchSummary = ip_lock_resolver.XciPatchSummary
+    s = XciPatchSummary(
+        patched=["pcie_7x_0.xci"],
+        unmatched=["other.xci"],
+        failed=[],
+        total_files=2,
+    )
+    assert s.num_patched == 1
+    assert s.has_unmatched_core() is False
+
+    s2 = XciPatchSummary(
+        patched=[], unmatched=["pcie_7x_0.xci"], failed=[], total_files=1
+    )
+    assert s2.has_unmatched_core() is True
+
+    s3 = XciPatchSummary(
+        patched=[], unmatched=[], failed=["PCIE_7X_0.xci"], total_files=1
+    )
+    assert s3.has_unmatched_core() is True  # case-insensitive, checks failed too
