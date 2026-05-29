@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from stat import S_IWGRP, S_IWOTH, S_IWUSR
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.string_utils import (
@@ -190,6 +190,129 @@ def patch_xci_speed_grade(
                 "Patched SPEEDGRADE in {count} XCI file(s) to {grade}",
                 count=patched,
                 grade=target_grade,
+            ),
+            prefix=prefix,
+        )
+    return patched
+
+
+def patch_xci_donor_ids(
+    ip_root: Path,
+    donor,
+    class_code: Optional[int] = None,
+    logger=None,
+    prefix: str = "VIVADO",
+) -> int:
+    """Rewrite staged XCI files so their PCIe IDs match the donor.
+
+    The upstream XCI ships with Xilinx defaults (Vendor_ID=10EE,
+    Device_ID=0666, Class_Code_Base=02, ...). Vivado reads the XCI at
+    project-open to decide whether IP regeneration is needed; if it still
+    holds defaults Vivado may skip ``generate_target`` and bake the stale
+    IDs into the bitstream. Rewriting both the user-config block and the
+    generated-value block before Vivado opens the project makes the donor
+    IDs the baseline, with the TCL CONFIG override acting as a second line
+    of defense (issue #622, lineage of #593).
+
+    ``donor`` must expose ``vendor_id``/``device_id``/``subsystem_vendor_id``/
+    ``subsystem_id`` as ints (the ``DonorIDs`` dataclass). ``class_code`` is
+    the 24-bit packed value (base<<16 | sub<<8 | interface); pass ``None`` to
+    leave class-code fields unchanged. Returns the number of files patched.
+    """
+    import re as _re
+
+    logger = logger or get_logger(__name__)
+
+    vid = f"{donor.vendor_id:04X}"
+    did = f"{donor.device_id:04X}"
+    svid = f"{donor.subsystem_vendor_id:04X}"
+    sid = f"{donor.subsystem_id:04X}"
+
+    # (json-key, replacement-value). User-config block uses long names and
+    # splits the class code into three 2-hex fields; the generated block uses
+    # short names and a single 6-hex class_code.
+    subs = [
+        ("Vendor_ID", vid),
+        ("Device_ID", did),
+        ("Subsystem_Vendor_ID", svid),
+        ("Subsystem_ID", sid),
+        ("ven_id", vid),
+        ("dev_id", did),
+        ("subsys_ven_id", svid),
+        ("subsys_id", sid),
+    ]
+    if class_code is not None:
+        if not (0 <= class_code <= 0xFFFFFF):
+            raise ValueError(
+                f"class_code 0x{class_code:X} does not fit in 24 bits"
+            )
+        base = (class_code >> 16) & 0xFF
+        sub = (class_code >> 8) & 0xFF
+        iface = class_code & 0xFF
+        subs += [
+            ("Class_Code_Base", f"{base:02X}"),
+            ("Class_Code_Sub", f"{sub:02X}"),
+            ("Class_Code_Interface", f"{iface:02X}"),
+            ("class_code", f"{class_code:06X}"),
+        ]
+
+    ip_dirs = _discover_ip_dirs(ip_root)
+    patched = 0
+    for ip_dir in ip_dirs:
+        for xci_file in ip_dir.glob("*.xci"):
+            try:
+                text = xci_file.read_text(encoding="utf-8")
+                new_text = text
+                total = 0
+                for key, val in subs:
+                    # Anchor only through the "value" token; trailing keys
+                    # (resolve_type/usage/value_src) and whitespace vary.
+                    new_text, n = _re.subn(
+                        rf'("{key}"\s*:\s*\[\s*\{{\s*"value"\s*:\s*)"[0-9A-Fa-f]+"',
+                        rf'\1"{val}"',
+                        new_text,
+                    )
+                    total += n
+                if total > 0 and new_text != text:
+                    xci_file.write_text(new_text, encoding="utf-8")
+                    patched += 1
+                    log_info_safe(
+                        logger,
+                        safe_format(
+                            "Patched donor IDs ({n} field(s)) in {path}",
+                            n=total,
+                            path=xci_file.name,
+                        ),
+                        prefix=prefix,
+                    )
+                elif total == 0:
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "No donor-ID fields matched in {path}; the file may "
+                            "use an unsupported (non-JSON) XCI format and was "
+                            "left unpatched (issue #622).",
+                            path=xci_file.name,
+                        ),
+                        prefix=prefix,
+                    )
+            except Exception as exc:
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "Failed to patch donor IDs in {path}: {err}",
+                        path=str(xci_file),
+                        err=str(exc),
+                    ),
+                    prefix=prefix,
+                )
+
+    if patched:
+        log_info_safe(
+            logger,
+            safe_format(
+                "Patched donor IDs in {count} XCI file(s)",
+                count=patched,
             ),
             prefix=prefix,
         )
