@@ -18,6 +18,7 @@ if str(project_root) not in sys.path:
 from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
     DonorIDs,
     FifoPatchError,
+    _coerce_hex_id,
     apply_fifo_donor_patch,
     donor_ids_from_template_context,
     patch_pcileech_fifo,
@@ -583,3 +584,29 @@ class TestBuildWiring:
         }
         with pytest.raises(FifoPatchError):
             builder._patch_fifo_with_donor_ids(result)
+
+
+# ---------------------------------------------------------------------------
+# _coerce_hex_id: bare strings must be treated as hex (issues #620, #621)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("8086", 0x8086),   # bare all-digit hex must be hex, not decimal
+        ("0264", 0x0264),   # leading zero, all digits
+        ("1060", 0x1060),   # the #621 subsystem case
+        ("aaaa", 0xAAAA),   # bare hex with letters
+        ("10ec", 0x10EC),
+        ("0x8086", 0x8086),  # prefixed unchanged
+        ("0X1B21", 0x1B21),  # uppercase prefix
+        (0x8086, 0x8086),    # int passthrough
+        ("", None),
+        (None, None),
+        (True, None),        # bool rejected
+        ("zzzz", None),      # invalid
+    ],
+)
+def test_coerce_hex_id_parses_bare_strings_as_hex(value, expected):
+    assert _coerce_hex_id(value) == expected
