@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import stat
 from pathlib import Path
 
@@ -119,3 +118,114 @@ def test_patch_xci_speed_grade_no_ip_dirs(tmp_path):
     """Returns 0 when there are no ip directories."""
     count = patch_xci_speed_grade(tmp_path, "xc7a100tfgg484-1")
     assert count == 0
+
+
+# --- patch_xci_donor_ids tests ---
+
+
+def test_patch_xci_donor_ids(tmp_path):
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    xci.write_text(
+        """{
+  "ip_inst": { "parameters": { "component_parameters": {
+    "Vendor_ID": [ { "value": "10EE", "resolve_type": "user", "usage": "all" } ],
+    "Device_ID": [ { "value": "0666", "value_src": "user", "usage": "all" } ],
+    "Subsystem_Vendor_ID": [ { "value": "10EE", "resolve_type": "user" } ],
+    "Subsystem_ID": [ { "value": "0007", "resolve_type": "user" } ],
+    "Class_Code_Base": [ { "value": "02", "value_src": "user" } ],
+    "Class_Code_Sub": [ { "value": "00", "value_src": "user" } ],
+    "Class_Code_Interface": [ { "value": "00", "resolve_type": "user" } ],
+    "ven_id": [ { "value": "10EE", "resolve_type": "generated" } ],
+    "dev_id": [ { "value": "0666", "resolve_type": "generated" } ],
+    "subsys_ven_id": [ { "value": "10EE", "resolve_type": "generated" } ],
+    "subsys_id": [ { "value": "0007", "resolve_type": "generated" } ],
+    "class_code": [ { "value": "020000", "resolve_type": "generated" } ]
+  } } }
+}""",
+        encoding="utf-8",
+    )
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    patched = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    assert patched == 1
+
+    text = xci.read_text(encoding="utf-8")
+    assert '"Vendor_ID": [ { "value": "1B21"' in text
+    assert '"Device_ID": [ { "value": "1060"' in text
+    assert '"Subsystem_Vendor_ID": [ { "value": "1043"' in text
+    assert '"Subsystem_ID": [ { "value": "8730"' in text
+    assert '"Class_Code_Base": [ { "value": "01"' in text
+    assert '"Class_Code_Sub": [ { "value": "06"' in text
+    assert '"Class_Code_Interface": [ { "value": "01"' in text
+    assert '"ven_id": [ { "value": "1B21"' in text
+    assert '"dev_id": [ { "value": "1060"' in text
+    assert '"subsys_ven_id": [ { "value": "1043"' in text
+    assert '"subsys_id": [ { "value": "8730"' in text
+    assert '"class_code": [ { "value": "010601"' in text
+    assert "10EE" not in text and "0666" not in text
+
+
+def test_patch_xci_donor_ids_skips_class_code_when_none(tmp_path):
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    xci.write_text(
+        '{ "Vendor_ID": [ { "value": "10EE", "resolve_type": "user" } ],'
+        '  "Class_Code_Base": [ { "value": "02", "resolve_type": "user" } ] }',
+        encoding="utf-8",
+    )
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    patch_xci_donor_ids(tmp_path, _Donor(), class_code=None)
+    text = xci.read_text(encoding="utf-8")
+    assert '"Vendor_ID": [ { "value": "1B21"' in text
+    assert '"Class_Code_Base": [ { "value": "02"' in text  # untouched
+
+
+def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
+    """Returns 0 and leaves the file unchanged when no JSON fields match.
+
+    Boards that ship XML-format XCI files (e.g. pciescreamer, acorn_ft2232h,
+    NeTV2) produce zero substitutions.  The function must return 0 and must
+    NOT modify the file (issue #622).
+    """
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    # XML-style content — no JSON "key": [ { "value": ... } ] fields.
+    xml_content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<spirit:configurableElementValues>\n'
+        '  <spirit:configurableElementValue '
+        'spirit:referenceId="VENDOR_ID">10EE</spirit:configurableElementValue>\n'
+        '</spirit:configurableElementValues>\n'
+    )
+    xci.write_text(xml_content, encoding="utf-8")
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    result = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+
+    assert result == 0
+    assert xci.read_text(encoding="utf-8") == xml_content
