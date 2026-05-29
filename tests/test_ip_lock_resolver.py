@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import stat
 import sys
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -356,3 +359,55 @@ def test_xci_patch_summary_helpers():
         patched=[], unmatched=[], failed=["PCIE_7X_0.xci"], total_files=1
     )
     assert s3.has_unmatched_core() is True  # case-insensitive, checks failed too
+
+
+def test_patch_xci_donor_ids_real_xml_fixture(tmp_path):
+    """Patch a real XML-format board XCI from the submodule (#622)."""
+    real_xci = (
+        PROJECT_ROOT
+        / "lib"
+        / "voltcyclone-fpga"
+        / "NeTV2"
+        / "ip"
+        / "pcie_7x_0.xci"
+    )
+    if not real_xci.exists():
+        pytest.skip("voltcyclone-fpga submodule not checked out")
+
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    staged = ip_dir / "pcie_7x_0.xci"
+    shutil.copy(real_xci, staged)
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    assert summary.num_patched == 1
+
+    text = staged.read_text(encoding="utf-8")
+    # No Xilinx defaults remain in any ID element text.
+    for ref in (
+        "PARAM_VALUE.Vendor_ID",
+        "PARAM_VALUE.Device_ID",
+        "PARAM_VALUE.Subsystem_Vendor_ID",
+        "PARAM_VALUE.Subsystem_ID",
+        "MODELPARAM_VALUE.ven_id",
+        "MODELPARAM_VALUE.dev_id",
+        "MODELPARAM_VALUE.subsys_ven_id",
+        "MODELPARAM_VALUE.subsys_id",
+    ):
+        assert f'{ref}">10EE<' not in text
+        assert f'{ref}">0666<' not in text
+        assert f'{ref}">0007<' not in text
+    assert 'MODELPARAM_VALUE.ven_id">1B21<' in text
+    assert 'MODELPARAM_VALUE.dev_id">1060<' in text
+    assert 'MODELPARAM_VALUE.class_code">010601<' in text
+    # Still valid XML after the edit.
+    import xml.etree.ElementTree as ET
+
+    ET.fromstring(text)  # raises if we corrupted it
