@@ -1945,6 +1945,44 @@ class FirmwareBuilder:
             prefix="BUILD",
         )
 
+        # Patch the XCI baseline so Vivado's IP starting point matches the
+        # donor before the TCL override runs. Without this, Vivado may read
+        # stale Xilinx defaults at project-open and skip IP regeneration,
+        # baking the wrong IDs into the bitstream (issue #622).
+        try:
+            from pcileechfwgenerator.vivado_handling.ip_lock_resolver import (
+                patch_xci_donor_ids,
+            )
+
+            n_xci = patch_xci_donor_ids(
+                self.config.output_dir,
+                donor,
+                class_code=(
+                    extra_ip_cfg.class_code if extra_ip_cfg is not None else None
+                ),
+                logger=self.logger,
+                prefix="BUILD",
+            )
+            if n_xci:
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "  • Patched donor IDs into {count} XCI baseline "
+                        "file(s)",
+                        count=n_xci,
+                    ),
+                    prefix="BUILD",
+                )
+        except Exception as e:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "XCI donor-ID baseline patch skipped: {err}",
+                    err=str(e),
+                ),
+                prefix="BUILD",
+            )
+
     def _write_xdc_files(self, result: Dict[str, Any]) -> None:
         """Write XDC constraint files to output directory."""
         ctx = result.get("template_context", {})
