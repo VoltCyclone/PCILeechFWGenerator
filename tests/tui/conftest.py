@@ -35,5 +35,7 @@ _HEADLESS_DRIVER = "textual.drivers.headless_driver:HeadlessDriver"
 def _force_headless_textual_driver(monkeypatch):
     """Force Textual to use the headless driver (no ``tty`` import)."""
     monkeypatch.setenv("TEXTUAL_DRIVER", _HEADLESS_DRIVER)
-    monkeypatch.setattr(constants, "DRIVER", _HEADLESS_DRIVER, raising=False)
-    yield
+    # raising=True (the default) so the suite fails fast if Textual ever
+    # renames/removes ``constants.DRIVER`` rather than silently running
+    # against the real platform driver.
+    monkeypatch.setattr(constants, "DRIVER", _HEADLESS_DRIVER)
