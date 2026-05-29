@@ -1919,10 +1919,20 @@ class FirmwareBuilder:
 
         # Override the Vivado PCIe IP CONFIG so donor IDs reach the IP
         # block itself, not just the cfgspace shadow.
+        extra_ip_cfg = None
         try:
             extra_ip_cfg = donor_pcie_ip_config_from_result(result)
             ip_summary = apply_pcie_ip_donor_override(
                 self.config.output_dir, donor, extra=extra_ip_cfg
+            )
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "  • Wired PCIe IP CONFIG override into {count} "
+                    "generate-project script(s)",
+                    count=len(ip_summary["wired_scripts"]),
+                ),
+                prefix="BUILD",
             )
         except (PcieIpOverrideError, ValueError) as e:
             log_warning_safe(
@@ -1933,17 +1943,8 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD",
             )
-            return
-
-        log_info_safe(
-            self.logger,
-            safe_format(
-                "  • Wired PCIe IP CONFIG override into {count} "
-                "generate-project script(s)",
-                count=len(ip_summary["wired_scripts"]),
-            ),
-            prefix="BUILD",
-        )
+            # Do not return here — fall through so the XCI baseline patch
+            # still runs as an independent line of defence (issue #622).
 
         # Patch the XCI baseline so Vivado's IP starting point matches the
         # donor before the TCL override runs. Without this, Vivado may read
