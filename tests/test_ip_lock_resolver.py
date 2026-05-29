@@ -208,6 +208,33 @@ def test_patch_xci_donor_ids_skips_class_code_when_none(tmp_path):
     assert '"Class_Code_Base": [ { "value": "02"' in text  # untouched
 
 
+def test_patch_xci_donor_ids_already_patched_no_warning(tmp_path):
+    """An XCI that already holds the donor values must classify as patched,
+    not unmatched: fields match the anchors (total > 0) but no rewrite is
+    needed. It must not emit a false 'no fields matched' warning."""
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    # Values already equal the donor below.
+    xci.write_text(
+        '{ "Vendor_ID": [ { "value": "1B21", "resolve_type": "user" } ],'
+        '  "Device_ID": [ { "value": "1060", "resolve_type": "user" } ] }',
+        encoding="utf-8",
+    )
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=None)
+    assert summary.num_patched == 1
+    assert summary.unmatched == []
+    assert summary.failed == []
+
+
 def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
     """Returns 0 and leaves the file unchanged when no JSON fields match.
 

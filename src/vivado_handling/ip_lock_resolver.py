@@ -351,18 +351,34 @@ def patch_xci_donor_ids(
                 else:
                     new_text, total = _apply_xci_subs(text, subs, fmt)
 
-                if total > 0 and new_text != text:
-                    xci_file.write_text(new_text, encoding="utf-8")
+                if total > 0:
+                    # Fields matched the donor-ID anchors. If the text changed
+                    # we rewrote it; if not, the baseline already holds the
+                    # donor values (idempotent re-run). Both count as patched
+                    # — only a zero-match file is genuinely unmatched.
+                    if new_text != text:
+                        xci_file.write_text(new_text, encoding="utf-8")
+                        log_info_safe(
+                            logger,
+                            safe_format(
+                                "Patched donor IDs ({n} field(s)) in {path}",
+                                n=total,
+                                path=xci_file.name,
+                            ),
+                            prefix=prefix,
+                        )
+                    else:
+                        log_info_safe(
+                            logger,
+                            safe_format(
+                                "Donor IDs already current ({n} field(s)) "
+                                "in {path}",
+                                n=total,
+                                path=xci_file.name,
+                            ),
+                            prefix=prefix,
+                        )
                     summary.patched.append(xci_file.name)
-                    log_info_safe(
-                        logger,
-                        safe_format(
-                            "Patched donor IDs ({n} field(s)) in {path}",
-                            n=total,
-                            path=xci_file.name,
-                        ),
-                        prefix=prefix,
-                    )
                 else:
                     summary.unmatched.append(xci_file.name)
                     log_warning_safe(

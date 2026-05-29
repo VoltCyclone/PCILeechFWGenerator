@@ -1955,7 +1955,7 @@ class FirmwareBuilder:
                 patch_xci_donor_ids,
             )
 
-            n_xci = patch_xci_donor_ids(
+            xci_summary = patch_xci_donor_ids(
                 self.config.output_dir,
                 donor,
                 class_code=(
@@ -1964,13 +1964,13 @@ class FirmwareBuilder:
                 logger=self.logger,
                 prefix="BUILD",
             )
-            if n_xci:
+            if xci_summary.num_patched:
                 log_info_safe(
                     self.logger,
                     safe_format(
                         "  • Patched donor IDs into {count} XCI baseline "
                         "file(s)",
-                        count=n_xci,
+                        count=xci_summary.num_patched,
                     ),
                     prefix="BUILD",
                 )
