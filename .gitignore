@@ -88,3 +88,7 @@ src/_version.py
 # ignore user-local overrides and transient state.
 .claude/settings.local.json
 .claude/.cache/
+
+# AI-generated planning/spec docs (local working notes, not shipped)
+docs/superpowers/
+docs/plans/

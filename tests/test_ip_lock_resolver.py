@@ -236,11 +236,13 @@ def test_patch_xci_donor_ids_already_patched_no_warning(tmp_path):
 
 
 def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
-    """Returns 0 and leaves the file unchanged when no JSON fields match.
+    """Classifies as unmatched and leaves the file unchanged when no anchors
+    match.
 
-    Boards that ship XML-format XCI files (e.g. pciescreamer, acorn_ft2232h,
-    NeTV2) produce zero substitutions.  The function must return 0 and must
-    NOT modify the file (issue #622).
+    Both JSON and XML forms are now supported, but the anchors require the
+    ``PARAM_VALUE.``/``MODELPARAM_VALUE.`` prefix on the ``referenceId``. A
+    bare ``referenceId="VENDOR_ID"`` (no prefix) matches neither form, so the
+    file must be left untouched and reported in ``summary.unmatched`` (#622).
     """
     patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
 

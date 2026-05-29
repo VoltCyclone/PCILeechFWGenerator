@@ -357,6 +357,24 @@ def patch_xci_donor_ids(
                     # donor values (idempotent re-run). Both count as patched
                     # — only a zero-match file is genuinely unmatched.
                     if new_text != text:
+                        if fmt == "xml":
+                            # Guard against a substitution that somehow yields
+                            # malformed XML; never write a corrupt baseline.
+                            try:
+                                _ET.fromstring(new_text)
+                            except Exception:
+                                summary.failed.append(xci_file.name)
+                                log_warning_safe(
+                                    logger,
+                                    safe_format(
+                                        "Patched XML for {path} is not "
+                                        "well-formed; left unpatched "
+                                        "(issue #622).",
+                                        path=xci_file.name,
+                                    ),
+                                    prefix=prefix,
+                                )
+                                continue
                         xci_file.write_text(new_text, encoding="utf-8")
                         log_info_safe(
                             logger,
