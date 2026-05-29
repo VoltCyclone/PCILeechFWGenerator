@@ -1046,12 +1046,21 @@ class PCILeechContextBuilder:
         from pcileechfwgenerator.device_clone.constants import get_fallback_vendor_id
 
         def _parse_hex_id(val):
-            try:
-                if isinstance(val, str) and val.startswith("0x"):
-                    return int(val, 16)
-                return int(val) if val else None
-            except (ValueError, TypeError):
+            # PCI IDs are always hexadecimal. Parse bare strings as base-16
+            # (int(x, 16) also accepts a "0x" prefix); never as decimal. See #620.
+            if val is None or isinstance(val, bool):
                 return None
+            if isinstance(val, int):
+                return val
+            if isinstance(val, str):
+                s = val.strip()
+                if not s:
+                    return None
+                try:
+                    return int(s, 16)
+                except ValueError:
+                    return None
+            return None
 
         fallback_vendor_id = get_fallback_vendor_id(
             prefer_random=getattr(self.config, "test_mode", False)

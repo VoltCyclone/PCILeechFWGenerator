@@ -14,33 +14,21 @@ core device cloning logic and VFIO device interaction. Tests include:
 
 """
 
-import ctypes
-import fcntl
-import hashlib
-from logging import config
-import os
-import struct
 import sys
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import MagicMock, Mock, PropertyMock, call, mock_open, patch
+from typing import Any, Dict, List, Optional
+from unittest.mock import Mock, patch
 
 import pytest
 
 from pcileechfwgenerator.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
-                                    VFIO_GROUP_GET_DEVICE_FD,
                                     VFIO_REGION_INFO_FLAG_MMAP,
                                     VFIO_REGION_INFO_FLAG_READ,
-                                    VFIO_REGION_INFO_FLAG_WRITE,
-                                    VfioRegionInfo)
+                                    VFIO_REGION_INFO_FLAG_WRITE)
 from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
                                                 RegisterAccess, TimingPattern)
-from pcileechfwgenerator.device_clone.config_space_manager import BarInfo
 from pcileechfwgenerator.device_clone.fallback_manager import (FallbackManager,
                                                get_global_fallback_manager)
-from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper
 from pcileechfwgenerator.device_clone.pcileech_context import (BarConfiguration, ContextError,
                                                DeviceIdentifiers,
                                                PCILeechContextBuilder,
@@ -1324,3 +1312,26 @@ class TestRegressions:
         # Should fall back to main IDs
         assert identifiers.subsystem_vendor_id == "10ee"
         assert identifiers.subsystem_device_id == "7024"
+
+
+def test_add_numeric_id_aliases_parses_bare_hex():
+    """Bare-hex vendor/device IDs must not fall back to Intel 0x8086 (#620)."""
+    import logging
+
+    from pcileechfwgenerator.device_clone import pcileech_context as ctx_mod
+
+    builder = ctx_mod.PCILeechContextBuilder.__new__(
+        ctx_mod.PCILeechContextBuilder
+    )
+
+    class _Cfg:
+        test_mode = False
+
+    builder.config = _Cfg()
+    builder.logger = logging.getLogger("test")
+
+    context = {"vendor_id": "aaaa", "device_id": "0264"}
+    builder._add_numeric_id_aliases(context)
+
+    assert context["vendor_id_int"] == 0xAAAA  # not Intel 0x8086 fallback
+    assert context["device_id_int"] == 0x0264  # not decimal 264
