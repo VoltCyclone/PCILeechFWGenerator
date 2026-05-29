@@ -285,6 +285,17 @@ def patch_xci_donor_ids(
                         ),
                         prefix=prefix,
                     )
+                elif total == 0:
+                    log_warning_safe(
+                        logger,
+                        safe_format(
+                            "No donor-ID fields matched in {path}; the file may "
+                            "use an unsupported (non-JSON) XCI format and was "
+                            "left unpatched (issue #622).",
+                            path=xci_file.name,
+                        ),
+                        prefix=prefix,
+                    )
             except Exception as exc:
                 log_warning_safe(
                     logger,

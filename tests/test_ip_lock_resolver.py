@@ -195,3 +195,37 @@ def test_patch_xci_donor_ids_skips_class_code_when_none(tmp_path):
     text = xci.read_text(encoding="utf-8")
     assert '"Vendor_ID": [ { "value": "1B21"' in text
     assert '"Class_Code_Base": [ { "value": "02"' in text  # untouched
+
+
+def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
+    """Returns 0 and leaves the file unchanged when no JSON fields match.
+
+    Boards that ship XML-format XCI files (e.g. pciescreamer, acorn_ft2232h,
+    NeTV2) produce zero substitutions.  The function must return 0 and must
+    NOT modify the file (issue #622).
+    """
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    # XML-style content — no JSON "key": [ { "value": ... } ] fields.
+    xml_content = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<spirit:configurableElementValues>\n'
+        '  <spirit:configurableElementValue '
+        'spirit:referenceId="VENDOR_ID">10EE</spirit:configurableElementValue>\n'
+        '</spirit:configurableElementValues>\n'
+    )
+    xci.write_text(xml_content, encoding="utf-8")
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    result = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+
+    assert result == 0
+    assert xci.read_text(encoding="utf-8") == xml_content
