@@ -1335,3 +1335,37 @@ def test_add_numeric_id_aliases_parses_bare_hex():
 
     assert context["vendor_id_int"] == 0xAAAA  # not Intel 0x8086 fallback
     assert context["device_id_int"] == 0x0264  # not decimal 264
+
+
+def test_build_device_config_writes_subsystem_int_aliases():
+    """_build_device_config must emit subsystem *_int keys so the donor-ID
+    reader never falls back to the ambiguous string path (#621)."""
+    import logging
+
+    from pcileechfwgenerator.device_clone import pcileech_context as ctx_mod
+
+    builder = ctx_mod.PCILeechContextBuilder.__new__(
+        ctx_mod.PCILeechContextBuilder
+    )
+
+    class _Cfg:
+        test_mode = False
+
+    builder.config = _Cfg()
+    builder.logger = logging.getLogger("test")
+    builder.device_bdf = "0000:03:00.0"
+
+    identifiers = ctx_mod.DeviceIdentifiers(
+        vendor_id="1b21",
+        device_id="1060",
+        class_code="010400",
+        revision_id="00",
+        subsystem_vendor_id="1043",
+        subsystem_device_id="8730",
+    )
+
+    dc = builder._build_device_config(
+        identifiers, behavior_profile=None, config_space_data={}
+    )
+    assert dc["subsystem_vendor_id_int"] == 0x1043
+    assert dc["subsystem_device_id_int"] == 0x8730

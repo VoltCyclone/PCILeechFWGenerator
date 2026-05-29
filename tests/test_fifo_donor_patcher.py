@@ -610,3 +610,19 @@ class TestBuildWiring:
 )
 def test_coerce_hex_id_parses_bare_strings_as_hex(value, expected):
     assert _coerce_hex_id(value) == expected
+
+
+def test_donor_ids_subsystem_bare_hex_resolves():
+    """A bare-hex subsystem_device_id like "1060" must resolve to 0x1060,
+    not decimal-misparsed 0x0424 (#621)."""
+    ctx = {
+        "device_config": {
+            "vendor_id": "1b21",
+            "device_id": "1060",
+            "subsystem_vendor_id": "1043",
+            "subsystem_device_id": "1060",  # bare, all-digit
+        }
+    }
+    donor = donor_ids_from_template_context(ctx)
+    assert donor is not None
+    assert donor.subsystem_id == 0x1060

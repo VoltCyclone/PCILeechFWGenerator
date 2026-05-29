@@ -1276,15 +1276,17 @@ class PCILeechContextBuilder:
         }
 
         if identifiers.subsystem_vendor_id:
+            _svid_int = int(identifiers.subsystem_vendor_id, 16)
             device_config_dict["subsystem_vendor_id_hex"] = safe_format(
-                "0x{value:04X}",
-                value=int(identifiers.subsystem_vendor_id, 16),
+                "0x{value:04X}", value=_svid_int
             )
+            device_config_dict["subsystem_vendor_id_int"] = _svid_int
         if identifiers.subsystem_device_id:
+            _sdid_int = int(identifiers.subsystem_device_id, 16)
             device_config_dict["subsystem_device_id_hex"] = safe_format(
-                "0x{value:04X}",
-                value=int(identifiers.subsystem_device_id, 16),
+                "0x{value:04X}", value=_sdid_int
             )
+            device_config_dict["subsystem_device_id_int"] = _sdid_int
 
         if hasattr(self.config, "device_config"):
             caps = getattr(self.config.device_config, "capabilities", None)
