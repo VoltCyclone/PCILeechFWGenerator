@@ -35,7 +35,13 @@ def mock_board_structure(tmp_path):
     (src_dir / "bar_layout_pkg.svh").write_text(
         "package bar_layout_pkg; endpackage"
     )
-    
+
+    # Create a constraints file stored under src/ (issue #616: the
+    # 75t484_x1 board keeps its .xdc here, not in the board root).
+    (src_dir / "pcileech_75t484_x1.xdc").write_text(
+        "# placeholder constraints"
+    )
+
     return {
         "repo_root": repo_root,
         "board_path": board_path,
@@ -92,6 +98,42 @@ def test_discover_templates_finds_header_files(mock_board_structure):
     
     # Verify total count (2 .sv + 3 .svh = 5)
     assert len(sv_files) == 5
+
+
+def test_template_patterns_include_src_xdc():
+    """Regression for #616: constraints must include src/*.xdc."""
+    patterns = TemplateDiscovery.TEMPLATE_PATTERNS
+
+    assert "constraints" in patterns
+    constraint_patterns = patterns["constraints"]
+
+    assert "*.xdc" in constraint_patterns
+    assert "constraints/*.xdc" in constraint_patterns
+    assert "xdc/*.xdc" in constraint_patterns
+    # The 75t484_x1 board keeps its .xdc under src/.
+    assert "src/*.xdc" in constraint_patterns
+
+
+def test_discover_templates_finds_src_constraints(mock_board_structure):
+    """Regression for #616: a constraint under src/ must be discovered."""
+    board_name = mock_board_structure["board_name"]
+    board_path = mock_board_structure["board_path"]
+    repo_root = mock_board_structure["repo_root"]
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
+        return_value=repo_root,
+    ), mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
+        return_value=board_path,
+    ):
+        templates = TemplateDiscovery.discover_templates(
+            board_name, repo_root=repo_root
+        )
+
+    assert "constraints" in templates
+    xdc_filenames = [f.name for f in templates["constraints"]]
+    assert "pcileech_75t484_x1.xdc" in xdc_filenames
 
 
 def test_get_source_files_includes_headers(mock_board_structure):
