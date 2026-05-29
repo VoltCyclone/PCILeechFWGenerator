@@ -230,6 +230,30 @@ def _coerce_int(value) -> Optional[int]:
     return None
 
 
+def _coerce_hex_id(value) -> Optional[int]:
+    """Coerce a PCI identifier to int, treating bare strings as hexadecimal.
+
+    PCI vendor/device/subsystem/revision IDs are *always* hexadecimal, so a
+    bare string like ``"1060"`` must parse as ``0x1060`` — never decimal 1060.
+    Unlike :func:`_coerce_int` (which tolerates decimal for mixed-semantics
+    fields such as max_payload_size), this never falls back to base-10.
+    See issues #620 / #621.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(s, 16)  # also accepts a "0x"/"0X" prefix
+        except ValueError:
+            return None
+    return None
+
+
 def donor_ids_from_template_context(
     template_context: dict,
 ) -> Optional[DonorIDs]:
@@ -252,7 +276,7 @@ def donor_ids_from_template_context(
         value = device_config.get(int_key)
         if value is None:
             value = device_config.get(str_key)
-        return _coerce_int(value)
+        return _coerce_hex_id(value)
 
     vendor_id = pick("vendor_id_int", "vendor_id")
     device_id = pick("device_id_int", "device_id")
