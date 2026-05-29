@@ -160,8 +160,10 @@ def test_patch_xci_donor_ids(tmp_path):
         subsystem_vendor_id = 0x1043
         subsystem_id = 0x8730
 
-    patched = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
-    assert patched == 1
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    assert summary.num_patched == 1
+    assert summary.patched == ["pcie_7x_0.xci"]
+    assert summary.unmatched == [] and summary.failed == []
 
     text = xci.read_text(encoding="utf-8")
     assert '"Vendor_ID": [ { "value": "1B21"' in text
@@ -196,7 +198,8 @@ def test_patch_xci_donor_ids_skips_class_code_when_none(tmp_path):
         subsystem_vendor_id = 0x1043
         subsystem_id = 0x8730
 
-    patch_xci_donor_ids(tmp_path, _Donor(), class_code=None)
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=None)
+    assert summary.num_patched == 1
     text = xci.read_text(encoding="utf-8")
     assert '"Vendor_ID": [ { "value": "1B21"' in text
     assert '"Class_Code_Base": [ { "value": "02"' in text  # untouched
@@ -217,7 +220,7 @@ def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
     # XML-style content — no JSON "key": [ { "value": ... } ] fields.
     xml_content = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<spirit:configurableElementValues>\n'
+        '<spirit:configurableElementValues xmlns:spirit="http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009">\n'
         '  <spirit:configurableElementValue '
         'spirit:referenceId="VENDOR_ID">10EE</spirit:configurableElementValue>\n'
         '</spirit:configurableElementValues>\n'
@@ -230,10 +233,107 @@ def test_patch_xci_donor_ids_warns_on_unmatched_format(tmp_path):
         subsystem_vendor_id = 0x1043
         subsystem_id = 0x8730
 
-    result = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
 
-    assert result == 0
+    assert summary.num_patched == 0
+    assert "pcie_7x_0.xci" in summary.unmatched
     assert xci.read_text(encoding="utf-8") == xml_content
+
+
+def test_patch_xci_donor_ids_xml(tmp_path):
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    xci.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<spirit:design xmlns:spirit="http://www.spiritconsortium.org/x">\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.class_code">020000</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.dev_id">0666</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.subsys_id">0007</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.subsys_ven_id">10EE</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.ven_id">10EE</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Class_Code_Base">02</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Class_Code_Interface">00</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Class_Code_Sub">00</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Device_ID">0666</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Subsystem_ID">0007</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Subsystem_Vendor_ID">10EE</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Vendor_ID">10EE</spirit:configurableElementValue>\n'
+        '</spirit:design>\n',
+        encoding="utf-8",
+    )
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    assert summary.num_patched == 1
+
+    text = xci.read_text(encoding="utf-8")
+    assert ">1B21<" in text and ">1060<" in text
+    assert ">1043<" in text and ">8730<" in text
+    assert 'PARAM_VALUE.Class_Code_Base">01<' in text
+    assert 'PARAM_VALUE.Class_Code_Sub">06<' in text
+    assert 'PARAM_VALUE.Class_Code_Interface">01<' in text
+    assert 'MODELPARAM_VALUE.class_code">010601<' in text
+    assert ">10EE<" not in text and ">0666<" not in text and ">020000<" not in text
+    assert text.startswith('<?xml version="1.0"')
+    assert "xmlns:spirit" in text
+
+
+def test_patch_xci_donor_ids_xml_regex_safety(tmp_path):
+    """class_code must not match inside Class_Code_Base; ven_id not inside
+    subsys_ven_id (key-anchored, XML form)."""
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    xci.write_text(
+        '<?xml version="1.0"?>\n<r xmlns:spirit="x">\n'
+        '  <spirit:configurableElementValue spirit:referenceId="PARAM_VALUE.Class_Code_Base">02</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.subsys_ven_id">10EE</spirit:configurableElementValue>\n'
+        '  <spirit:configurableElementValue spirit:referenceId="MODELPARAM_VALUE.ven_id">10EE</spirit:configurableElementValue>\n'
+        '</r>\n',
+        encoding="utf-8",
+    )
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    text = xci.read_text(encoding="utf-8")
+    assert 'PARAM_VALUE.Class_Code_Base">01<' in text
+    assert 'MODELPARAM_VALUE.subsys_ven_id">1043<' in text
+    assert 'MODELPARAM_VALUE.ven_id">1B21<' in text
+
+
+def test_patch_xci_donor_ids_malformed_xml(tmp_path):
+    """Malformed XML lands in `failed`, not crash, not write."""
+    patch_xci_donor_ids = ip_lock_resolver.patch_xci_donor_ids
+    ip_dir = tmp_path / "ip"
+    ip_dir.mkdir()
+    xci = ip_dir / "pcie_7x_0.xci"
+    original = '<not-closed referenceId="PARAM_VALUE.Vendor_ID">10EE'
+    xci.write_text(original, encoding="utf-8")
+
+    class _Donor:
+        vendor_id = 0x1B21
+        device_id = 0x1060
+        subsystem_vendor_id = 0x1043
+        subsystem_id = 0x8730
+
+    summary = patch_xci_donor_ids(tmp_path, _Donor(), class_code=0x010601)
+    assert summary.num_patched == 0
+    assert "pcie_7x_0.xci" in summary.failed
+    assert xci.read_text(encoding="utf-8") == original
 
 
 def test_xci_patch_summary_helpers():

@@ -46,6 +46,35 @@ class XciPatchSummary:
         )
 
 
+def _apply_xci_subs(text: str, subs, fmt: str):
+    """Return (new_text, total_substitutions) for the given format.
+
+    ``fmt`` is "json" or "xml". JSON anchors on ``"key": [ { "value": ...``;
+    XML anchors on ``referenceId="(PARAM_VALUE|MODELPARAM_VALUE).key">VALUE<``.
+    Both anchor on the exact key so e.g. ``class_code`` cannot match inside
+    ``Class_Code_Base``.
+    """
+    import re as _re
+
+    new_text = text
+    total = 0
+    for key, val in subs:
+        if fmt == "json":
+            pattern = (
+                rf'("{key}"\s*:\s*\[\s*\{{\s*"value"\s*:\s*)"[0-9A-Fa-f]+"'
+            )
+            repl = rf'\1"{val}"'
+        else:  # xml
+            pattern = (
+                rf'(referenceId="(?:PARAM_VALUE|MODELPARAM_VALUE)\.{key}"\s*>)'
+                rf"[0-9A-Fa-f]+(?=</)"
+            )
+            repl = rf"\g<1>{val}"
+        new_text, n = _re.subn(pattern, repl, new_text)
+        total += n
+    return new_text, total
+
+
 def _discover_ip_dirs(root: Path) -> List[Path]:
     """Return every `ip` directory rooted at *root*."""
     ip_dirs: List[Path] = []
@@ -229,7 +258,7 @@ def patch_xci_donor_ids(
     class_code: Optional[int] = None,
     logger=None,
     prefix: str = "VIVADO",
-) -> int:
+) -> "XciPatchSummary":
     """Rewrite staged XCI files so their PCIe IDs match the donor.
 
     The upstream XCI ships with Xilinx defaults (Vendor_ID=10EE,
@@ -244,10 +273,8 @@ def patch_xci_donor_ids(
     ``donor`` must expose ``vendor_id``/``device_id``/``subsystem_vendor_id``/
     ``subsystem_id`` as ints (the ``DonorIDs`` dataclass). ``class_code`` is
     the 24-bit packed value (base<<16 | sub<<8 | interface); pass ``None`` to
-    leave class-code fields unchanged. Returns the number of files patched.
+    leave class-code fields unchanged. Returns an :class:`XciPatchSummary`.
     """
-    import re as _re
-
     logger = logger or get_logger(__name__)
 
     vid = f"{donor.vendor_id:04X}"
@@ -284,25 +311,49 @@ def patch_xci_donor_ids(
         ]
 
     ip_dirs = _discover_ip_dirs(ip_root)
-    patched = 0
+    summary = XciPatchSummary()
     for ip_dir in ip_dirs:
         for xci_file in ip_dir.glob("*.xci"):
+            summary.total_files += 1
             try:
                 text = xci_file.read_text(encoding="utf-8")
-                new_text = text
-                total = 0
-                for key, val in subs:
-                    # Anchor only through the "value" token; trailing keys
-                    # (resolve_type/usage/value_src) and whitespace vary.
-                    new_text, n = _re.subn(
-                        rf'("{key}"\s*:\s*\[\s*\{{\s*"value"\s*:\s*)"[0-9A-Fa-f]+"',
-                        rf'\1"{val}"',
-                        new_text,
-                    )
-                    total += n
+                stripped = text.lstrip()
+                if stripped.startswith("{"):
+                    fmt = "json"
+                elif stripped.startswith("<"):
+                    fmt = "xml"
+                else:
+                    fmt = "unknown"
+
+                if fmt == "xml":
+                    # Validate well-formedness before trusting the regex path.
+                    # Parse only — the edit stays a text substitution to avoid
+                    # namespace/formatting churn on reserialize.
+                    import xml.etree.ElementTree as _ET
+
+                    try:
+                        _ET.fromstring(text)
+                    except Exception:
+                        summary.failed.append(xci_file.name)
+                        log_warning_safe(
+                            logger,
+                            safe_format(
+                                "XCI {path} looks like XML but is not "
+                                "well-formed; left unpatched (issue #622).",
+                                path=xci_file.name,
+                            ),
+                            prefix=prefix,
+                        )
+                        continue
+
+                if fmt == "unknown":
+                    new_text, total = text, 0
+                else:
+                    new_text, total = _apply_xci_subs(text, subs, fmt)
+
                 if total > 0 and new_text != text:
                     xci_file.write_text(new_text, encoding="utf-8")
-                    patched += 1
+                    summary.patched.append(xci_file.name)
                     log_info_safe(
                         logger,
                         safe_format(
@@ -312,18 +363,20 @@ def patch_xci_donor_ids(
                         ),
                         prefix=prefix,
                     )
-                elif total == 0:
+                else:
+                    summary.unmatched.append(xci_file.name)
                     log_warning_safe(
                         logger,
                         safe_format(
-                            "No donor-ID fields matched in {path}; the file may "
-                            "use an unsupported (non-JSON) XCI format and was "
-                            "left unpatched (issue #622).",
+                            "No donor-ID fields matched in {path} "
+                            "(tried JSON and XML forms); left unpatched "
+                            "(issue #622).",
                             path=xci_file.name,
                         ),
                         prefix=prefix,
                     )
             except Exception as exc:
+                summary.failed.append(xci_file.name)
                 log_warning_safe(
                     logger,
                     safe_format(
@@ -334,16 +387,16 @@ def patch_xci_donor_ids(
                     prefix=prefix,
                 )
 
-    if patched:
+    if summary.num_patched:
         log_info_safe(
             logger,
             safe_format(
                 "Patched donor IDs in {count} XCI file(s)",
-                count=patched,
+                count=summary.num_patched,
             ),
             prefix=prefix,
         )
-    return patched
+    return summary
 
 
 def repair_ip_artifacts(
