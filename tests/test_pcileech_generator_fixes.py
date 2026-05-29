@@ -12,8 +12,7 @@ This test suite covers the following fixes:
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -543,6 +542,38 @@ def test_log_debug_safe_imported():
     
     assert log_debug_safe is not None
     assert callable(log_debug_safe)
+
+
+# --- Test config_space_data includes subsystem IDs (#621) -------------------
+
+
+def test_config_space_data_includes_subsystem_ids(generator, mock_config_space_manager):
+    """config_space_data must carry subsystem IDs so they don't collapse to
+    device_id downstream (#621)."""
+    device_info = {
+        "vendor_id": 0x1B21,
+        "device_id": 0x1060,
+        "class_code": 0x010601,
+        "revision_id": 0x03,
+        "subsystem_vendor_id": 0x1043,
+        "subsystem_device_id": 0x8730,
+        "bars": [],
+    }
+    # Configure the mock to return device_info with subsystem IDs
+    mock_config_space_manager.extract_device_info = Mock(return_value=device_info)
+
+    config_space_bytes = bytes(256)
+
+    with patch(
+        "pcileechfwgenerator.device_clone.pcileech_generator.lookup_device_info",
+        return_value=device_info,
+    ):
+        result = generator._process_config_space_bytes(config_space_bytes)
+
+    assert result["subsystem_vendor_id"] == "1043"
+    assert result["subsystem_device_id"] == "8730"
+    # The bug symptom: subsystem_device_id must NOT equal device_id.
+    assert result["subsystem_device_id"] != result["device_id"]
 
 
 if __name__ == "__main__":
