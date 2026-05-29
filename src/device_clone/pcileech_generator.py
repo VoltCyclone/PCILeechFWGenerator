@@ -514,6 +514,12 @@ class PCILeechGenerator:
             "device_id": format(device_info.get("device_id", 0), "04x"),
             "class_code": format(device_info.get("class_code", 0), "06x"),
             "revision_id": format(device_info.get("revision_id", 0), "02x"),
+            "subsystem_vendor_id": format(
+                device_info.get("subsystem_vendor_id", 0), "04x"
+            ),
+            "subsystem_device_id": format(
+                device_info.get("subsystem_device_id", 0), "04x"
+            ),
             "bars": device_info.get("bars", []),
             "config_space_size": len(config_space_bytes),
         }
