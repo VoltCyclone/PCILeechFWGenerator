@@ -516,15 +516,12 @@ def test_bar_coercion_handles_attribute_based_format(generator):
 
 
 def test_future_annotations_import():
-    """Test that future annotations import is present for Python 3.8 compat."""
+    """Test that the module compiles with `from __future__ import annotations`."""
     import pcileechfwgenerator.device_clone.pcileech_generator as module
-    import sys
-    
-    # Check if __future__ annotations are enabled
-    if sys.version_info >= (3, 8):
-        # The module should compile without errors
-        assert module.PCILeechGenerator is not None
-        assert module.PCILeechGenerationConfig is not None
+
+    # The module should compile and expose its public types without errors
+    assert module.PCILeechGenerator is not None
+    assert module.PCILeechGenerationConfig is not None
 
 
 def test_contextmanager_import_at_module_level():
