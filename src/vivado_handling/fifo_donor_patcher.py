@@ -8,7 +8,7 @@ so the FIFO's runtime control register keeps Xilinx defaults forever (the
 upstream comments mark these slots ``(NOT IMPLEMENTED)`` in software).
 
 This module rewrites those literals deterministically as a post-copy step. It
-also commented-outs the five ``assign dpcie.pcie_cfg_*`` lines that exist only
+also comments out the five ``assign dpcie.pcie_cfg_*`` lines that exist only
 in the CaptainDMA/75t484_x1 fifo but reference fields the matching
 ``IfPCIeFifoCore`` interface never declares — that mismatch is what makes
 75t484_x1 fail synthesis with ``cannot resolve hierarchical name``.
