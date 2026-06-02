@@ -2005,12 +2005,32 @@ class PCILeechContextBuilder:
         return max(memory_bars, key=lambda b: b.size)
 
     def _build_bar_config_dict(self, primary_bar, bar_configs):
+        # Gap C — donor-BAR-index serving. The generated firmware serves the
+        # donor's primary register (MMIO) BAR at its REAL PCI BAR index N: the
+        # controller gates the device impl on rd_req_bar[N]/wr_bar[N], the IP
+        # enables CONFIG.Bar{N}_*, and the cfgspace shadow places the BAR at
+        # slot N (see pcie_ip_donor_override.py and pcileech_cfgspace.coe.j2).
+        #
+        # ``served`` is the primary BAR chosen by _select_primary_bar (largest
+        # MMIO). ``served_bar_index`` is its donor PCI index N (gating / IP /
+        # cfgspace / overlay key). ``primary_bar`` is its position within the
+        # filtered ``bars`` list so ``bars[primary_bar]`` still resolves to it.
+        served = primary_bar
+        # Identity (is), not equality: list.index() would return the first
+        # value-equal entry, which could be a different BAR if two compared
+        # equal. primary_bar is always a reference to an element of bar_configs.
+        served_pos = next(
+            (i for i, b in enumerate(bar_configs) if b is served), 0
+        )
         return {
-            "bar_index": primary_bar.index,
-            "aperture_size": primary_bar.size,
-            "bar_type": primary_bar.bar_type,
-            "prefetchable": primary_bar.prefetchable,
-            "memory_type": "memory" if primary_bar.is_memory else "io",
+            "primary_bar": served_pos,
+            "served_bar_index": served.index,
+            "served_is_64bit": bool(served.is_64bit),
+            "bar_index": served.index,
+            "aperture_size": served.size,
+            "bar_type": served.bar_type,
+            "prefetchable": served.prefetchable,
+            "memory_type": "memory" if served.is_memory else "io",
             "bars": bar_configs,
         }
 

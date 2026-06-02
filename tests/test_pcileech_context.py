@@ -737,6 +737,52 @@ class TestBARConfiguration:
             assert bar_config["memory_type"] == "memory"
             assert len(bar_config["bars"]) == 2
 
+    def test_bar_config_serves_primary_mmio_bar_at_its_donor_index(
+        self, mock_config, config_space_data, behavior_profile
+    ):
+        """Served BAR = primary (largest) MMIO BAR, identified by its donor index.
+
+        For donor-BAR-index serving (gap C) the metadata must point at the
+        donor's real PCI BAR index N (served_bar_index), not list position 0.
+        When the largest MMIO BAR is donor index 2 (e.g. a NIC with BAR0=IO),
+        served_bar_index must be 2 and aperture_size its size. ``primary_bar``
+        is the list position so ``bars[primary_bar]`` still resolves to it.
+        """
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        bar_configs = [
+            BarConfiguration(
+                index=0,
+                base_address=0xF7000000,
+                size=4096,  # small MMIO at donor index 0
+                bar_type=0,
+                prefetchable=False,
+                is_memory=True,
+                is_io=False,
+            ),
+            BarConfiguration(
+                index=2,  # donor index 2 (index 1 absent) — the register window
+                base_address=0xF7100000,
+                size=65536,  # largest MMIO → the served BAR
+                bar_type=0,
+                prefetchable=False,
+                is_memory=True,
+                is_io=False,
+            ),
+            None,
+        ]
+        with patch.object(builder, "_get_vfio_bar_info") as mock_get_bar:
+            mock_get_bar.side_effect = bar_configs
+            bar_config = builder._build_bar_config(config_space_data, behavior_profile)
+
+        assert bar_config["served_bar_index"] == 2  # donor PCI BAR index N
+        assert bar_config["bar_index"] == 2
+        assert bar_config["aperture_size"] == 65536
+        assert bar_config["served_is_64bit"] is False
+        # primary_bar is the list position; bars[primary_bar] must be the served BAR
+        served = bar_config["bars"][bar_config["primary_bar"]]
+        assert served.index == bar_config["served_bar_index"]
+        assert served.size == bar_config["aperture_size"]
+
     def test_bar_size_estimation(self, mock_config):
         """Test BAR size estimation for different device types."""
         test_cases = [
