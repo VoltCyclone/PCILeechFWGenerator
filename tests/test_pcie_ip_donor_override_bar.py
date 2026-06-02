@@ -1,11 +1,11 @@
-"""Tests for donor BAR aperture override (gap A5).
+"""Tests for donor BAR aperture override (gaps A5 + C).
 
 Propagates the served donor BAR's geometry (size/type/64-bit/prefetchable)
-into the Xilinx 7-series PCIe IP via ``CONFIG.Bar0_*`` so PCIe enumeration's
+into the Xilinx 7-series PCIe IP via ``CONFIG.Bar{N}_*`` so PCIe enumeration's
 size probe sees the donor aperture instead of the Xilinx 4 KB default.
 
-The served BAR is always presented as config-space BAR0 (the only window the
-PCILeech BAR controller services via ``i_bar0``), so v1 mirrors a single BAR.
+v1 mirrors a single register BAR, served at its real donor PCI index N (gap C);
+every other BAR index is disabled so the host enumerates exactly one window.
 """
 import sys
 from pathlib import Path

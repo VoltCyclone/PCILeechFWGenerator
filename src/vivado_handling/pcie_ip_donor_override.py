@@ -17,9 +17,10 @@ Coverage as of Step 3 (see docs/superpowers/plans/2026-05-*-pcie-ip-donor-overri
 
 - closed end-to-end: Class_Code (A4), MSI-X (A6), LinkCap (A7), MPS (A8),
   AER (C1), DSN (C2), ARI (C3), Cpl_Timeout (D2), served BAR aperture (A5)
-- A5 scope: only the single served BAR is mirrored, presented as config-space
-  BAR0 (the one window the PCILeech controller answers). Multi-BAR layout
-  fidelity and donors whose served window isn't BAR0 are out of scope.
+- A5/C scope: only the single served register BAR is mirrored, emitted at its
+  real donor PCI index N (CONFIG.Bar{N}_*) with every other index disabled, so
+  the host enumerates exactly that one window. Full multi-BAR layout fidelity is
+  out of scope.
 - not yet implemented: UltraScale+ IP property names. The emitter targets the
   Xilinx 7-series IP property schema only.
 
