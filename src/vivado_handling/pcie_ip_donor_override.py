@@ -16,10 +16,13 @@ change reaches the synthesizable HDL. It is wired in by appending a guarded
 Coverage as of Step 3 (see docs/superpowers/plans/2026-05-*-pcie-ip-donor-override-*.md):
 
 - closed end-to-end: Class_Code (A4), MSI-X (A6), LinkCap (A7), MPS (A8),
-  AER (C1), DSN (C2), ARI (C3), Cpl_Timeout (D2)
-- not yet implemented: BAR Type/Size emission (gap A5), UltraScale+ IP
-  property names. The emitter targets the Xilinx 7-series IP property
-  schema only.
+  AER (C1), DSN (C2), ARI (C3), Cpl_Timeout (D2), served BAR aperture (A5)
+- A5/C scope: only the single served register BAR is mirrored, emitted at its
+  real donor PCI index N (CONFIG.Bar{N}_*) with every other index disabled, so
+  the host enumerates exactly that one window. Full multi-BAR layout fidelity is
+  out of scope.
+- not yet implemented: UltraScale+ IP property names. The emitter targets the
+  Xilinx 7-series IP property schema only.
 
 Note on DSN: sv_context_builder.py also writes ``device_serial_number_int``
 into an ``enhanced_context`` dict (separate from template_context) used for
@@ -33,6 +36,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+
+from pcileechfwgenerator.utils.validators import get_bar_size_validator
 
 from .fifo_donor_patcher import DonorIDs, _coerce_int
 
@@ -84,6 +89,15 @@ class DonorPCIeIPConfig:
     # C2 — Device Serial Number (64-bit; emitted as two 32-bit halves into the IP)
     dsn_value: Optional[int] = None
 
+    # A5 — served BAR aperture, presented as config-space BAR0 (the only window
+    # the PCILeech controller services). Setting bar_aperture_size enables the
+    # block; the rest default sensibly. See docs/plans/firmware-fidelity-gaps.md.
+    bar_aperture_size: Optional[int] = None  # bytes, power of 2
+    bar_is_memory: Optional[bool] = None  # True=Memory (default), False=IO
+    bar_is_64bit: Optional[bool] = None  # memory only; consumes the next slot
+    bar_prefetchable: Optional[bool] = None  # memory only
+    bar_index: Optional[int] = None  # donor PCI BAR index N the device serves
+
 
 _OVERRIDE_FILENAME = "pcileech_donor_ip_overrides.tcl"
 # Use ``file join`` so paths containing spaces don't tokenize incorrectly
@@ -128,6 +142,28 @@ def generate_pcie_ip_override_tcl(
         f"    generate_target -force all [get_ips {ip_name}]\n"
         "}\n"
     )
+
+
+_XILINX_BAR_SCALES = (
+    ("Gigabytes", 1024 * 1024 * 1024),
+    ("Megabytes", 1024 * 1024),
+    ("Kilobytes", 1024),
+    ("Bytes", 1),
+)
+
+
+def _bytes_to_xilinx_scale_size(size_bytes: int) -> "tuple[str, int]":
+    """Map a byte size to the 7-series IP's ``(Scale, Size)`` token pair.
+
+    Picks the largest scale that divides ``size_bytes`` evenly so the numeric
+    multiplier stays below 1024 — the same Scale/Size split the Vivado IP GUI
+    uses (e.g. 2 MiB is ``Megabytes 2``, never ``Kilobytes 2048``).
+    """
+    for scale, unit in _XILINX_BAR_SCALES:
+        if size_bytes % unit == 0:
+            return (scale, size_bytes // unit)
+    # Unreachable: the ("Bytes", 1) tier divides every integer.
+    raise ValueError(f"cannot encode BAR size {size_bytes} bytes")
 
 
 _MPS_TOKENS = {
@@ -272,7 +308,86 @@ def _format_extra_config_lines(extra: "DonorPCIeIPConfig") -> list[str]:
         out.append(f"CONFIG.DSN_HEX1 {lower:08X}")
         out.append(f"CONFIG.DSN_HEX2 {upper:08X}")
 
+    out.extend(_format_bar_aperture_lines(extra))
+
     return out
+
+
+def _bar_aperture_error(size: int, is_memory: bool) -> "str | None":
+    """Return an error string if *size* can't be a valid BAR aperture, else None.
+
+    Shared by the emitter (which raises on explicit misuse) and the extractor
+    (which skips defensively, leaving the IP default rather than failing a build).
+    """
+    bar_type = "memory" if is_memory else "io"
+    result = get_bar_size_validator(bar_type=bar_type).validate(size)
+    if not result.valid:
+        return (
+            f"BAR aperture size {size} is invalid for a {bar_type} BAR: "
+            + "; ".join(result.errors)
+        )
+    # Sub-page memory apertures wrap in the hard block; PCILeech's own guidance
+    # is to never go below 4 KiB for the served memory BAR.
+    if is_memory and size < 4096:
+        return f"BAR aperture size {size} below the 4 KiB floor for a memory BAR"
+    return None
+
+
+_NUM_STANDARD_BARS = 6  # BAR0..BAR5
+
+
+def _format_bar_aperture_lines(extra: "DonorPCIeIPConfig") -> list[str]:
+    """Emit the ``CONFIG.Bar{N}_*`` block for the served donor BAR (gaps A5/C).
+
+    The device register window is served at the donor's REAL PCI BAR index N
+    (``bar_index``) — the controller gates its impl on rd_req_bar[N]/wr_bar[N]
+    to match. IO BARs cannot be 64-bit or prefetchable, so those flags are
+    coerced off. Every other standard BAR index is force-disabled (including the
+    .xci default BAR0 when N != 0) so the host enumerates exactly the one served
+    window — no phantom BARs, and no BAR the controller answers with ``none``
+    (which would hang reads). A 64-bit BAR consumes index N+1, which falls into
+    the disabled set automatically.
+    """
+    if extra.bar_aperture_size is None:
+        return []
+
+    size = extra.bar_aperture_size
+    is_memory = True if extra.bar_is_memory is None else bool(extra.bar_is_memory)
+
+    error = _bar_aperture_error(size, is_memory)
+    if error is not None:
+        raise ValueError(error)
+
+    n = 0 if extra.bar_index is None else extra.bar_index
+    if not (0 <= n < _NUM_STANDARD_BARS):
+        raise ValueError(f"bar_index {n} is not a standard BAR index (0..5)")
+
+    is_64bit = bool(extra.bar_is_64bit) and is_memory
+    if is_64bit and n == _NUM_STANDARD_BARS - 1:
+        # The upper half would land on BAR6 (Expansion ROM), not a standard
+        # BAR — electrically invalid PCI.
+        raise ValueError(
+            f"bar_index {n} cannot be 64-bit: the upper-half partner would be "
+            "BAR6 (Expansion ROM), not a standard BAR"
+        )
+    prefetchable = bool(extra.bar_prefetchable) and is_memory
+    scale, multiplier = _bytes_to_xilinx_scale_size(size)
+
+    lines = [
+        f"CONFIG.Bar{n}_Enabled true",
+        f"CONFIG.Bar{n}_Type {'Memory' if is_memory else 'IO'}",
+        f"CONFIG.Bar{n}_64bit {_tcl_bool(is_64bit)}",
+        f"CONFIG.Bar{n}_Prefetchable {_tcl_bool(prefetchable)}",
+        f"CONFIG.Bar{n}_Scale {scale}",
+        f"CONFIG.Bar{n}_Size {multiplier}",
+    ]
+    # Disable every other standard BAR (incl. the 64-bit partner at N+1).
+    lines.extend(
+        f"CONFIG.Bar{k}_Enabled false"
+        for k in range(_NUM_STANDARD_BARS)
+        if k != n
+    )
+    return lines
 
 
 def _find_generate_project_scripts(staging_dir: Path) -> List[Path]:
@@ -407,6 +522,14 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
             msix_pba_bir = candidate_pba_bir
             msix_pba_offset = candidate_pba_off
 
+    (
+        bar_aperture_size,
+        bar_is_memory,
+        bar_is_64bit,
+        bar_prefetchable,
+        bar_index,
+    ) = _served_bar_from_context(template_context)
+
     return DonorPCIeIPConfig(
         class_code=class_code,
         max_payload_size=max_payload_size,
@@ -423,4 +546,68 @@ def donor_pcie_ip_config_from_result(result: dict) -> "DonorPCIeIPConfig":
         cpl_timeout_ranges=cpl_ranges,
         cpl_timeout_disable_supported=cpl_disable,
         dsn_value=dsn_value,
+        bar_aperture_size=bar_aperture_size,
+        bar_is_memory=bar_is_memory,
+        bar_is_64bit=bar_is_64bit,
+        bar_prefetchable=bar_prefetchable,
+        bar_index=bar_index,
+    )
+
+
+def _attr_or_key(obj, name, default=None):
+    """Read ``name`` from an object attribute or a mapping key (defensive)."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _served_bar_from_context(template_context: dict):
+    """Extract the served BAR's (size, is_memory, is_64bit, prefetchable).
+
+    Anchors on the SAME entry the BAR controller serves —
+    ``bars[primary_bar|default(0)]`` (see pcileech_tlps128_bar_controller.sv.j2)
+    — so the emitted IP aperture is guaranteed to match the controller's
+    ``BAR_SIZE``. Returns all-None when the served BAR can't be read, leaving
+    the Xilinx IP default in place rather than emitting a bad aperture.
+    """
+    none5 = (None, None, None, None, None)
+    bar_config = template_context.get("bar_config") or {}
+    bars = _attr_or_key(bar_config, "bars") or []
+    # ``primary_bar`` is the list position of the served BAR within ``bars``;
+    # the controller indexes the same way (bars[primary_bar]).
+    index = _coerce_int(_attr_or_key(bar_config, "primary_bar", 0)) or 0
+    if index >= len(bars):
+        return none5
+
+    served = bars[index]
+    size = _coerce_int(_attr_or_key(served, "size"))
+    if not size:
+        return none5
+
+    is_io = bool(_attr_or_key(served, "is_io", False))
+    is_memory = _attr_or_key(served, "is_memory", None)
+    if is_memory is None:
+        is_memory = not is_io
+    is_memory = bool(is_memory)
+
+    # Defensive: don't propagate an aperture the emitter would reject — leave
+    # the Xilinx IP default in place instead of failing the build.
+    if _bar_aperture_error(size, is_memory) is not None:
+        return none5
+
+    # Served donor PCI index N: prefer the explicit bar_config key, else the
+    # served BAR's own .index. This is the slot the controller gates on and the
+    # IP enables (CONFIG.Bar{N}_*).
+    served_index = _coerce_int(_attr_or_key(bar_config, "served_bar_index", None))
+    if served_index is None:
+        served_index = _coerce_int(_attr_or_key(served, "index", 0)) or 0
+
+    return (
+        size,
+        is_memory,
+        bool(_attr_or_key(served, "is_64bit", False)),
+        bool(_attr_or_key(served, "prefetchable", False)),
+        served_index,
     )

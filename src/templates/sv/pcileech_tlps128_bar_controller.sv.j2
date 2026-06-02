@@ -164,145 +164,58 @@ module pcileech_tlps128_bar_controller(
     assign rd_rsp_valid = bar_rsp_valid[0] || bar_rsp_valid[1] || bar_rsp_valid[2] || bar_rsp_valid[3] || bar_rsp_valid[4] || bar_rsp_valid[5] || bar_rsp_valid[6];
 {% endif %}
     
-{% if bar_config and bar_config.get('bar_models') %}
-    // ========================================================================
-    // Device-Specific BAR Implementation (learned from donor device)
-    // ========================================================================
-    
-    // Primary BAR uses device-specific implementation
-    pcileech_bar_impl_device #(
-        .BAR_SIZE       ( {{ bar_config.bars[bar_config.primary_bar|default(0)].size if bar_config.bars else 4096 }} )
-    ) i_bar0(
-        .rst            ( rst                           ),
+{#
+    Gap C — donor-BAR-index serving. The donor's primary register window is
+    served at its REAL PCI BAR index (served_bar_index); every other slot is a
+    non-responding stub (pcileech_bar_impl_none), with loopaddr kept at slot 1
+    when free for test/diagnostics. A 64-bit served BAR lights two adjacent hit
+    bits (N and N+1), so slot N+1 MUST be `none` — never loopaddr — or the
+    response mux would be double-driven. When served_bar_index == 0 and 32-bit
+    this reproduces the historical wiring (device@0, loopaddr@1, none@2..6).
+#}
+{% set _served = (bar_config.served_bar_index | default(0)) if bar_config else 0 %}
+{% set _served64 = (bar_config.served_is_64bit | default(false)) if bar_config else false %}
+{% set _has_model = (bar_config and bar_config.get('bar_models')) %}
+{% set _bar_size = (bar_config.aperture_size | default(4096)) if bar_config else 4096 %}
+{% macro bar_inst(module, k, inst, param_size=None) -%}
+{% if param_size is not none %}    {{ module }} #(
+        .BAR_SIZE       ( {{ param_size }} )
+    ) {{ inst }}(
+{% else %}    {{ module }} {{ inst }}(
+{% endif %}        .rst            ( rst                           ),
         .clk            ( clk                           ),
         .wr_addr        ( wr_addr                       ),
         .wr_be          ( wr_be                         ),
         .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[0]         ),
+        .wr_valid       ( wr_valid && wr_bar[{{ k }}]         ),
         .rd_req_ctx     ( rd_req_ctx                    ),
         .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[0] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[0]                ),
-        .rd_rsp_data    ( bar_rsp_data[0]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[0]              )
+        .rd_req_valid   ( rd_req_valid && rd_req_bar[{{ k }}] ),
+        .rd_rsp_ctx     ( bar_rsp_ctx[{{ k }}]                ),
+        .rd_rsp_data    ( bar_rsp_data[{{ k }}]               ),
+        .rd_rsp_valid   ( bar_rsp_valid[{{ k }}]              )
     );
+{%- endmacro %}
+    // ========================================================================
+    // BAR implementations (served register window at BAR index {{ _served }})
+    // ========================================================================
+{% for k in range(7) %}
+{% if k == _served %}
+{% if _has_model %}
+{{ bar_inst('pcileech_bar_impl_device', k, 'i_bar' ~ k, param_size=_bar_size) }}
 {% else %}
-    // ========================================================================
-    // Generic BAR Implementation (no learned model available)
-    // ========================================================================
-    
-    // BAR0: Zero-initialized read/write BAR (4KB default)
-    pcileech_bar_impl_zerowrite4k i_bar0(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[0]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[0] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[0]                ),
-        .rd_rsp_data    ( bar_rsp_data[0]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[0]              )
-    );
+{{ bar_inst('pcileech_bar_impl_zerowrite4k', k, 'i_bar' ~ k) }}
 {% endif %}
-    
-    // ========================================================================
-    // Additional BARs (use generic implementations)
-    // ========================================================================
-    
-    // BAR1: Address loopback (useful for testing)
-    pcileech_bar_impl_loopaddr i_bar1(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[1]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[1] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[1]                ),
-        .rd_rsp_data    ( bar_rsp_data[1]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[1]              )
-    );
-    
-    // BAR2-6: Unimplemented
-    pcileech_bar_impl_none i_bar2(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[2]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[2] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[2]                ),
-        .rd_rsp_data    ( bar_rsp_data[2]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[2]              )
-    );
-    
-    pcileech_bar_impl_none i_bar3(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[3]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[3] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[3]                ),
-        .rd_rsp_data    ( bar_rsp_data[3]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[3]              )
-    );
-    
-    pcileech_bar_impl_none i_bar4(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[4]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[4] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[4]                ),
-        .rd_rsp_data    ( bar_rsp_data[4]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[4]              )
-    );
-    
-    pcileech_bar_impl_none i_bar5(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[5]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[5] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[5]                ),
-        .rd_rsp_data    ( bar_rsp_data[5]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[5]              )
-    );
-    
-    pcileech_bar_impl_none i_bar6_optrom(
-        .rst            ( rst                           ),
-        .clk            ( clk                           ),
-        .wr_addr        ( wr_addr                       ),
-        .wr_be          ( wr_be                         ),
-        .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[6]         ),
-        .rd_req_ctx     ( rd_req_ctx                    ),
-        .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[6] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[6]                ),
-        .rd_rsp_data    ( bar_rsp_data[6]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[6]              )
-    );
+{% elif _served64 and k == _served + 1 %}
+{{ bar_inst('pcileech_bar_impl_none', k, 'i_bar' ~ k) }}
+{% elif k == 1 %}
+{{ bar_inst('pcileech_bar_impl_loopaddr', k, 'i_bar' ~ k) }}
+{% elif k == 6 %}
+{{ bar_inst('pcileech_bar_impl_none', k, 'i_bar6_optrom') }}
+{% else %}
+{{ bar_inst('pcileech_bar_impl_none', k, 'i_bar' ~ k) }}
+{% endif %}
+{% endfor %}
 
 
 endmodule

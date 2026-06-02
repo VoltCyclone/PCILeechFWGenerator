@@ -45,13 +45,8 @@ True
 00000000,
   {% endif %}
 {% else %}
-  {% if not (bar_config is defined and bar_config.bars is defined and bar_config.bars|length > 0) %}
 ; {{ bar_name }}: Disabled (not configured)
 00000000,
-  {% else %}
-; {{ bar_name }}: Disabled (not configured)
-00000000,
-  {% endif %}
 {% endif %}
 {% endmacro %}
 
@@ -108,58 +103,27 @@ memory_initialization_vector=
 00001010,
 
 ; Base Address Registers (0x10-0x27)
+{# Gap C — render the single served register BAR at its real donor PCI index.
+   The IP enables only that BAR (pcie_ip_donor_override disables the rest), so
+   every other slot is zeroed here too. A 64-bit served BAR places its all-ones
+   upper dword at slot N+1. Replaces the old positional rendering (which also
+   wrongly hardcoded slot 2 as IO). #}
 {% set bars = (bar_config.bars if (bar_config is defined and bar_config.bars is defined) else []) %}
-{% set has_bars = (bars | length) > 0 %}
-
-; BAR0 (0x10-0x13) - Memory BAR
-{% if has_bars %}
-{{ render_bar(0, bars[0]) }}
-{% else %}
-{{ render_bar(0) }}
-{% endif %}
-
-; BAR1 (0x14-0x17) - Upper 32 bits for 64-bit BAR or second BAR
-{% if has_bars and (bars[0].is_64bit if bars|length > 0 and (bars[0] is not none) else False) %}
-; BAR1: Upper 32 bits of 64-bit BAR0
+{% set _served_pos = (bar_config.primary_bar | default(0)) if bar_config is defined else 0 %}
+{% set _served_idx = (bar_config.served_bar_index | default(0)) if bar_config is defined else 0 %}
+{% set _served_bar = bars[_served_pos] if (bars | length) > _served_pos else None %}
+{% set _served_64 = (bar_config.served_is_64bit | default(false)) if bar_config is defined else false %}
+{% for slot in range(6) %}
+{% if _served_bar is not none and slot == _served_idx %}
+{{ render_bar(slot, _served_bar) }}
+{% elif _served_bar is not none and _served_64 and slot == (_served_idx + 1) %}
+; BAR{{ slot }} (0x{{ '%02X' % (0x10 + slot * 4) }}): Upper 32 bits of 64-bit BAR{{ _served_idx }}
 FFFFFFFF,
-{% elif has_bars and bars|length > 1 %}
-{{ render_bar(1, bars[1]) }}
 {% else %}
-; BAR1: Disabled (not configured)
+; BAR{{ slot }} (0x{{ '%02X' % (0x10 + slot * 4) }}): Disabled
 00000000,
 {% endif %}
-
-; BAR2 (0x18-0x1B) - I/O BAR or third memory BAR
-{% if has_bars and bars|length > 2 %}
-{{ render_bar(2, bars[2], true) }}
-{% else %}
-; BAR2: Disabled (not configured)
-00000000,
-{% endif %}
-
-; BAR3 (0x1C-0x1F) - Fourth BAR
-{% if has_bars and bars|length > 3 %}
-{{ render_bar(3, bars[3]) }}
-{% else %}
-; BAR3: Disabled (not configured)
-00000000,
-{% endif %}
-
-; BAR4 (0x20-0x23) - Fifth BAR
-{% if has_bars and bars|length > 4 %}
-{{ render_bar(4, bars[4]) }}
-{% else %}
-; BAR4: Disabled (not configured)
-00000000,
-{% endif %}
-
-; BAR5 (0x24-0x27) - Sixth BAR
-{% if has_bars and bars|length > 5 %}
-{{ render_bar(5, bars[5]) }}
-{% else %}
-; BAR5: Disabled (not configured)
-00000000,
-{% endif %}
+{% endfor %}
 
 ; Cardbus CIS Pointer (0x28-0x2B) - Unused
 00000000,
@@ -454,8 +418,8 @@ FFFFFFFF,
 ;
 ; BAR Configuration (using safe defaults when values are missing):
 {# Use safe_attr to avoid TemplateObject attribute errors during migration #}
-{% set primary_bar_index = safe_attr(bar_config, 'bar_index', 0) %}
-; - Primary BAR Index: {{ primary_bar_index }}
+{% set served_bar_index = safe_attr(bar_config, 'served_bar_index', safe_attr(bar_config, 'bar_index', 0)) %}
+; - Served BAR Index: {{ served_bar_index }}
 {% set aperture_size = safe_attr(bar_config, 'aperture_size', 0) %}
 ; - Aperture Size: {{ aperture_size }} bytes
 {% set bar_type = safe_attr(bar_config, 'bar_type', 0) %}
