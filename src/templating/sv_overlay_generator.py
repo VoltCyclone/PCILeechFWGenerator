@@ -398,8 +398,12 @@ class SVOverlayGenerator:
         )
         
         try:
-            # Find the primary BAR model (usually BAR0, but can be configured)
-            primary_bar_idx = bar_config.get("primary_bar", 0)
+            # Find the served BAR's model. bar_models is keyed by donor PCI BAR
+            # index, so look up by served_bar_index (gap C); fall back to the
+            # legacy primary_bar key, then 0.
+            primary_bar_idx = bar_config.get(
+                "served_bar_index", bar_config.get("primary_bar", 0)
+            )
             bar_model = None
             
             if isinstance(bar_models_data, dict):

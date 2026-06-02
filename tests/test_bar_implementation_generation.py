@@ -209,7 +209,7 @@ class TestBarImplementationGeneration:
         assert result is not None
         assert "module pcileech_tlps128_bar_controller" in result
         assert "pcileech_bar_impl_device" in result
-        assert "Device-Specific BAR Implementation" in result
+        assert "served register window" in result
 
     def test_generate_bar_controller_without_models(
         self, overlay_generator, context_without_bar_models
@@ -222,7 +222,7 @@ class TestBarImplementationGeneration:
         assert result is not None
         assert "module pcileech_tlps128_bar_controller" in result
         assert "pcileech_bar_impl_zerowrite4k" in result
-        assert "Generic BAR Implementation" in result
+        assert "served register window" in result
 
     @pytest.mark.skip(
         reason="Requires full context - integration test needed"
