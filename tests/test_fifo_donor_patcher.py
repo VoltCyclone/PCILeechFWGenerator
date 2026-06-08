@@ -547,21 +547,27 @@ class TestBuildWiring:
             if "dpcie.pcie_cfg_subsys_vend_id" in line and "assign" in line:
                 assert line.lstrip().startswith("//")
 
-    def test_skips_silently_without_donor_data(self, tmp_path, caplog):
+    def test_raises_without_donor_data(self, tmp_path):
+        """Missing donor IDs must fail the build, not silently continue.
+
+        Real donor identity is mandatory (no synthetic-donor mode). Continuing
+        would emit a bitstream carrying Xilinx default IDs — the explicit
+        anti-pattern this project forbids — so the build must abort hard.
+        """
+        from pcileechfwgenerator.exceptions import DeviceConfigError
+
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
 
         builder = self._make_builder(tmp_path)
-        # Empty template_context → no donor data → no patching, just a warning.
-        with caplog.at_level("WARNING"):
+        # Empty template_context → no donor data → build must abort.
+        with pytest.raises(DeviceConfigError) as exc:
             builder._patch_fifo_with_donor_ids({"template_context": {}})
 
+        assert "donor" in str(exc.value).lower()
+        # The staged FIFO must be left untouched (no partial patch).
         assert (src_dir / "pcileech_fifo.sv").read_text() == ENIGMAX1_FIFO
-        assert any(
-            "issue #593" in rec.message or "donor" in rec.message.lower()
-            for rec in caplog.records
-        )
 
     def test_raises_on_anchor_mismatch(self, tmp_path):
         src_dir = tmp_path / "src"
