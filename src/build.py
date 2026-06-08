@@ -48,6 +48,7 @@ from .device_clone.msix_capability import parse_msix_capability
 from .exceptions import MSIXPreloadError  # noqa: F401 - needed for a unit test
 from .exceptions import (
     ConfigurationError,
+    DeviceConfigError,
     FileOperationError,
     ModuleImportError,
     PCILeechBuildError,
@@ -1858,14 +1859,19 @@ class FirmwareBuilder:
             result.get("template_context", {})
         )
         if donor is None:
-            log_warning_safe(
-                self.logger,
-                "Skipping FIFO donor-ID patch: vendor/device IDs missing "
-                "from template context. Generated firmware will report "
-                "Xilinx defaults (issue #593).",
-                prefix="BUILD",
+            # Real donor identity is mandatory — there is no synthetic-donor
+            # mode. Continuing would emit a bitstream carrying Xilinx default
+            # IDs (the explicit anti-pattern this project forbids) and leave
+            # the upstream undeclared `dpcie.pcie_cfg_*` assigns to crash
+            # synthesis (issue #631). Fail loudly instead.
+            raise DeviceConfigError(
+                "Cannot patch FIFO: donor vendor/device IDs are missing from "
+                "the template context. The build collected no usable donor "
+                "identity, so it would produce firmware with Xilinx default "
+                "IDs. Re-run donor collection (Stage 1) and confirm the "
+                "device's vendor/device IDs were captured before building "
+                "(issues #593, #631)."
             )
-            return
 
         src_dir = self.config.output_dir / "src"
         try:
