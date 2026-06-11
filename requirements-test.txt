@@ -22,7 +22,7 @@ psutil>=5.9.0
 memory-profiler>=0.60.0
 
 # Mock and testing utilities
-responses>=0.23.0
+responses>=0.26.1
 freezegun>=1.5.5
 factory-boy>=3.2.0
 
