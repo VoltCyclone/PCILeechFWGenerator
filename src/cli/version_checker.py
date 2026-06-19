@@ -24,7 +24,9 @@ except ImportError:
     # Fallback for direct execution
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from pcileechfwgenerator.string_utils import (
+        log_debug_safe,
         log_warning_safe,
+        safe_format,
     )
 
     from __version__ import __url__, __version__

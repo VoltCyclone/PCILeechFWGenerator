@@ -406,20 +406,17 @@ class TemplateRenderer:
         def _bit_int(value):
             """Coerce a value to int for bitwise ops.
 
-            Accepts ints and decimal/hex strings (e.g. "0x1234", "4660"). PCI
-            IDs commonly arrive as hex strings in the template context, so a
-            bare int(value) (base 10) would raise on them.
+            String operands are the bitwise filters' main use: vendor/device/
+            subsystem IDs. PCI IDs are always hexadecimal, so bare strings are
+            parsed as base-16 (never decimal), and a "0x" prefix is accepted.
+            See issue #620.
             """
             if not value:
                 return 0
             if isinstance(value, int):
                 return value
             if isinstance(value, str):
-                return (
-                    int(value, 16)
-                    if value.strip().lower().startswith("0x")
-                    else int(value, 0)
-                )
+                return int(value, 16)
             return int(value)
 
         def bitor(value, other):

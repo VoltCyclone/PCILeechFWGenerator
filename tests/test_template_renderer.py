@@ -1,9 +1,10 @@
 from pathlib import Path
 
 import pytest
-
-from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
-                                              TemplateRenderError)
+from pcileechfwgenerator.templating.template_renderer import (
+    TemplateRenderer,
+    TemplateRenderError,
+)
 
 
 def test_render_string_basic():
@@ -73,8 +74,10 @@ def test_render_many(tmp_path):
 
 
 def test_context_validation_missing_required_key():
-    from pcileechfwgenerator.utils.unified_context import (UnifiedContextBuilder,
-                                           ensure_template_compatibility)
+    from pcileechfwgenerator.utils.unified_context import (
+        UnifiedContextBuilder,
+        ensure_template_compatibility,
+    )
 
     builder = UnifiedContextBuilder()
     # Minimal context missing required keys
@@ -123,8 +126,10 @@ def test_context_validation_none_value():
 
 
 def test_template_renderer_critical_path_failure():
-    from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
-                                                  TemplateRenderError)
+    from pcileechfwgenerator.templating.template_renderer import (
+        TemplateRenderer,
+        TemplateRenderError,
+    )
 
     renderer = TemplateRenderer(strict=True)
     # Template expects 'name', but context is missing it
@@ -218,8 +223,10 @@ def test_template_renderer_integration_complex(tmp_path):
 
 
 def test_template_renderer_fallback_logic(tmp_path):
-    from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
-                                                  TemplateRenderError)
+    from pcileechfwgenerator.templating.template_renderer import (
+        TemplateRenderer,
+        TemplateRenderError,
+    )
 
     renderer = TemplateRenderer(template_dir=tmp_path)
     # Template with error tag triggers fallback
@@ -227,3 +234,34 @@ def test_template_renderer_fallback_logic(tmp_path):
     template_file.write_text("{% error 'fail' %}")
     with pytest.raises(TemplateRenderError):
         renderer.render_template("fail.j2", {})
+
+
+def test_bitwise_filters_parse_pci_ids_as_hex():
+    """bitor/bitxor/bitand must treat bare string operands as hex PCI IDs.
+
+    PCI IDs are always hexadecimal (issue #620). A bare "1234" is 0x1234, not
+    decimal, and "10de" (no 0x prefix) must not raise.
+    """
+    renderer = TemplateRenderer()
+    bitor = renderer.env.filters["bitor"]
+    bitxor = renderer.env.filters["bitxor"]
+    bitand = renderer.env.filters["bitand"]
+
+    assert bitor("10de", 0) == 0x10DE
+    assert bitor("0x10de", 0) == 0x10DE
+    assert bitor("1234", 0) == 0x1234  # hex, not decimal 1234
+    assert bitor(0x8086, 0) == 0x8086
+    assert bitor("", 0x1234) == 0x1234
+    assert bitor(None, 0x1234) == 0x1234
+    assert bitxor("10de", "0001") == 0x10DF
+    assert bitand("ffff", "10de") == 0x10DE
+
+
+def test_bitwise_filters_in_template():
+    """The bit filters work end-to-end with string PCI IDs in a template."""
+    renderer = TemplateRenderer()
+    out = renderer.render_string(
+        "{{ '%04X' % (vendor_id | bitor(device_id)) }}",
+        {"vendor_id": "10de", "device_id": "0001"},
+    )
+    assert out.strip() == "10DF"
