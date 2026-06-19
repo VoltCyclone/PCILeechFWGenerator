@@ -3,12 +3,12 @@
 Unit tests for MSI-X Capability Parser with enhanced 64-bit BAR support and extended capabilities.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from pcileechfwgenerator.device_clone.msix_capability import (
-    BAR_IO_DEFAULT_SIZE, BAR_MEM_DEFAULT_SIZE, BAR_MEM_MIN_SIZE, find_cap,
+    find_cap,
     generate_msix_capability_registers, generate_msix_table_sv, hex_to_bytes,
     is_valid_offset, msix_size, parse_bar_info_from_config_space,
     parse_msix_capability, read_u8, read_u16_le, read_u32_le,
@@ -791,15 +791,16 @@ class TestEnhancedMsixValidation:
 
 
 class TestSystemVerilogGeneration:
-    """Test SystemVerilog code generation."""
+    """Standalone MSI-X SystemVerilog generation was removed (overlay-only).
 
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_generate_msix_table_sv_valid(self, mock_renderer_class):
-        """Test SystemVerilog generation with valid MSI-X info."""
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.return_value = "// Mock SystemVerilog code"
-        mock_renderer_class.return_value = mock_renderer
+    ``generate_msix_table_sv`` / ``generate_msix_capability_registers`` rendered
+    ``systemverilog/*.j2`` templates that no longer exist and were never on the
+    live generation path. They remain as importable deprecation shims that raise
+    ``NotImplementedError``; MSI-X is now emitted via the overlay/config-space
+    path. These tests pin the deprecation contract.
+    """
 
+    def test_generate_msix_table_sv_raises_not_implemented(self):
         msix_info = {
             "table_size": 16,
             "table_bir": 0,
@@ -809,128 +810,12 @@ class TestSystemVerilogGeneration:
             "enabled": True,
             "function_mask": False,
         }
-
-        result = generate_msix_table_sv(msix_info)
-
-        # Verify template renderer was called
-        assert mock_renderer.render_template.call_count >= 1
-        assert "Mock SystemVerilog code" in result
-
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_generate_msix_table_sv_disabled(self, mock_renderer_class):
-        """Test SystemVerilog generation with disabled MSI-X."""
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.return_value = "// Disabled MSI-X module"
-        mock_renderer_class.return_value = mock_renderer
-
-        msix_info = {
-            "table_size": 0,  # Disabled
-            "table_bir": 0,
-            "table_offset": 0x1000,
-            "pba_bir": 0,
-            "pba_offset": 0x2000,
-            "enabled": False,
-            "function_mask": True,
-        }
-
-        result = generate_msix_table_sv(msix_info)
-
-        # Should still generate valid code
-        assert "Disabled MSI-X module" in result
-
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_generate_msix_table_sv_missing_fields(self, mock_renderer_class):
-        """Test SystemVerilog generation with missing required fields."""
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.return_value = "// Fallback code"
-        mock_renderer_class.return_value = mock_renderer
-
-        # Missing some required fields
-        msix_info = {
-            "table_size": 16,
-            "table_bir": 0,
-            # Missing table_offset, pba_bir, pba_offset, enabled, function_mask
-        }
-
-        # generate_msix_table_sv now raises when required fields are missing
-        with pytest.raises(
-            ValueError, match=r"Cannot generate MSI-X module - missing critical fields"
-        ):
+        with pytest.raises(NotImplementedError, match="overlay-only"):
             generate_msix_table_sv(msix_info)
 
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_generate_msix_table_sv_alignment_warning(self, mock_renderer_class):
-        """Test SystemVerilog generation with misaligned table offset."""
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.return_value = "// Code with warning"
-        mock_renderer_class.return_value = mock_renderer
-
-        msix_info = {
-            "table_size": 8,
-            "table_bir": 0,
-            "table_offset": 0x1004,  # Not 8-byte aligned
-            "pba_bir": 0,
-            "pba_offset": 0x2000,
-            "enabled": True,
-            "function_mask": False,
-        }
-
-        result = generate_msix_table_sv(msix_info)
-
-        # Verify the context passed to template renderer includes alignment warning
-        call_args = mock_renderer.render_template.call_args_list
-        context = call_args[0][0][1]  # First call, second argument (context)
-
-        assert "alignment_warning" in context
-        assert context["alignment_warning"] != ""
-        assert "0x1004" in context["alignment_warning"]
-
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_generate_msix_table_sv_template_error_handling(self, mock_renderer_class):
-        """Test handling of template rendering errors."""
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.side_effect = Exception("Template error")
-        mock_renderer_class.return_value = mock_renderer
-
-        msix_info = {
-            "table_size": 8,
-            "table_bir": 0,
-            "table_offset": 0x1000,
-            "pba_bir": 0,
-            "pba_offset": 0x2000,
-            "enabled": True,
-            "function_mask": False,
-        }
-
-        # Should handle template errors gracefully
-        with pytest.raises(Exception, match="Template error"):
-            generate_msix_table_sv(msix_info)
-
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_generate_msix_capability_registers(self, mock_renderer_class):
-        """Test MSI-X capability register generation."""
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.return_value = "// Mock capability registers"
-        mock_renderer_class.return_value = mock_renderer
-
-        msix_info = {
-            "table_size": 8,
-            "table_bir": 1,
-            "table_offset": 0x2000,
-            "pba_bir": 2,
-            "pba_offset": 0x3000,
-        }
-
-        result = generate_msix_capability_registers(msix_info)
-
-        # Verify template renderer was called with correct context
-        mock_renderer.render_template.assert_called_once()
-        call_args = mock_renderer.render_template.call_args
-        assert "systemverilog/msix_capability_registers.sv.j2" in call_args[0]
-
-        context = call_args[0][1]
-        assert "table_size_minus_one" in context
-        assert context["table_size_minus_one"] == 7  # 8 - 1
+    def test_generate_msix_capability_registers_raises_not_implemented(self):
+        with pytest.raises(NotImplementedError, match="overlay-only"):
+            generate_msix_capability_registers({"table_size": 8})
 
 
 class TestIntegration:
@@ -993,20 +878,15 @@ class TestIntegration:
         assert is_valid is True, f"Validation failed with errors: {errors}"
         assert len(errors) == 0
 
-    @patch("pcileechfwgenerator.device_clone.msix_capability.TemplateRenderer")
-    def test_full_pipeline_64bit_bar(self, mock_renderer_class):
+    def test_full_pipeline_64bit_bar(self):
         """Test full pipeline with 64-bit BAR.
-        
+
         This integration test verifies the complete workflow:
         1. MSI-X parsing from config space
-        2. 64-bit BAR detection and parsing  
+        2. 64-bit BAR detection and parsing
         3. Enhanced validation with 64-bit BAR support
-        4. SystemVerilog code generation
+        (SystemVerilog generation removed — overlay-only architecture.)
         """
-        mock_renderer = MagicMock()
-        mock_renderer.render_template.return_value = "// Generated code"
-        mock_renderer_class.return_value = mock_renderer
-
         # Create config space with 64-bit BAR and MSI-X capability
         cfg_bytes = bytearray([0x00] * 256)
 
@@ -1036,11 +916,10 @@ class TestIntegration:
 
         config_space = cfg_bytes.hex().upper()
 
-        # Full pipeline test
+        # Full pipeline test (SystemVerilog generation removed — overlay-only).
         msix_info = parse_msix_capability(config_space)
         bars = parse_bar_info_from_config_space(config_space)
         is_valid, errors = validate_msix_configuration_enhanced(msix_info, config_space)
-        sv_code = generate_msix_table_sv(msix_info)
 
         # Verify results
         assert msix_info["table_size"] == 8
@@ -1054,7 +933,6 @@ class TestIntegration:
         # Validation should pass (basic checks) even with unknown BAR size
         assert is_valid is True, f"Validation failed with errors: {errors}"
         assert len(errors) == 0
-        assert "Generated code" in sv_code
 
 
 class TestEdgeCasesAndStressTests:

@@ -7,16 +7,12 @@ and donor artifacts (VPD/Option ROM).
 """
 
 import logging
-import sys
-from pathlib import Path
 from typing import Any, Dict
 
 import pytest
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pcileechfwgenerator.string_utils import safe_format
 
 from pcileechfwgenerator.templating.sv_validator import SVValidator
 from pcileechfwgenerator.templating.template_renderer import TemplateRenderError

@@ -90,6 +90,12 @@ class TestBarImplementationGeneration:
             "device_signature": "1234:5678",
             "vendor_id": "0x1234",
             "device_id": "0x5678",
+            # device_config carries the donor-bound IDs the overlay generator
+            # validates (top-level vendor_id/device_id are not sufficient).
+            "device_config": {
+                "vendor_id": "0x1234",
+                "device_id": "0x5678",
+            },
             "config_space": {"raw_data": "00" * 256, "size": 256},
             "bar_config": {
                 "primary_bar": 0,
@@ -119,9 +125,6 @@ class TestBarImplementationGeneration:
             }
         }
 
-    @pytest.mark.skip(
-        reason="Fixture needs update for actual data flow - functionality verified"
-    )
     def test_generate_bar_implementation_with_models(
         self, overlay_generator, context_with_bar_models
     ):
@@ -149,9 +152,6 @@ class TestBarImplementationGeneration:
         # Should return None when no models available
         assert result is None
 
-    @pytest.mark.skip(
-        reason="Fixture needs update for actual data flow - functionality verified"
-    )
     def test_generate_bar_implementation_with_interrupt_config(
         self, overlay_generator, context_with_bar_models
     ):
@@ -164,9 +164,6 @@ class TestBarImplementationGeneration:
         assert "interrupt_assert" in result
         assert "interrupt_data" in result
 
-    @pytest.mark.skip(
-        reason="Fixture needs update for actual data flow - functionality verified"
-    )
     def test_generate_bar_implementation_register_widths(
         self, overlay_generator, context_with_bar_models
     ):
@@ -181,9 +178,6 @@ class TestBarImplementationGeneration:
         # WORD register (16-bit)
         assert "reg [15:0] reg_0x0008" in result
 
-    @pytest.mark.skip(
-        reason="Fixture needs update for actual data flow - functionality verified"
-    )
     def test_generate_bar_implementation_rw_masks(
         self, overlay_generator, context_with_bar_models
     ):
@@ -225,7 +219,9 @@ class TestBarImplementationGeneration:
         assert "served register window" in result
 
     @pytest.mark.skip(
-        reason="Requires full context - integration test needed"
+        reason="Full generate_config_space_overlay() needs the complete "
+        "production context (timing_config, etc.); covered by e2e overlay "
+        "tests. This unit fixture intentionally provides only BAR-impl context."
     )
     def test_generate_config_space_overlay_includes_bar_files(
         self, overlay_generator, context_with_bar_models
@@ -338,12 +334,14 @@ class TestBarImplementationTemplate:
         assert "module pcileech_bar_impl_device" in result
         assert "Fallback" in result
 
-    @pytest.mark.skip(reason="Template offset formatting requires hex strings not integers - needs fixture update")
     def test_template_renders_with_full_context(self, template_renderer):
         """Test that template renders with complete BAR model."""
         full_context = {
             "header": "// Test Header",
             "device_signature": "1234:5678",
+            # MSI interrupt seed line references vendor_id/device_id.
+            "vendor_id": "0x1234",
+            "device_id": "0x5678",
             "bar_model": {
                 "size": 4096,
                 "registers": {
@@ -463,9 +461,6 @@ class TestBarImplementationEdgeCases:
         # Non-fatal error - may return None or fallback implementation
         assert result is None or "module pcileech_bar_impl_device" in result
 
-    @pytest.mark.skip(
-        reason="Fixture needs update for actual data flow - functionality verified"
-    )
     def test_multiple_bar_models_selects_primary(self, overlay_generator):
         """Test that primary BAR is selected from multiple models."""
         from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model

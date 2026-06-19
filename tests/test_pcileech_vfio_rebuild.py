@@ -13,13 +13,12 @@ from unittest.mock import MagicMock, mock_open, patch
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 # Import pytest (install with: pip install -r requirements-test.txt)
 import pytest  # type: ignore
 
 # Import the functions we want to test
-from pcileech import check_vfio_requirements, rebuild_vfio_constants
+from pcileech import check_vfio_requirements
 
 
 class TestVFIOConstantsRebuilding:

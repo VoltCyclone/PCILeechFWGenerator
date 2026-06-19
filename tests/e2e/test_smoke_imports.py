@@ -46,6 +46,7 @@ PUBLIC_PACKAGES = [
     "pcileechfwgenerator.templating.sv_context_builder",
     "pcileechfwgenerator.templating.advanced_sv_perf",
     "pcileechfwgenerator.utils.version_resolver",
+    "pcileechfwgenerator.utils.privilege_manager",
     "pcileechfwgenerator.string_utils",
     "pcileechfwgenerator.exceptions",
     "pcileechfwgenerator.__version__",

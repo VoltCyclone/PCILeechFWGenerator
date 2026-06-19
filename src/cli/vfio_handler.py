@@ -27,6 +27,7 @@ from pcileechfwgenerator.utils.validators import get_bdf_validator
 
 class BindingState(Enum):
     """Represents the binding state of a PCI device."""
+
     UNBOUND = "unbound"
     BOUND_TO_VFIO = "bound_to_vfio"
     BOUND_TO_OTHER = "bound_to_other"
@@ -36,7 +37,7 @@ class BindingState(Enum):
 HAS_PRIVILEGE_MANAGER = False
 PrivilegeManager = None
 try:
-    from pcileechfwgenerator.tui.utils.privilege_manager import PrivilegeManager
+    from pcileechfwgenerator.utils.privilege_manager import PrivilegeManager
 
     HAS_PRIVILEGE_MANAGER = True
 except ImportError:
@@ -44,6 +45,7 @@ except ImportError:
 
 # Configure logger
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class DeviceInfo:
@@ -55,13 +57,13 @@ class DeviceInfo:
     iommu_group: Optional[str] = None
     driver: Optional[str] = None
     description: Optional[str] = None
-    
+
     # Compatibility properties
     @property
     def current_driver(self) -> Optional[str]:
         """Alias for driver property for backward compatibility."""
         return self.driver
-    
+
     @property
     def binding_state(self) -> BindingState:
         """Get the binding state of the device."""
@@ -71,28 +73,28 @@ class DeviceInfo:
             return BindingState.BOUND_TO_VFIO
         else:
             return BindingState.BOUND_TO_OTHER
-    
+
     @classmethod
-    def from_bdf(cls, bdf: str) -> 'DeviceInfo':
+    def from_bdf(cls, bdf: str) -> "DeviceInfo":
         """Create DeviceInfo from BDF string.
-        
+
         Args:
             bdf: PCI Bus:Device.Function identifier
-            
+
         Returns:
             DeviceInfo object with device details
-            
+
         Raises:
             VFIODeviceNotFoundError: If device doesn't exist
         """
         # Create path manager to get device info
         path_manager = VFIOPathManager(bdf)
         device_path = path_manager.device_path
-        
+
         if not device_path.exists():
             log_warning_safe(logger, "PCI device %s not found", bdf, prefix="VFIO")
             raise VFIODeviceNotFoundError(f"PCI device {bdf} not found")
-        
+
         # Get vendor and device IDs
         vendor_id = None
         device_id = None
@@ -117,9 +119,7 @@ class DeviceInfo:
                 log_warning_safe(
                     logger, "Failed to read driver for %s: %s", bdf, e, prefix="VFIO"
                 )
-                raise VFIODeviceNotFoundError(
-                    f"Failed to read driver for {bdf}: {e}"
-                )
+                raise VFIODeviceNotFoundError(f"Failed to read driver for {bdf}: {e}")
 
         # Get IOMMU group
         iommu_group = None
@@ -128,36 +128,34 @@ class DeviceInfo:
                 group_path = path_manager.iommu_group_path.resolve()
                 iommu_group = group_path.name
                 log_info_safe(
-                    logger, safe_format(
+                    logger,
+                    safe_format(
                         "IOMMU group for {bdf}: {group}", bdf=bdf, group=iommu_group
-                    ), 
-                    prefix="VFIO"
+                    ),
+                    prefix="VFIO",
                 )
             except Exception as e:
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Failed to read IOMMU group for {bdf}: {err}",
-                        bdf=bdf,
-                        err=e
+                        "Failed to read IOMMU group for {bdf}: {err}", bdf=bdf, err=e
                     ),
                     prefix="VFIO",
                 )
                 raise VFIODeviceNotFoundError(
                     f"Failed to read IOMMU group for {bdf}: {e}"
                 )
-        log_info_safe(logger,
-                      safe_format(
-                          "Successfully retrieved device info for {bdf}", bdf=bdf
-                        ),
-                      prefix="VFIO"
-                  )
+        log_info_safe(
+            logger,
+            safe_format("Successfully retrieved device info for {bdf}", bdf=bdf),
+            prefix="VFIO",
+        )
         return cls(
             bdf=bdf,
             vendor_id=vendor_id,
             device_id=device_id,
             iommu_group=iommu_group,
-            driver=driver
+            driver=driver,
         )
 
 
@@ -191,17 +189,17 @@ class VFIOPathManager:
     def driver_path(self) -> Path:
         """Get the driver symlink path."""
         return self.device_path / "driver"
-    
+
     @property
     def driver_link(self) -> Path:
         """Alias for driver_path for backward compatibility."""
         return self.driver_path
-    
+
     @property
     def driver_override_path(self) -> Path:
         """Alias for override_path for backward compatibility."""
         return self.override_path
-    
+
     @property
     def iommu_group_link(self) -> Path:
         """Get the IOMMU group symlink path."""
@@ -260,48 +258,51 @@ class VFIOPathManager:
             raise VFIODeviceNotFoundError(
                 safe_format(
                     "Cannot read device information for {bdf}: {err}",
-                    bdf=self.bdf, err=e
+                    bdf=self.bdf,
+                    err=e,
                 )
             )
-    
+
     def get_driver_unbind_path(self, driver_name: str) -> Path:
         """Get the unbind path for a specific driver.
-        
+
         Args:
             driver_name: Name of the driver
-            
+
         Returns:
             Path to the driver's unbind file
         """
-        return Path(safe_format(
-            "/sys/bus/pci/drivers/{driver_name}/unbind", driver_name=driver_name
-        ))
-    
+        return Path(
+            safe_format(
+                "/sys/bus/pci/drivers/{driver_name}/unbind", driver_name=driver_name
+            )
+        )
+
     def get_driver_bind_path(self, driver_name: str) -> Path:
         """Get the bind path for a specific driver.
-        
+
         Args:
             driver_name: Name of the driver
-            
+
         Returns:
             Path to the driver's bind file
         """
-        return Path(safe_format(
-            "/sys/bus/pci/drivers/{driver_name}/bind", driver_name=driver_name
-        ))
+        return Path(
+            safe_format(
+                "/sys/bus/pci/drivers/{driver_name}/bind", driver_name=driver_name
+            )
+        )
 
     def get_vfio_group_path(self, group_id: str) -> Path:
         """Get the VFIO group device path.
-        
+
         Args:
             group_id: IOMMU group ID
-            
+
         Returns:
             Path to the VFIO group device
         """
-        return Path(safe_format(
-            "/dev/vfio/{group_id}", group_id=group_id
-        ))
+        return Path(safe_format("/dev/vfio/{group_id}", group_id=group_id))
 
 
 class VFIOBinder:
@@ -335,7 +336,7 @@ class VFIOBinder:
         # Initialize privilege manager if available
         if HAS_PRIVILEGE_MANAGER and PrivilegeManager is not None:
             self._privilege_manager = PrivilegeManager()
-        
+
         # Check security context and emit warnings
         self._check_security_context()
 
@@ -367,7 +368,15 @@ class VFIOBinder:
         Raises:
             VFIOPermissionError: If privileges are insufficient
         """
-        if self._privilege_manager and not self._privilege_manager.check_privilege():
+        if self._privilege_manager is None:
+            return
+
+        # PrivilegeManager exposes has_root / can_sudo (no check_privilege()).
+        # Privileges are sufficient if we are root or can escalate via sudo.
+        has_privilege = getattr(self._privilege_manager, "has_root", False) or getattr(
+            self._privilege_manager, "can_sudo", False
+        )
+        if not has_privilege:
             raise VFIOPermissionError(
                 f"Insufficient privileges for {operation}. "
                 f"Please run with appropriate permissions."
@@ -426,8 +435,9 @@ class VFIOBinder:
         except Exception as e:
             raise VFIODeviceNotFoundError(
                 safe_format(
-                    "Failed to get device info for {bdf}: {error}", 
-                    bdf=self.bdf, error=e
+                    "Failed to get device info for {bdf}: {error}",
+                    bdf=self.bdf,
+                    error=e,
                 )
             )
 
@@ -445,7 +455,7 @@ class VFIOBinder:
 
     def _check_security_context(self) -> None:
         """Check for SELinux/AppArmor and emit diagnostic warnings.
-        
+
         This helps users understand container VFIO failures caused by
         security contexts blocking /dev/vfio access or sysfs writes.
         """
@@ -462,7 +472,7 @@ class VFIOBinder:
                     )
             except (OSError, IOError):
                 pass
-        
+
         # Check AppArmor
         apparmor_enabled = Path("/sys/module/apparmor/parameters/enabled")
         if apparmor_enabled.exists():
@@ -479,56 +489,53 @@ class VFIOBinder:
 
     def _wait_for_group_node(self, group_id: str, timeout: float = 3.0) -> None:
         """Wait for /dev/vfio/{group} device node to appear.
-        
+
         In containers, udev may race with bind operations. This ensures
         the group device node exists before we try to access it.
-        
+
         Args:
             group_id: IOMMU group ID
             timeout: Maximum wait time in seconds
-            
+
         Raises:
             VFIOGroupError: If timeout waiting for group node
         """
         group_path = Path(f"/dev/vfio/{group_id}")
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
             if group_path.exists():
                 log_debug_safe(
                     logger,
-                    safe_format(
-                        "Group device node ready: {path}",
-                        path=group_path
-                    ),
+                    safe_format("Group device node ready: {path}", path=group_path),
                     prefix="VFIO",
                 )
                 return
             time.sleep(0.05)
-        
+
         raise VFIOGroupError(
             safe_format(
                 "Timeout waiting for {path}. "
                 "Check SELinux labels (relabel_files) or udev rules.",
-                path=group_path
+                path=group_path,
             )
         )
 
     def _acquire_group_lock(self, group_id: str) -> None:
         """Acquire inter-process lock for IOMMU group.
-        
+
         Prevents multiple containers/processes from binding devices in
         the same IOMMU group concurrently.
-        
+
         Args:
             group_id: IOMMU group ID
-            
+
         Raises:
             VFIOBindError: If group is already locked by another process
         """
         lock_dir = Path("/var/lock")
         lock_dir.mkdir(parents=True, exist_ok=True)
-        
+
         lock_path = lock_dir / f"pcileech-vfio-{group_id}.lock"
 
         lock_file = None
@@ -537,13 +544,10 @@ class VFIOBinder:
             # Try non-blocking lock
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             self._group_lock = lock_file
-            
+
             log_debug_safe(
                 logger,
-                safe_format(
-                    "Acquired group lock: {path}",
-                    path=lock_path
-                ),
+                safe_format("Acquired group lock: {path}", path=lock_path),
                 prefix="LOCK",
             )
         except (OSError, IOError) as e:
@@ -554,7 +558,7 @@ class VFIOBinder:
                     "IOMMU group {gid} is already in use by another process. "
                     "Lock file: {path}",
                     gid=group_id,
-                    path=lock_path
+                    path=lock_path,
                 )
             ) from e
 
@@ -572,10 +576,7 @@ class VFIOBinder:
             except Exception as e:
                 log_warning_safe(
                     logger,
-                    safe_format(
-                        "Failed to release group lock: {err}",
-                        err=e
-                    ),
+                    safe_format("Failed to release group lock: {err}", err=e),
                     prefix="LOCK",
                 )
             finally:
@@ -583,13 +584,13 @@ class VFIOBinder:
 
     def _cleanup_device_ids(self) -> None:
         """Aggressively remove device IDs added to vfio-pci.
-        
+
         Ensures clean state on exit - prevents ID pollution in vfio-pci
         that could affect subsequent binds.
         """
         if not self._added_device_ids:
             return
-        
+
         remove_id_path = self._path_manager.remove_id_path
         if not remove_id_path.exists():
             log_debug_safe(
@@ -598,7 +599,7 @@ class VFIOBinder:
                 prefix="VFIO",
             )
             return
-        
+
         for vendor_id, device_id in self._added_device_ids:
             try:
                 remove_id_path.write_text(f"{vendor_id} {device_id}\n")
@@ -607,7 +608,7 @@ class VFIOBinder:
                     safe_format(
                         "Removed device ID from vfio-pci: {vid}:{did}",
                         vid=vendor_id,
-                        did=device_id
+                        did=device_id,
                     ),
                     prefix="VFIO",
                 )
@@ -619,23 +620,35 @@ class VFIOBinder:
                         "Failed to remove device ID {vid}:{did}: {err}",
                         vid=vendor_id,
                         did=device_id,
-                        err=e
+                        err=e,
                     ),
                     prefix="VFIO",
                 )
-        
+
         self._added_device_ids.clear()
 
     def _save_original_driver(self) -> None:
         """Save the current driver for restoration."""
         if self._path_manager.driver_path.exists():
             self.original_driver = self._path_manager.driver_path.resolve().name
-            logger.debug(f"Original driver for {self.bdf}: {self.original_driver}")
+            log_debug_safe(
+                logger,
+                safe_format(
+                    "Original driver for {bdf}: {drv}",
+                    bdf=self.bdf,
+                    drv=self.original_driver,
+                ),
+                prefix="VFIO",
+            )
 
     def _unbind_current_driver(self) -> None:
         """Unbind device from its current driver."""
         if not self._path_manager.driver_path.exists():
-            logger.debug(f"Device {self.bdf} not bound to any driver")
+            log_debug_safe(
+                logger,
+                safe_format("Device {bdf} not bound to any driver", bdf=self.bdf),
+                prefix="VFIO",
+            )
             return
 
         unbind_path = self._path_manager.unbind_path
@@ -645,14 +658,23 @@ class VFIOBinder:
         try:
             self._check_privilege("unbind driver")
             unbind_path.write_text(f"{self.bdf}\n")
-            logger.info(f"Unbound {self.bdf} from {self.original_driver}")
+            log_info_safe(
+                logger,
+                safe_format(
+                    "Unbound {bdf} from {drv}",
+                    bdf=self.bdf,
+                    drv=self.original_driver,
+                ),
+                prefix="VFIO",
+            )
 
             # Wait for unbind to complete
             timeout = 5
             start = time.time()
-            while (self._path_manager.driver_path.exists() and
-                   time.time() - start < timeout
-                ):
+            while (
+                self._path_manager.driver_path.exists()
+                and time.time() - start < timeout
+            ):
                 time.sleep(0.1)
 
             if self._path_manager.driver_path.exists():
@@ -666,7 +688,11 @@ class VFIOBinder:
         try:
             self._check_privilege("set driver override")
             self._path_manager.override_path.write_text("vfio-pci\n")
-            logger.debug(f"Set driver override to vfio-pci for {self.bdf}")
+            log_debug_safe(
+                logger,
+                safe_format("Set driver override to vfio-pci for {bdf}", bdf=self.bdf),
+                prefix="VFIO",
+            )
         except (OSError, IOError) as e:
             raise VFIOBindError(f"Failed to set driver override: {e}")
 
@@ -698,14 +724,26 @@ class VFIOBinder:
             for attempt in range(max_retries):
                 try:
                     self._path_manager.bind_path.write_text(f"{self.bdf}\n")
-                    logger.info(f"Bound {self.bdf} to vfio-pci")
+                    log_info_safe(
+                        logger,
+                        safe_format("Bound {bdf} to vfio-pci", bdf=self.bdf),
+                        prefix="VFIO",
+                    )
                     break
                 except OSError as e:
                     if e.errno == errno.EBUSY and attempt < max_retries - 1:
                         delay = 0.5 * (attempt + 1)
-                        logger.debug(
-                            f"Device {self.bdf} busy, retrying in {delay}s "
-                            f"(attempt {attempt + 1}/{max_retries})"
+                        log_debug_safe(
+                            logger,
+                            safe_format(
+                                "Device {bdf} busy, retrying in {delay}s "
+                                "(attempt {n}/{total})",
+                                bdf=self.bdf,
+                                delay=delay,
+                                n=attempt + 1,
+                                total=max_retries,
+                            ),
+                            prefix="VFIO",
                         )
                         time.sleep(delay)
                     else:
@@ -715,8 +753,10 @@ class VFIOBinder:
             timeout = 5
             start = time.time()
             while time.time() - start < timeout:
-                if (self._path_manager.driver_path.exists() and
-                    self._path_manager.driver_path.resolve().name == "vfio-pci"):
+                if (
+                    self._path_manager.driver_path.exists()
+                    and self._path_manager.driver_path.resolve().name == "vfio-pci"
+                ):
                     self._bound = True
                     return
                 time.sleep(0.1)
@@ -747,7 +787,11 @@ class VFIOBinder:
     def _attach_group(self) -> None:
         """Attach to the IOMMU group and configure it."""
         if not self._attach:
-            logger.debug("Skipping group attachment (attach=False)")
+            log_debug_safe(
+                logger,
+                "Skipping group attachment (attach=False)",
+                prefix="VFIO",
+            )
             return
 
         try:
@@ -764,11 +808,16 @@ class VFIOBinder:
             self._check_privilege("access VFIO group")
             try:
                 with open(group_path, "r"):
-                    logger.debug(f"Successfully opened VFIO group {self.group_id}")
+                    log_debug_safe(
+                        logger,
+                        safe_format(
+                            "Successfully opened VFIO group {gid}",
+                            gid=self.group_id,
+                        ),
+                        prefix="VFIO",
+                    )
             except (OSError, IOError) as e:
-                raise VFIOGroupError(
-                    f"Cannot access VFIO group {self.group_id}: {e}"
-                )
+                raise VFIOGroupError(f"Cannot access VFIO group {self.group_id}: {e}")
 
         except Exception as e:
             raise VFIOGroupError(f"Failed to attach IOMMU group: {e}")
@@ -788,13 +837,13 @@ class VFIOBinder:
 
         # Check IOMMU is enabled
         self._check_iommu()
-        
+
         # Get IOMMU group for locking
         group_id = self._get_iommu_group()
-        
+
         # Acquire inter-process lock to prevent concurrent binding
         self._acquire_group_lock(group_id)
-        
+
         try:
             # Save original driver for cleanup
             self._save_original_driver()
@@ -807,7 +856,7 @@ class VFIOBinder:
 
             # Bind to vfio-pci
             self._bind_to_vfio()
-            
+
             # Wait for /dev/vfio/{group} to appear (udev race in containers)
             self._wait_for_group_node(group_id)
 
@@ -821,7 +870,7 @@ class VFIOBinder:
                         safe_format(
                             "Failed to attach IOMMU group for {bdf}: {err}",
                             bdf=self.bdf,
-                            err=e
+                            err=e,
                         ),
                         prefix="VFIO",
                     )
@@ -843,17 +892,23 @@ class VFIOBinder:
         Raises:
             VFIOBindError: If unbinding fails
         """
-        logger.info(f"Unbinding {self.bdf} from vfio-pci")
+        log_info_safe(
+            logger,
+            safe_format("Unbinding {bdf} from vfio-pci", bdf=self.bdf),
+            prefix="VFIO",
+        )
 
         # Check if actually bound to vfio-pci
-        if (self._path_manager.driver_path.exists() and 
-            self._path_manager.driver_path.resolve().name != "vfio-pci"):
+        if (
+            self._path_manager.driver_path.exists()
+            and self._path_manager.driver_path.resolve().name != "vfio-pci"
+        ):
             log_warning_safe(
                 logger,
                 safe_format(
                     "Device {bdf} not bound to vfio-pci, current driver: {driver}",
                     bdf=self.bdf,
-                    driver=self._path_manager.driver_path.resolve().name
+                    driver=self._path_manager.driver_path.resolve().name,
                 ),
                 prefix="VFIO",
             )
@@ -907,16 +962,15 @@ class VFIOBinder:
                         logger,
                         safe_format(
                             "Restored {bdf} to {driver}",
-                            bdf=self.bdf, driver=self.original_driver
+                            bdf=self.bdf,
+                            driver=self.original_driver,
                         ),
                         prefix="VFIO",
                     )
                 except (OSError, IOError) as e:
                     log_warning_safe(
                         logger,
-                        safe_format(
-                            "Failed to restore original driver: {err}", err=e
-                        ),
+                        safe_format("Failed to restore original driver: {err}", err=e),
                         prefix="VFIO",
                     )
             else:
@@ -931,7 +985,7 @@ class VFIOBinder:
 
         # Release group lock
         self._release_group_lock()
-        
+
         self._bound = False
         log_info_safe(
             logger,
@@ -1028,10 +1082,10 @@ VFIOBinderImpl = VFIOBinder
 # Helper functions
 def _get_current_driver(bdf: str) -> Optional[str]:
     """Get the current driver for a device.
-    
+
     Args:
         bdf: PCI Bus:Device.Function identifier
-        
+
     Returns:
         Driver name or None if not bound
     """
@@ -1043,8 +1097,7 @@ def _get_current_driver(bdf: str) -> Optional[str]:
         log_warning_safe(
             logger,
             safe_format(
-                "Failed to get current driver for {bdf}: {err}",
-                bdf=bdf, err=e
+                "Failed to get current driver for {bdf}: {err}", bdf=bdf, err=e
             ),
             prefix="VFIO",
         )
@@ -1053,20 +1106,20 @@ def _get_current_driver(bdf: str) -> Optional[str]:
 
 def _get_iommu_group(bdf: str) -> Optional[str]:
     """Get the IOMMU group for a device.
-    
+
     Args:
         bdf: PCI Bus:Device.Function identifier
-        
+
     Returns:
         IOMMU group ID or None
-        
+
     Raises:
         VFIODeviceNotFoundError: If device doesn't exist
     """
     path_manager = VFIOPathManager(bdf)
     if not path_manager.device_path.exists():
         raise VFIODeviceNotFoundError(f"PCI device {bdf} not found")
-    
+
     if path_manager.iommu_group_path:
         try:
             group_path = path_manager.iommu_group_path.resolve()
@@ -1078,10 +1131,10 @@ def _get_iommu_group(bdf: str) -> Optional[str]:
 
 def _get_iommu_group_safe(bdf: str) -> Optional[str]:
     """Safely get the IOMMU group for a device.
-    
+
     Args:
         bdf: PCI Bus:Device.Function identifier
-        
+
     Returns:
         IOMMU group ID or None
     """
@@ -1095,16 +1148,16 @@ def _wait_for_state_change(
     check_func: callable,
     expected_state: Any,
     timeout: float = 5.0,
-    poll_interval: float = 0.1
+    poll_interval: float = 0.1,
 ) -> bool:
     """Wait for a state change with timeout.
-    
+
     Args:
         check_func: Function to check current state
         expected_state: Expected state value
         timeout: Maximum time to wait in seconds
         poll_interval: Time between checks in seconds
-        
+
     Returns:
         True if state changed, False if timeout
     """
@@ -1118,10 +1171,10 @@ def _wait_for_state_change(
 
 def run_diagnostics(bdf: str) -> Dict[str, Any]:
     """Run diagnostics on a PCI device.
-    
+
     Args:
         bdf: PCI Bus:Device.Function identifier
-        
+
     Returns:
         Dictionary with diagnostic information
     """
@@ -1131,9 +1184,9 @@ def run_diagnostics(bdf: str) -> Dict[str, Any]:
         "driver": None,
         "iommu_group": None,
         "vfio_capable": False,
-        "errors": []
+        "errors": [],
     }
-    
+
     try:
         device_info = DeviceInfo.from_bdf(bdf)
         result["exists"] = True
@@ -1144,22 +1197,22 @@ def run_diagnostics(bdf: str) -> Dict[str, Any]:
         result["errors"].append(f"Device {bdf} not found")
     except Exception as e:
         result["errors"].append(str(e))
-    
+
     return result
 
 
 def render_pretty(data: Dict[str, Any], use_color: bool = True) -> str:
     """Render data in a pretty format.
-    
+
     Args:
         data: Data to render
         use_color: Whether to use ANSI colors
-        
+
     Returns:
         Formatted string
     """
     lines = []
-    
+
     # Simple color codes
     if use_color:
         GREEN = "\033[32m"
@@ -1167,7 +1220,7 @@ def render_pretty(data: Dict[str, Any], use_color: bool = True) -> str:
         RESET = "\033[0m"
     else:
         GREEN = RED = RESET = ""
-    
+
     for key, value in data.items():
         if isinstance(value, bool):
             color = GREEN if value else RED
@@ -1181,7 +1234,7 @@ def render_pretty(data: Dict[str, Any], use_color: bool = True) -> str:
                 lines.append(f"{key}: {GREEN}none{RESET}")
         else:
             lines.append(f"{key}: {value}")
-    
+
     return "\n".join(lines)
 
 
@@ -1199,5 +1252,5 @@ __all__ = [
     "_get_iommu_group_safe",
     "_wait_for_state_change",
     "run_diagnostics",
-    "render_pretty"
+    "render_pretty",
 ]

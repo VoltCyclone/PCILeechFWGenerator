@@ -60,7 +60,7 @@ repos:
     rev: 1.7.5
     hooks:
       - id: bandit
-        args: ['-r', 'src/']
+        args: ['-r', 'src/', 'scripts/']
         exclude: tests/
 
   # Dependency vulnerability checking is handled by safety/Bandit in CI
@@ -104,6 +104,22 @@ repos:
         pass_filenames: false
         fail_fast: false
         verbose: true
+
+      # Safe logging guard: no raw f-string logging outside src/tui/
+      - id: safe-logging-guard
+        name: No raw f-string logging (use log_*_safe + safe_format)
+        entry: scripts/check_safe_logging.sh
+        language: system
+        files: '^src/.*\.py$'
+        pass_filenames: false
+
+      # Test import hygiene: no 'from src' / module-level sys.path.insert
+      - id: test-import-hygiene
+        name: Clean test imports (pcileechfwgenerator.*, no sys.path hacks)
+        entry: scripts/check_test_imports.sh
+        language: system
+        files: '^tests/.*\.py$'
+        pass_filenames: false
 
 # Configuration for specific hooks
 ci:

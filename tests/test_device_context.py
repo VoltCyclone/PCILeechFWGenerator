@@ -6,16 +6,13 @@ These tests verify that device features in the context are generated dynamically
 based on the actual capabilities found in the device configuration space.
 """
 
-import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pcileechfwgenerator.pci_capability.core import CapabilityWalker, ConfigSpace
+from pcileechfwgenerator.pci_capability.core import ConfigSpace
 from pcileechfwgenerator.pci_capability.processor import CapabilityProcessor
 from pcileechfwgenerator.pci_capability.rules import RuleEngine
 from pcileechfwgenerator.pci_capability.types import CapabilityInfo, CapabilityType

@@ -14,7 +14,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -31,10 +31,12 @@ class TestRunner:
         Initialize the test runner.
 
         Args:
-            test_dir: Directory containing test files. Defaults to script directory.
+            test_dir: Directory containing test files. Defaults to the repo's
+                ``tests/`` directory (this runner lives in ``scripts/``).
         """
-        self.test_dir = test_dir or Path(__file__).parent.resolve()
-        self.project_root = self.test_dir.parent.resolve()
+        # This script lives in scripts/; tests live in ../tests.
+        self.project_root = Path(__file__).parent.parent.resolve()
+        self.test_dir = test_dir or (self.project_root / "tests")
         self._setup_python_path()
 
     def _setup_python_path(self) -> None:
@@ -135,7 +137,7 @@ class TestRunner:
 
         if not test_file.exists():
             logger.error(f"Test file '{test_file}' does not exist")
-            print(f"\nAvailable test modules:")
+            print("\nAvailable test modules:")
             self.list_available_tests()
             return 1
 

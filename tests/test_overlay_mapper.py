@@ -6,10 +6,7 @@ This script tests the overlay mapper functionality with various register types
 to ensure it correctly identifies registers that need overlay entries.
 """
 
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pcileechfwgenerator.device_clone.overlay_mapper import (OverlayMapper,
                                              PCIeRegisterDefinitions)

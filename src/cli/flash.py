@@ -15,6 +15,7 @@ from pcileechfwgenerator.error_utils import (
 
 from ..log_config import get_logger
 from ..shell import Shell
+from ..string_utils import log_info_safe, safe_format
 
 logger = get_logger(__name__)
 
@@ -101,7 +102,11 @@ def flash_firmware(bin_path: Path) -> None:
 
     try:
         vid_pid = select_usb_device()
-        logger.info(f"Selected USB device: {vid_pid}")
+        log_info_safe(
+            logger,
+            safe_format("Selected USB device: {vidpid}", vidpid=vid_pid),
+            prefix="FLASH",
+        )
         print(f"[*] Flashing firmware using VID:PID {vid_pid}")
 
         # Use safer subprocess call with proper argument list

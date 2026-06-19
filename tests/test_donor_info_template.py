@@ -3,14 +3,17 @@
 Unit tests for the donor info template generator.
 """
 
+import inspect
 import json
+import re
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from pcileechfwgenerator.device_clone.donor_info_template import DonorInfoTemplateGenerator
+from pcileechfwgenerator.device_clone.donor_info_template import (
+    DonorInfoTemplateGenerator,
+)
 from pcileechfwgenerator.exceptions import DeviceConfigError, ValidationError
 
 
@@ -589,6 +592,40 @@ class TestDonorInfoTemplateGenerator:
         assert merged["config"]["field2"] == "original2"
         assert merged["config"]["nested"]["inner1"] == "inner_value"
         assert merged["config"]["nested"]["inner2"] == "original_inner2"
+
+
+class TestNoRealExampleIds:
+    """Guard against real-looking vendor/device IDs leaking into the template.
+
+    The project rejects synthetic/placeholder donor data (AGENTS.md). Example
+    IDs in user-fillable comments are a copy-paste hazard: a user could paste a
+    real-looking ``0x8086``/``0x10DE`` straight in and ship plausible-but-fake
+    firmware. Placeholders must be obviously-fake (``0xXXXX`` / ``<...>``).
+    """
+
+    # Real vendor/device/class IDs that must never appear as "examples".
+    FORBIDDEN_ID_PATTERN = re.compile(
+        r"0x(?:8086|10DE|10D3|10EC|1234|1533|2522|8168)\b|\b020000\b",
+        re.IGNORECASE,
+    )
+
+    def test_source_file_has_no_real_example_ids(self):
+        """The module source must not contain real example IDs in comments."""
+        source_path = Path(inspect.getsourcefile(DonorInfoTemplateGenerator))
+        source = source_path.read_text(encoding="utf-8")
+        matches = self.FORBIDDEN_ID_PATTERN.findall(source)
+        assert not matches, (
+            f"Real example IDs found in {source_path.name}: {matches}. "
+            "Use obviously-fake placeholders (0xXXXX / <...>) instead."
+        )
+
+    def test_commented_template_has_no_real_example_ids(self):
+        """The emitted comment-annotated template must not leak real IDs."""
+        rendered = DonorInfoTemplateGenerator.generate_template_with_comments()
+        matches = self.FORBIDDEN_ID_PATTERN.findall(rendered)
+        assert not matches, (
+            f"Real example IDs found in rendered template: {matches}"
+        )
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from src import import_utils
+from pcileechfwgenerator import import_utils
 
 
 def test_safe_import_absolute(monkeypatch):

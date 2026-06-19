@@ -13,8 +13,10 @@ in the CaptainDMA/75t484_x1 fifo but reference fields the matching
 ``IfPCIeFifoCore`` interface never declares — that mismatch is what makes
 75t484_x1 fail synthesis with ``cannot resolve hierarchical name``.
 """
+
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,11 +41,21 @@ class DonorIDs:
 # RW-reset-block anchors. Ordered (label, regex, hex-width, donor-attr).
 # The regex captures up to the literal so the suffix (``;`` + comment) survives.
 _RW_ANCHORS = (
-    ("+010: CFG_SUBSYS_VEND_ID", r"(rw\[143:128\]\s*<=\s*)16'h[0-9A-Fa-f]{4}", 4, "subsystem_vendor_id"),
-    ("+012: CFG_SUBSYS_ID",      r"(rw\[159:144\]\s*<=\s*)16'h[0-9A-Fa-f]{4}", 4, "subsystem_id"),
-    ("+014: CFG_VEND_ID",        r"(rw\[175:160\]\s*<=\s*)16'h[0-9A-Fa-f]{4}", 4, "vendor_id"),
-    ("+016: CFG_DEV_ID",         r"(rw\[191:176\]\s*<=\s*)16'h[0-9A-Fa-f]{4}", 4, "device_id"),
-    ("+018: CFG_REV_ID",         r"(rw\[199:192\]\s*<=\s*)8'h[0-9A-Fa-f]{2}",  2, "revision_id"),
+    (
+        "+010: CFG_SUBSYS_VEND_ID",
+        r"(rw\[143:128\]\s*<=\s*)16'h[0-9A-Fa-f]{4}",
+        4,
+        "subsystem_vendor_id",
+    ),
+    (
+        "+012: CFG_SUBSYS_ID",
+        r"(rw\[159:144\]\s*<=\s*)16'h[0-9A-Fa-f]{4}",
+        4,
+        "subsystem_id",
+    ),
+    ("+014: CFG_VEND_ID", r"(rw\[175:160\]\s*<=\s*)16'h[0-9A-Fa-f]{4}", 4, "vendor_id"),
+    ("+016: CFG_DEV_ID", r"(rw\[191:176\]\s*<=\s*)16'h[0-9A-Fa-f]{4}", 4, "device_id"),
+    ("+018: CFG_REV_ID", r"(rw\[199:192\]\s*<=\s*)8'h[0-9A-Fa-f]{2}", 2, "revision_id"),
 )
 
 # Trailing 5 fields of the packed _pcie_core_config initializer:
@@ -66,9 +78,7 @@ _CFG_ID_ASSIGN_RE = re.compile(
 
 # Active (non-commented) assign to any dpcie field. Used to detect mismatches
 # between the staged fifo and header that the patcher can't auto-fix.
-_DPCIE_ASSIGN_RE = re.compile(
-    r"^\s*assign\s+dpcie\.([A-Za-z_][A-Za-z0-9_]*)\b"
-)
+_DPCIE_ASSIGN_RE = re.compile(r"^\s*assign\s+dpcie\.([A-Za-z_][A-Za-z0-9_]*)\b")
 
 # A wire/reg/logic declaration name inside an interface body. Conservative
 # regex: matches "wire <field>" / "wire [N:0] <field>" forms. We're only
@@ -102,9 +112,7 @@ def _patch_rw_reset_block(text: str, donor: DonorIDs) -> str:
     for label, pattern, width_hex, attr in _RW_ANCHORS:
         value = getattr(donor, attr)
         _validate_width(attr, value, width_hex * 4)
-        replacement_literal = (
-            f"{width_hex * 4}'h{_hex(value, width_hex)}"
-        )
+        replacement_literal = f"{width_hex * 4}'h{_hex(value, width_hex)}"
         new_text, count = re.subn(
             pattern,
             lambda m, lit=replacement_literal: m.group(1) + lit,
@@ -112,9 +120,7 @@ def _patch_rw_reset_block(text: str, donor: DonorIDs) -> str:
             count=1,
         )
         if count != 1:
-            raise FifoPatchError(
-                f"FIFO reset-block anchor not found: {label}"
-            )
+            raise FifoPatchError(f"FIFO reset-block anchor not found: {label}")
         out = new_text
     return out
 
@@ -143,9 +149,7 @@ def _patch_pcie_core_config_initializer(text: str, donor: DonorIDs) -> str:
         count=1,
     )
     if count != 1:
-        raise FifoPatchError(
-            "_pcie_core_config packed initializer not found in FIFO"
-        )
+        raise FifoPatchError("_pcie_core_config packed initializer not found in FIFO")
     return new_text
 
 
@@ -287,6 +291,17 @@ def donor_ids_from_template_context(
     if not vendor_id or not device_id:
         return None
 
+    # Reject known synthetic/placeholder identities (non-zero defaults that the
+    # codebase fabricates when donor collection fails). The escape hatch only
+    # bypasses this pair check — never the missing/zero check above.
+    if os.environ.get("PCILEECH_ALLOW_PLACEHOLDER_IDS") != "1":
+        from pcileechfwgenerator.device_clone.constants import (
+            is_placeholder_donor_id,
+        )
+
+        if is_placeholder_donor_id(vendor_id, device_id):
+            return None
+
     if revision_id is None:
         revision_id = 0
     if not subsystem_vendor_id:
@@ -329,9 +344,10 @@ def _detect_unpatched_dpcie_mismatches(
         return []
 
     declared = _extract_interface_member_names(header_text)
-    known_cfg_fields = {f"pcie_cfg_{tag}" for tag in (
-        "subsys_vend_id", "subsys_id", "vend_id", "dev_id", "rev_id"
-    )}
+    known_cfg_fields = {
+        f"pcie_cfg_{tag}"
+        for tag in ("subsys_vend_id", "subsys_id", "vend_id", "dev_id", "rev_id")
+    }
 
     missing = []
     for line in fifo_text.splitlines():
@@ -392,9 +408,7 @@ def apply_fifo_donor_patch(
             and _CFG_ID_ASSIGN_RE.match(line) is not None
         )
 
-    cfg_commented = (
-        _active_cfg_id_assigns(fifo_text) > _active_cfg_id_assigns(new_text)
-    )
+    cfg_commented = _active_cfg_id_assigns(fifo_text) > _active_cfg_id_assigns(new_text)
 
     # After the patcher has commented-out the known cfg-id mismatches, any
     # remaining dpcie.<field> assigned in the fifo but absent from the header

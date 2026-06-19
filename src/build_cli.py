@@ -6,12 +6,6 @@ This module provides the main() function that setuptools will use as an entry po
 
 import logging
 import sys
-from pathlib import Path
-
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
 
 from pcileechfwgenerator.log_config import get_logger, setup_logging
 from pcileechfwgenerator.string_utils import (
@@ -46,18 +40,16 @@ def main():
             prefix="CLI",
         )
         log_info_safe(
-            logger, "Try: sudo -E python3 -m pcileechfwgenerator.build_cli", prefix="CLI"
+            logger,
+            "Try: sudo -E python3 -m pcileechfwgenerator.build_cli",
+            prefix="CLI",
         )
         return 1
     except KeyboardInterrupt:
-        log_warning_safe(
-            logger, "Build process interrupted by user", prefix="CLI"
-        )
+        log_warning_safe(logger, "Build process interrupted by user", prefix="CLI")
         return 1
     except Exception as e:
-        log_error_safe(
-            logger, "Build process failed: {err}", err=str(e), prefix="CLI"
-        )
+        log_error_safe(logger, "Build process failed: {err}", err=str(e), prefix="CLI")
         return 1
 
 

@@ -973,6 +973,81 @@ class TestValidation:
                 cast(TemplateContext, invalid_context)
             )
 
+    def test_context_rejects_placeholder_donor_ids(self, mock_config, monkeypatch):
+        """A populated-but-synthetic donor pair must fail context validation."""
+        from typing import cast
+
+        monkeypatch.delenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", raising=False)
+        builder = PCILeechContextBuilder(
+            device_bdf="0000:03:00.0",
+            config=mock_config,
+            validation_level=ValidationLevel.STRICT,
+        )
+
+        # 0x8086:0x1533 is the fabricated Intel I210 default placeholder.
+        placeholder_context = {
+            "device_config": {
+                "vendor_id": "8086",
+                "device_id": "1533",
+                "bdf": "0000:03:00.0",
+            },
+            "config_space": {},
+            "msix_config": {},
+            "bar_config": {"bars": [Mock()]},
+            "timing_config": {
+                "clock_frequency_mhz": 100.0,
+                "read_latency": 4,
+                "write_latency": 2,
+            },
+            "pcileech_config": {},
+            "device_signature": "32'h12345678",
+            "generation_metadata": {},
+            "interrupt_config": {"strategy": "msix"},
+            "active_device_config": {},
+        }
+
+        with pytest.raises(ContextError, match="synthetic placeholder"):
+            builder._validate_context_completeness(
+                cast(TemplateContext, placeholder_context)
+            )
+
+    def test_context_placeholder_allowed_with_env_escape_hatch(
+        self, mock_config, monkeypatch
+    ):
+        """The escape hatch lets a genuine colliding device pass validation."""
+        from typing import cast
+
+        monkeypatch.setenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", "1")
+        builder = PCILeechContextBuilder(
+            device_bdf="0000:03:00.0",
+            config=mock_config,
+            validation_level=ValidationLevel.STRICT,
+        )
+
+        context = {
+            "device_config": {
+                "vendor_id": "8086",
+                "device_id": "1533",
+                "bdf": "0000:03:00.0",
+            },
+            "config_space": {},
+            "msix_config": {},
+            "bar_config": {"bars": [Mock()]},
+            "timing_config": {
+                "clock_frequency_mhz": 100.0,
+                "read_latency": 4,
+                "write_latency": 2,
+            },
+            "pcileech_config": {},
+            "device_signature": "32'h12345678",
+            "generation_metadata": {},
+            "interrupt_config": {"strategy": "msix"},
+            "active_device_config": {},
+        }
+
+        # Should not raise with the escape hatch set.
+        builder._validate_context_completeness(cast(TemplateContext, context))
+
     def test_bar_configuration_validation(self):
         """Test BarConfiguration dataclass validation."""
         # Valid configuration

@@ -208,23 +208,15 @@ class SVConstants:
 class SVTemplates:
     """Template paths for SystemVerilog generation."""
 
-    DEVICE_SPECIFIC_PORTS: str = (
-        "systemverilog/components/" "device_specific_ports.sv.j2"
-    )
+    # Only paths with existing templates and live consumers are listed. The
+    # overlay-only generation path does not use standalone systemverilog/*.j2
+    # module templates.
     MAIN_ADVANCED_CONTROLLER: str = "sv/advanced_controller.sv.j2"
     CLOCK_CROSSING: str = "sv/clock_crossing.sv.j2"
     BUILD_INTEGRATION: str = "python/build_integration.py.j2"
     PCILEECH_INTEGRATION: str = "python/pcileech_build_integration.py.j2"
-    PCILEECH_TLPS_BAR_CONTROLLER: str = (
-        "systemverilog/pcileech_tlps128_bar_controller.sv.j2"
-    )
-    PCILEECH_FIFO: str = "systemverilog/pcileech_fifo.sv.j2"
-    DEVICE_CONFIG: str = "systemverilog/device_config.sv.j2"
-    TOP_LEVEL_WRAPPER: str = "systemverilog/top_level_wrapper.sv.j2"
+    # Resolves via template_mapping to sv/pcileech_cfgspace.coe.j2.
     PCILEECH_CFGSPACE: str = "systemverilog/pcileech_cfgspace.coe.j2"
-    MSIX_CAPABILITY_REGISTERS: str = "systemverilog/msix_capability_registers.sv.j2"
-    MSIX_IMPLEMENTATION: str = "systemverilog/msix_implementation.sv.j2"
-    MSIX_TABLE: str = "systemverilog/msix_table.sv.j2"
 
     # Basic modules list
     BASIC_SV_MODULES: List[str] = [

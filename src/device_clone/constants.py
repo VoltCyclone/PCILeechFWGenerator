@@ -33,6 +33,50 @@ DEVICE_ID_INTEL_NVME = 0x2522  # Intel NVMe SSD Controller
 DEVICE_ID_NVIDIA_GPU = 0x2204  # NVIDIA RTX GPU
 DEVICE_ID_FALLBACK = 0x0000  # Fallback when device ID is missing
 
+# Known synthetic/placeholder (vendor_id, device_id) pairs.
+#
+# A build that reaches the donor-ID validation gate carrying any of these never
+# collected real donor data — emitting it would violate the project's "real
+# donor hardware only" rule (AGENTS.md). These are rejected in addition to the
+# missing/zero cases that the existing guards already catch.
+#
+# NOTE: only synthetic *pairs* are listed. The bare vendor IDs 0x8086 / 0x10EC /
+# 0x10DE are legitimate real vendors; a real device must never be rejected just
+# for its vendor. Some pairs below (Intel I210 0x8086:0x1533, Realtek
+# 0x10EC:0x8168, NVIDIA 0x10DE:0x2204) ARE real device IDs that the codebase also
+# uses as fabricated defaults; cloning a genuine such device requires the
+# PCILEECH_ALLOW_PLACEHOLDER_IDS escape hatch (see is_placeholder_donor_id).
+KNOWN_PLACEHOLDER_IDS: Final[frozenset] = frozenset(
+    {
+        (int(VENDOR_ID_INTEL), DEVICE_ID_GENERIC),  # 0x8086:0x1234
+        (int(VENDOR_ID_INTEL), DEVICE_ID_INTEL_ETH),  # 0x8086:0x1533 (synthetic I210)
+        (int(VENDOR_ID_INTEL), DEVICE_ID_INTEL_NVME),  # 0x8086:0x2522 (synthetic NVMe)
+        (int(VENDOR_ID_REALTEK), 0x8168),  # 0x10EC:0x8168 (tcl/j2 default RTL8168)
+        (int(VENDOR_ID_NVIDIA), DEVICE_ID_NVIDIA_GPU),  # 0x10DE:0x2204 (synthetic GPU)
+        (0x10EE, 0x0666),  # Xilinx FIFO default
+        (0x10EE, 0x0007),  # Xilinx FIFO default
+    }
+)
+
+
+def is_placeholder_donor_id(vendor_id: int, device_id: int) -> bool:
+    """Return True if (vendor_id, device_id) is a known synthetic placeholder.
+
+    Rejects only fabricated *pairs*, never a vendor on its own. Callers that
+    need to clone a genuine device whose real IDs collide with the placeholder
+    set must honor the ``PCILEECH_ALLOW_PLACEHOLDER_IDS=1`` escape hatch at the
+    call site rather than weakening this set.
+
+    Args:
+        vendor_id: PCI vendor ID as an integer.
+        device_id: PCI device ID as an integer.
+
+    Returns:
+        True if the pair is a known synthetic/placeholder identity.
+    """
+    return (int(vendor_id), int(device_id)) in KNOWN_PLACEHOLDER_IDS
+
+
 # PCIe BAR type constants
 BAR_TYPE_MEMORY_32BIT = 0
 BAR_TYPE_MEMORY_64BIT = 1

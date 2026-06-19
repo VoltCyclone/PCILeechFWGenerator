@@ -59,22 +59,26 @@ class HostCollector:
             # Write device_context.json with extracted device IDs
             ctx_path = self.datastore / "device_context.json"
             with open(ctx_path, "w") as f:
-                json.dump({
-                    "config_space_hex": cfg_hex,
-                    "vendor_id": device_ids["vendor_id"],
-                    "device_id": device_ids["device_id"],
-                    "class_code": device_ids["class_code"],
-                    "revision_id": device_ids["revision_id"],
-                    "subsystem_vendor_id": device_ids.get("subsystem_vendor_id"),
-                    "subsystem_device_id": device_ids.get("subsystem_device_id"),
-                }, f, indent=2)
+                json.dump(
+                    {
+                        "config_space_hex": cfg_hex,
+                        "vendor_id": device_ids["vendor_id"],
+                        "device_id": device_ids["device_id"],
+                        "class_code": device_ids["class_code"],
+                        "revision_id": device_ids["revision_id"],
+                        "subsystem_vendor_id": device_ids.get("subsystem_vendor_id"),
+                        "subsystem_device_id": device_ids.get("subsystem_device_id"),
+                    },
+                    f,
+                    indent=2,
+                )
             log_info_safe(
                 self.logger,
                 safe_format(
                     "Wrote {path} with device IDs: VID={vid:04x} DID={did:04x}",
                     path=str(ctx_path),
                     vid=device_ids["vendor_id"],
-                    did=device_ids["device_id"]
+                    did=device_ids["device_id"],
                 ),
                 prefix="COLLECT",
             )
@@ -126,7 +130,9 @@ class HostCollector:
                 prefix="COLLECT",
             )
             return data
-        except Exception as e:
+        except OSError as e:
+            # Only file I/O happens here; a non-OSError would be a programming
+            # bug and should propagate rather than be swallowed.
             log_error_safe(
                 self.logger,
                 safe_format("Config read error: {err}", err=str(e)),
@@ -157,24 +163,24 @@ class HostCollector:
             log_error_safe(
                 self.logger,
                 "Config space too short for device ID extraction",
-                prefix="COLLECT"
+                prefix="COLLECT",
             )
             return {}
-        
+
         try:
             # Extract basic device IDs (offsets 0x00-0x0B)
             vendor_id = int.from_bytes(cfg[0:2], "little")
             device_id = int.from_bytes(cfg[2:4], "little")
             revision_id = cfg[8]
             class_code = int.from_bytes(cfg[9:12], "little")
-            
+
             # Extract subsystem IDs (offsets 0x2C-0x2F)
             subsystem_vendor_id = None
             subsystem_device_id = None
             if len(cfg) >= 48:
                 subsystem_vendor_id = int.from_bytes(cfg[44:46], "little")
                 subsystem_device_id = int.from_bytes(cfg[46:48], "little")
-            
+
             log_info_safe(
                 self.logger,
                 safe_format(
@@ -183,11 +189,11 @@ class HostCollector:
                     vid=vendor_id,
                     did=device_id,
                     cls=class_code,
-                    rev=revision_id
+                    rev=revision_id,
                 ),
-                prefix="COLLECT"
+                prefix="COLLECT",
             )
-            
+
             return {
                 "vendor_id": vendor_id,
                 "device_id": device_id,
@@ -196,14 +202,17 @@ class HostCollector:
                 "subsystem_vendor_id": subsystem_vendor_id,
                 "subsystem_device_id": subsystem_device_id,
             }
-        except Exception as e:
+        except (IndexError, ValueError) as e:
+            # Only byte slicing and int.from_bytes happen here, so only
+            # IndexError/ValueError are expected; other errors indicate a code
+            # bug and should propagate.
             log_error_safe(
                 self.logger,
                 safe_format("Failed to extract device IDs: {err}", err=str(e)),
-                prefix="COLLECT"
+                prefix="COLLECT",
             )
             return {}
-    
+
     def _visualize(self, buf: bytes) -> None:
         # Simple hex dump with offsets
         lines = []

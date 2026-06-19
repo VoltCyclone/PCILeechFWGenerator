@@ -14,16 +14,12 @@ or behavioral observation.
 """
 
 import logging
-import hashlib
-import sys
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 import pytest
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pcileechfwgenerator.templating.sv_context_builder import SVContextBuilder
 from pcileechfwgenerator.behavioral.base import BehaviorType

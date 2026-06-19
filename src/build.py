@@ -150,8 +150,12 @@ class MSIXData:
 
 
 @dataclass(slots=True)
-class DeviceConfiguration:
-    """Device configuration extracted from the build process."""
+class ExtractedDeviceInfo:
+    """Flat device identifiers extracted at build time from the template context.
+
+    Distinct from :class:`pcileechfwgenerator.device_clone.device_config.DeviceConfiguration`,
+    which is the rich, nested device profile. This is a build-time summary only.
+    """
 
     vendor_id: int
     device_id: int
@@ -159,6 +163,11 @@ class DeviceConfiguration:
     class_code: int
     requires_msix: bool
     pcie_lanes: int
+
+
+# Backward-compatible alias. The original name collided with the rich
+# device_clone.DeviceConfiguration model; new code should use ExtractedDeviceInfo.
+DeviceConfiguration = ExtractedDeviceInfo
 
 
 class ModuleChecker:
@@ -254,9 +263,7 @@ class MSIXManager:
         try:
             # In host-context-only mode, never touch sysfs/VFIO;
             # use pre-saved files only
-            disable_vfio = str(
-                os.environ.get("PCILEECH_DISABLE_VFIO", "")
-            ).lower() in (
+            disable_vfio = str(os.environ.get("PCILEECH_DISABLE_VFIO", "")).lower() in (
                 "1",
                 "true",
                 "yes",
@@ -277,9 +284,8 @@ class MSIXManager:
                         with open(msix_path, "r") as f:
                             payload = json.load(f)
                         # Support different shapes
-                        msix_info = (
-                            payload.get("capability_info")
-                            or payload.get("msix_info")
+                        msix_info = payload.get("capability_info") or payload.get(
+                            "msix_info"
                         )
                         cfg_hex = payload.get("config_space_hex")
                         cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
@@ -421,6 +427,7 @@ class MSIXManager:
             )
             if self.logger.isEnabledFor(logging.DEBUG):
                 import traceback
+
                 log_debug_safe(
                     self.logger,
                     safe_format(
@@ -434,13 +441,13 @@ class MSIXManager:
             log_warning_safe(
                 self.logger,
                 safe_format(
-                    "MSI-X preload failed - unexpected error: {err}",
-                    err=str(e)
+                    "MSI-X preload failed - unexpected error: {err}", err=str(e)
                 ),
                 prefix="MSIX",
             )
             if self.logger.isEnabledFor(logging.DEBUG):
                 import traceback
+
                 log_debug_safe(
                     self.logger,
                     safe_format(
@@ -502,7 +509,6 @@ class MSIXManager:
             "is_valid": True,
             "validation_errors": [],
         }
-
 
 
 class FileOperationsManager:
@@ -665,7 +671,7 @@ class FileOperationsManager:
                 raise FileOperationError(
                     f"Parallel write timed out after {FILE_WRITE_TIMEOUT}s"
                 ) from e
-            
+
             if failed_writes:
                 error_details = "; ".join([f"{p}: {e}" for p, e in failed_writes])
                 raise FileOperationError(
@@ -698,7 +704,6 @@ class FileOperationsManager:
     def _json_serialize_default(self, obj: Any) -> str:
         """Default JSON serialization function for complex objects."""
         return obj.__dict__ if hasattr(obj, "__dict__") else str(obj)
-
 
 
 class ConfigurationManager:
@@ -754,7 +759,7 @@ class ConfigurationManager:
 
     def extract_device_config(
         self, template_context: Dict[str, Any], has_msix: bool
-    ) -> DeviceConfiguration:
+    ) -> ExtractedDeviceInfo:
         """Extract and validate device configuration from build results."""
         device_config = template_context.get("device_config")
         pcie_config = template_context.get("pcie_config", {})
@@ -776,10 +781,14 @@ class ConfigurationManager:
 
         log_debug_safe(
             self.logger,
-            "Validating device config fields: " +
-            ", ".join([f"{k}={device_config.get(k, 'missing')}"
-                       for k in required_fields.keys()]),
-            prefix="BUILD"
+            "Validating device config fields: "
+            + ", ".join(
+                [
+                    f"{k}={device_config.get(k, 'missing')}"
+                    for k in required_fields.keys()
+                ]
+            ),
+            prefix="BUILD",
         )
 
         for field, display_name in required_fields.items():
@@ -799,7 +808,7 @@ class ConfigurationManager:
                         log_info_safe(
                             self.logger,
                             "Revision ID is 0x00 - this is valid for many devices",
-                            prefix="BUILD"
+                            prefix="BUILD",
                         )
                         vendor_id = _as_int(
                             device_config.get("vendor_id", 0), "vendor_id"
@@ -842,7 +851,7 @@ class ConfigurationManager:
         revision_id = _as_int(device_config["revision_id"], "revision_id")
         class_code = _as_int(device_config["class_code"], "class_code")
 
-        return DeviceConfiguration(
+        return ExtractedDeviceInfo(
             vendor_id=vendor_id,
             device_id=device_id,
             revision_id=revision_id,
@@ -873,7 +882,6 @@ class ConfigurationManager:
         return bool(re.match(pattern, bdf))
 
 
-
 class FirmwareBuilder:
     """
     This class orchestrates the firmware generation process using
@@ -895,8 +903,7 @@ class FirmwareBuilder:
         self.build_logger = get_build_logger(self.logger)
         self.file_manifest = create_manifest_tracker(self.logger)
         self.template_validator = create_template_validator(
-            self._get_repo_root(),
-            self.logger
+            self._get_repo_root(), self.logger
         )
 
         self.msix_manager = msix_manager or MSIXManager(config.bdf, self.logger)
@@ -931,7 +938,7 @@ class FirmwareBuilder:
         """Validate board template before build."""
         self.build_logger.info(
             safe_format("Validating board: {board}", board=self.config.board),
-            prefix="TEMPLATE"
+            prefix="TEMPLATE",
         )
 
         is_valid, warnings = self.template_validator.validate_board_template(
@@ -944,13 +951,11 @@ class FirmwareBuilder:
 
         if not is_valid:
             self.build_logger.warning(
-                "Board template validation failed - build may fail",
-                prefix="TEMPLATE"
+                "Board template validation failed - build may fail", prefix="TEMPLATE"
             )
         else:
             self.build_logger.info(
-                "Board template validation passed",
-                prefix="TEMPLATE"
+                "Board template validation passed", prefix="TEMPLATE"
             )
 
     def _get_repo_root(self) -> Path:
@@ -990,12 +995,12 @@ class FirmwareBuilder:
             if host_context:
                 self.build_logger.push_phase("host_context_generation")
                 self._phase("Using host-collected device context …")
-                
+
                 config_space_hex = host_context.get("config_space_hex", "")
-                config_space_bytes =(
-                    bytes.fromhex(config_space_hex) if config_space_hex else b""   
+                config_space_bytes = (
+                    bytes.fromhex(config_space_hex) if config_space_hex else b""
                 )
-                
+
                 config_space_data = {
                     "raw_config_space": config_space_bytes,
                     "config_space_hex": config_space_hex,
@@ -1008,38 +1013,40 @@ class FirmwareBuilder:
                         "device_id": host_context.get("device_id"),
                         "class_code": host_context.get("class_code"),
                         "revision_id": host_context.get("revision_id"),
-                        "subsystem_vendor_id":
-                            host_context.get("subsystem_vendor_id"),
-                        "subsystem_device_id":
-                            host_context.get("subsystem_device_id"),
+                        "subsystem_vendor_id": host_context.get("subsystem_vendor_id"),
+                        "subsystem_device_id": host_context.get("subsystem_device_id"),
                     },
                 }
-                
+
                 self.build_logger.info(
                     safe_format(
                         "Using device IDs: VID=0x{vid} DID=0x{did} Class=0x{cls}",
                         vid=config_space_data["vendor_id"],
                         did=config_space_data["device_id"],
-                        cls=config_space_data["class_code"]
+                        cls=config_space_data["class_code"],
                     ),
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
-                
+
                 if not host_context.get("device_config"):
                     host_context["device_config"] = {
                         "device_bdf": self.config.bdf,
                         "vendor_id": format(host_context.get("vendor_id", 0), "04x"),
                         "device_id": format(host_context.get("device_id", 0), "04x"),
-                        "class_code": format(
-                            host_context.get("class_code", 0), "06x"),
+                        "class_code": format(host_context.get("class_code", 0), "06x"),
                         "revision_id": format(
-                            host_context.get("revision_id", 0), "02x"),
-                        "subsystem_vendor_id": format(
-                            host_context.get("subsystem_vendor_id", 0), "04x"
-                        ) if host_context.get("subsystem_vendor_id") else "0000",
-                        "subsystem_device_id": format(
-                            host_context.get("subsystem_device_id", 0), "04x"
-                        ) if host_context.get("subsystem_device_id") else "0000",
+                            host_context.get("revision_id", 0), "02x"
+                        ),
+                        "subsystem_vendor_id": (
+                            format(host_context.get("subsystem_vendor_id", 0), "04x")
+                            if host_context.get("subsystem_vendor_id")
+                            else "0000"
+                        ),
+                        "subsystem_device_id": (
+                            format(host_context.get("subsystem_device_id", 0), "04x")
+                            if host_context.get("subsystem_device_id")
+                            else "0000"
+                        ),
                         "enable_perf_counters": False,
                         "enable_advanced_features": False,
                         "enable_error_injection": False,
@@ -1048,14 +1055,14 @@ class FirmwareBuilder:
                     }
                     self.build_logger.info(
                         "Constructed device_config from host context device IDs",
-                        prefix="HOST_CFG"
+                        prefix="HOST_CFG",
                     )
                 else:
                     self.build_logger.info(
                         "Using existing device_config from host context",
-                        prefix="HOST_CFG"
+                        prefix="HOST_CFG",
                     )
-                
+
                 generation_result = {
                     "template_context": host_context,
                     "systemverilog_modules": {},
@@ -1065,7 +1072,7 @@ class FirmwareBuilder:
                 self.build_logger.info(
                     "Complete device context loaded from host - "
                     "skipping container VFIO operations",
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
                 self.build_logger.pop_phase("host_context_generation")
             else:
@@ -1141,6 +1148,7 @@ class FirmwareBuilder:
             )
             if self.logger.isEnabledFor(logging.DEBUG):
                 import traceback
+
                 log_debug_safe(
                     self.logger,
                     safe_format(
@@ -1165,9 +1173,9 @@ class FirmwareBuilder:
                 "{dups} duplicates skipped",
                 files=manifest.total_files,
                 size=manifest.total_size_bytes,
-                dups=len(manifest.duplicate_operations)
+                dups=len(manifest.duplicate_operations),
             ),
-            prefix="FILEMGR"
+            prefix="FILEMGR",
         )
 
     def run_vivado(self) -> None:
@@ -1175,9 +1183,7 @@ class FirmwareBuilder:
         try:
             from .vivado_handling import VivadoRunner, find_vivado_installation
         except ImportError as e:
-            raise VivadoIntegrationError(
-                "Vivado handling modules not available"
-            ) from e
+            raise VivadoIntegrationError("Vivado handling modules not available") from e
 
         if self.config.vivado_path:
             vivado_path = self.config.vivado_path
@@ -1241,9 +1247,9 @@ class FirmwareBuilder:
                 self.logger,
                 safe_format(
                     "Using preloaded config space from host: {size} bytes",
-                    size=len(preloaded_config_space)
+                    size=len(preloaded_config_space),
                 ),
-                prefix="BUILD"
+                prefix="BUILD",
             )
         else:
             if getattr(self.config, "disable_vfio", False):
@@ -1264,7 +1270,7 @@ class FirmwareBuilder:
                 log_info_safe(
                     self.logger,
                     "No preloaded config space available - will use VFIO",
-                    prefix="BUILD"
+                    prefix="BUILD",
                 )
 
         gen_cfg = PCILeechGenerationConfig(
@@ -1286,18 +1292,19 @@ class FirmwareBuilder:
 
         self.gen = PCILeechGenerator(gen_cfg)
 
-        if (
-            self.config.enable_profiling
-            and not getattr(self.config, "disable_vfio", False)
+        if self.config.enable_profiling and not getattr(
+            self.config, "disable_vfio", False
         ):
             from .device_clone.behavior_profiler import BehaviorProfiler
+
             self.profiler = BehaviorProfiler(bdf=self.config.bdf)
         else:
             Noop = type("NoopProfiler", (), {})  # pragma: no cover - trivial
             self.profiler = Noop()
-            self.profiler.capture_behavior_profile = (
-                lambda duration: {"duration": duration, "events": []}
-            )
+            self.profiler.capture_behavior_profile = lambda duration: {
+                "duration": duration,
+                "events": [],
+            }
 
     def _load_donor_template(self) -> Optional[Dict[str, Any]]:
         """Load donor template if provided."""
@@ -1336,9 +1343,7 @@ class FirmwareBuilder:
         context_path = os.environ.get(
             "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
         )
-        msix_path = os.environ.get(
-            "MSIX_DATA_PATH", "/app/output/msix_data.json"
-        )
+        msix_path = os.environ.get("MSIX_DATA_PATH", "/app/output/msix_data.json")
 
         if not context_path:
             return None
@@ -1354,17 +1359,16 @@ class FirmwareBuilder:
                 log_warning_safe(
                     self.logger,
                     "Device context file does not contain a valid dictionary",
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
                 return None
 
             log_debug_safe(
                 self.logger,
                 safe_format(
-                    "Loaded device context with keys: {keys}",
-                    keys=list(payload.keys())
+                    "Loaded device context with keys: {keys}", keys=list(payload.keys())
                 ),
-                prefix="HOST_CFG"
+                prefix="HOST_CFG",
             )
 
         except json.JSONDecodeError as e:
@@ -1373,9 +1377,9 @@ class FirmwareBuilder:
                 safe_format(
                     "Device context file is not valid JSON: {path} - {err}",
                     path=context_path,
-                    err=str(e)
+                    err=str(e),
                 ),
-                prefix="HOST_CFG"
+                prefix="HOST_CFG",
             )
             return None
         except (OSError, IOError) as e:
@@ -1384,9 +1388,9 @@ class FirmwareBuilder:
                 safe_format(
                     "Failed to read device context file: {path} - {err}",
                     path=context_path,
-                    err=str(e)
+                    err=str(e),
                 ),
-                prefix="HOST_CFG"
+                prefix="HOST_CFG",
             )
             return None
 
@@ -1403,9 +1407,9 @@ class FirmwareBuilder:
                         "Config space hex length mismatch: expected {expected}, "
                         "got {actual} (possible corruption)",
                         expected=expected_length,
-                        actual=actual_length
+                        actual=actual_length,
                     ),
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
 
         # Also support nested path when full template_context was saved by host
@@ -1418,10 +1422,9 @@ class FirmwareBuilder:
                 log_debug_safe(
                     self.logger,
                     safe_format(
-                        "Template context extraction failed: {err}",
-                        err=str(e)
+                        "Template context extraction failed: {err}", err=str(e)
                     ),
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
                 config_space_hex = None
             except Exception as e:
@@ -1429,9 +1432,9 @@ class FirmwareBuilder:
                     self.logger,
                     safe_format(
                         "Unexpected error in template context extraction: {err}",
-                        err=str(e)
+                        err=str(e),
                     ),
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
                 config_space_hex = None
 
@@ -1440,9 +1443,9 @@ class FirmwareBuilder:
                 self.logger,
                 safe_format(
                     "Loaded config_space_hex from JSON: {length} characters",
-                    length=len(config_space_hex)
+                    length=len(config_space_hex),
                 ),
-                prefix="HOST_CFG"
+                prefix="HOST_CFG",
             )
 
             if len(config_space_hex) < 512:  # < 256 bytes, likely truncated
@@ -1451,9 +1454,9 @@ class FirmwareBuilder:
                     safe_format(
                         "Config space hex appears truncated: {length} chars "
                         "(expected ~8192 for 4096 bytes)",
-                        length=len(config_space_hex)
+                        length=len(config_space_hex),
                     ),
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
                 if msix_path and os.path.exists(msix_path):
                     try:
@@ -1464,7 +1467,7 @@ class FirmwareBuilder:
                             log_info_safe(
                                 self.logger,
                                 "Using longer config_space_hex from MSIX data file",
-                                prefix="HOST_CFG"
+                                prefix="HOST_CFG",
                             )
                             config_space_hex = alt_hex
                     except Exception as e:
@@ -1472,9 +1475,9 @@ class FirmwareBuilder:
                             self.logger,
                             safe_format(
                                 "Failed to load alternative config from MSIX: {err}",
-                                err=str(e)
+                                err=str(e),
                             ),
-                            prefix="HOST_CFG"
+                            prefix="HOST_CFG",
                         )
         if not config_space_hex:
             log_debug_safe(
@@ -1545,7 +1548,7 @@ class FirmwareBuilder:
                 log_error_safe(
                     self.logger,
                     "Config space hex too short (< 64 bytes), corrupted data",
-                    prefix="HOST_CFG"
+                    prefix="HOST_CFG",
                 )
                 return None
 
@@ -1554,10 +1557,9 @@ class FirmwareBuilder:
             log_warning_safe(
                 self.logger,
                 safe_format(
-                    "Invalid hex string in config_space_hex: {err}",
-                    err=str(e)
+                    "Invalid hex string in config_space_hex: {err}", err=str(e)
                 ),
-                prefix="HOST_CFG"
+                prefix="HOST_CFG",
             )
             return None
 
@@ -1566,9 +1568,9 @@ class FirmwareBuilder:
                 self.logger,
                 safe_format(
                     "Config space too small: {size} bytes (minimum 64 expected)",
-                    size=len(config_space_bytes)
+                    size=len(config_space_bytes),
                 ),
-                prefix="HOST_CFG"
+                prefix="HOST_CFG",
             )
             return None
 
@@ -1576,9 +1578,9 @@ class FirmwareBuilder:
             self.logger,
             safe_format(
                 "Loaded preloaded config space from host: {size} bytes",
-                size=len(config_space_bytes)
+                size=len(config_space_bytes),
             ),
-            prefix="HOST_CFG"
+            prefix="HOST_CFG",
         )
         return config_space_bytes
 
@@ -1592,7 +1594,7 @@ class FirmwareBuilder:
                 with open(context_path, "r") as f:
                     payload = json.load(f)
 
-                # Check for nested template_context (old format) 
+                # Check for nested template_context (old format)
                 # or use payload directly
                 template_context = payload.get("template_context")
                 if template_context:
@@ -1601,12 +1603,12 @@ class FirmwareBuilder:
                         safe_format(
                             "Loaded complete device context from host: "
                             "{keys} keys available",
-                            keys=len(template_context.keys())
+                            keys=len(template_context.keys()),
                         ),
-                        prefix="HOST_CTX"
+                        prefix="HOST_CTX",
                     )
                     return template_context
-                
+
                 # New format - device IDs directly in payload
                 if "config_space_hex" in payload and "vendor_id" in payload:
                     log_info_safe(
@@ -1615,20 +1617,17 @@ class FirmwareBuilder:
                             "Loaded device context with device IDs from host: "
                             "VID=0x{vid:04x} DID=0x{did:04x}",
                             vid=payload.get("vendor_id", 0),
-                            did=payload.get("device_id", 0)
+                            did=payload.get("device_id", 0),
                         ),
-                        prefix="HOST_CTX"
+                        prefix="HOST_CTX",
                     )
                     return payload
 
         except Exception as e:
             log_debug_safe(
                 self.logger,
-                safe_format(
-                    "Host context check failed: {err}",
-                    err=str(e)
-                ),
-                prefix="HOST_CTX"
+                safe_format("Host context check failed: {err}", err=str(e)),
+                prefix="HOST_CTX",
             )
 
         return None
@@ -1669,9 +1668,7 @@ class FirmwareBuilder:
 
             config_space_bytes = None
             if "config_space_data" in result:
-                config_space_bytes = result["config_space_data"].get(
-                    "raw_config_space"
-                )
+                config_space_bytes = result["config_space_data"].get("raw_config_space")
                 if not config_space_bytes:
                     config_space_bytes = result["config_space_data"].get(
                         "config_space_bytes"
@@ -1694,9 +1691,7 @@ class FirmwareBuilder:
                 safe_format("Config space hex generation failed: {err}", err=str(e)),
                 prefix="BUILD",
             )
-            raise PCILeechBuildError(
-                f"Failed to generate config space hex: {e}"
-            ) from e
+            raise PCILeechBuildError(f"Failed to generate config space hex: {e}") from e
 
         # Emit audit file of top-level template context keys to verify propagation.
         try:
@@ -1743,9 +1738,7 @@ class FirmwareBuilder:
             )
             return
 
-        sv_files, special_files = self.file_manager.write_systemverilog_modules(
-            modules
-        )
+        sv_files, special_files = self.file_manager.write_systemverilog_modules(modules)
 
         log_info_safe(
             self.logger,
@@ -1813,7 +1806,7 @@ class FirmwareBuilder:
                 self.logger,
                 safe_format(
                     "  • Copied {count} Vivado TCL scripts from submodule",
-                    count=len(tcl_scripts)
+                    count=len(tcl_scripts),
                 ),
                 prefix="BUILD",
             )
@@ -1855,9 +1848,7 @@ class FirmwareBuilder:
             donor_pcie_ip_config_from_result,
         )
 
-        donor = donor_ids_from_template_context(
-            result.get("template_context", {})
-        )
+        donor = donor_ids_from_template_context(result.get("template_context", {}))
         if donor is None:
             # Real donor identity is mandatory — there is no synthetic-donor
             # mode. Continuing would emit a bitstream carrying Xilinx default
@@ -1974,8 +1965,7 @@ class FirmwareBuilder:
                 log_info_safe(
                     self.logger,
                     safe_format(
-                        "  • Patched donor IDs into {count} XCI baseline "
-                        "file(s)",
+                        "  • Patched donor IDs into {count} XCI baseline " "file(s)",
                         count=xci_summary.num_patched,
                     ),
                     prefix="BUILD",
@@ -2044,9 +2034,7 @@ class FirmwareBuilder:
             msix_data = {}
 
         has_msix = "msix_data" in result and result["msix_data"] is not None
-        self._device_config = self.config_manager.extract_device_config(
-            ctx, has_msix
-        )
+        self._device_config = self.config_manager.extract_device_config(ctx, has_msix)
 
     def _run_post_build_validation(self, result: Dict[str, Any]) -> None:
         """Run post-build validation checks for driver compatibility."""
@@ -2055,8 +2043,7 @@ class FirmwareBuilder:
         validator = PostBuildValidator(self.logger)
 
         is_valid, validation_results = validator.validate_build_output(
-            output_dir=self.config.output_dir,
-            generation_result=result
+            output_dir=self.config.output_dir, generation_result=result
         )
 
         validator.print_validation_report()
@@ -2068,9 +2055,9 @@ class FirmwareBuilder:
                 safe_format(
                     "Build completed with {count} validation errors - "
                     "firmware may not work with OS drivers",
-                    count=len(errors)
+                    count=len(errors),
                 ),
-                prefix="BUILD"
+                prefix="BUILD",
             )
 
         warnings = [r for r in validation_results if r.severity == "warning"]
@@ -2085,16 +2072,13 @@ class FirmwareBuilder:
                     "valid": r.is_valid,
                     "severity": r.severity,
                     "message": r.message,
-                    "details": r.details
+                    "details": r.details,
                 }
                 for r in validation_results
-            ]
+            ],
         }
 
-        self.file_manager.write_json(
-            "validation_report.json",
-            validation_data
-        )
+        self.file_manager.write_json("validation_report.json", validation_data)
 
     def _generate_donor_template(self, result: Dict[str, Any]) -> None:
         """Generate and save donor info template if requested."""
@@ -2130,7 +2114,6 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD",
             )
-
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -2194,9 +2177,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--host-context-only",
         action="store_true",
-        help=(
-            "Do not touch VFIO/sysfs; require DEVICE_CONTEXT_PATH/MSIX_DATA_PATH"
-        ),
+        help=("Do not touch VFIO/sysfs; require DEVICE_CONTEXT_PATH/MSIX_DATA_PATH"),
     )
     parser.add_argument(
         "--output-template",
@@ -2285,7 +2266,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point for the PCILeech firmware builder."""
     if not logging.getLogger().handlers:
@@ -2325,12 +2305,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             from pcileechfwgenerator.utils.coe_report import (
                 generate_coe_report_if_enabled,
             )
+
             generate_coe_report_if_enabled(config.output_dir, logger=logger)
         except Exception as e:
             log_debug_safe(
                 logger,
                 "COE visualization skipped due to unexpected error (non-fatal): {err}",
-                err=str(e)
+                err=str(e),
             )
 
         return 0
@@ -2358,15 +2339,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             logger,
             "Build failed ({error_type}): {err}",
             error_type=error_type,
-            err=str(e)
+            err=str(e),
         )
         if logger.isEnabledFor(logging.DEBUG):
             import traceback
-            log_debug_safe(
-                logger,
-                "Full traceback:\n{tb}",
-                tb=traceback.format_exc()
-            )
+
+            log_debug_safe(logger, "Full traceback:\n{tb}", tb=traceback.format_exc())
         _maybe_emit_issue_report(e, logger, args)
         return 1
 
@@ -2374,11 +2352,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         log_error_safe(logger, "Build failed: {err}", err=str(e))
         if logger.isEnabledFor(logging.DEBUG):
             import traceback
-            log_debug_safe(
-                logger,
-                "Full traceback:\n{tb}",
-                tb=traceback.format_exc()
-            )
+
+            log_debug_safe(logger, "Full traceback:\n{tb}", tb=traceback.format_exc())
         _maybe_emit_issue_report(e, logger, args)
         return 1
 
@@ -2405,15 +2380,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "Unexpected error ({error_type}): {err}",
                 error_type=error_type,
                 err=str(e),
-                prefix="BUILD"
+                prefix="BUILD",
             )
             if logger.isEnabledFor(logging.DEBUG):
                 import traceback
+
                 log_debug_safe(
                     logger,
                     "Full traceback for unexpected error:\n{tb}",
                     tb=traceback.format_exc(),
-                    prefix="BUILD"
+                    prefix="BUILD",
                 )
         _maybe_emit_issue_report(e, logger, args)
         return 1
@@ -2424,18 +2400,13 @@ def _display_summary(
 ) -> None:
     """Display a summary of generated artifacts."""
     log_info_safe(
-        logger,
-        "\nGenerated artifacts in {dir}",
-        dir=str(output_dir),
-        prefix="SUMMARY"
+        logger, "\nGenerated artifacts in {dir}", dir=str(output_dir), prefix="SUMMARY"
     )
 
     sv_files = [a for a in artifacts if a.endswith(".sv")]
     tcl_files = [a for a in artifacts if a.endswith(".tcl")]
     json_files = [a for a in artifacts if a.endswith(".json")]
-    other_files = [
-        a for a in artifacts if a not in sv_files + tcl_files + json_files
-    ]
+    other_files = [a for a in artifacts if a not in sv_files + tcl_files + json_files]
 
     if sv_files:
         log_info_safe(
@@ -2449,20 +2420,14 @@ def _display_summary(
 
     if tcl_files:
         log_info_safe(
-            logger,
-            "\n  TCL scripts ({count}):",
-            count=len(tcl_files),
-            prefix="SUMMARY"
+            logger, "\n  TCL scripts ({count}):", count=len(tcl_files), prefix="SUMMARY"
         )
         for f in sorted(tcl_files):
             log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")
 
     if json_files:
         log_info_safe(
-            logger,
-            "\n  JSON files ({count}):",
-            count=len(json_files),
-            prefix="SUMMARY"
+            logger, "\n  JSON files ({count}):", count=len(json_files), prefix="SUMMARY"
         )
         for f in sorted(json_files):
             log_info_safe(logger, "    - {file}", file=f, prefix="SUMMARY")

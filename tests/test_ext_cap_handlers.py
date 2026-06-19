@@ -6,14 +6,11 @@ Each test builds a minimal extended capability chain and verifies that
 CapabilityProcessor generates and applies the expected patches.
 """
 
-import sys
-from pathlib import Path
 from typing import List, Tuple
 
 import pytest
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pcileechfwgenerator.pci_capability.constants import (AER_CAPABILITY_VALUES,
                                           EXT_CAP_ID_AER, EXT_CAP_ID_ARI,

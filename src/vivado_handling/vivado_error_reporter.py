@@ -16,6 +16,12 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
+from pcileechfwgenerator.string_utils import (
+    log_error_safe,
+    log_info_safe,
+    safe_format,
+)
+
 
 class VivadoErrorType(Enum):
     """Types of Vivado errors."""
@@ -555,7 +561,11 @@ class VivadoErrorReporter:
             return return_code, errors, warnings
 
         except Exception as e:
-            self.logger.error(f"Error monitoring Vivado process: {e}")
+            log_error_safe(
+                self.logger,
+                safe_format("Error monitoring Vivado process: {err}", err=str(e)),
+                prefix="VIVADO",
+            )
             return -1, errors, warnings
 
     def generate_error_report(
@@ -631,9 +641,19 @@ class VivadoErrorReporter:
                     # Write plain text version (no ANSI codes)
                     plain_content = self._strip_ansi_codes(report_content)
                     f.write(plain_content)
-                self.logger.info(f"Error report written to: {output_file}")
+                log_info_safe(
+                    self.logger,
+                    safe_format(
+                        "Error report written to: {path}", path=str(output_file)
+                    ),
+                    prefix="VIVADO",
+                )
             except Exception as e:
-                self.logger.error(f"Failed to write error report: {e}")
+                log_error_safe(
+                    self.logger,
+                    safe_format("Failed to write error report: {err}", err=str(e)),
+                    prefix="VIVADO",
+                )
 
         return report_content
 

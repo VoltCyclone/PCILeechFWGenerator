@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Tests for the PCILeech Build Integration module."""
 
-import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 # Add project root to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
     PCILeechBuildIntegration, integrate_pcileech_build)

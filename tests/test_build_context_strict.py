@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Tests for strict identity handling in BuildContext and format_hex_id."""
 
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pcileechfwgenerator.templating.tcl_builder import (
     BuildContext,

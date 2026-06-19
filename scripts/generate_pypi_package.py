@@ -15,7 +15,7 @@ This script provides a comprehensive solution for generating PyPI packages with:
 import argparse
 import json
 import os
-import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,7 +23,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 try:
     from git import GitCommandError, InvalidGitRepositoryError, Repo
@@ -90,25 +90,27 @@ class CommandRunner:
 
     @staticmethod
     def run(
-        cmd: str,
+        cmd: Sequence[str],
         check: bool = True,
         capture_output: bool = True,
         cwd: Optional[Path] = None,
     ) -> subprocess.CompletedProcess:
-        """Run a command with enhanced error handling."""
-        Logger.debug(f"Running: {cmd}")
+        """Run a command (argv list, no shell) with enhanced error handling."""
+        cmd_list = [str(part) for part in cmd]
+        printable = shlex.join(cmd_list)
+        Logger.debug(f"Running: {printable}")
 
         try:
             result = subprocess.run(
-                cmd,
-                shell=True,
+                cmd_list,
+                shell=False,
                 capture_output=capture_output,
                 text=True,
                 cwd=cwd or PROJECT_ROOT,
             )
 
             if check and result.returncode != 0:
-                Logger.error(f"Command failed: {cmd}")
+                Logger.error(f"Command failed: {printable}")
                 if result.stderr:
                     Logger.error(f"Error output: {result.stderr}")
                 if result.stdout:
@@ -118,11 +120,11 @@ class CommandRunner:
             return result
 
         except Exception as e:
-            Logger.error(f"Failed to execute command: {cmd}")
+            Logger.error(f"Failed to execute command: {printable}")
             Logger.error(f"Exception: {str(e)}")
             if check:
                 sys.exit(1)
-            return subprocess.CompletedProcess(cmd, 1, "", str(e))
+            return subprocess.CompletedProcess(cmd_list, 1, "", str(e))
 
 
 class PackageValidator:
@@ -258,7 +260,7 @@ class SecurityScanner:
         for tool in tools:
             if not shutil.which(tool):
                 Logger.info(f"Installing {tool}...")
-                CommandRunner.run(f"pip3 install {tool}")
+                CommandRunner.run(["pip3", "install", tool])
 
     @staticmethod
     def run_safety_check() -> None:
@@ -266,7 +268,7 @@ class SecurityScanner:
         Logger.info("Checking dependencies for vulnerabilities...")
 
         try:
-            result = CommandRunner.run("safety check --json", check=False)
+            result = CommandRunner.run(["safety", "check", "--json"], check=False)
 
             if result.returncode == 0:
                 Logger.success("No known vulnerabilities found in dependencies")
@@ -313,7 +315,7 @@ class QualityChecker:
 
         for dep in dev_deps:
             if not shutil.which(dep.split(">=")[0]):
-                CommandRunner.run(f"pip3 install '{dep}'")
+                CommandRunner.run(["pip3", "install", dep])
 
     @staticmethod
     def run_code_formatting_check() -> None:
@@ -321,7 +323,9 @@ class QualityChecker:
         Logger.info("Checking code formatting...")
 
         # Check black formatting
-        result = CommandRunner.run("black --check src/ tests/", check=False)
+        result = CommandRunner.run(
+            ["black", "--check", "src/", "tests/"], check=False
+        )
         if result.returncode != 0:
             Logger.error(
                 "Code formatting issues found. Run 'black src/ tests/' to fix."
@@ -329,7 +333,9 @@ class QualityChecker:
             sys.exit(1)
 
         # Check import sorting
-        result = CommandRunner.run("isort --check-only src/ tests/", check=False)
+        result = CommandRunner.run(
+            ["isort", "--check-only", "src/", "tests/"], check=False
+        )
         if result.returncode != 0:
             Logger.error("Import sorting issues found. Run 'isort src/ tests/' to fix.")
             sys.exit(1)
@@ -342,7 +348,15 @@ class QualityChecker:
         Logger.info("Running flake8 linting...")
 
         result = CommandRunner.run(
-            "flake8 src/ tests/ --count --max-line-length=88 --statistics", check=False
+            [
+                "flake8",
+                "src/",
+                "tests/",
+                "--count",
+                "--max-line-length=88",
+                "--statistics",
+            ],
+            check=False,
         )
 
         if result.returncode != 0:
@@ -356,7 +370,7 @@ class QualityChecker:
         """Run mypy type checking."""
         Logger.info("Running mypy type checking...")
 
-        result = CommandRunner.run("mypy src/", check=False)
+        result = CommandRunner.run(["mypy", "src/"], check=False)
         if result.returncode != 0:
             Logger.warning("Type checking issues found")
             Logger.warning(result.stdout)
@@ -370,7 +384,13 @@ class QualityChecker:
         Logger.info("Running test suite...")
 
         result = CommandRunner.run(
-            "pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml",
+            [
+                "pytest",
+                "tests/",
+                "--cov=src",
+                "--cov-report=term-missing",
+                "--cov-report=xml",
+            ],
             check=False,
         )
 
@@ -423,7 +443,7 @@ class PackageBuilder:
         DIST_DIR.mkdir(exist_ok=True)
 
         # Build using python -m build
-        CommandRunner.run("python3 -m build")
+        CommandRunner.run(["python3", "-m", "build"])
 
         # List built distributions
         distributions = list(DIST_DIR.glob("*"))
@@ -444,8 +464,7 @@ class PackageBuilder:
         Logger.info("Validating distributions...")
 
         # Check with twine
-        dist_paths = " ".join(str(d) for d in distributions)
-        CommandRunner.run(f"twine check {dist_paths}")
+        CommandRunner.run(["twine", "check", *(str(d) for d in distributions)])
 
         # Verify tests are not included in the package
         PackageBuilder._verify_tests_excluded(distributions)
@@ -498,7 +517,7 @@ class PackageBuilder:
             venv_path = Path(temp_dir) / "test_venv"
 
             # Create virtual environment
-            CommandRunner.run(f"python -m venv {venv_path}")
+            CommandRunner.run(["python", "-m", "venv", str(venv_path)])
 
             # Activate and install
             if os.name == "nt":  # Windows
@@ -511,16 +530,26 @@ class PackageBuilder:
             # Install the built wheel
             wheel_files = list(DIST_DIR.glob("*.whl"))
             if wheel_files:
-                CommandRunner.run(f"{pip_path} install {wheel_files[0]}")
+                CommandRunner.run([str(pip_path), "install", str(wheel_files[0])])
 
                 # Test imports
                 CommandRunner.run(
-                    f"{python_path} -c 'import src; print(f\"Version: {{src.__version__}}\")'"
+                    [
+                        str(python_path),
+                        "-c",
+                        'import src; print(f"Version: {src.__version__}")',
+                    ]
                 )
 
                 # Test console scripts
-                result = CommandRunner.run(
-                    f"{python_path} -c 'import pkg_resources; print([ep.name for ep in pkg_resources.iter_entry_points(\"console_scripts\")])'",
+                CommandRunner.run(
+                    [
+                        str(python_path),
+                        "-c",
+                        "import pkg_resources; "
+                        "print([ep.name for ep in "
+                        'pkg_resources.iter_entry_points("console_scripts")])',
+                    ],
                     check=False,
                 )
 
@@ -548,15 +577,27 @@ class PyPIUploader:
                 "No .pypirc found. You may need to configure authentication."
             )
 
+        # Expand the dist glob in Python rather than relying on the shell.
+        dists = sorted(
+            str(p)
+            for p in DIST_DIR.glob("*")
+            if p.suffix == ".whl" or (p.suffix == ".gz" and ".tar" in p.name)
+        )
+        if not dists:
+            Logger.error("No distributions found to upload")
+            sys.exit(1)
+
         # Upload
         if test_pypi:
-            CommandRunner.run("twine upload --repository testpypi dist/*")
+            CommandRunner.run(
+                ["twine", "upload", "--repository", "testpypi", *dists]
+            )
             Logger.success("Uploaded to Test PyPI")
             Logger.info(
-                "Install with: pip3` install --index-url https://test.pypi.org/simple/ pcileechfwgenerator"
+                "Install with: pip3 install --index-url https://test.pypi.org/simple/ pcileechfwgenerator"
             )
         else:
-            CommandRunner.run("twine upload dist/*")
+            CommandRunner.run(["twine", "upload", *dists])
             Logger.success("Uploaded to PyPI")
             Logger.info("Install with: pip3 install pcileechfwgenerator")
 

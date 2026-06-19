@@ -13,18 +13,14 @@ Targets uncovered critical areas identified in coverage analysis:
 """
 
 import logging
-import sys
-from pathlib import Path
 
 import pytest
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pcileechfwgenerator.string_utils import log_error_safe, log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_error_safe, safe_format
 
 from pcileechfwgenerator.templating.template_renderer import (
-    MappingFileSystemLoader,
     TemplateRenderer,
     TemplateRenderError,
 )

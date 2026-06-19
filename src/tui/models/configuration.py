@@ -286,8 +286,15 @@ class BuildConfiguration(BaseModel):
     # Class method for compatibility with the existing codebase
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BuildConfiguration":
-        """Create a configuration from a dictionary."""
-        return cls(**data)
+        """Create a configuration from a dictionary.
+
+        Unknown keys are dropped (matching the legacy dataclass behavior) so
+        that profiles serialized by older versions still load despite this
+        model's ``extra='forbid'`` policy.
+        """
+        valid_keys = set(cls.model_fields)
+        filtered = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered)
 
     def save_to_file(self, file_path):
         """Save configuration to a file."""

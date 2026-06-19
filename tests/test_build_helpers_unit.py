@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src import build_helpers as bh
+from pcileechfwgenerator import build_helpers as bh
 
 
 def test_add_src_to_path_idempotent():

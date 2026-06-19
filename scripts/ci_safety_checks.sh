@@ -189,6 +189,26 @@ except Exception as e:
 " || OVERALL_SUCCESS=1
 echo
 
+# Test 7: Safe logging guard (no raw f-string logging outside src/tui/)
+echo -e "${YELLOW}=== Safe Logging Guard ===${NC}"
+if "$SCRIPT_DIR/check_safe_logging.sh"; then
+    echo -e "${GREEN}✓ No raw f-string logging found${NC}"
+else
+    echo -e "${RED}✗ Raw f-string logging found — use log_*_safe + safe_format${NC}"
+    OVERALL_SUCCESS=1
+fi
+echo
+
+# Test 8: Test import hygiene (no 'from src' / module-level sys.path.insert)
+echo -e "${YELLOW}=== Test Import Hygiene ===${NC}"
+if "$SCRIPT_DIR/check_test_imports.sh"; then
+    echo -e "${GREEN}✓ Test imports are clean${NC}"
+else
+    echo -e "${RED}✗ Test import anti-patterns found${NC}"
+    OVERALL_SUCCESS=1
+fi
+echo
+
 # Summary
 echo -e "${GREEN}======================================${NC}"
 if [ $OVERALL_SUCCESS -eq 0 ]; then

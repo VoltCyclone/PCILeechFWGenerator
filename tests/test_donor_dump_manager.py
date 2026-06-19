@@ -7,7 +7,6 @@ and error scenarios in the DonorDumpManager.
 
 import json
 import logging
-import os
 import subprocess
 import sys
 import tempfile
@@ -829,41 +828,6 @@ def test_get_module_status(temp_dir):
                 assert "module_size" in status
 
 
-def test_generate_donor_info_generic():
-    """Test generate_donor_info for generic device."""
-    manager = DonorDumpManager()
-
-    with mock.patch(
-        "pcileechfwgenerator.file_management.donor_dump_manager.random.random", return_value=0.3
-    ):
-        info = manager.generate_donor_info("generic")
-
-        assert "vendor_id" in info
-        assert "device_id" in info
-        assert "revision_id" in info
-    assert info["revision_id"] == "0x03"
-
-
-def test_generate_donor_info_network():
-    """Test generate_donor_info for network device."""
-    manager = DonorDumpManager()
-
-    info = manager.generate_donor_info("network")
-
-    assert info["device_id"] == "0x1533"  # I210 device
-    assert "bar_size" in info
-
-
-def test_generate_donor_info_storage():
-    """Test generate_donor_info for storage device."""
-    manager = DonorDumpManager()
-
-    info = manager.generate_donor_info("storage")
-
-    assert info["device_id"] == "0x2522"  # NVMe device
-    assert "bar_size" in info
-
-
 def test_save_donor_info_success(temp_dir):
     """Test save_donor_info successful save."""
     manager = DonorDumpManager()
@@ -1122,33 +1086,22 @@ def test_setup_module_auto_install_headers(temp_dir, mock_subprocess):
                             assert result == device_info
 
 
-def test_setup_module_generate_fallback(temp_dir):
-    """Test setup_module with generate fallback."""
-    manager = DonorDumpManager(module_source_dir=temp_dir)
+def test_setup_module_failure_raises_no_synthetic_fallback():
+    """setup_module must propagate failures — there is no synthetic fallback.
 
-    with mock.patch.object(
-        manager, "check_kernel_headers", side_effect=Exception("Headers check failed")
-    ):
-        with mock.patch.object(manager, "generate_donor_info") as mock_generate:
-            mock_generate.return_value = {
-                "vendor_id": "0x1234",
-                "device_id": "0x5678",
-                "subvendor_id": "0x1234",
-                "subsystem_id": "0x0000",
-                "revision_id": "0x01",
-            }
-
-            result = manager.setup_module("0000:03:00.0", generate_if_unavailable=True)
-            assert result["vendor_id"] == "0x1234"
-            mock_generate.assert_called_once_with("generic")
-
-
-def test_setup_module_failure_no_fallback():
-    """Test setup_module failure without fallback."""
+    Real donor hardware is mandatory; fabricating a profile would emit firmware
+    with placeholder IDs, the anti-pattern this project forbids.
+    """
     manager = DonorDumpManager()
 
     with mock.patch.object(
         manager, "check_kernel_headers", side_effect=Exception("Headers check failed")
     ):
         with pytest.raises(Exception, match="Headers check failed"):
-            manager.setup_module("0000:03:00.0", generate_if_unavailable=False)
+            manager.setup_module("0000:03:00.0")
+
+
+def test_setup_module_has_no_synthetic_generation_api():
+    """The synthetic-donor generation capability must not exist."""
+    manager = DonorDumpManager()
+    assert not hasattr(manager, "generate_donor_info")

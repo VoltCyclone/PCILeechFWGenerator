@@ -8,6 +8,7 @@
 // Register Map Summary:
 {% if bar_model and bar_model.registers %}
 {%- for offset, reg in bar_model.registers.items() | sort %}
+{%- set offset = offset | int %}
 //   0x{{ '%04X' % offset }}: {{ 'DWORD' if reg.width == 4 else ('WORD' if reg.width == 2 else 'BYTE') }} {{ 'RW' if reg.rw_mask else 'RO' }} (reset=0x{{ '%0*X' % (reg.width * 2, reg.reset) }})
 {% endfor -%}
 {% else %}
@@ -53,6 +54,7 @@ module pcileech_bar_impl_device #(
     // ========================================================================
     
     {% for offset, reg in bar_model.registers.items() | sort %}
+    {%- set offset = offset | int %}
     {%- set reg_name = 'reg_0x%04X' % offset %}
     {%- set reg_width_bits = reg.width * 8 %}
     reg [{{ reg_width_bits - 1 }}:0] {{ reg_name }};  // Offset 0x{{ '%04X' % offset }}
@@ -69,6 +71,7 @@ module pcileech_bar_impl_device #(
     always @(posedge clk) begin
         if (rst) begin
             {% for offset, reg in bar_model.registers.items() | sort %}
+            {%- set offset = offset | int %}
             {%- set reg_name = 'reg_0x%04X' % offset %}
             {{ reg_name }} <= {{ reg.width * 8 }}'h{{ '%0*X' % (reg.width * 2, reg.reset) }};
             {% endfor %}
@@ -80,6 +83,7 @@ module pcileech_bar_impl_device #(
         else if (wr_valid) begin
             case (wr_addr[31:0] & 32'hFFFFFFFC)  // Align to DWORD boundary
                 {% for offset, reg in bar_model.registers.items() | sort %}
+                {%- set offset = offset | int %}
                 {%- if reg.rw_mask != 0 %}
                 {%- set reg_name = 'reg_0x%04X' % offset %}
                 {%- set aligned_offset = (offset // 4) * 4 %}
@@ -138,6 +142,7 @@ module pcileech_bar_impl_device #(
         if (rd_req_valid) begin
             case (rd_req_addr[31:0] & 32'hFFFFFFFC)  // Align to DWORD
                 {% for offset, reg in bar_model.registers.items() | sort %}
+                {%- set offset = offset | int %}
                 {%- set reg_name = 'reg_0x%04X' % offset %}
                 {%- set aligned_offset = (offset // 4) * 4 %}
                 32'h{{ '%08X' % aligned_offset }}: begin

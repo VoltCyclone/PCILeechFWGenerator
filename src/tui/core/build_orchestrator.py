@@ -584,7 +584,7 @@ class BuildOrchestrator:
         try:
             # RepoManager will raise RuntimeError if submodule not initialized
             repo_path = RepoManager.ensure_repo()
-            
+
             if self._current_progress:
                 self._current_progress.current_operation = (
                     f"voltcyclone-fpga submodule ready at {repo_path}"
@@ -595,7 +595,7 @@ class BuildOrchestrator:
             self._add_progress_error(
                 "Submodule not initialized: {msg}. "
                 "Run: git submodule update --init --recursive",
-                msg=error_msg
+                msg=error_msg,
             )
             raise
 
@@ -922,13 +922,19 @@ class BuildOrchestrator:
                 if sink is None:
                     line_str = line.decode("utf-8", errors="replace").strip()
                     if line_str:
-                        for pattern, (stage, percent, msg) in LOG_PROGRESS_TOKENS.items():
+                        for pattern, (
+                            stage,
+                            percent,
+                            msg,
+                        ) in LOG_PROGRESS_TOKENS.items():
                             if pattern in line_str:
                                 await self._update_progress(stage, percent, msg)
                                 break
 
         stdout_task = asyncio.create_task(_drain(self._build_process.stdout, None))
-        stderr_task = asyncio.create_task(_drain(self._build_process.stderr, stderr_chunks))
+        stderr_task = asyncio.create_task(
+            _drain(self._build_process.stderr, stderr_chunks)
+        )
 
         try:
             while True:
@@ -1185,12 +1191,11 @@ class BuildOrchestrator:
             device: The PCIe device to profile
             config: Build configuration
         """
-        # Import behavior profiler
-        import sys
-        from pathlib import Path
-
-        sys.path.append(str(Path(__file__).parent.parent.parent))
-        from device_clone.behavior_profiler import BehaviorProfiler
+        # Import behavior profiler (kept function-local to defer the import
+        # cost until profiling is actually requested).
+        from pcileechfwgenerator.device_clone.behavior_profiler import (
+            BehaviorProfiler,
+        )
 
         # Log the start of profiling
         if self._current_progress:

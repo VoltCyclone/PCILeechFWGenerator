@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from pcileechfwgenerator.device_clone.vfio_access import (
+    VFIOAccess,
+    get_default_vfio_access,
+)
 from pcileechfwgenerator.exceptions import (
     ConfigSpaceError,
     SysfsConfigSpaceError,
@@ -190,20 +194,28 @@ SysfsError = SysfsConfigSpaceError
 class ConfigSpaceManager:
     """Manages PCI configuration space operations with improved structure and error handling."""
 
-    def __init__(self, bdf: str, strict_vfio: bool = False) -> None:
+    def __init__(
+        self,
+        bdf: str,
+        strict_vfio: bool = False,
+        vfio_access: "Optional[VFIOAccess]" = None,
+    ) -> None:
         """
         Initialize ConfigSpaceManager.
 
         Args:
             bdf: Bus:Device.Function identifier
             strict_vfio: If True, require VFIO for config space access
+            vfio_access: VFIO access port (defaults to the CLI-backed adapter).
+                Inject a fake to unit-test without real hardware.
         """
         self.bdf = bdf
         self.device_config = None  # No device profiles - use live detection
         self.strict_vfio = strict_vfio
         self._config_path = Path(f"/sys/bus/pci/devices/{self.bdf}/config")
-    # Keep a persistent VFIO binder to avoid unbinding mid-pipeline
+        # Keep a persistent VFIO binder to avoid unbinding mid-pipeline
         self._vfio_binder = None
+        self._vfio_access = vfio_access or get_default_vfio_access()
 
         # Extract extended configuration space pointers from device config
         if self.device_config and hasattr(self.device_config, "capabilities"):
@@ -285,8 +297,6 @@ class ConfigSpaceManager:
     def _read_vfio_strict(self) -> bytes:
         """Read configuration space in strict VFIO mode."""
         try:
-            from pcileechfwgenerator.cli.vfio_handler import VFIOBinder
-
             log_info_safe(
                 logger,
                 "Binding device {bdf} to VFIO for configuration space access",
@@ -298,7 +308,9 @@ class ConfigSpaceManager:
             # of the build so subsequent VFIO operations succeed. Cleanup is
             # registered at process exit.
             if not self._vfio_binder:
-                self._vfio_binder = VFIOBinder(self.bdf, attach=True)
+                self._vfio_binder = self._vfio_access.bind_for_session(
+                    self.bdf, attach=True
+                )
                 self._vfio_binder.bind()
 
                 def _cleanup_bind():
@@ -989,7 +1001,7 @@ class ConfigSpaceManager:
         from pcileechfwgenerator.device_clone.bar_parser import (
             parse_bar_info_from_config_space,
         )
-        
+
         log_info_safe(
             logger,
             safe_format(
@@ -998,10 +1010,10 @@ class ConfigSpaceManager:
             ),
             prefix="CNFG",
         )
-        
+
         # Use the unified parser
         bars = parse_bar_info_from_config_space(config_space)
-        
+
         # Enhance BARs with sysfs size information
         enhanced_bars = []
         for bar in bars:
@@ -1017,11 +1029,12 @@ class ConfigSpaceManager:
                     prefix="BARX",
                 )
                 bar.size = size_from_sysfs
-                
+
                 # Generate proper encoding for the size
                 from pcileechfwgenerator.device_clone.bar_size_converter import (
                     BarSizeConverter,
                 )
+
                 try:
                     bar.size_encoding = BarSizeConverter.size_to_encoding(
                         size_from_sysfs, bar.bar_type, bar.is_64bit, bar.prefetchable
@@ -1036,9 +1049,9 @@ class ConfigSpaceManager:
                         ),
                         prefix="BARX",
                     )
-            
+
             enhanced_bars.append(bar)
-        
+
         log_info_safe(
             logger,
             safe_format(
@@ -1047,9 +1060,8 @@ class ConfigSpaceManager:
             ),
             prefix="BARX",
         )
-        
-        return enhanced_bars
 
+        return enhanced_bars
 
     def _log_extracted_device_info(self, device_info: Dict[str, Any]) -> None:
         """Log extracted device information in a structured way with resilient handling."""

@@ -54,15 +54,15 @@ class DonorInfoTemplateGenerator:
             "metadata": metadata,
             "device_info": {
                 "identification": {
-                    "vendor_id": None,  # User to fill: e.g., 0x8086
-                    "device_id": None,  # User to fill: e.g., 0x10D3
+                    "vendor_id": None,  # User to fill from real donor: e.g., 0xXXXX
+                    "device_id": None,  # User to fill from real donor: e.g., 0xXXXX
                     "subsystem_vendor_id": None,
                     "subsystem_device_id": None,
-                    "class_code": None,  # User to fill: e.g., 0x020000
+                    "class_code": None,  # User to fill from real donor: e.g., 0xXXXXXX
                     "revision_id": None,
                     "device_name": "",  # User to fill: human-readable name
-                    "manufacturer": "",  # User to fill: e.g., "Intel"
-                    "model": "",  # User to fill: e.g., "82574L"
+                    "manufacturer": "",  # User to fill: e.g., "<MANUFACTURER>"
+                    "model": "",  # User to fill: e.g., "<MODEL>"
                     "serial_number": "",  # User to fill if available
                 },
                 "capabilities": {
@@ -338,11 +338,11 @@ class DonorInfoTemplateGenerator:
             "metadata": metadata,
             "device_info": {
                 "identification": {
-                    "vendor_id": None,  # User to fill: e.g., 0x8086
-                    "device_id": None,  # User to fill: e.g., 0x10D3
+                    "vendor_id": None,  # User to fill from real donor: e.g., 0xXXXX
+                    "device_id": None,  # User to fill from real donor: e.g., 0xXXXX
                     "subsystem_vendor_id": None,
                     "subsystem_device_id": None,
-                    "class_code": None,  # User to fill: e.g., 0x020000
+                    "class_code": None,  # User to fill from real donor: e.g., 0xXXXXXX
                     "revision_id": None,
                 },
                 "capabilities": {
@@ -462,8 +462,9 @@ class DonorInfoTemplateGenerator:
             ident = di.get("identification", {})
             if isinstance(ident, dict):
                 ident["$comment"] = (
-                    "PCI identification fields. vendor_id/device_id required; "
-                    "class_code is the PCI class (e.g., 0x020000)."
+                    "PCI identification fields read from the real donor. "
+                    "vendor_id/device_id required; class_code is the PCI class "
+                    "code (6 hex digits)."
                 )
             caps = di.get("capabilities", {})
             if isinstance(caps, dict):
@@ -686,8 +687,7 @@ class DonorInfoTemplateGenerator:
 
         except FileNotFoundError as e:
             error_msg = safe_format(
-                "lspci command not found. Please install pciutils package", 
-                bdf=bdf
+                "lspci command not found. Please install pciutils package", bdf=bdf
             )
             log_error_safe(logger, error_msg, prefix="DONOR")
             raise DeviceConfigError(error_msg) from e
@@ -758,7 +758,8 @@ class DonorInfoTemplateGenerator:
                     elif ident[field] in (None, ""):
                         errors.append(
                             f"{full} is unset (placeholder) — fill in the "
-                            f"{field.replace('_', ' ')} (e.g., \"0x10DE\")"
+                            f"{field.replace('_', ' ')} read from the real "
+                            f'donor (e.g., "0xXXXX")'
                         )
 
         # Validate behavioral_profile

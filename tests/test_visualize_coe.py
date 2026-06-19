@@ -5,13 +5,10 @@ Unit tests for scripts/visualize_coe.py
 Tests parsing, capability walking, and visualization logic.
 """
 
-import sys
-from pathlib import Path
 
 import pytest
 
 # Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.visualize_coe import (
     BoxPrinter,

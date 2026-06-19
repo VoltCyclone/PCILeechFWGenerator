@@ -43,6 +43,13 @@ import sys
 from typing import Any, Dict, List, Optional, Set
 
 try:
+    from pcileechfwgenerator.string_utils import (
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
+
     from scripts.kernel_utils import (
         check_linux_requirement,
         ensure_kernel_source,
@@ -51,7 +58,9 @@ try:
     )
     from scripts.state_machine_extractor import StateMachineExtractor
 except ImportError:
-    # Fallback for when running as script directly
+    # Fallback for when running as a script directly (CWD == src/scripts).
+    # string_utils lives one level up in src/, so put it on the path.
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
     from kernel_utils import (
         check_linux_requirement,
         ensure_kernel_source,
@@ -59,6 +68,14 @@ except ImportError:
         resolve_driver_module,
     )
     from state_machine_extractor import StateMachineExtractor
+
+    from string_utils import (
+        log_error_safe,
+        log_info_safe,
+        log_warning_safe,
+        safe_format,
+    )
+
 
 # Module-level regex patterns for register analysis
 REG_PATTERN = re.compile(r"#define\s+(REG_[A-Z0-9_]+)\s+0x([0-9A-Fa-f]+)")
@@ -407,11 +424,17 @@ def extract_registers_with_analysis(
         try:
             file_contents[path] = path.read_text(errors="ignore")
         except Exception as e:
-            logger.warning(f"Error reading {path}: {e}")
+            log_warning_safe(
+                logger,
+                safe_format("Error reading {path}: {err}", path=str(path), err=str(e)),
+                prefix="DRIVER_SCRAPE",
+            )
             continue
 
     if not file_contents:
-        logger.warning("No source files could be read")
+        log_warning_safe(
+            logger, "No source files could be read", prefix="DRIVER_SCRAPE"
+        )
         return {
             "driver_module": driver_name,
             "registers": [],
@@ -454,7 +477,11 @@ def extract_registers_with_analysis(
         )
         optimized_state_machines = state_machine_extractor.optimize_state_machines()
     except Exception as e:
-        logger.warning(f"State machine extraction failed: {e}")
+        log_warning_safe(
+            logger,
+            safe_format("State machine extraction failed: {err}", err=str(e)),
+            prefix="DRIVER_SCRAPE",
+        )
         extracted_state_machines = []
         optimized_state_machines = []
 
@@ -582,7 +609,15 @@ def main() -> None:
         vendor_id = validate_hex_id(args.vendor_id, "Vendor ID")
         device_id = validate_hex_id(args.device_id, "Device ID")
 
-        logger.info(f"Analyzing driver for VID:DID {vendor_id}:{device_id}")
+        log_info_safe(
+            logger,
+            safe_format(
+                "Analyzing driver for VID:DID {vid}:{did}",
+                vid=vendor_id,
+                did=device_id,
+            ),
+            prefix="DRIVER_SCRAPE",
+        )
 
         # Check Linux requirement early
         check_linux_requirement("Driver analysis")
@@ -595,7 +630,11 @@ def main() -> None:
         else:
             ksrc = ensure_kernel_source()
             if ksrc is None:
-                logger.error("Linux source package not found")
+                log_error_safe(
+                    logger,
+                    "Linux source package not found",
+                    prefix="DRIVER_SCRAPE",
+                )
                 empty_output = {
                     "driver_module": "unknown",
                     "registers": [],
@@ -612,9 +651,17 @@ def main() -> None:
         # Resolve driver module
         try:
             driver_name = resolve_driver_module(vendor_id, device_id)
-            logger.info(f"Resolved driver module: {driver_name}")
+            log_info_safe(
+                logger,
+                safe_format("Resolved driver module: {name}", name=driver_name),
+                prefix="DRIVER_SCRAPE",
+            )
         except RuntimeError as e:
-            logger.error(f"Driver resolution failed: {e}")
+            log_error_safe(
+                logger,
+                safe_format("Driver resolution failed: {err}", err=str(e)),
+                prefix="DRIVER_SCRAPE",
+            )
             empty_output = {
                 "driver_module": "unknown",
                 "registers": [],
@@ -631,7 +678,13 @@ def main() -> None:
         # Find source files
         src_files = find_driver_sources(ksrc, driver_name)
         if not src_files:
-            logger.warning(f"No source files found for driver: {driver_name}")
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "No source files found for driver: {name}", name=driver_name
+                ),
+                prefix="DRIVER_SCRAPE",
+            )
             empty_output = {
                 "driver_module": driver_name,
                 "registers": [],
@@ -645,25 +698,45 @@ def main() -> None:
             print(json.dumps(empty_output, indent=2))
             return
 
-        logger.info(f"Found {len(src_files)} source files")
+        log_info_safe(
+            logger,
+            safe_format("Found {n} source files", n=len(src_files)),
+            prefix="DRIVER_SCRAPE",
+        )
 
         # Extract and analyze registers
         result = extract_registers_with_analysis(src_files, driver_name)
 
-        logger.info(f"Extracted {len(result['registers'])} registers")
+        log_info_safe(
+            logger,
+            safe_format("Extracted {n} registers", n=len(result["registers"])),
+            prefix="DRIVER_SCRAPE",
+        )
         print(json.dumps(result, indent=2))
 
     except ValueError as e:
-        logger.error(f"Invalid input: {e}")
+        log_error_safe(
+            logger,
+            safe_format("Invalid input: {err}", err=str(e)),
+            prefix="DRIVER_SCRAPE",
+        )
         sys.exit(1)
     except RuntimeError as e:
-        logger.error(f"Runtime error: {e}")
+        log_error_safe(
+            logger,
+            safe_format("Runtime error: {err}", err=str(e)),
+            prefix="DRIVER_SCRAPE",
+        )
         sys.exit(2)
     except KeyboardInterrupt:
-        logger.info("Analysis interrupted by user")
+        log_info_safe(logger, "Analysis interrupted by user", prefix="DRIVER_SCRAPE")
         sys.exit(130)
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        log_error_safe(
+            logger,
+            safe_format("Unexpected error: {err}", err=str(e)),
+            prefix="DRIVER_SCRAPE",
+        )
         sys.exit(1)
 
 

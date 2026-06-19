@@ -6,15 +6,13 @@ Tests the PostBuildValidator class and PostBuildValidationCheck to ensure
 proper validation of firmware output for driver compatibility.
 """
 
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 import struct
 
 import pytest
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pcileechfwgenerator.utils.post_build_validator import (
     PostBuildValidator,

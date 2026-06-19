@@ -8,14 +8,11 @@ Tests untested critical edge cases and error paths:
 - detect_overlay_registers with edge case configurations
 """
 
-import os
-import sys
 from typing import Dict
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper, RegisterType
 

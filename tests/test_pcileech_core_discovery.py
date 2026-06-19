@@ -1,8 +1,7 @@
 from pathlib import Path
 
-import pytest
 
-from src import pcileech_core_discovery
+from pcileechfwgenerator import pcileech_core_discovery
 
 
 def test_discover_pcileech_files_generic(monkeypatch):

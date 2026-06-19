@@ -9,7 +9,6 @@ for extracting PCI device parameters.
 import json
 import logging
 import os
-import random
 import re
 import subprocess
 import sys
@@ -827,74 +826,6 @@ class DonorDumpManager:
                 error_msg += f"\nStderr: {e.stderr}"
             raise ModuleLoadError(error_msg)
 
-    def generate_donor_info(self, device_type: str = "generic") -> Dict[str, str]:
-        """
-        Generate synthetic donor information for local builds
-
-        Args:
-            device_type: Type of device to generate info for (generic, network, storage, etc.)
-
-        Returns:
-            Dictionary of synthetic device parameters
-        """
-        log_info_safe(
-            logger,
-            safe_format(
-                "Generating synthetic donor information for {dt} device",
-                dt=device_type,
-            ),
-            prefix=LOG_PREFIX,
-        )
-
-        # Import vendor ID constants
-        from pcileechfwgenerator.device_clone.constants import VENDOR_ID_INTEL
-
-        # Convert to hex string format
-        intel_vid_str = f"0x{VENDOR_ID_INTEL:04x}"
-
-        # Common device profiles
-        device_profiles = {
-            "generic": {
-                "vendor_id": intel_vid_str,  # Intel
-                "device_id": "0x1533",  # I210 Gigabit Network Connection
-                "subvendor_id": intel_vid_str,
-                "subsystem_id": "0x0000",
-                "revision_id": "0x03",
-                "bar_size": "0x20000",  # 128KB
-                "mpc": "0x02",  # Max payload size capability (512 bytes)
-                "mpr": "0x02",  # Max read request size (512 bytes)
-            },
-            "network": {
-                "vendor_id": intel_vid_str,  # Intel
-                "device_id": "0x1533",  # I210 Gigabit Network Connection
-                "subvendor_id": intel_vid_str,
-                "subsystem_id": "0x0000",
-                "revision_id": "0x03",
-                "bar_size": "0x20000",  # 128KB
-                "mpc": "0x02",  # Max payload size capability (512 bytes)
-                "mpr": "0x02",  # Max read request size (512 bytes)
-            },
-            "storage": {
-                "vendor_id": intel_vid_str,  # Intel
-                "device_id": "0x2522",  # NVMe SSD Controller
-                "subvendor_id": intel_vid_str,
-                "subsystem_id": "0x0000",
-                "revision_id": "0x01",
-                "bar_size": "0x40000",  # 256KB
-                "mpc": "0x03",  # Max payload size capability (1024 bytes)
-                "mpr": "0x03",  # Max read request size (1024 bytes)
-            },
-        }
-
-        # Use the specified device profile or fall back to generic
-        profile = device_profiles.get(device_type, device_profiles["generic"])
-
-        # Add some randomness to make it look more realistic
-        if random.random() > 0.5:
-            profile["revision_id"] = f"0x{random.randint(1, 5):02x}"
-
-        return profile
-
     def save_donor_info(self, device_info: Dict[str, str], output_path: str) -> bool:
         """
         Save donor information to a JSON file for future use
@@ -1328,8 +1259,6 @@ class DonorDumpManager:
         bdf: str,
         auto_install_headers: bool = False,
         save_to_file: Optional[str] = None,
-        generate_if_unavailable: bool = False,
-        device_type: str = "generic",
         extract_full_config: bool = True,
     ) -> Dict[str, str]:
         """
@@ -1339,12 +1268,14 @@ class DonorDumpManager:
             bdf: PCI Bus:Device.Function
             auto_install_headers: Automatically install headers if missing
             save_to_file: Path to save donor information for future use
-            generate_if_unavailable: Generate synthetic donor info if module setup fails
-            device_type: Type of device to generate info for if needed
             extract_full_config: Extract full 4KB configuration space
 
         Returns:
             Device information dictionary
+
+        Raises:
+            Exception: If module setup fails. There is no synthetic-donor
+                fallback — real donor hardware is mandatory (AGENTS.md).
         """
         try:
             log_info_safe(
@@ -1359,9 +1290,7 @@ class DonorDumpManager:
                 if auto_install_headers:
                     log_info_safe(
                         logger,
-                        safe_format(
-                            "Kernel headers missing, attempting to install..."
-                        ),
+                        safe_format("Kernel headers missing, attempting to install..."),
                         prefix=LOG_PREFIX,
                     )
                     if not self.install_kernel_headers(kernel_version):
@@ -1391,9 +1320,7 @@ class DonorDumpManager:
             ):
                 log_warning_safe(
                     logger,
-                    safe_format(
-                        "Full 4KB extraction is disabled or not available"
-                    ),
+                    safe_format("Full 4KB extraction is disabled or not available"),
                     prefix=LOG_PREFIX,
                 )
                 log_warning_safe(
@@ -1415,9 +1342,7 @@ class DonorDumpManager:
 
                 log_info_safe(
                     logger,
-                    safe_format(
-                        "Saved donor information to {path}", path=save_to_file
-                    ),
+                    safe_format("Saved donor information to {path}", path=save_to_file),
                     prefix=LOG_PREFIX,
                 )
             elif device_info and not save_to_file:
@@ -1439,75 +1364,15 @@ class DonorDumpManager:
             return device_info
 
         except Exception as e:
+            # No synthetic-donor fallback: real donor hardware is mandatory.
+            # Fabricating a profile here would emit firmware carrying
+            # placeholder IDs — the anti-pattern this project forbids.
             log_error_safe(
                 logger,
                 safe_format("Failed to set up donor_dump module: {err}", err=e),
                 prefix=LOG_PREFIX,
             )
-
-            if generate_if_unavailable:
-                log_info_safe(
-                    logger,
-                    safe_format("Generating synthetic donor information as fallback"),
-                    prefix=LOG_PREFIX,
-                )
-                device_info = self.generate_donor_info(device_type)
-
-                # Add synthetic extended configuration space if needed
-                if extract_full_config and "extended_config" not in device_info:
-                    log_info_safe(
-                        logger,
-                        safe_format("Generating synthetic configuration space data"),
-                        prefix=LOG_PREFIX,
-                    )
-                    # Generate a basic 4KB configuration space with
-                    # device/vendor IDs
-                    config_space = ["00"] * 4096  # Initialize with zeros
-
-                    # Set vendor ID (bytes 0-1)
-                    vendor_id = device_info["vendor_id"][2:]  # Remove "0x" prefix
-                    config_space[0] = vendor_id[2:4] if len(vendor_id) >= 4 else "86"
-                    config_space[1] = vendor_id[0:2] if len(vendor_id) >= 2 else "80"
-
-                    # Set device ID (bytes 2-3)
-                    device_id = device_info["device_id"][2:]  # Remove "0x" prefix
-                    config_space[2] = device_id[2:4] if len(device_id) >= 4 else "33"
-                    config_space[3] = device_id[0:2] if len(device_id) >= 2 else "15"
-
-                    # Set subsystem vendor ID (bytes 44-45)
-                    subvendor_id = device_info["subvendor_id"][2:]
-                    config_space[44] = (
-                        subvendor_id[2:4] if len(subvendor_id) >= 4 else "86"
-                    )
-                    config_space[45] = (
-                        subvendor_id[0:2] if len(subvendor_id) >= 2 else "80"
-                    )
-
-                    # Set subsystem ID (bytes 46-47)
-                    subsystem_id = device_info["subsystem_id"][2:]
-                    config_space[46] = (
-                        subsystem_id[2:4] if len(subsystem_id) >= 4 else "00"
-                    )
-                    config_space[47] = (
-                        subsystem_id[0:2] if len(subsystem_id) >= 2 else "00"
-                    )
-
-                    # Set revision ID (byte 8)
-                    revision_id = device_info["revision_id"][2:]
-                    config_space[8] = (
-                        revision_id[0:2] if len(revision_id) >= 2 else "03"
-                    )
-
-                    # Convert to hex string
-                    device_info["extended_config"] = "".join(config_space)
-
-                # Save to file if requested
-                if save_to_file and device_info:
-                    self.save_donor_info(device_info, save_to_file)
-
-                return device_info
-            else:
-                raise
+            raise
 
 
 def main():
@@ -1532,17 +1397,6 @@ def main():
     )
     parser.add_argument("--status", action="store_true", help="Show module status")
     parser.add_argument("--save-to", help="Save donor information to specified file")
-    parser.add_argument(
-        "--generate",
-        action="store_true",
-        help="Generate synthetic donor information if module setup fails",
-    )
-    parser.add_argument(
-        "--device-type",
-        choices=["generic", "network", "storage"],
-        default="generic",
-        help="Device type for synthetic donor information",
-    )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
@@ -1574,7 +1428,6 @@ def main():
             args.bdf,
             auto_install_headers=args.auto_install_headers,
             save_to_file=args.save_to,
-            generate_if_unavailable=args.generate,
         )
 
         print(f"Device information for {args.bdf}:")

@@ -77,7 +77,7 @@ def _vivado_executable(dir_: Path) -> Optional[Path]:
     return exe if exe.is_file() else None
 
 
-def _VIVADOct_version(dir_: Path) -> str:
+def _detect_version(dir_: Path) -> str:
     """Infer version string from directory name (fallback to runtime query)."""
     for part in dir_.parts:
         if part[0].isdigit() and "." in part:
@@ -103,7 +103,7 @@ def find_vivado_installation(
         if manual_path_obj.exists() and manual_path_obj.is_dir():
             exe = _vivado_executable(manual_path_obj)
             if exe:
-                version = get_vivado_version(str(exe)) or _VIVADOct_version(
+                version = get_vivado_version(str(exe)) or _detect_version(
                     manual_path_obj
                 )
                 log_info_safe(
@@ -136,12 +136,12 @@ def find_vivado_installation(
                 prefix="VIVADO",
             )
 
-    # Fallback to automatic VIVADOction
+    # Fallback to automatic detection
     for root in _iter_candidate_dirs():
         exe = _vivado_executable(root)
         if not exe:
             continue
-        version = get_vivado_version(str(exe)) or _VIVADOct_version(root)
+        version = get_vivado_version(str(exe)) or _detect_version(root)
         log_debug_safe(
             LOG,
             safe_format(
@@ -310,8 +310,8 @@ def get_vivado_executable() -> Optional[str]:
 
 
 def debug_vivado_search() -> None:
-    """Pretty print search logic and VIVADOction results (stdout‑only)."""
-    print("# Vivado VIVADOction report ({}):".format(time.strftime("%F %T")))
+    """Pretty print search logic and detection results (stdout‑only)."""
+    print("# Vivado detection report ({}):".format(time.strftime("%F %T")))
     print("Search order:")
     for p in get_vivado_search_paths():
         print("  •", p)

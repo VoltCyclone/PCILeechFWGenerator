@@ -1,111 +1,55 @@
+"""Tests for the thin build_wrapper delegation shim.
+
+build_wrapper no longer manipulates sys.path / cwd; it simply delegates to
+``pcileechfwgenerator.build.main``. These tests assert that delegation and the
+exit-code contract.
+"""
 
 import sys
-import types
-import pytest
-from pathlib import Path
-import importlib
 
 
 import pcileechfwgenerator.cli.build_wrapper as build_wrapper
 
-import pcileechfwgenerator.cli.build_wrapper as build_wrapper
+
+def test_main_delegates_to_build_main(monkeypatch):
+    """build_wrapper.main() should call build.main() and return its code."""
+    called = {}
+
+    def fake_main():
+        called["yes"] = True
+        return 0
+
+    monkeypatch.setattr(build_wrapper.build, "main", fake_main)
+    monkeypatch.setattr(sys, "argv", ["build_wrapper.py", "--test"])
+
+    rc = build_wrapper.main()
+
+    assert called.get("yes") is True
+    assert rc == 0
+    # argv[0] is normalized for downstream argparse.
+    assert sys.argv[0] == "build.py"
 
 
-def make_dummy_build_module(fullname: str = 'pcileechfwgenerator.build'):
-    """Create a lightweight module object with a main() we can observe."""
-    mod = types.ModuleType(fullname)
-    mod.called = False  # type: ignore[attr-defined]
+def test_main_normalizes_none_return_to_zero(monkeypatch):
+    """build.main() returning None must map to exit code 0."""
+    monkeypatch.setattr(build_wrapper.build, "main", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["build_wrapper.py"])
 
-    def _main():  # pragma: no cover - trivial
-        mod.called = True  # type: ignore[attr-defined]
-
-    mod.main = _main  # type: ignore[attr-defined]
-    return mod
+    assert build_wrapper.main() == 0
 
 
-@pytest.fixture(autouse=True)
-def patch_sys(monkeypatch):
-    monkeypatch.setattr(sys, 'argv', ['build_wrapper.py', '--test'])
-    yield
+def test_main_propagates_nonzero_exit_code(monkeypatch):
+    """A non-zero return from build.main() is propagated unchanged."""
+    monkeypatch.setattr(build_wrapper.build, "main", lambda: 2)
+    monkeypatch.setattr(sys, "argv", ["build_wrapper.py"])
+
+    assert build_wrapper.main() == 2
 
 
-@pytest.mark.parametrize('container_exists', [True, False])
-
-def test_path_setup(monkeypatch, container_exists):
-    # Patch Path.exists to simulate environment
-    monkeypatch.setattr(
-        Path,
-        'exists',
-        lambda self: container_exists if str(self) == '/app' else True
-    )
-
-    chdir_called = {}
-    monkeypatch.setattr(
-        'os.chdir',
-        lambda path: chdir_called.setdefault('chdir', path)
-    )
-    # Patch sys.path
-    sys.path.clear()
-    # Patch __file__
-    monkeypatch.setattr(build_wrapper, '__file__', __file__)
-    # Re-import to trigger logic
+def test_module_does_not_mutate_sys_path():
+    """Importing the wrapper must not insert anything into sys.path."""
+    before = list(sys.path)
     import importlib
+
     importlib.reload(build_wrapper)
-    # Check sys.path setup
-    if container_exists:
-        assert any('/app' in p for p in sys.path)
-        assert any('/app/src' in p for p in sys.path)
-        assert chdir_called['chdir'] == '/app/src'
-    else:
-        assert any('src' in p for p in sys.path)
-        assert chdir_called['chdir'].endswith('src')
-
-
-def test_main_runs_build(monkeypatch):
-    dummy = make_dummy_build_module('pcileechfwgenerator.build')
-    # Provide a lightweight 'src' package so 'from src import build' does not
-    # import the real package (which has heavy side effects in __init__).
-    pkg = types.ModuleType('src')
-    pkg.__path__ = []  # mark as package
-    pkg.build = dummy  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, 'src', pkg)
-    monkeypatch.setitem(sys.modules, 'pcileechfwgenerator.build', dummy)
-    monkeypatch.setattr(build_wrapper, '__name__', '__main__')
-    monkeypatch.setattr(build_wrapper, '__file__', __file__)
-    # Patch sys.argv
-    sys.argv = ['build_wrapper.py', '--test']
-    # Patch importlib
-    monkeypatch.setattr(importlib, 'reload', lambda mod: mod)
-    # Run main
-    build_wrapper.__main__ = True
-    # Simulate main block
-    try:
-        from src import build
-        sys.argv[0] = 'build.py'
-        build.main()
-    except Exception:
-        pytest.fail('build.main() should not raise')
-    assert getattr(dummy, 'called', False)
-
-
-def test_import_error_fallback(monkeypatch):
-
-    # Simulate ImportError on first import
-    monkeypatch.setattr(build_wrapper, '__name__', '__main__')
-    monkeypatch.setattr(build_wrapper, '__file__', __file__)
-    sys.argv = ['build_wrapper.py', '--test']
-    # Remove src.build
-    sys.modules.pop('pcileechfwgenerator.build', None)
-    # Patch importlib
-    monkeypatch.setattr(importlib, 'reload', lambda mod: mod)
-    # Patch import build fallback
-    dummy = make_dummy_build_module('build')
-    monkeypatch.setitem(sys.modules, 'build', dummy)
-    # Simulate main block
-    try:
-        import build
-        sys.argv[0] = 'build.py'
-        build.main()
-    except Exception:
-        pytest.fail('Fallback build.main() should not raise')
-    assert getattr(dummy, 'called', False)
+    assert sys.path == before

@@ -28,16 +28,15 @@ from pcileechfwgenerator.string_utils import (
 )
 
 # Import template renderer
-from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
 
 # Import project logging and string utilities
 
 logger = get_logger(__name__)
 
 # Define commonly used BAR size constants
-BAR_MEM_MIN_SIZE = BAR_SIZE_CONSTANTS["SIZE_4KB"]  
+BAR_MEM_MIN_SIZE = BAR_SIZE_CONSTANTS["SIZE_4KB"]
 
-BAR_MEM_DEFAULT_SIZE = BAR_SIZE_CONSTANTS["SIZE_64KB"] 
+BAR_MEM_DEFAULT_SIZE = BAR_SIZE_CONSTANTS["SIZE_64KB"]
 
 BAR_IO_DEFAULT_SIZE = BAR_SIZE_CONSTANTS[
     "MAX_IO_SIZE"
@@ -261,9 +260,7 @@ def find_cap(cfg: str, cap_id: int) -> Optional[int]:
             log_debug_safe(logger, "No capabilities present", prefix="PCICAP")
             return None
     except IndexError:
-        log_warning_safe(
-            logger, "Failed to read capabilities pointer", prefix="PCICAP"
-        )
+        log_warning_safe(logger, "Failed to read capabilities pointer", prefix="PCICAP")
         return None
 
     # Walk the capabilities list
@@ -528,6 +525,7 @@ def parse_bar_info_from_config_space(cfg: str) -> List[Dict[str, Any]]:
         - prefetchable: Whether the BAR is prefetchable
     """
     from pcileechfwgenerator.device_clone.bar_parser import parse_bar_info_as_dicts
+
     return parse_bar_info_as_dicts(cfg)
 
 
@@ -692,98 +690,18 @@ def validate_msix_configuration_enhanced(
 
 
 def generate_msix_table_sv(msix_info: Dict[str, Any]) -> str:
+    """Deprecated: standalone MSI-X SystemVerilog generation was removed.
+
+    This rendered ``systemverilog/msix_implementation.sv.j2``, a template that
+    no longer exists — the project moved to an overlay-only generation
+    architecture and nothing on the live path called this. The shim is kept so
+    the public ``device_clone`` re-export stays importable; calling it raises.
     """
-    Generate SystemVerilog code for the MSI-X table and PBA.
-
-    Args:
-        msix_info: Dictionary containing MSI-X capability information
-
-    Returns:
-        SystemVerilog code for the MSI-X table and PBA
-    """
-    # Validate required fields to prevent template rendering errors
-    required_fields = [
-        "table_size",
-        "table_bir",
-        "table_offset",
-        "pba_bir",
-        "pba_offset",
-        "enabled",
-        "function_mask",
-    ]
-    missing_fields = [field for field in required_fields if field not in msix_info]
-    if missing_fields:
-        log_error_safe(
-            logger,
-            safe_format(
-                "CRITICAL: Missing required MSI-X fields: {fields}",
-                fields=missing_fields,
-            ),
-            prefix="PCICAP",
-        )
-
-        raise ValueError(
-            safe_format(
-                "Cannot generate MSI-X module - "
-                "missing critical fields: {fields}. "
-                "MSI-X BAR indices and offsets must come "
-                "from actual hardware configuration.",
-                fields=missing_fields,
-            )
-        )
-
-    if msix_info["table_size"] == 0:
-        log_debug_safe(
-            logger,
-            safe_format("MSI-X: Table size is 0, generating disabled MSI-X module"),
-            prefix="PCICAP",
-        )
-        # Generate a proper disabled module instead of returning a comment
-        table_size = 1  # Minimum size for valid SystemVerilog
-        pba_size = 1
-        alignment_warning = "// MSI-X disabled - no interrupt vectors configured"
-        enabled_val = 0
-        function_mask_val = 1  # Force masked when disabled
-    else:
-        log_debug_safe(
-            logger,
-            "MSI-X: Found, generating SystemVerilog code for MSI-X table",
-            prefix="PCICAP",
-        )
-        table_size = msix_info["table_size"]
-        pba_size = (table_size + 31) // 32  # Number of 32-bit words needed for PBA
-        enabled_val = 1 if msix_info["enabled"] else 0
-        function_mask_val = 1 if msix_info["function_mask"] else 0
-
-        # Generate alignment warning if needed
-        alignment_warning = ""
-        if msix_info["table_offset"] % 8 != 0:
-            alignment_warning = safe_format(
-                "// Warning: MSI-X table offset " "0x{offset:x} is not 8-byte aligned",
-                offset=msix_info["table_offset"],
-            )
-
-    # Prepare template context
-    context = {
-        "table_size": table_size,
-        "table_bir": msix_info["table_bir"],
-        "table_offset": msix_info["table_offset"],
-        "pba_bir": msix_info["pba_bir"],
-        "pba_offset": msix_info["pba_offset"],
-        "enabled_val": enabled_val,
-        "function_mask_val": function_mask_val,
-        "pba_size": pba_size,
-        "pba_size_minus_one": pba_size - 1,
-        "alignment_warning": alignment_warning,
-    }
-
-    # Use template renderer
-    renderer = TemplateRenderer()
-    main_template = renderer.render_template(
-        "systemverilog/msix_implementation.sv.j2", context
+    raise NotImplementedError(
+        "generate_msix_table_sv was removed with the overlay-only "
+        "SystemVerilog generation architecture. MSI-X is now emitted via the "
+        "overlay/config-space path, not a standalone template."
     )
-    capability_registers = generate_msix_capability_registers(msix_info)
-    return main_template + "\n" + capability_registers
 
 
 def validate_msix_configuration(
@@ -870,34 +788,15 @@ def validate_msix_configuration(
 
 
 def generate_msix_capability_registers(msix_info: Dict[str, Any]) -> str:
+    """Deprecated: standalone MSI-X capability-register generation was removed.
+
+    This rendered ``systemverilog/msix_capability_registers.sv.j2``, a template
+    that no longer exists (overlay-only architecture). Kept as an importable
+    shim for the public re-export; calling it raises.
     """
-    Generate SystemVerilog code for MSI-X capability register handling.
-
-    Args:
-        msix_info: Dictionary containing MSI-X capability information
-
-    Returns:
-        SystemVerilog code for MSI-X capability register management
-    """
-    # Always generate a proper module, even for disabled MSI-X
-    table_size = max(
-        1, msix_info.get("table_size", 1)
-    )  # Minimum size 1 for valid SystemVerilog
-
-    # Precompute encoded offset|BIR values (keep lines short)
-    _table_enc = msix_info.get("table_offset", 0x1000) | msix_info.get("table_bir", 0)
-    _pba_enc = msix_info.get("pba_offset", 0x2000) | msix_info.get("pba_bir", 0)
-
-    context = {
-        "table_size_minus_one": table_size - 1,
-        "table_offset_bir": "32'h" + f"{_table_enc:08X}",
-        "pba_offset_bir": "32'h" + f"{_pba_enc:08X}",
-    }
-
-    # Use template renderer
-    renderer = TemplateRenderer()
-    return renderer.render_template(
-        "systemverilog/msix_capability_registers.sv.j2", context
+    raise NotImplementedError(
+        "generate_msix_capability_registers was removed with the overlay-only "
+        "SystemVerilog generation architecture."
     )
 
 
@@ -948,7 +847,3 @@ if __name__ == "__main__":
             count=len(bars),
         )
         print(format_raw_bar_table(bars, device_bdf="N/A"))
-
-    sv_code = generate_msix_table_sv(msix_info)
-    safe_print_format(template="SystemVerilog Code:", prefix="PCICAP")
-    print(sv_code)

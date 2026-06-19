@@ -6,6 +6,13 @@ import shlex
 import subprocess
 from typing import Optional
 
+from pcileechfwgenerator.string_utils import (
+    log_debug_safe,
+    log_info_safe,
+    log_warning_safe,
+    safe_format,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +52,11 @@ class Shell:
         # Check for suspicious redirections to sensitive paths
         if any(path in cmd for path in ["/etc/", "/boot/", "/sys/", "/proc/"]):
             if any(op in cmd for op in ["> ", ">> ", "| dd", "| tee"]):
-                logger.warning(f"Command modifies sensitive paths: {cmd}")
+                log_warning_safe(
+                    logger,
+                    safe_format("Command modifies sensitive paths: {cmd}", cmd=cmd),
+                    prefix="SHELL",
+                )
 
     def run(self, *parts: str, timeout: int = 30, cwd: Optional[str] = None) -> str:
         """Execute a shell command and return stripped output.
@@ -67,14 +78,30 @@ class Shell:
         self._validate_command_safety(cmd)
 
         if self.dry_run:
-            logger.info(f"[DRY RUN] Would execute: {cmd}")
+            log_info_safe(
+                logger,
+                safe_format("[DRY RUN] Would execute: {cmd}", cmd=cmd),
+                prefix="SHELL",
+            )
             if cwd:
-                logger.debug(f"[DRY RUN] Working directory: {cwd}")
+                log_debug_safe(
+                    logger,
+                    safe_format("[DRY RUN] Working directory: {cwd}", cwd=cwd),
+                    prefix="SHELL",
+                )
             return ""
 
-        logger.debug(f"Executing command: {cmd}")
+        log_debug_safe(
+            logger,
+            safe_format("Executing command: {cmd}", cmd=cmd),
+            prefix="SHELL",
+        )
         if cwd:
-            logger.debug(f"Working directory: {cwd}")
+            log_debug_safe(
+                logger,
+                safe_format("Working directory: {cwd}", cwd=cwd),
+                prefix="SHELL",
+            )
 
         try:
             # Use shell=False with shlex.split for safety.
@@ -87,7 +114,11 @@ class Shell:
                 stderr=subprocess.STDOUT,
                 cwd=cwd,
             ).strip()
-            logger.debug(f"Command output: {result}")
+            log_debug_safe(
+                logger,
+                safe_format("Command output: {result}", result=result),
+                prefix="SHELL",
+            )
             return result
 
         except subprocess.TimeoutExpired as e:
@@ -153,10 +184,22 @@ class Shell:
             RuntimeError: If file operation fails
         """
         if self.dry_run:
-            logger.info(f"[DRY RUN] Would write to file: {path}")
-            logger.debug(f"[DRY RUN] Content: {content}")
+            log_info_safe(
+                logger,
+                safe_format("[DRY RUN] Would write to file: {path}", path=path),
+                prefix="SHELL",
+            )
+            log_debug_safe(
+                logger,
+                safe_format("[DRY RUN] Content: {content}", content=content),
+                prefix="SHELL",
+            )
             if permissions:
-                logger.debug(f"[DRY RUN] Permissions: {oct(permissions)}")
+                log_debug_safe(
+                    logger,
+                    safe_format("[DRY RUN] Permissions: {perm}", perm=oct(permissions)),
+                    prefix="SHELL",
+                )
             return
 
         try:
@@ -174,9 +217,21 @@ class Shell:
                 import os
 
                 os.chmod(path, permissions)
-                logger.debug(f"Set file permissions to {oct(permissions)}: {path}")
+                log_debug_safe(
+                    logger,
+                    safe_format(
+                        "Set file permissions to {perm}: {path}",
+                        perm=oct(permissions),
+                        path=path,
+                    ),
+                    prefix="SHELL",
+                )
 
-            logger.debug(f"Wrote content to file: {path}")
+            log_debug_safe(
+                logger,
+                safe_format("Wrote content to file: {path}", path=path),
+                prefix="SHELL",
+            )
         except (OSError, IOError) as e:
             error_msg = f"Failed to write file {path}: {e}"
             logger.error(error_msg)

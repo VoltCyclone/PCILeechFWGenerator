@@ -77,7 +77,7 @@ class ErrorTagExtension(Extension):
 
     def _raise_error(self, message, caller=None):
         """Raise a template runtime error with the given message.
-        
+
         Args:
             message: The error message to raise
             caller: Jinja2 CallBlock automatically passes this argument
@@ -403,21 +403,40 @@ class TemplateRenderer:
         self.env.filters["safe_int"] = safe_int_filter
 
         # Bitwise operation filters (Jinja2 doesn't support | and ^ as Python operators)
+        def _bit_int(value):
+            """Coerce a value to int for bitwise ops.
+
+            Accepts ints and decimal/hex strings (e.g. "0x1234", "4660"). PCI
+            IDs commonly arrive as hex strings in the template context, so a
+            bare int(value) (base 10) would raise on them.
+            """
+            if not value:
+                return 0
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str):
+                return (
+                    int(value, 16)
+                    if value.strip().lower().startswith("0x")
+                    else int(value, 0)
+                )
+            return int(value)
+
         def bitor(value, other):
             """Bitwise OR filter: value | other"""
-            return int(value or 0) | int(other or 0)
+            return _bit_int(value) | _bit_int(other)
 
         def bitxor(value, other):
             """Bitwise XOR filter: value ^ other"""
-            return int(value or 0) ^ int(other or 0)
+            return _bit_int(value) ^ _bit_int(other)
 
         def bitand(value, other):
             """Bitwise AND filter: value & other"""
-            return int(value or 0) & int(other or 0)
+            return _bit_int(value) & _bit_int(other)
 
         def bitnot(value):
             """Bitwise NOT filter: ~value (with 32-bit mask)"""
-            return ~int(value or 0) & 0xFFFFFFFF
+            return ~_bit_int(value) & 0xFFFFFFFF
 
         self.env.filters["bitor"] = bitor
         self.env.filters["bitxor"] = bitxor
@@ -675,8 +694,8 @@ class TemplateRenderer:
         self,
         context: Dict[str, Any],
         template_name: Optional[str] = None,
-    _required_fields: Optional[list] = None,
-    _optional_fields: Optional[list] = None,
+        _required_fields: Optional[list] = None,
+        _optional_fields: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
         Validate and prepare template context with permissive validation.

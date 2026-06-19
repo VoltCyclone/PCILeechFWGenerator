@@ -427,30 +427,31 @@ class TestDonorIdsFromTemplateContext:
     """Pull DonorIDs out of the build's template_context dict."""
 
     def test_reads_int_suffixed_fields(self):
+        # 0x8086:0x10D3 (Intel 82574L) is a real, non-placeholder pair.
         ctx = {
             "device_config": {
                 "vendor_id_int": 0x8086,
-                "device_id_int": 0x1533,
+                "device_id_int": 0x10D3,
                 "subsystem_vendor_id_int": 0x8086,
                 "subsystem_device_id_int": 0x0001,
                 "revision_id_int": 0x03,
             }
         }
         donor = donor_ids_from_template_context(ctx)
-        assert donor == DonorIDs(0x8086, 0x1533, 0x8086, 0x0001, 0x03)
+        assert donor == DonorIDs(0x8086, 0x10D3, 0x8086, 0x0001, 0x03)
 
     def test_falls_back_to_string_fields(self):
         ctx = {
             "device_config": {
                 "vendor_id": "0x8086",
-                "device_id": "0x1533",
+                "device_id": "0x10D3",
                 "subsystem_vendor_id": "0x8086",
                 "subsystem_device_id": "0x0001",
                 "revision_id": "0x03",
             }
         }
         donor = donor_ids_from_template_context(ctx)
-        assert donor == DonorIDs(0x8086, 0x1533, 0x8086, 0x0001, 0x03)
+        assert donor == DonorIDs(0x8086, 0x10D3, 0x8086, 0x0001, 0x03)
 
     def test_returns_none_when_device_config_missing(self):
         assert donor_ids_from_template_context({}) is None
@@ -460,7 +461,7 @@ class TestDonorIdsFromTemplateContext:
         ctx = {
             "device_config": {
                 "vendor_id_int": 0,
-                "device_id_int": 0x1533,
+                "device_id_int": 0x10D3,
                 "subsystem_vendor_id_int": 0x8086,
                 "subsystem_device_id_int": 0x0001,
                 "revision_id_int": 0x03,
@@ -475,14 +476,61 @@ class TestDonorIdsFromTemplateContext:
         ctx = {
             "device_config": {
                 "vendor_id_int": 0x8086,
-                "device_id_int": 0x1533,
+                "device_id_int": 0x10D3,
                 "subsystem_vendor_id_int": 0,
                 "subsystem_device_id_int": 0,
                 "revision_id_int": 0x03,
             }
         }
         donor = donor_ids_from_template_context(ctx)
-        assert donor == DonorIDs(0x8086, 0x1533, 0x8086, 0x0000, 0x03)
+        assert donor == DonorIDs(0x8086, 0x10D3, 0x8086, 0x0000, 0x03)
+
+    def test_returns_none_for_known_placeholder_pair(self):
+        # A populated-but-synthetic pair (Intel I210 default 0x8086:0x1533) must
+        # be rejected the same as missing IDs — it means donor collection failed
+        # and a fabricated default leaked in.
+        ctx = {
+            "device_config": {
+                "vendor_id_int": 0x8086,
+                "device_id_int": 0x1533,
+                "subsystem_vendor_id_int": 0x8086,
+                "subsystem_device_id_int": 0x0001,
+                "revision_id_int": 0x03,
+            }
+        }
+        assert donor_ids_from_template_context(ctx) is None
+
+    @pytest.mark.parametrize(
+        "vid,did",
+        [
+            (0x8086, 0x1234),  # generic fallback
+            (0x8086, 0x1533),  # synthetic I210
+            (0x8086, 0x2522),  # synthetic NVMe
+            (0x10EC, 0x8168),  # tcl/j2 default RTL8168
+            (0x10DE, 0x2204),  # synthetic GPU
+            (0x10EE, 0x0666),  # Xilinx FIFO default
+            (0x10EE, 0x0007),  # Xilinx FIFO default
+        ],
+    )
+    def test_rejects_all_known_placeholders(self, vid, did):
+        ctx = {"device_config": {"vendor_id_int": vid, "device_id_int": did}}
+        assert donor_ids_from_template_context(ctx) is None
+
+    def test_placeholder_allowed_with_env_escape_hatch(self, monkeypatch):
+        # The escape hatch lets a genuine device whose real IDs collide with the
+        # placeholder set still build — but never bypasses the missing/zero check.
+        monkeypatch.setenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", "1")
+        ctx = {
+            "device_config": {
+                "vendor_id_int": 0x8086,
+                "device_id_int": 0x1533,
+                "subsystem_vendor_id_int": 0x8086,
+                "subsystem_device_id_int": 0x0001,
+                "revision_id_int": 0x03,
+            }
+        }
+        donor = donor_ids_from_template_context(ctx)
+        assert donor == DonorIDs(0x8086, 0x1533, 0x8086, 0x0001, 0x03)
 
 
 # ---------------------------------------------------------------------------
@@ -524,11 +572,12 @@ class TestBuildWiring:
         (src_dir / "pcileech_header.svh").write_text(HEADER_WITHOUT_CFG_FIELDS)
 
         builder = self._make_builder(tmp_path)
+        # 0x8086:0x10D3 (Intel 82574L) is a real, non-placeholder donor pair.
         result = {
             "template_context": {
                 "device_config": {
                     "vendor_id_int": 0x8086,
-                    "device_id_int": 0x1533,
+                    "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
@@ -540,7 +589,7 @@ class TestBuildWiring:
 
         patched = (src_dir / "pcileech_fifo.sv").read_text()
         assert "16'h8086" in patched
-        assert "16'h1533" in patched
+        assert "16'h10D3" in patched
         # 75t484_x1-shaped fixture had cfg-id assigns; with header missing
         # the fields, they must be commented after patching.
         for line in patched.splitlines():
@@ -581,7 +630,7 @@ class TestBuildWiring:
             "template_context": {
                 "device_config": {
                     "vendor_id_int": 0x8086,
-                    "device_id_int": 0x1533,
+                    "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
