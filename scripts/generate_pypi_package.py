@@ -323,9 +323,7 @@ class QualityChecker:
         Logger.info("Checking code formatting...")
 
         # Check black formatting
-        result = CommandRunner.run(
-            ["black", "--check", "src/", "tests/"], check=False
-        )
+        result = CommandRunner.run(["black", "--check", "src/", "tests/"], check=False)
         if result.returncode != 0:
             Logger.error(
                 "Code formatting issues found. Run 'black src/ tests/' to fix."
@@ -542,14 +540,13 @@ class PackageBuilder:
                 )
 
                 # Test console scripts
+                console_scripts_probe = (
+                    "import pkg_resources; "
+                    + "print([ep.name for ep in "
+                    + 'pkg_resources.iter_entry_points("console_scripts")])'
+                )
                 CommandRunner.run(
-                    [
-                        str(python_path),
-                        "-c",
-                        "import pkg_resources; "
-                        "print([ep.name for ep in "
-                        'pkg_resources.iter_entry_points("console_scripts")])',
-                    ],
+                    [str(python_path), "-c", console_scripts_probe],
                     check=False,
                 )
 
@@ -589,9 +586,7 @@ class PyPIUploader:
 
         # Upload
         if test_pypi:
-            CommandRunner.run(
-                ["twine", "upload", "--repository", "testpypi", *dists]
-            )
+            CommandRunner.run(["twine", "upload", "--repository", "testpypi", *dists])
             Logger.success("Uploaded to Test PyPI")
             Logger.info(
                 "Install with: pip3 install --index-url https://test.pypi.org/simple/ pcileechfwgenerator"
