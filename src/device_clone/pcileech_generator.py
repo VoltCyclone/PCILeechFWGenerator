@@ -34,6 +34,7 @@ from pcileechfwgenerator.error_utils import extract_root_cause
 from pcileechfwgenerator.exceptions import (
     PCILeechGenerationError,
     PlatformCompatibilityError,
+    TemplateRenderError,
 )
 from pcileechfwgenerator.pci_capability.msix_bar_validator import (
     validate_msix_bar_configuration,
@@ -50,7 +51,6 @@ from pcileechfwgenerator.string_utils import (
 from pcileechfwgenerator.templating import (
     AdvancedSVGenerator,
     TemplateRenderer,
-    TemplateRenderError,
 )
 from pcileechfwgenerator.templating.tcl_builder import format_hex_id
 
