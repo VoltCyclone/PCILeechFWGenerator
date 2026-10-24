@@ -7,13 +7,16 @@ that were previously in src.build module.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.host_collect.snapshot import (
+    load_configured_snapshot,
+    verify_current_device,
+)
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_info_safe,
@@ -52,123 +55,28 @@ class MSIXManager:
         self.logger = logger or get_logger(self.__class__.__name__)
 
     def preload_data(self) -> MSIXData:
-        """
-        Preload MSI-X data before VFIO binding.
-
-        Returns:
-            MSIXData object containing preloaded information
-
-        Note:
-            Returns empty MSIXData on any failure (non-critical operation)
-        """
+        """Load a validated capture or read live config; invalid captures fail closed."""
+        disable_vfio = bool(os.environ.get("DEVICE_CONTEXT_PATH")) or any(
+            os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+            for name in ("PCILEECH_DISABLE_VFIO", "PCILEECH_HOST_CONTEXT_ONLY")
+        )
+        # Keep validation outside the optional live-probe exception handler.
+        snapshot = load_configured_snapshot(self.bdf, include_msix_only=True)
+        if snapshot is not None:
+            if not disable_vfio:
+                verify_current_device(snapshot)
+            msix_info = snapshot.msix["msix_info"]
+            if msix_info and int(msix_info.get("table_size", 0)) > 0:
+                return MSIXData(
+                    preloaded=True,
+                    msix_info=msix_info,
+                    config_space_hex=snapshot.config_space.hex(),
+                    config_space_bytes=snapshot.config_space,
+                )
+            return MSIXData(preloaded=False)
+        if disable_vfio:
+            return MSIXData(preloaded=False)
         try:
-            # In host-context-only mode, never touch sysfs/VFIO;
-            # use pre-saved files only
-            disable_vfio = str(os.environ.get("PCILEECH_DISABLE_VFIO", "")).lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            ) or str(os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "")).lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            )
-            if disable_vfio:
-                msix_path = os.environ.get(
-                    "MSIX_DATA_PATH",
-                    "/app/output/msix_data.json",
-                )
-                try:
-                    if msix_path and os.path.exists(msix_path):
-                        with open(msix_path, "r") as f:
-                            payload = json.load(f)
-                        # Support different shapes
-                        msix_info = payload.get("capability_info") or payload.get(
-                            "msix_info"
-                        )
-                        cfg_hex = payload.get("config_space_hex")
-                        cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
-                        if not msix_info and cfg_hex:
-                            msix_info = parse_msix_capability(cfg_hex)
-                        if msix_info and int(msix_info.get("table_size", 0)) > 0:
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "Loaded MSI-X from {path} ({n} vectors)",
-                                    path=msix_path,
-                                    n=msix_info.get("table_size", 0),
-                                ),
-                                prefix="MSIX",
-                            )
-                            return MSIXData(
-                                preloaded=True,
-                                msix_info=msix_info,
-                                config_space_hex=cfg_hex,
-                                config_space_bytes=cfg_bytes,
-                            )
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Failed to load MSI-X from host file: {err}", err=str(e)
-                        ),
-                        prefix="MSIX",
-                    )
-                # Do not attempt sysfs/VFIO in strict mode
-                log_info_safe(
-                    self.logger,
-                    (
-                        "MSI-X preload: host-context-only mode active; "
-                        "skipping sysfs/VFIO"
-                    ),
-                    prefix="MSIX",
-                )
-                return MSIXData(preloaded=False)
-            log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
-
-            # 1) Prefer host-provided JSON (mounted into container) if available
-            #    This preserves MSI-X context when container lacks sysfs/VFIO access.
-            try:
-                msix_json_path = os.environ.get(
-                    "MSIX_DATA_PATH", "/app/output/msix_data.json"
-                )
-                if msix_json_path and os.path.exists(msix_json_path):
-                    with open(msix_json_path, "r") as f:
-                        payload = json.load(f)
-
-                    msix_info = payload.get("msix_info")
-                    cfg_hex = payload.get("config_space_hex")
-                    if msix_info and isinstance(msix_info, dict):
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Loaded MSI-X from {path} ({vectors} vectors)",
-                                path=msix_json_path,
-                                vectors=msix_info.get("table_size", 0),
-                            ),
-                            prefix="MSIX",
-                        )
-                        return MSIXData(
-                            preloaded=True,
-                            msix_info=msix_info,
-                            config_space_hex=cfg_hex,
-                            config_space_bytes=(
-                                bytes.fromhex(cfg_hex) if cfg_hex else None
-                            ),
-                        )
-            except Exception as e:
-                # Non-fatal; fall back to sysfs path
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "MSI-X JSON ingestion skipped: {err}",
-                        err=str(e),
-                    ),
-                    prefix="MSIX",
-                )
-
             config_space_path = CONFIG_SPACE_PATH_TEMPLATE.format(self.bdf)
             if not os.path.exists(config_space_path):
                 log_warning_safe(

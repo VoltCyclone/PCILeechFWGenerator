@@ -20,7 +20,8 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from pcileechfwgenerator.build import BuildConfiguration, FirmwareBuilder
-
+from pcileechfwgenerator.exceptions import ConfigurationError
+from tests.snapshot_helpers import make_snapshot
 
 @pytest.fixture
 def temp_dir():
@@ -66,44 +67,7 @@ def mock_config_space():
 @pytest.fixture
 def device_context_file(temp_dir, mock_config_space):
     """Create a device_context.json file with preloaded config space."""
-    context_data = {
-        "bdf": "0000:63:00.0",
-        "config_space_hex": mock_config_space.hex(),
-        "device_info": {
-            "vendor_id": "0x1912",
-            "device_id": "0x0014",
-            "class_code": "0x0c0330",
-            "revision_id": "0x03",
-            "command": "0x0002",
-            "status": "0x0010",
-            "header_type": "0x00",
-            "subsystem_vendor": "0x1912",
-            "subsystem_device": "0x0014",
-            "cache_line_size": "16",
-            "latency_timer": "0",
-            "bist": "0x00",
-        },
-        "msix_data": {
-            "preloaded": True,
-            "num_vectors": 8,
-            "table_bir": 0,
-            "table_offset": "0x1000",
-            "pba_bir": 0,
-            "pba_offset": "0x1080",
-        },
-        "collection_metadata": {
-            "collected_at": 1234567890.0,
-            "config_space_size": len(mock_config_space),
-            "has_msix": True,
-            "collector_version": "1.0"
-        }
-    }
-    
-    context_file = temp_dir / "device_context.json"
-    with open(context_file, "w") as f:
-        json.dump(context_data, f, indent=2)
-    
-    return context_file
+    return make_snapshot(temp_dir, mock_config_space, bdf="0000:63:00.0")
 
 
 class TestPreloadedConfigSpace:
@@ -120,12 +84,12 @@ class TestPreloadedConfigSpace:
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
+
             builder = FirmwareBuilder(config)
-            
+
             # Call the private method to load preloaded config space
             loaded_config_space = builder._load_preloaded_config_space()
-            
+
             # Verify config space was loaded
             assert loaded_config_space is not None
             assert isinstance(loaded_config_space, bytes)
@@ -135,7 +99,7 @@ class TestPreloadedConfigSpace:
     def test_load_preloaded_config_space_missing_file(
         self, temp_dir, valid_bdf, valid_board
     ):
-        """Test that missing device context file returns None."""
+        """Test that explicitly missing device context stops the build."""
         # Set environment variable to non-existent file
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": "/nonexistent/file.json"}):
             config = BuildConfiguration(
@@ -143,33 +107,27 @@ class TestPreloadedConfigSpace:
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
-            builder = FirmwareBuilder(config)
-            loaded_config_space = builder._load_preloaded_config_space()
-            
-            # Should return None gracefully
-            assert loaded_config_space is None
+
+            with pytest.raises(ConfigurationError):
+                FirmwareBuilder(config)
 
     def test_load_preloaded_config_space_invalid_hex(
         self, temp_dir, valid_bdf, valid_board
     ):
-        """Test that invalid hex string in device context returns None."""
+        """Test that invalid hex stops the build."""
         context_file = temp_dir / "bad_context.json"
         with open(context_file, "w") as f:
             json.dump({"config_space_hex": "not_valid_hex"}, f)
-        
+
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}):
             config = BuildConfiguration(
                 bdf=valid_bdf,
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
-            builder = FirmwareBuilder(config)
-            loaded_config_space = builder._load_preloaded_config_space()
-            
-            # Should return None on error
-            assert loaded_config_space is None
+
+            with pytest.raises(ConfigurationError):
+                FirmwareBuilder(config)
 
     def test_preloaded_config_space_passed_to_generator(
         self, temp_dir, valid_bdf, valid_board, device_context_file, 
@@ -183,16 +141,16 @@ class TestPreloadedConfigSpace:
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
+
             # Mock PCILeechGenerator at import location within FirmwareBuilder
             patch_path = "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
             with mock.patch(patch_path) as MockGenerator:
                 builder = FirmwareBuilder(config)
-                
+
                 # Verify generator was initialized with preloaded config space
                 MockGenerator.assert_called_once()
                 call_args = MockGenerator.call_args
-                
+
                 # Check config passed to generator has preloaded_config_space
                 generator_config = call_args[0][0]  # First positional arg
                 assert hasattr(generator_config, "preloaded_config_space")
@@ -207,22 +165,22 @@ class TestPreloadedConfigSpace:
             k: v for k, v in os.environ.items()
             if k != "DEVICE_CONTEXT_PATH"
         }
-        
+
         with mock.patch.dict(os.environ, env_without_context, clear=True):
             config = BuildConfiguration(
                 bdf=valid_bdf,
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
+
             patch_path = "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
             with mock.patch(patch_path) as MockGenerator:
                 builder = FirmwareBuilder(config)
-                
+
                 # Verify generator initialized with None for preloaded config
                 MockGenerator.assert_called_once()
                 call_args = MockGenerator.call_args
-                
+
                 generator_config = call_args[0][0]
                 assert hasattr(generator_config, "preloaded_config_space")
                 assert generator_config.preloaded_config_space is None
@@ -238,30 +196,24 @@ class TestPreloadedConfigSpace:
             ("", False),  # Empty string
             ("zzzz", False),  # Invalid hex chars
         ]
-        
+
         for hex_string, should_succeed in test_cases:
-            context_file = temp_dir / f"context_{hex_string[:8]}.json"
-            with open(context_file, "w") as f:
-                json.dump({"config_space_hex": hex_string}, f)
-            
-            context_path = str(context_file)
+            context_file = make_snapshot(temp_dir, mock_config_space, bdf=valid_bdf)
+            payload = json.loads(context_file.read_text())
+            payload["config_space_hex"] = hex_string
+            context_file.write_text(json.dumps(payload))
             with mock.patch.dict(
-                os.environ, {"DEVICE_CONTEXT_PATH": context_path}
+                os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}
             ):
                 config = BuildConfiguration(
-                    bdf=valid_bdf,
-                    board=valid_board,
-                    output_dir=temp_dir,
+                    bdf=valid_bdf, board=valid_board, output_dir=temp_dir
                 )
-                
-                builder = FirmwareBuilder(config)
-                loaded = builder._load_preloaded_config_space()
-                
                 if should_succeed:
-                    assert loaded is not None
-                    assert isinstance(loaded, bytes)
+                    builder = FirmwareBuilder(config)
+                    assert builder._load_preloaded_config_space() == mock_config_space
                 else:
-                    assert loaded is None
+                    with pytest.raises(ConfigurationError):
+                        FirmwareBuilder(config)
 
     def test_config_space_too_small(
         self, temp_dir, valid_bdf, valid_board
@@ -270,10 +222,10 @@ class TestPreloadedConfigSpace:
         # Create a config space that's too small (32 bytes)
         small_config = bytearray(32)
         context_file = temp_dir / "context_small.json"
-        
+
         with open(context_file, "w") as f:
             json.dump({"config_space_hex": small_config.hex()}, f)
-        
+
         with mock.patch.dict(
             os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}
         ):
@@ -282,23 +234,20 @@ class TestPreloadedConfigSpace:
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
-            builder = FirmwareBuilder(config)
-            loaded = builder._load_preloaded_config_space()
-            
-            # Should return None due to size check
-            assert loaded is None
+
+            with pytest.raises(ConfigurationError):
+                FirmwareBuilder(config)
 
     def test_malformed_json_handling(
         self, temp_dir, valid_bdf, valid_board
     ):
         """Test that malformed JSON is handled gracefully."""
         context_file = temp_dir / "context_malformed.json"
-        
+
         # Write invalid JSON
         with open(context_file, "w") as f:
             f.write("{invalid json content")
-        
+
         with mock.patch.dict(
             os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}
         ):
@@ -307,12 +256,9 @@ class TestPreloadedConfigSpace:
                 board=valid_board,
                 output_dir=temp_dir,
             )
-            
-            builder = FirmwareBuilder(config)
-            loaded = builder._load_preloaded_config_space()
-            
-            # Should return None gracefully without crashing
-            assert loaded is None
+
+            with pytest.raises(ConfigurationError):
+                FirmwareBuilder(config)
 
 
 class TestPreloadedConfigSpaceIntegration:
@@ -348,21 +294,13 @@ def test_host_context_device_config_construction(
     temp_dir, valid_bdf, valid_board
 ):
     """Test that device_config is constructed from host context when missing."""
-    # Create a host context without device_config (new format)
-    host_context_data = {
-        "vendor_id": 0x1912,
-        "device_id": 0x0014,
-        "class_code": 0x0C0330,
-        "revision_id": 0xA1,
-        "subsystem_vendor_id": 0x1234,
-        "subsystem_device_id": 0x5678,
-        "config_space_hex": "00" * 4096,
-    }
-    
-    context_file = temp_dir / "device_context.json"
-    with open(context_file, "w") as f:
-        json.dump(host_context_data, f)
-    
+    # Host capture has raw IDs and no rendered device_config yet.
+    raw = bytearray(4096)
+    raw[:4] = bytes.fromhex("12191400")
+    raw[8:12] = bytes.fromhex("a130030c")
+    raw[44:48] = bytes.fromhex("34127856")
+    context_file = make_snapshot(temp_dir, bytes(raw), bdf=valid_bdf)
+
     with mock.patch.dict(
         os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}
     ):
@@ -371,7 +309,7 @@ def test_host_context_device_config_construction(
             board=valid_board,
             output_dir=temp_dir,
         )
-        
+
         # Mock all the necessary components
         with mock.patch(
             "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
@@ -396,35 +334,35 @@ def test_host_context_device_config_construction(
         ), mock.patch(
             "pcileechfwgenerator.file_management.file_manager.FileManager"
         ) as mock_fm_class:
-            
+
             mock_gen = mock.MagicMock()
             mock_gen_class.return_value = mock_gen
             mock_fm = mock.MagicMock()
             mock_fm_class.return_value = mock_fm
             mock_fm.list_artifacts.return_value = []
-            
+
             builder = FirmwareBuilder(config)
-            
+
             # Capture the generation_result created in build()
             original_store_device_config = builder._store_device_config
             captured_result = None
-            
+
             def capture_result(result):
                 nonlocal captured_result
                 captured_result = result
                 return original_store_device_config(result)
-            
+
             builder._store_device_config = capture_result
-            
+
             # Run build
             builder.build()
-            
+
             # Verify device_config was constructed in template_context
             assert captured_result is not None
             assert "template_context" in captured_result
             template_context = captured_result["template_context"]
             assert "device_config" in template_context
-            
+
             device_config = template_context["device_config"]
             assert device_config["vendor_id"] == "1912"
             assert device_config["device_id"] == "0014"

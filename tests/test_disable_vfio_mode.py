@@ -4,6 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from pcileechfwgenerator.exceptions import ConfigurationError
+from tests.snapshot_helpers import make_snapshot
+
 from pcileechfwgenerator.build import (
     BuildConfiguration,
     ConfigurationManager,
@@ -97,7 +100,8 @@ class TestDisableVFIOConfig:
 
 
 class TestPreloadedConfigSpace:
-    def test_loads_from_template_context_hex(self, monkeypatch, tmp_path):
+
+    def test_legacy_nested_context_is_rejected(self, monkeypatch, tmp_path):
         # Prepare minimal device_context.json with nested
         # template_context.config_space_hex
         hex_str = '00' * 128  # 128 bytes
@@ -125,10 +129,8 @@ class TestPreloadedConfigSpace:
             enable_error_injection=False,
             disable_vfio=False,
         )
-        fb = FirmwareBuilder(cfg)
-        data = fb._load_preloaded_config_space()
-        assert isinstance(data, bytes)
-        assert len(data) == 128
+        with pytest.raises(ConfigurationError, match="legacy"):
+            FirmwareBuilder(cfg)
 
 
 class TestMSIXManagerDisable:
@@ -146,9 +148,7 @@ class TestMSIXManagerDisable:
             'function_mask': 0,
         }
         msix_path = tmp_path / 'msix_data.json'
-        msix_path.write_text(
-            json.dumps({'msix_info': msix_info, 'config_space_hex': '00' * 128})
-        )
+        make_snapshot(tmp_path, msix_info=msix_info)
         monkeypatch.setenv('MSIX_DATA_PATH', str(msix_path))
         m = MSIXManager(bdf='0000:03:00.0')
 
@@ -194,9 +194,7 @@ class TestProfilingSkip:
         )
         # Create a builder; _init_components will fail if it can't find host data.
         # Avoid that by providing a minimal device_context.json with config_space_hex
-        hex_str = '00' * 128
-        ctx = tmp_path / 'device_context.json'
-        ctx.write_text(json.dumps({'config_space_hex': hex_str}))
+        ctx = make_snapshot(tmp_path)
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
 
         fb = FirmwareBuilder(cfg)
@@ -215,9 +213,7 @@ class TestProfilingSkip:
 
 class TestGeneratorConfig:
     def test_generator_strict_vfio_false_when_disabled(self, monkeypatch, tmp_path):
-        hex_str = '00' * 128
-        ctx = tmp_path / 'device_context.json'
-        ctx.write_text(json.dumps({'config_space_hex': hex_str}))
+        ctx = make_snapshot(tmp_path)
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
 
         cfg = BuildConfiguration(

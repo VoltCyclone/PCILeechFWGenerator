@@ -71,6 +71,12 @@ pip install pcileechfwgenerator[tui]
 pcileech version
 ```
 
+Saved donor captures now require matching, versioned device-context and MSI-X
+files. Older or incomplete captures must be collected again into a fresh
+`--datastore`; collection never overwrites an existing capture. Reuse checks the
+requested PCI address and current device identity. See the
+[capture format and migration guide](docs/development/CAPTURE_FORMAT.md).
+
 > ⚠️ **Don't skip the venv!** Running `pip install pcileechfwgenerator` directly will fail with `externally-managed-environment` on modern systems.
 
 ### Running with Root Access (Required for VFIO)

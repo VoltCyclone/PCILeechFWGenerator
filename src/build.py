@@ -28,6 +28,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from pcileechfwgenerator.host_collect.snapshot import (
+    load_configured_snapshot,
+    verify_current_device,
+)
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -259,128 +263,28 @@ class MSIXManager:
         self.logger = logger or get_logger(self.__class__.__name__)
 
     def preload_data(self) -> MSIXData:
-        """Read MSI-X data from sysfs config space. Returns empty on failure."""
+        """Load a validated capture or read live config; invalid captures fail closed."""
+        disable_vfio = bool(os.environ.get("DEVICE_CONTEXT_PATH")) or any(
+            os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+            for name in ("PCILEECH_DISABLE_VFIO", "PCILEECH_HOST_CONTEXT_ONLY")
+        )
+        # Keep validation outside the optional live-probe exception handler.
+        snapshot = load_configured_snapshot(self.bdf, include_msix_only=True)
+        if snapshot is not None:
+            if not disable_vfio:
+                verify_current_device(snapshot)
+            msix_info = snapshot.msix["msix_info"]
+            if msix_info and int(msix_info.get("table_size", 0)) > 0:
+                return MSIXData(
+                    preloaded=True,
+                    msix_info=msix_info,
+                    config_space_hex=snapshot.config_space.hex(),
+                    config_space_bytes=snapshot.config_space,
+                )
+            return MSIXData(preloaded=False)
+        if disable_vfio:
+            return MSIXData(preloaded=False)
         try:
-            # In host-context-only mode, never touch sysfs/VFIO;
-            # use pre-saved files only
-            disable_vfio = str(os.environ.get("PCILEECH_DISABLE_VFIO", "")).lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            ) or str(os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "")).lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            )
-            if disable_vfio:
-                msix_path = os.environ.get(
-                    "MSIX_DATA_PATH",
-                    "/app/output/msix_data.json",
-                )
-                try:
-                    if msix_path and os.path.exists(msix_path):
-                        with open(msix_path, "r") as f:
-                            payload = json.load(f)
-                        # Support different shapes
-                        msix_info = payload.get("capability_info") or payload.get(
-                            "msix_info"
-                        )
-                        cfg_hex = payload.get("config_space_hex")
-                        cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
-                        if not msix_info and cfg_hex:
-                            msix_info = parse_msix_capability(cfg_hex)
-                        if msix_info and int(msix_info.get("table_size", 0)) > 0:
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "Loaded MSI-X from {path} ({n} vectors)",
-                                    path=msix_path,
-                                    n=msix_info.get("table_size", 0),
-                                ),
-                                prefix="MSIX",
-                            )
-                            return MSIXData(
-                                preloaded=True,
-                                msix_info=msix_info,
-                                config_space_hex=cfg_hex,
-                                config_space_bytes=cfg_bytes,
-                            )
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Failed to load MSI-X from host file: {err}", err=str(e)
-                        ),
-                        prefix="MSIX",
-                    )
-                # Do not attempt sysfs/VFIO in strict mode
-                log_info_safe(
-                    self.logger,
-                    (
-                        "MSI-X preload: host-context-only mode active; "
-                        "skipping sysfs/VFIO"
-                    ),
-                    prefix="MSIX",
-                )
-                return MSIXData(preloaded=False)
-            log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
-
-            # 1) Prefer host-provided JSON (mounted into container) if available
-            #    This preserves MSI-X context when container lacks sysfs/VFIO access.
-            try:
-                msix_json_path = os.environ.get(
-                    "MSIX_DATA_PATH", "/app/output/msix_data.json"
-                )
-                if msix_json_path and os.path.exists(msix_json_path):
-                    with open(msix_json_path, "r") as f:
-                        payload = json.load(f)
-
-                    # Warn if BDF in MSI-X data doesn't match current device
-                    bdf_in = payload.get("bdf")
-                    if bdf_in and bdf_in != self.config.bdf:
-                        log_warning_safe(
-                            self.logger,
-                            safe_format(
-                                "MSI-X data BDF {data_bdf} does not match "
-                                "current device BDF {dev_bdf}",
-                                data_bdf=bdf_in,
-                                dev_bdf=self.config.bdf,
-                            ),
-                            prefix="MSIX",
-                        )
-                    msix_info = payload.get("msix_info")
-                    cfg_hex = payload.get("config_space_hex")
-                    if msix_info and isinstance(msix_info, dict):
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Loaded MSI-X from {path} ({vectors} vectors)",
-                                path=msix_json_path,
-                                vectors=msix_info.get("table_size", 0),
-                            ),
-                            prefix="MSIX",
-                        )
-                        return MSIXData(
-                            preloaded=True,
-                            msix_info=msix_info,
-                            config_space_hex=cfg_hex,
-                            config_space_bytes=(
-                                bytes.fromhex(cfg_hex) if cfg_hex else None
-                            ),
-                        )
-            except Exception as e:
-                # Non-fatal; fall back to sysfs path
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "MSI-X JSON ingestion skipped: {err}",
-                        err=str(e),
-                    ),
-                    prefix="MSIX",
-                )
-
             config_space_path = CONFIG_SPACE_PATH_TEMPLATE.format(self.bdf)
             if not os.path.exists(config_space_path):
                 log_warning_safe(
@@ -1339,298 +1243,16 @@ class FirmwareBuilder:
         return None
 
     def _load_preloaded_config_space(self) -> Optional[bytes]:
-        """Load preloaded config space from host collection."""
-        context_path = os.environ.get(
-            "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
-        )
-        msix_path = os.environ.get("MSIX_DATA_PATH", "/app/output/msix_data.json")
-
-        if not context_path:
-            return None
-
-        if not os.path.exists(context_path):
-            return None
-
-        try:
-            with open(context_path, "r") as f:
-                payload = json.load(f)
-
-            if not isinstance(payload, dict):
-                log_warning_safe(
-                    self.logger,
-                    "Device context file does not contain a valid dictionary",
-                    prefix="HOST_CFG",
-                )
-                return None
-
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "Loaded device context with keys: {keys}", keys=list(payload.keys())
-                ),
-                prefix="HOST_CFG",
-            )
-
-        except json.JSONDecodeError as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Device context file is not valid JSON: {path} - {err}",
-                    path=context_path,
-                    err=str(e),
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-        except (OSError, IOError) as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Failed to read device context file: {path} - {err}",
-                    path=context_path,
-                    err=str(e),
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-
-        config_space_hex = payload.get("config_space_hex")
-
-        metadata = payload.get("collection_metadata", {})
-        expected_length = metadata.get("config_space_hex_length")
-        if expected_length and config_space_hex:
-            actual_length = len(config_space_hex)
-            if actual_length != expected_length:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Config space hex length mismatch: expected {expected}, "
-                        "got {actual} (possible corruption)",
-                        expected=expected_length,
-                        actual=actual_length,
-                    ),
-                    prefix="HOST_CFG",
-                )
-
-        # Also support nested path when full template_context was saved by host
-        if not config_space_hex:
-            try:
-                tc = payload.get("template_context") or {}
-                if isinstance(tc, dict):
-                    config_space_hex = tc.get("config_space_hex")
-            except (AttributeError, KeyError, TypeError) as e:
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "Template context extraction failed: {err}", err=str(e)
-                    ),
-                    prefix="HOST_CFG",
-                )
-                config_space_hex = None
-            except Exception as e:
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "Unexpected error in template context extraction: {err}",
-                        err=str(e),
-                    ),
-                    prefix="HOST_CFG",
-                )
-                config_space_hex = None
-
-        if config_space_hex:
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "Loaded config_space_hex from JSON: {length} characters",
-                    length=len(config_space_hex),
-                ),
-                prefix="HOST_CFG",
-            )
-
-            if len(config_space_hex) < 512:  # < 256 bytes, likely truncated
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Config space hex appears truncated: {length} chars "
-                        "(expected ~8192 for 4096 bytes)",
-                        length=len(config_space_hex),
-                    ),
-                    prefix="HOST_CFG",
-                )
-                if msix_path and os.path.exists(msix_path):
-                    try:
-                        with open(msix_path, "r") as f:
-                            msix_payload = json.load(f)
-                        alt_hex = msix_payload.get("config_space_hex")
-                        if alt_hex and len(alt_hex) > len(config_space_hex):
-                            log_info_safe(
-                                self.logger,
-                                "Using longer config_space_hex from MSIX data file",
-                                prefix="HOST_CFG",
-                            )
-                            config_space_hex = alt_hex
-                    except Exception as e:
-                        log_debug_safe(
-                            self.logger,
-                            safe_format(
-                                "Failed to load alternative config from MSIX: {err}",
-                                err=str(e),
-                            ),
-                            prefix="HOST_CFG",
-                        )
-        if not config_space_hex:
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "No config_space_hex in device context; trying MSI-X: {path}",
-                    path=context_path,
-                ),
-                prefix="HOST_CFG",
-            )
-            try:
-                if msix_path and os.path.exists(msix_path):
-                    with open(msix_path, "r") as f:
-                        msix_payload = json.load(f)
-                    config_space_hex = msix_payload.get("config_space_hex")
-                    if config_space_hex:
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Loaded config_space_hex from MSI-X ({size} chars)",
-                                size=len(config_space_hex),
-                            ),
-                            prefix="HOST_CFG",
-                        )
-                    else:
-                        log_debug_safe(
-                            self.logger,
-                            safe_format(
-                                "MSI-X payload missing config_space_hex: {path}",
-                                path=msix_path,
-                            ),
-                            prefix="HOST_CFG",
-                        )
-                else:
-                    log_debug_safe(
-                        self.logger,
-                        safe_format(
-                            "MSI-X data file not found at {path}",
-                            path=msix_path,
-                        ),
-                        prefix="HOST_CFG",
-                    )
-            except json.JSONDecodeError as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "MSI-X data file invalid JSON: {path} - {err}",
-                        path=msix_path,
-                        err=str(e),
-                    ),
-                    prefix="HOST_CFG",
-                )
-            except (OSError, IOError) as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to read MSI-X data file: {path} - {err}",
-                        path=msix_path,
-                        err=str(e),
-                    ),
-                    prefix="HOST_CFG",
-                )
-            if not config_space_hex:
-                return None
-
-        try:
-            if len(config_space_hex) < 128:  # < 64 bytes
-                log_error_safe(
-                    self.logger,
-                    "Config space hex too short (< 64 bytes), corrupted data",
-                    prefix="HOST_CFG",
-                )
-                return None
-
-            config_space_bytes = bytes.fromhex(config_space_hex)
-        except ValueError as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Invalid hex string in config_space_hex: {err}", err=str(e)
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-
-        if len(config_space_bytes) < 64:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Config space too small: {size} bytes (minimum 64 expected)",
-                    size=len(config_space_bytes),
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-
-        log_info_safe(
-            self.logger,
-            safe_format(
-                "Loaded preloaded config space from host: {size} bytes",
-                size=len(config_space_bytes),
-            ),
-            prefix="HOST_CFG",
-        )
-        return config_space_bytes
+        """Load config only from a complete capture matching the requested donor."""
+        snapshot = load_configured_snapshot(self.config.bdf)
+        return snapshot.config_space if snapshot is not None else None
 
     def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
-        """Check for complete device context collected on host."""
-        try:
-            context_path = os.environ.get(
-                "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
-            )
-            if context_path and os.path.exists(context_path):
-                with open(context_path, "r") as f:
-                    payload = json.load(f)
-
-                # Check for nested template_context (old format)
-                # or use payload directly
-                template_context = payload.get("template_context")
-                if template_context:
-                    log_info_safe(
-                        self.logger,
-                        safe_format(
-                            "Loaded complete device context from host: "
-                            "{keys} keys available",
-                            keys=len(template_context.keys()),
-                        ),
-                        prefix="HOST_CTX",
-                    )
-                    return template_context
-
-                # New format - device IDs directly in payload
-                if "config_space_hex" in payload and "vendor_id" in payload:
-                    log_info_safe(
-                        self.logger,
-                        safe_format(
-                            "Loaded device context with device IDs from host: "
-                            "VID=0x{vid:04x} DID=0x{did:04x}",
-                            vid=payload.get("vendor_id", 0),
-                            did=payload.get("device_id", 0),
-                        ),
-                        prefix="HOST_CTX",
-                    )
-                    return payload
-
-        except Exception as e:
-            log_debug_safe(
-                self.logger,
-                safe_format("Host context check failed: {err}", err=str(e)),
-                prefix="HOST_CTX",
-            )
-
-        return None
+        """Return validated host context; rejected captures must stop the build."""
+        snapshot = load_configured_snapshot(self.config.bdf)
+        if snapshot is None:
+            return None
+        return snapshot.context.get("template_context") or snapshot.context
 
     def _preload_msix(self) -> MSIXData:
         """Preload MSI-X data if configured."""

@@ -63,6 +63,10 @@ from pcileechfwgenerator.device_clone.vfio_access import (
 )
 from pcileechfwgenerator.error_utils import extract_root_cause
 from pcileechfwgenerator.exceptions import ContextError
+from pcileechfwgenerator.host_collect.snapshot import (
+    SnapshotError,
+    load_configured_snapshot,
+)
 from pcileechfwgenerator.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
@@ -1608,17 +1612,14 @@ class PCILeechContextBuilder:
         import os
 
         device_context_path = os.getenv("DEVICE_CONTEXT_PATH")
-        if device_context_path and os.path.exists(device_context_path):
+        snapshot = load_configured_snapshot(device_bdf) if device_context_path else None
+        if snapshot is not None:
             try:
-                import json
-
                 from pcileechfwgenerator.device_clone.bar_model_loader import (
                     deserialize_bar_model,
                 )
 
-                with open(device_context_path, "r") as f:
-                    device_context = json.load(f)
-
+                device_context = snapshot.context
                 bar_models_data = device_context.get("bar_models")
                 if bar_models_data:
                     models = {}
@@ -1786,6 +1787,9 @@ class PCILeechContextBuilder:
                     enable_mmio_learning=enable_mmio_learning,
                     force_recapture=force_recapture,
                 )
+            except SnapshotError:
+                # A rejected donor capture is never an optional learning failure.
+                raise
             except Exception as e:
                 log_warning_safe(
                     self.logger,

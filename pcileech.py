@@ -859,10 +859,17 @@ def handle_build(args):
         if getattr(args, "host_collect_only", False):
             return run_host_collect(args)
 
-        # If datastore exists we assume stages 1 done; otherwise run it now
+        from pcileechfwgenerator.host_collect.snapshot import (
+            load_snapshot,
+            verify_current_device,
+        )
+
         datastore = Path(args.datastore)
         device_ctx = datastore / "device_context.json"
-        if not device_ctx.exists():
+        msix_path = datastore / "msix_data.json"
+        # An incomplete capture is an error, never permission to replace data.
+        reused = any(p.exists() or p.is_symlink() for p in (device_ctx, msix_path))
+        if not reused:
             log_info_safe(
                 logger,
                 "No datastore found; running host collect now",
@@ -871,6 +878,9 @@ def handle_build(args):
             rc = run_host_collect(args)
             if rc != 0:
                 return rc
+        snapshot = load_snapshot(device_ctx, msix_path, args.bdf)
+        if reused:
+            verify_current_device(snapshot)
 
         # Stage 2: templating / parsing (container or local)
         container_mode = getattr(args, "container_mode", "auto")
@@ -1823,7 +1833,7 @@ def handle_donor_template(args):
         return 1
 
 
- 
+
 
 if __name__ == "__main__":
     sys.exit(main())

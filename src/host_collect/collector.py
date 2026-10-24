@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Reuse existing MSI-X parser
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.host_collect.snapshot import (
+    ensure_capture_destination,
+    normalize_bdf,
+    write_snapshot,
+)
 from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
@@ -22,9 +26,8 @@ CONFIG_PATH_TEMPLATE = "/sys/bus/pci/devices/{bdf}/config"
 class HostCollector:
     """Collect PCIe device information on the host and write a datastore.
 
-    Writes:
-      - device_context.json: { "config_space_hex": "..." }
-      - msix_data.json: { "config_space_hex": "...", "msix_info": {..} }
+    Writes a versioned device_context.json and matching msix_data.json using
+    the shared capture identity contract. Existing capture files are preserved.
     """
 
     def __init__(
@@ -35,7 +38,7 @@ class HostCollector:
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
     ) -> None:
-        self.bdf = bdf
+        self.bdf = normalize_bdf(bdf)
         self.datastore = datastore
         self.logger = logger or get_logger(self.__class__.__name__)
         self.enable_mmio_learning = enable_mmio_learning
@@ -43,6 +46,7 @@ class HostCollector:
 
     def run(self) -> int:
         try:
+            ensure_capture_destination(self.datastore)
             cfg = self._read_config_space()
             if cfg is None:
                 return 1
@@ -53,50 +57,10 @@ class HostCollector:
             cfg_hex = cfg.hex()
             msix_info = self._parse_msix(cfg_hex)
 
-            # Extract device identifiers from config space
-            device_ids = self._extract_device_ids(cfg)
-
-            # Write device_context.json with extracted device IDs
-            ctx_path = self.datastore / "device_context.json"
-            with open(ctx_path, "w") as f:
-                json.dump(
-                    {
-                        "config_space_hex": cfg_hex,
-                        "vendor_id": device_ids["vendor_id"],
-                        "device_id": device_ids["device_id"],
-                        "class_code": device_ids["class_code"],
-                        "revision_id": device_ids["revision_id"],
-                        "subsystem_vendor_id": device_ids.get("subsystem_vendor_id"),
-                        "subsystem_device_id": device_ids.get("subsystem_device_id"),
-                    },
-                    f,
-                    indent=2,
-                )
+            write_snapshot(self.datastore, self.bdf, cfg, msix_info)
             log_info_safe(
                 self.logger,
-                safe_format(
-                    "Wrote {path} with device IDs: VID={vid:04x} DID={did:04x}",
-                    path=str(ctx_path),
-                    vid=device_ids["vendor_id"],
-                    did=device_ids["device_id"],
-                ),
-                prefix="COLLECT",
-            )
-
-            # Write msix_data.json
-            msix_path = self.datastore / "msix_data.json"
-            with open(msix_path, "w") as f:
-                json.dump(
-                    {
-                        "config_space_hex": cfg_hex,
-                        "msix_info": msix_info,
-                    },
-                    f,
-                    indent=2,
-                )
-            log_info_safe(
-                self.logger,
-                safe_format("Wrote {path}", path=str(msix_path)),
+                "Wrote matching device context and MSI-X capture files",
                 prefix="COLLECT",
             )
 
