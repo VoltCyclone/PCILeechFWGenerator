@@ -27,7 +27,7 @@ class TestBuildConfiguration:
         assert config.name == "Test Config"
         assert config.board_type == "pcileech_75t484_x1"
         assert config.device_type == "network"
-        assert config.advanced_sv is True  # Default value
+        assert config.advanced_sv is False  # Unsupported override defaults off
 
     def test_configuration_validation(self):
         """Test validation of configuration values."""
@@ -45,31 +45,14 @@ class TestBuildConfiguration:
             BuildConfiguration(name="", board_type="pcileech_75t484_x1")
         assert "Configuration name cannot be empty" in str(exc_info.value)
 
-    def test_advanced_features_validation(self):
-        """Test validation of advanced features dependencies."""
-        # Test behavior profiling requiring advanced_sv
-        with pytest.raises(ValueError) as exc_info:
-            BuildConfiguration(
-                name="Test Config",
-                board_type="pcileech_75t484_x1",
-                advanced_sv=False,
-                behavior_profiling=True,
-            )
-        assert "Behavior profiling requires advanced SystemVerilog" in str(
-            exc_info.value
+    def test_profiling_does_not_require_unavailable_advanced_sv_override(self):
+        config = BuildConfiguration(
+            board_type="pcileech_75t484_x1",
+            advanced_sv=False,
+            behavior_profiling=True,
+            local_build=True,
         )
-
-        # Test performance counters requiring advanced_sv
-        with pytest.raises(ValueError) as exc_info:
-            BuildConfiguration(
-                name="Test Config",
-                board_type="pcileech_75t484_x1",
-                advanced_sv=False,
-                enable_performance_counters=True,
-            )
-        assert "Performance counters require advanced SystemVerilog" in str(
-            exc_info.value
-        )
+        assert config.behavior_profiling
 
     def test_profile_duration_validation(self):
         """Test validation of profile duration."""

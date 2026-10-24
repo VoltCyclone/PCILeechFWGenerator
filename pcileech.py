@@ -514,6 +514,49 @@ def rebuild_vfio_constants():
         return False
 
 
+def profile_seconds(value: str) -> float:
+    """Parse a finite, bounded profiling duration, including fractional seconds."""
+    import math
+
+    seconds = float(value)
+    if not math.isfinite(seconds) or not 0 <= seconds <= 3600:
+        raise argparse.ArgumentTypeError("profile must be between 0 and 3600 seconds")
+    return seconds
+
+
+def validate_build_options(args: argparse.Namespace) -> None:
+    """Reject unsupported overrides before touching donor hardware."""
+    unsupported = [
+        name
+        for name in ("advanced_sv", "enable_variance")
+        if getattr(args, name, False)
+    ]
+    if getattr(args, "device_type", "generic") not in (None, "generic"):
+        unsupported.append("device_type")
+    if unsupported:
+        raise ValueError("Unsupported build options: " + ", ".join(unsupported))
+    local = (
+        getattr(args, "local", False)
+        or getattr(args, "container_mode", "auto") == "local"
+    )
+    if profile_seconds(str(getattr(args, "profile", 0))) and not local:
+        raise ValueError("Behavior profiling requires explicit local mode")
+    donor_template = getattr(args, "donor_template", None)
+    if donor_template and not Path(donor_template).expanduser().is_file():
+        raise ValueError("Donor template file does not exist")
+
+
+def build_output_directory(args: argparse.Namespace) -> Path:
+    """Resolve the artifact directory consistently for all pipeline stages."""
+    output = getattr(args, "output", None) or getattr(args, "build_dir", None)
+    if output:
+        return Path(output).expanduser().resolve()
+    return (
+        Path(getattr(args, "datastore", "pcileech_datastore")).expanduser().resolve()
+        / "output"
+    )
+
+
 def create_parser():
     """Create the main argument parser with subcommands."""
     # Determine script name for auto-command detection
@@ -595,10 +638,12 @@ Environment Variables:
     build_parser.add_argument(
         "--advanced-sv",
         action="store_true",
-        help="Enable advanced SystemVerilog features",
+        help="Legacy override (unsupported; omit this option)",
     )
     build_parser.add_argument(
-        "--enable-variance", action="store_true", help="Enable manufacturing variance"
+        "--enable-variance",
+        action="store_true",
+        help="Legacy override (unsupported; omit this option)",
     )
     build_parser.add_argument(
         "--enable-error-injection",
@@ -609,7 +654,17 @@ Environment Variables:
         ),
     )
     build_parser.add_argument(
-        "--build-dir", default="build", help="Directory for generated firmware files"
+        "--output",
+        "--build-dir",
+        dest="output",
+        help="Artifact directory (default: <datastore>/output)",
+    )
+    build_parser.add_argument(
+        "--profile",
+        type=profile_seconds,
+        default=0.0,
+        metavar="SECONDS",
+        help="Local behavior profiling duration; 0 disables profiling (default)",
     )
     build_parser.add_argument(
         "--generate-donor-template",
@@ -623,7 +678,7 @@ Environment Variables:
         "--device-type",
         choices=KNOWN_DEVICE_TYPES,
         default="generic",
-        help="Override device type detection (default: auto-detect from class code)",
+        help="Legacy device override (only generic/automatic detection is supported)",
     )
     build_parser.add_argument(
         "--vivado-path",
@@ -846,6 +901,7 @@ def handle_build(args):
     """Handle CLI build mode."""
     logger = get_logger(__name__)
     try:
+        validate_build_options(args)
         # Validate board before proceeding
         valid_boards = set(get_available_boards())
         if args.board not in valid_boards:
@@ -930,12 +986,10 @@ def run_host_collect(args):
 
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
     datastore.mkdir(parents=True, exist_ok=True)
-    
+
     # Ensure output directory exists with proper permissions for container access
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Set permissions to allow container writes (0o755 = rwxr-xr-x)
-    output_dir.chmod(0o755)
 
     # Get MMIO learning flags
     enable_mmio_learning = not getattr(args, "no_mmio_learning", False)
@@ -999,21 +1053,21 @@ def run_container_templating(args):
     """Stage 2a: launch container with datastore mounted to run templating."""
     logger = get_logger(__name__)
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine execution mode
     mode = getattr(args, "container_mode", "auto")
     runtime = _detect_container_runtime()
     can_use_container = runtime is not None
-    
+
     # Log workflow explanation
     log_info_safe(
         logger,
         "Stage 2: Template generation from collected device data",
         prefix="BUILD"
     )
-    
+
     # Resolve mode (logging happens in helper functions)
     if mode == "container":
         if not can_use_container:
@@ -1032,7 +1086,7 @@ def run_container_templating(args):
         else:
             # Both options available - check if interactive (logs decision)
             use_container = _choose_container_mode(runtime, logger)
-    
+
     # Single logging point for final decision
     if use_container:
         log_info_safe(
@@ -1139,6 +1193,7 @@ def _choose_container_mode(runtime: str, logger) -> bool:
 
 def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, logger):
     """Execute templating in container."""
+    validate_build_options(args)
     if not _ensure_container_image(runtime, logger, tag="pcileech-fwgen"):
         return 1
 
@@ -1160,7 +1215,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "Container env: PCILEECH_DISABLE_VFIO=1 (no VFIO in container)",
         prefix="BUILD"
     )
-    
+
     # Build command with container-specific env vars
     # These are ONLY set in the container subprocess, not globally
     cmd = [
@@ -1169,7 +1224,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "--rm",
         "-i",
     ]
-    
+
     # Add user namespace mapping to prevent permission issues
     # This ensures files created in the container have the correct
     # ownership on the host
@@ -1179,30 +1234,38 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     elif runtime == "docker":
         # Docker: run as current user
         cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
-    
+
     # Environment variables and volume mounts
-    cmd.extend([
-        "-e", "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
-        "-e", "MSIX_DATA_PATH=/datastore/msix_data.json", 
-        "-e", "PCILEECH_HOST_CONTEXT_ONLY=1",
-        "-e", "PCILEECH_DISABLE_VFIO=1",
-        "-v", f"{str(datastore)}:/datastore",
-        "pcileech-fwgen",
-        "python3",
-        "-m",
-        "src.build",
-        "--bdf", args.bdf,
-        "--board", args.board,
-        "--output", "/datastore/output",
-    ])
+    cmd.extend(
+        [
+            "-e",
+            "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
+            "-e",
+            "MSIX_DATA_PATH=/datastore/msix_data.json",
+            "-e",
+            "PCILEECH_HOST_CONTEXT_ONLY=1",
+            "-e",
+            "PCILEECH_DISABLE_VFIO=1",
+            "-v",
+            f"{str(datastore)}:/datastore",
+            "-v",
+            f"{str(output_dir)}:/artifacts",
+            "pcileech-fwgen",
+            "python3",
+            "-m",
+            "src.build",
+            "--bdf",
+            args.bdf,
+            "--board",
+            args.board,
+            "--output",
+            "/artifacts",
+            "--profile",
+            "0",
+        ]
+    )
 
     # Forward optional CLI flags to container so behavior matches local mode
-    if getattr(args, "device_type", None):
-        cmd.extend(["--device-type", args.device_type])
-    if getattr(args, "enable_variance", False):
-        cmd.append("--enable-variance")
-    if getattr(args, "advanced_sv", False):
-        cmd.append("--advanced-sv")
     if getattr(args, "enable_error_injection", False):
         cmd.append("--enable-error-injection")
     if getattr(args, "no_mmio_learning", False):
@@ -1210,9 +1273,19 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     if getattr(args, "force_recapture", False):
         cmd.append("--force-recapture")
     if getattr(args, "donor_template", None):
-        cmd.extend(["--donor-template", args.donor_template])
+        template = Path(args.donor_template).expanduser().resolve()
+        image_index = cmd.index("pcileech-fwgen")
+        cmd[image_index:image_index] = ["-v", f"{template}:/donor/template.json:ro"]
+        cmd.extend(["--donor-template", "/donor/template.json"])
     if getattr(args, "generate_donor_template", None):
-        cmd.extend(["--output-template", "/datastore/donor_info_template.json"])
+        template_output = Path(args.generate_donor_template).expanduser().resolve()
+        template_output.parent.mkdir(parents=True, exist_ok=True)
+        image_index = cmd.index("pcileech-fwgen")
+        cmd[image_index:image_index] = [
+            "-v",
+            f"{template_output.parent}:/template-output",
+        ]
+        cmd.extend(["--output-template", f"/template-output/{template_output.name}"])
 
     log_info_safe(
         logger,
@@ -1244,7 +1317,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
                 safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
                 prefix="BUILD",
             )
-    
+
     return result
 
 
@@ -1262,7 +1335,7 @@ def run_local_templating(args):
         return 1
 
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # In local mode the process has direct access to the PCI device, so
@@ -1287,9 +1360,16 @@ def run_local_templating(args):
             vivado_jobs=getattr(args, "vivado_jobs", 4),
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
+            no_mmio_learning=getattr(args, "no_mmio_learning", False),
+            force_recapture=getattr(args, "force_recapture", False),
         )
 
         cfg = ConfigurationManager().create_from_args(cfg_args)
+        if bool(cfg.enable_profiling) != bool(cfg_args.profile):
+            raise ValueError(
+                "Effective profiling differs from the requested setting; "
+                "check VFIO and PCILEECH_PRODUCTION_DEFAULTS"
+            )
         builder = FirmwareBuilder(cfg)
         artifacts = builder.build()
     finally:
@@ -1304,7 +1384,7 @@ def run_local_templating(args):
         safe_format("Templating complete; artifacts: {n}", n=len(artifacts)),
         prefix="BUILD",
     )
-    
+
     # Generate COE visualization report
     try:
         from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
@@ -1315,7 +1395,7 @@ def run_local_templating(args):
             safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
             prefix="BUILD",
         )
-    
+
     return 0
 
 
@@ -1332,8 +1412,7 @@ def run_host_vivado(args):
         )
         return 1
 
-    datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     if not output_dir.exists():
         log_error_safe(
             logger,

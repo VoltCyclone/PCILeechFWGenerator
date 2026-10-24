@@ -201,6 +201,14 @@ Install with TUI support:
 pip install pcileechfwgenerator[tui]
 ```
 
+#### TUI build settings and older profiles
+
+The TUI uses the shared CLI pipeline in the active Python environment. Select a
+real board and choose local or container templating; both modes still collect on
+the Linux host and run Vivado on the host. Unsupported legacy profile settings
+produce an error before collection. See the [TUI build contract and migration
+guide](docs/development/TUI_BUILD_CONTRACT.md) for supported options.
+
 #### "Permission denied" / VFIO Errors
 
 Use the venv's Python with sudo:

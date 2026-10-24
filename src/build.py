@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -129,7 +130,7 @@ class BuildConfiguration:
     output_dir: Path
     enable_profiling: bool = True
     preload_msix: bool = True
-    profile_duration: int = DEFAULT_PROFILE_DURATION
+    profile_duration: float = DEFAULT_PROFILE_DURATION
     parallel_writes: bool = True
     max_workers: int = MAX_PARALLEL_FILE_WRITES
     output_template: Optional[str] = None
@@ -772,10 +773,10 @@ class ConfigurationManager:
                 "Expected format: XXXX:XX:XX.X (e.g., 0000:03:00.0)"
             )
 
-        if args.profile < 0:
+        if not math.isfinite(args.profile) or args.profile < 0:
             raise ConfigurationError(
                 safe_format(
-                    "Invalid profile duration: {profile}. Must be >= 0",
+                    "Invalid profile duration: {profile}. Must be >= 0 and finite",
                     profile=args.profile,
                 )
             )
@@ -1183,6 +1184,7 @@ class FirmwareBuilder:
             template_dir=None,
             output_dir=self.config.output_dir,
             enable_behavior_profiling=self.config.enable_profiling,
+            behavior_capture_duration=self.config.profile_duration,
             enable_error_injection=getattr(
                 self.config, "enable_error_injection", False
             ),
@@ -1773,7 +1775,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        type=int,
+        type=float,
         default=DEFAULT_PROFILE_DURATION,
         metavar="SECONDS",
         help=(

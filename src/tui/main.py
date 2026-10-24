@@ -1100,30 +1100,20 @@ class PCILeechTUI(App):
             }
 
     async def _toggle_donor_dump(self) -> None:
-        """Toggle donor dump functionality"""
-        current_config = self.current_config.copy()
-
-        if current_config.donor_dump:
-            # Disable donor dump
-            current_config.donor_dump = False
-            current_config.local_build = True
-            self.current_config = current_config
-            self.config_manager.set_current_config(current_config)
-            self._update_config_display()
-            self._update_donor_dump_button()
-            self.log_notification("Donor dump disabled - using local build mode", severity="info")
-        else:
-            # Enable donor dump
-            current_config.donor_dump = True
-            current_config.local_build = False
-            self.current_config = current_config
-            self.config_manager.set_current_config(current_config)
-            self._update_config_display()
-            self._update_donor_dump_button()
+        """Allow an old profile to clear the unavailable donor-dump request."""
+        if not self.current_config.donor_dump:
             self.log_notification(
-                "Donor dump enabled - device analysis will be performed",
-                severity="success",
+                "Donor dump is unavailable in the shared build pipeline",
+                severity="warning",
             )
+            return
+        current_config = self.current_config.copy()
+        current_config.donor_dump = False
+        self.current_config = current_config
+        self.config_manager.set_current_config(current_config)
+        self._update_config_display()
+        self._update_donor_dump_button()
+        self.log_notification("Donor dump setting cleared", severity="info")
 
 
 if __name__ == "__main__":

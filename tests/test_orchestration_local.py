@@ -33,7 +33,7 @@ def test_run_local_templating_monkeypatched(tmp_path, monkeypatch):
     fake_build.FirmwareBuilder = FakeFirmwareBuilder
 
     # Inject fake module so pcileech.run_local_templating imports it
-    sys.modules['pcileechfwgenerator.build'] = fake_build
+    monkeypatch.setitem(sys.modules, "pcileechfwgenerator.build", fake_build)
 
     # Import function under test
     import pcileech

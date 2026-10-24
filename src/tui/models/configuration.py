@@ -5,6 +5,7 @@ This module defines Pydantic models for representing build configurations
 with robust validation.
 """
 
+import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,7 @@ VALID_BOARD_TYPES = [
     "pcileech_100t484_x1",
     "pcileech_100t484_x4",
     "pcileech_35t325_x4",
+    "pcileech_35t325_x1",
     "pcileech_gbox",
     "pcileech_netv2_35t",
     "pcileech_netv2_100t",
@@ -55,6 +57,11 @@ class BuildConfiguration(BaseModel):
         default=None, description="Directory to store build outputs"
     )
 
+    datastore_directory: Optional[str] = Field(
+        default=None,
+        description="Directory for the donor capture (separate from outputs)",
+    )
+
     # Build options
     optimization_level: str = Field(
         default="balanced", description="Optimization level for the build"
@@ -72,10 +79,10 @@ class BuildConfiguration(BaseModel):
 
     # Advanced options
     advanced_sv: bool = Field(
-        default=True, description="Enable advanced SystemVerilog features"
+        default=False, description="Enable advanced SystemVerilog features"
     )
     enable_variance: bool = Field(
-        default=True, description="Enable manufacturing variance simulation"
+        default=False, description="Enable manufacturing variance simulation"
     )
     behavior_profiling: bool = Field(
         default=False, description="Enable behavior profiling"
@@ -95,19 +102,21 @@ class BuildConfiguration(BaseModel):
 
     # Legacy / compatibility options (present in the older dataclass model)
     donor_dump: bool = Field(
-        default=True, description="Use donor_dump kernel module for donor info"
+        default=False, description="Use donor_dump kernel module for donor info"
     )
     auto_install_headers: bool = Field(
         default=False, description="Auto-install kernel headers when needed"
     )
     local_build: bool = Field(
-        default=False, description="Force local build instead of donor-based build"
+        default=False,
+        description="Run templating locally; host donor collection is still required",
     )
     skip_board_check: bool = Field(
         default=False, description="Skip hardware/board checks during generation"
     )
     donor_info_file: Optional[str] = Field(
-        default=None, description="Path to donor info JSON file"
+        default=None,
+        description="Path to donor template JSON overrides (not an offline capture)",
     )
     disable_ftrace: bool = Field(
         default=False, description="Disable ftrace instrumentation"
@@ -179,28 +188,13 @@ class BuildConfiguration(BaseModel):
     @classmethod
     def validate_profile_duration(cls, v):
         """Validate that the profile duration is reasonable."""
-        if v <= 0:
+        if not math.isfinite(v) or v <= 0:
             raise ValueError(f"Profile duration must be positive, got {v}")
         if v > 3600:
             raise ValueError(
                 f"Profile duration too long: {v}. Maximum is 3600 seconds (1 hour)"
             )
         return v
-
-    @model_validator(mode="after")
-    def validate_advanced_features(self):
-        """Validate that advanced features configuration is consistent."""
-        if self.behavior_profiling and not self.advanced_sv:
-            raise ValueError(
-                "Behavior profiling requires advanced SystemVerilog features to be enabled"
-            )
-
-        if self.enable_performance_counters and not self.advanced_sv:
-            raise ValueError(
-                "Performance counters require advanced SystemVerilog features to be enabled"
-            )
-
-        return self
 
     @model_validator(mode="before")
     @classmethod

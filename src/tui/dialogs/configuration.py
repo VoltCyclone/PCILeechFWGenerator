@@ -5,6 +5,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Checkbox, Input, Static
 
+from ..core.build_contract import UNSUPPORTED_SETTINGS
 from .base import BaseDialog
 
 # Field names whose values are dict/list (rendered as JSON in an Input).
@@ -36,7 +37,13 @@ class ConfigurationDialog(BaseDialog[dict | None]):
 
             with Vertical(id="config-items"):
                 for key, value in self.config.items():
-                    yield Static(key)
+                    label = key
+                    if key in UNSUPPORTED_SETTINGS:
+                        label += (
+                            " (override unavailable; "
+                            f"keep {UNSUPPORTED_SETTINGS[key]!r})"
+                        )
+                    yield Static(label)
                     if isinstance(value, bool):
                         yield Checkbox(value=value, id=_widget_id(key))
                     elif key in JSON_FIELDS or isinstance(value, (dict, list)):

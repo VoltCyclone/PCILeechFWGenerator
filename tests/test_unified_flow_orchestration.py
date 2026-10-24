@@ -258,7 +258,7 @@ class TestLocalTemplating:
 
         with patch("pcileechfwgenerator.build.FirmwareBuilder", return_value=mock_builder):
             with patch("pcileechfwgenerator.build.ConfigurationManager") as mock_cfg_mgr:
-                mock_cfg = MagicMock()
+                mock_cfg = MagicMock(enable_profiling=False)
                 mock_cfg_mgr.return_value.create_from_args.return_value = mock_cfg
 
                 result = pcileech.run_local_templating(args)
