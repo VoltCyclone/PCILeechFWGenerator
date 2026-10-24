@@ -43,8 +43,9 @@ These checks establish consistency, not cryptographic authenticity or physical
 device uniqueness. Two devices with identical header identifiers cannot be
 distinguished by this contract. It does not detect every change to a device's
 behavior or capabilities, or guarantee against a hotplug after the check.
-Full offline-capture validation remains separate work; separate MMIO trace/model caches
-are outside this snapshot contract.
+The offline workflow adds a required resource extension and stricter structural checks for
+[offline capture use](OFFLINE_CAPTURE.md); the shared identity schema remains
+version 1. Separate MMIO trace/model caches are outside this snapshot contract.
 
 ## Publication and interrupted collection
 

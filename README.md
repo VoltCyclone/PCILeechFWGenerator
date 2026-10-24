@@ -77,6 +77,11 @@ files. Older or incomplete captures must be collected again into a fresh
 requested PCI address and current device identity. See the
 [capture format and migration guide](docs/development/CAPTURE_FORMAT.md).
 
+The CLI also provides `capture collect`, `capture
+validate`, `capture import`, and `build --from-capture DIR --templates-only`.
+Complete captures include measured BAR lengths and can be rendered locally
+without Linux/VFIO access. See the [offline workflow and its current limits](docs/development/OFFLINE_CAPTURE.md).
+
 > ⚠️ **Don't skip the venv!** Running `pip install pcileechfwgenerator` directly will fail with `externally-managed-environment` on modern systems.
 
 ### Running with Root Access (Required for VFIO)

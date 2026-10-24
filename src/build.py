@@ -142,6 +142,7 @@ class BuildConfiguration:
     disable_vfio: bool = False
     enable_mmio_learning: bool = True
     force_recapture: bool = False
+    from_capture: Optional[Path] = None
 
 
 @dataclass(slots=True)
@@ -629,7 +630,26 @@ class ConfigurationManager:
         enable_profiling = args.profile > 0
         preload_msix = getattr(args, "preload_msix", True)
 
-        vfio_decision = make_vfio_decision(args, logger=self.logger)
+        from_capture = getattr(args, "from_capture", None)
+        if from_capture:
+            from .host_collect.offline import load_offline_capture
+            from .utils.vfio_decision import VFIODecision
+
+            snapshot = load_offline_capture(Path(from_capture), args.bdf)
+            if (
+                args.profile
+                or getattr(args, "donor_template", None)
+                or getattr(args, "force_recapture", False)
+            ):
+                raise ConfigurationError(
+                    "Offline builds cannot profile, recapture or override donor data"
+                )
+            args.bdf = snapshot.identity.bdf
+            vfio_decision = VFIODecision(
+                False, ["explicit offline capture"], "offline_capture"
+            )
+        else:
+            vfio_decision = make_vfio_decision(args, logger=self.logger)
         disable_vfio = not vfio_decision.enabled
         if use_prod:
             enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
@@ -660,6 +680,7 @@ class ConfigurationManager:
             disable_vfio=disable_vfio,
             enable_mmio_learning=enable_mmio_learning,
             force_recapture=force_recapture,
+            from_capture=Path(from_capture).resolve() if from_capture else None,
         )
 
     def extract_device_config(
@@ -767,7 +788,7 @@ class ConfigurationManager:
 
     def _validate_args(self, args: argparse.Namespace) -> None:
         """Validate command line arguments."""
-        if not self._is_valid_bdf(args.bdf):
+        if not getattr(args, "from_capture", None) and not self._is_valid_bdf(args.bdf):
             raise ConfigurationError(
                 f"Invalid BDF format: {args.bdf}. "
                 "Expected format: XXXX:XX:XX.X (e.g., 0000:03:00.0)"
@@ -784,7 +805,7 @@ class ConfigurationManager:
     def _is_valid_bdf(self, bdf: str) -> bool:
         """Check if BDF string matches XXXX:XX:XX.X format."""
         pattern = r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$"
-        return bool(re.match(pattern, bdf))
+        return isinstance(bdf, str) and bool(re.match(pattern, bdf))
 
 
 class FirmwareBuilder:
@@ -803,6 +824,54 @@ class FirmwareBuilder:
     ):
         """Initialize the firmware builder with dependency injection."""
         self.config = config
+        self.offline_capture = None
+        # Legacy host-context-only flags are aliases for the same strict reader,
+        # never permission to probe hardware when saved data is incomplete.
+        if config.disable_vfio and not config.from_capture:
+            default_context = Path(
+                os.environ.get("MSIX_DATA_PATH", "/app/output/msix_data.json")
+            ).with_name("device_context.json")
+            context_path = Path(
+                os.environ.get("DEVICE_CONTEXT_PATH", str(default_context))
+            )
+            msix_path = Path(
+                os.environ.get(
+                    "MSIX_DATA_PATH", str(context_path.with_name("msix_data.json"))
+                )
+            )
+            if (
+                context_path.name != "device_context.json"
+                or msix_path.name != "msix_data.json"
+                or context_path.parent.resolve() != msix_path.parent.resolve()
+            ):
+                raise ConfigurationError(
+                    "Host-context-only mode requires a canonical capture pair; "
+                    "use --from-capture"
+                )
+            config.from_capture = context_path.parent.resolve()
+        if config.from_capture:
+            from .host_collect.offline import (
+                load_offline_capture,
+                validate_render_request,
+            )
+
+            self.offline_capture = load_offline_capture(config.from_capture, config.bdf)
+            if (
+                config.enable_profiling
+                or config.donor_template
+                or config.force_recapture
+            ):
+                raise ConfigurationError(
+                    "Offline configuration requests live collection or donor overrides"
+                )
+            validate_render_request(
+                self.offline_capture,
+                config.from_capture,
+                config.output_dir,
+                config.output_template,
+            )
+            config.disable_vfio = True
+            config.enable_mmio_learning = False
         self.logger = logger or get_logger(self.__class__.__name__)
 
         self.build_logger = get_build_logger(self.logger)
@@ -1145,7 +1214,12 @@ class FirmwareBuilder:
             PCILeechGenerator,
         )
 
-        preloaded_config_space = self._load_preloaded_config_space()
+        offline_capture = getattr(self, "offline_capture", None)
+        preloaded_config_space = (
+            offline_capture.config_space
+            if offline_capture
+            else self._load_preloaded_config_space()
+        )
 
         if preloaded_config_space:
             log_info_safe(
@@ -1189,6 +1263,11 @@ class FirmwareBuilder:
                 self.config, "enable_error_injection", False
             ),
             preloaded_config_space=preloaded_config_space,
+            offline_capture=offline_capture,
+            enable_mmio_learning=(
+                False if offline_capture else self.config.enable_mmio_learning
+            ),
+            force_recapture=self.config.force_recapture,
         )
         # Explicitly relax VFIO when host data is provided or VFIO is disabled
         # Note: Container environments typically have VFIO warnings due to
@@ -1251,6 +1330,9 @@ class FirmwareBuilder:
 
     def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
         """Return validated host context; rejected captures must stop the build."""
+        if getattr(self, "offline_capture", None) is not None:
+            return None
+
         snapshot = load_configured_snapshot(self.config.bdf)
         if snapshot is None:
             return None
@@ -1258,6 +1340,9 @@ class FirmwareBuilder:
 
     def _preload_msix(self) -> MSIXData:
         """Preload MSI-X data if configured."""
+        if getattr(self, "offline_capture", None) is not None:
+            return MSIXData(preloaded=False)
+
         if self.config.preload_msix:
             return self.msix_manager.preload_data()
         return MSIXData(preloaded=False)
@@ -1647,6 +1732,13 @@ class FirmwareBuilder:
                 prefix="BUILD",
             )
             return
+        if getattr(self, "offline_capture", None) is not None:
+            from .host_collect.offline import capture_provenance
+
+            device_info = {
+                **device_info,
+                "input_capture": capture_provenance(self.offline_capture),
+            }
         self.file_manager.write_json("device_info.json", device_info)
 
     def _store_device_config(self, result: Dict[str, Any]) -> None:
@@ -1765,7 +1857,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
     parser.add_argument(
         "--bdf",
-        required=True,
         help="PCI Bus/Device/Function address (e.g., 0000:03:00.0)",
     )
     parser.add_argument(
@@ -1776,7 +1867,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--profile",
         type=float,
-        default=DEFAULT_PROFILE_DURATION,
+        default=None,
         metavar="SECONDS",
         help=(
             "Capture behavior profile for N seconds (default: "
@@ -1798,6 +1889,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=True,
         help="Disable preloading of MSI-X data before VFIO binding",
     )
+    parser.add_argument("--from-capture", help="Validated offline capture directory")
     parser.add_argument(
         "--host-context-only",
         action="store_true",
@@ -1887,7 +1979,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Suppress the reproduction command hint on failure.",
     )
 
-    return parser.parse_args(argv)
+    parsed = parser.parse_args(argv)
+    if parsed.profile is None:
+        parsed.profile = 0 if parsed.from_capture else DEFAULT_PROFILE_DURATION
+    return parsed
 
 
 def main(argv: Optional[List[str]] = None) -> int:

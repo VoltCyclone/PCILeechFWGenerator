@@ -268,6 +268,20 @@ def write_snapshot(
     sidecar = {**common, "msix_info": msix_info}
     if not isinstance(msix_info, dict):
         raise SnapshotError("invalid collected MSI-X data")
+    snapshot = DonorSnapshot(identity, payload, sidecar, config)
+    if "offline_resources" in payload:
+        from .offline import validate_offline_snapshot
+
+        validate_offline_snapshot(snapshot)
+    publish_snapshot(directory, snapshot)
+    return snapshot
+
+
+def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
+    """Exclusively publish an already validated pair without changing identity."""
+    ensure_capture_destination(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    payload, sidecar = snapshot.context, snapshot.msix
     temporary: list[Path] = []
     try:
         for data in (sidecar, payload):
@@ -299,4 +313,3 @@ def write_snapshot(
     finally:
         for temp in temporary:
             temp.unlink(missing_ok=True)
-    return DonorSnapshot(identity, payload, sidecar, config)

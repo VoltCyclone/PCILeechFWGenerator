@@ -13,7 +13,7 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
 from pcileechfwgenerator.device_clone.behavior_profiler import (
     BehaviorProfile,
@@ -61,6 +61,10 @@ DWORD_SIZE = 4
 DWORDS_PER_MSIX_ENTRY = MSIX_ENTRY_SIZE // DWORD_SIZE
 
 
+if TYPE_CHECKING:
+    from pcileechfwgenerator.host_collect.snapshot import DonorSnapshot
+
+
 @dataclass
 class PCILeechGenerationConfig:
     """Configuration for PCILeech firmware generation."""
@@ -85,6 +89,9 @@ class PCILeechGenerationConfig:
     donor_template: Optional[Dict[str, Any]] = None
     preloaded_config_space: Optional[bytes] = None
     enable_error_injection: bool = False
+    offline_capture: Optional[DonorSnapshot] = None
+    enable_mmio_learning: bool = True
+    force_recapture: bool = False
 
 
 class PCILeechGenerator:
@@ -145,6 +152,15 @@ class PCILeechGenerator:
             prefix="PCIL",
         )
 
+        self.offline_capture = self.config.offline_capture
+        if self.offline_capture is not None:
+            from pcileechfwgenerator.host_collect.offline import (
+                validate_offline_snapshot,
+            )
+
+            validate_offline_snapshot(self.offline_capture)
+            if self.config.enable_behavior_profiling:
+                raise ValueError("Offline generation cannot perform behavior profiling")
         if self.config.enable_behavior_profiling:
             self.behavior_profiler = BehaviorProfiler(
                 bdf=self.config.device_bdf,
@@ -155,9 +171,13 @@ class PCILeechGenerator:
         else:
             self.behavior_profiler = None
 
-        self.config_space_manager = ConfigSpaceManager(
-            bdf=self.config.device_bdf,
-            strict_vfio=getattr(self.config, "strict_vfio", True),
+        self.config_space_manager = (
+            None
+            if self.offline_capture
+            else ConfigSpaceManager(
+                bdf=self.config.device_bdf,
+                strict_vfio=getattr(self.config, "strict_vfio", True),
+            )
         )
 
         self._preloaded_config_space = getattr(
@@ -482,24 +502,36 @@ class PCILeechGenerator:
             )
             # Don't fail, but warn - some devices might have unusual sizes
         
-        base_info = self.config_space_manager.extract_device_info(config_space_bytes)
+        if getattr(self, "offline_capture", None) is not None:
+            from pcileechfwgenerator.host_collect.offline import captured_bars
+            from pcileechfwgenerator.host_collect.snapshot import device_identity
 
-        try:
-            device_info = lookup_device_info(
-                bdf=self.config.device_bdf,
-                partial_info=base_info,
-                from_config_manager=True,
+            if config_space_bytes != self.offline_capture.config_space:
+                raise ValueError("Offline config bytes changed after validation")
+            device_info = device_identity(config_space_bytes)
+            device_info["bars"] = captured_bars(self.offline_capture)
+
+        else:
+            base_info = self.config_space_manager.extract_device_info(
+                config_space_bytes
             )
-        except Exception as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "DeviceInfoLookup failed, using base extracted info: {err}",
-                    err=str(e),
-                ),
-                prefix="CFG",
-            )
-            device_info = base_info
+
+            try:
+                device_info = lookup_device_info(
+                    bdf=self.config.device_bdf,
+                    partial_info=base_info,
+                    from_config_manager=True,
+                )
+            except Exception as e:
+                log_warning_safe(
+                    self.logger,
+                    safe_format(
+                        "DeviceInfoLookup failed, using base extracted info: {err}",
+                        err=str(e),
+                    ),
+                    prefix="CFG",
+                )
+                device_info = base_info
 
         if not device_info.get("vendor_id") or not device_info.get("device_id"):
             raise PCILeechGenerationError(
@@ -721,6 +753,10 @@ class PCILeechGenerator:
     def _generate_build_integration(self, template_context: Dict[str, Any]) -> str:
         """Generate build system integration code."""
         try:
+            if getattr(self, "offline_capture", None) is not None:
+                return self.sv_generator.generate_pcileech_integration_code(
+                    template_context, offline=True
+                )
             return self.sv_generator.generate_pcileech_integration_code(
                 template_context
             )
@@ -1361,13 +1397,18 @@ class PCILeechGenerator:
         """Build metadata about the generation process."""
         from pcileechfwgenerator.utils.metadata import build_config_metadata
 
-        return build_config_metadata(
+        metadata = build_config_metadata(
             device_bdf=self.config.device_bdf,
             enable_behavior_profiling=self.config.enable_behavior_profiling,
             enable_manufacturing_variance=self.config.enable_manufacturing_variance,
             enable_advanced_features=self.config.enable_advanced_features,
             strict_validation=self.config.strict_validation,
         )
+        if getattr(self, "offline_capture", None) is not None:
+            from pcileechfwgenerator.host_collect.offline import capture_provenance
+
+            metadata["input_capture"] = capture_provenance(self.offline_capture)
+        return metadata
 
     def save_generated_firmware(
         self, generation_result: Dict[str, Any], output_dir: Optional[Path] = None
@@ -1531,6 +1572,17 @@ class PCILeechGenerator:
 
     def _preload_msix_data_early(self) -> Optional[Dict[str, Any]]:
         """Preload MSI-X data from sysfs before VFIO binding."""
+        if getattr(self, "offline_capture", None) is not None:
+            info = self.offline_capture.msix["msix_info"]
+            if not info.get("table_size"):
+                return None
+            return {
+                **info,
+                "capability_info": dict(info),
+                "is_valid": True,
+                "validation_errors": [],
+                "preloaded": True,
+            }
         try:
             import os
 
@@ -1660,6 +1712,8 @@ class PCILeechGenerator:
         Returns a dict with either 'table_entries' (list of per-vector 16B hex)
         and/or 'table_init_hex' (newline-separated 32-bit words) on success.
         """
+        if getattr(self, "offline_capture", None) is not None:
+            return None
         try:
             table_size = int(msix_data.get("table_size", 0))
             table_bir = int(msix_data.get("table_bir", 0))

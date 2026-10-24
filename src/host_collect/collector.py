@@ -37,12 +37,14 @@ class HostCollector:
         logger=None,
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
+        complete_capture: bool = False,
     ) -> None:
         self.bdf = normalize_bdf(bdf)
         self.datastore = datastore
         self.logger = logger or get_logger(self.__class__.__name__)
         self.enable_mmio_learning = enable_mmio_learning
         self.force_recapture = force_recapture
+        self.complete_capture = complete_capture
 
     def run(self) -> int:
         try:
@@ -57,7 +59,19 @@ class HostCollector:
             cfg_hex = cfg.hex()
             msix_info = self._parse_msix(cfg_hex)
 
-            write_snapshot(self.datastore, self.bdf, cfg, msix_info)
+            context = None
+            if self.complete_capture:
+                from .offline import capture_bar_sizes
+
+                resource = Path("/sys/bus/pci/devices") / self.bdf / "resource"
+                context = {
+                    "offline_resources": {
+                        "schema_version": 1,
+                        "source": "linux_sysfs_resource",
+                        "bar_sizes": capture_bar_sizes(resource.read_text()),
+                    }
+                }
+            write_snapshot(self.datastore, self.bdf, cfg, msix_info, context)
             log_info_safe(
                 self.logger,
                 "Wrote matching device context and MSI-X capture files",

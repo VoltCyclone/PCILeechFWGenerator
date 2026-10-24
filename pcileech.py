@@ -625,10 +625,36 @@ Environment Variables:
     # Create subparsers for different modes
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    capture_parser = subparsers.add_parser(
+        "capture", help="Collect, import or validate a donor capture"
+    )
+    capture_actions = capture_parser.add_subparsers(
+        dest="capture_action", required=True
+    )
+    collect_parser = capture_actions.add_parser(
+        "collect", help="Explicit Linux host collection"
+    )
+    collect_parser.add_argument("--bdf", required=True)
+    collect_parser.add_argument("--output", required=True)
+    for action in ("validate", "import"):
+        action_parser = capture_actions.add_parser(action)
+        action_parser.add_argument("--input", required=True)
+        if action == "import":
+            action_parser.add_argument("--output", required=True)
+
     # Build command (CLI mode)
     build_parser = subparsers.add_parser("build", help="Build firmware (CLI mode)")
     build_parser.add_argument(
-        "--bdf", required=True, help="PCI Bus:Device.Function (e.g., 0000:03:00.0)"
+        "--bdf",
+        help="PCI address (required for live collection; checked if supplied offline)",
+    )
+    build_parser.add_argument(
+        "--from-capture", help="Validated offline capture directory"
+    )
+    build_parser.add_argument(
+        "--templates-only",
+        action="store_true",
+        help="Generate artifacts without running Vivado",
     )
     build_parser.add_argument(
         "--board",
@@ -800,7 +826,10 @@ def main():
     args = parser.parse_args()
 
     # Skip requirements check if requested
-    if not args.skip_requirements_check:
+    offline_request = bool(getattr(args, "from_capture", None)) or (
+        args.command == "capture" and args.capture_action != "collect"
+    )
+    if not args.skip_requirements_check and not offline_request:
         try:
             requirements_ok = check_and_install_requirements()
 
@@ -854,7 +883,10 @@ def main():
             return 1
 
     # Check sudo requirements for hardware operations (Linux only)
-    if args.command in ["build", "check"]:
+    needs_hardware = (args.command in ["build", "check"] and not offline_request) or (
+        args.command == "capture" and args.capture_action == "collect"
+    )
+    if needs_hardware:
         if not is_linux:
             log_error_safe(logger, "This command requires Linux.", prefix="MAIN")
             return 1
@@ -867,7 +899,12 @@ def main():
             return 1
 
     # Check VFIO requirements for build operations (Linux only)
-    if args.command == "build" and is_linux and not check_vfio_requirements():
+    if (
+        args.command == "build"
+        and not offline_request
+        and is_linux
+        and not check_vfio_requirements()
+    ):
         log_error_safe(
             logger,
             "Run 'sudo python3 pcileech.py check' to validate VFIO setup.",
@@ -877,6 +914,8 @@ def main():
 
     # Route to appropriate handler with safe imports
     try:
+        if args.command == "capture":
+            return handle_capture(args)
         if args.command == "build":
             return handle_build(args)
         elif args.command == "tui":
@@ -897,11 +936,85 @@ def main():
         return 1
 
 
+def handle_capture(args: argparse.Namespace) -> int:
+    """Execute explicit collection or pure capture validation/import."""
+    from pcileechfwgenerator.host_collect.offline import (
+        import_capture,
+        load_offline_capture,
+    )
+    from pcileechfwgenerator.host_collect.collector import HostCollector
+
+    try:
+        if args.capture_action == "collect":
+            directory = Path(args.output).expanduser().resolve()
+            rc = HostCollector(args.bdf, directory, complete_capture=True).run()
+            if rc:
+                return rc
+            load_offline_capture(directory, args.bdf)
+        elif args.capture_action == "import":
+            import_capture(
+                Path(args.input).expanduser(), Path(args.output).expanduser()
+            )
+        else:
+            load_offline_capture(Path(args.input).expanduser())
+        print("Capture validated: schema 1 with offline resource extension 1")
+        print(
+            "Consistency verified; authenticity and hardware behavior "
+            "are not established."
+        )
+        return 0
+    except Exception as exc:
+        log_error_safe(
+            get_logger(__name__), "Capture operation failed: {error}", error=str(exc)
+        )
+        return 1
+
+
+def run_offline_build(args: argparse.Namespace) -> int:
+    """Generate solely from a complete capture, with optional host synthesis."""
+    from pcileechfwgenerator.host_collect.offline import (
+        load_offline_capture,
+        validate_render_request,
+    )
+
+    source = Path(args.from_capture).expanduser().resolve()
+    snapshot = load_offline_capture(source, args.bdf)
+    if args.board not in set(get_available_boards()):
+        raise ValueError("Unknown target board")
+    if (
+        args.profile
+        or args.host_collect_only
+        or args.force_recapture
+        or args.donor_template
+    ):
+        raise ValueError(
+            "Offline builds cannot profile, collect, recapture or override donor data"
+        )
+    output = build_output_directory(args)
+    validate_render_request(snapshot, source, output, args.generate_donor_template)
+    args.bdf = snapshot.identity.bdf
+    args.datastore = str(source)
+    args.from_capture = str(source)
+    if args.container_mode == "container" and not args.local:
+        rc = run_container_templating(args)
+    else:
+        rc = run_local_templating(args)
+    if rc:
+        return rc
+    return 0 if args.templates_only else run_host_vivado(args)
+
+
 def handle_build(args):
     """Handle CLI build mode."""
     logger = get_logger(__name__)
     try:
         validate_build_options(args)
+        if getattr(args, "from_capture", None):
+            return run_offline_build(args)
+        if not args.bdf:
+            raise ValueError(
+                "Live builds require --bdf; use --from-capture for offline input"
+            )
         # Validate board before proceeding
         valid_boards = set(get_available_boards())
         if args.board not in valid_boards:
@@ -949,7 +1062,7 @@ def handle_build(args):
             return rc
 
         # Stage 3: host-side Vivado batch
-        return run_host_vivado(args)
+        return 0 if getattr(args, "templates_only", False) else run_host_vivado(args)
 
     except KeyboardInterrupt:
         log_error_safe(logger, "Build interrupted by user", prefix="BUILD")
@@ -1007,6 +1120,7 @@ def run_host_collect(args):
         logger,
         enable_mmio_learning=enable_mmio_learning,
         force_recapture=force_recapture,
+        complete_capture=True,
     )
     rc = collector.run()
     if rc == 0:
@@ -1247,7 +1361,8 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
             "-e",
             "PCILEECH_DISABLE_VFIO=1",
             "-v",
-            f"{str(datastore)}:/datastore",
+            f"{datastore}:/datastore"
+            + (":ro" if getattr(args, "from_capture", None) else ""),
             "-v",
             f"{str(output_dir)}:/artifacts",
             "pcileech-fwgen",
@@ -1264,6 +1379,9 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
             "0",
         ]
     )
+
+    if getattr(args, "from_capture", None):
+        cmd.extend(["--from-capture", "/datastore"])
 
     # Forward optional CLI flags to container so behavior matches local mode
     if getattr(args, "enable_error_injection", False):
@@ -1353,6 +1471,7 @@ def run_local_templating(args):
             board=args.board,
             output=str(output_dir),
             profile=getattr(args, "profile", 0),
+            from_capture=getattr(args, "from_capture", None),
             preload_msix=True,
             output_template=getattr(args, "generate_donor_template", None),
             donor_template=getattr(args, "donor_template", None),

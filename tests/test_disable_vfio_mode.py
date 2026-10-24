@@ -6,6 +6,7 @@ import pytest
 
 from pcileechfwgenerator.exceptions import ConfigurationError
 from tests.snapshot_helpers import make_snapshot
+from tests.snapshot_helpers import offline_fixture
 
 from pcileechfwgenerator.build import (
     BuildConfiguration,
@@ -176,10 +177,10 @@ class TestMSIXManagerDisable:
 class TestProfilingSkip:
     def test_generate_profile_skips_when_disabled(self, monkeypatch, tmp_path):
         cfg = BuildConfiguration(
-            bdf='0000:03:00.0',
-            board='pcileech_100t484_x1',
-            output_dir=tmp_path,
-            enable_profiling=True,
+            bdf="0000:03:00.0",
+            board="pcileech_100t484_x1",
+            output_dir=tmp_path / "artifacts",
+            enable_profiling=False,
             preload_msix=False,
             profile_duration=10,
             parallel_writes=True,
@@ -194,7 +195,7 @@ class TestProfilingSkip:
         )
         # Create a builder; _init_components will fail if it can't find host data.
         # Avoid that by providing a minimal device_context.json with config_space_hex
-        ctx = make_snapshot(tmp_path)
+        ctx = offline_fixture(tmp_path / "capture")
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
 
         fb = FirmwareBuilder(cfg)
@@ -207,19 +208,21 @@ class TestProfilingSkip:
             raise AssertionError('should not be called')
 
         fb.profiler.capture_behavior_profile = fake_capture  # type: ignore
+        # The disable guard also wins if a caller later flips this flag.
+        cfg.enable_profiling = True
         fb._generate_profile()
         assert called['hit'] is False
 
 
 class TestGeneratorConfig:
     def test_generator_strict_vfio_false_when_disabled(self, monkeypatch, tmp_path):
-        ctx = make_snapshot(tmp_path)
+        ctx = offline_fixture(tmp_path / "capture")
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
 
         cfg = BuildConfiguration(
-            bdf='0000:03:00.0',
-            board='pcileech_100t484_x1',
-            output_dir=tmp_path,
+            bdf="0000:03:00.0",
+            board="pcileech_100t484_x1",
+            output_dir=tmp_path / "artifacts",
             enable_profiling=False,
             preload_msix=False,
             profile_duration=0,
