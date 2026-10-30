@@ -1,6 +1,7 @@
 """Offline fixtures are synthetic test data, never collected production inputs."""
 
 import json
+from pathlib import Path
 
 import pytest
 from pcileechfwgenerator.host_collect.snapshot import SnapshotError
@@ -441,7 +442,13 @@ def test_complete_collector_reads_resources_and_publishes_valid_pair(
 @pytest.mark.parametrize("entry", ["unified", "stage2"])
 @pytest.mark.parametrize(
     "conflict",
-    ["nested_output", "template_in_capture", "large_bar", "no_memory_bar", "wrong_bdf"],
+    [
+        "output_is_capture",
+        "template_in_capture",
+        "large_bar",
+        "no_memory_bar",
+        "wrong_bdf",
+    ],
 )
 def test_render_preflight_preserves_input_and_creates_no_output(
     tmp_path, entry, conflict
@@ -464,8 +471,8 @@ def test_render_preflight_preserves_input_and_creates_no_output(
                 slice(16, 20), (0x80000001).to_bytes(4, "little")
             ),
         )
-    if conflict == "nested_output":
-        output = source / "output"
+    if conflict == "output_is_capture":
+        output = source
     extra = []
     if conflict == "template_in_capture":
         extra = [
@@ -490,8 +497,24 @@ def test_render_preflight_preserves_input_and_creates_no_output(
     else:
         with pytest.raises(ConfigurationError):
             FirmwareBuilder(ConfigurationManager().create_from_args(parse_args(argv)))
-    assert not output.exists()
+    assert conflict == "output_is_capture" or not output.exists()
     assert before == {path.name: path.read_bytes() for path in source.iterdir()}
+
+
+def test_render_request_allows_output_inside_capture(tmp_path):
+    """The default <datastore>/output layout must render offline."""
+    from pcileechfwgenerator.exceptions import ConfigurationError
+    from pcileechfwgenerator.host_collect.offline import (
+        load_offline_capture,
+        validate_render_request,
+    )
+
+    source = tmp_path / "source"
+    offline_fixture(source)
+    snapshot = load_offline_capture(source)
+    validate_render_request(snapshot, source, source / "output")
+    with pytest.raises(ConfigurationError, match="contain it"):
+        validate_render_request(snapshot, source / "sub", source)
 
 
 def test_container_offline_capture_is_read_only_and_uses_real_parser(
@@ -533,3 +556,46 @@ def test_container_offline_capture_is_read_only_and_uses_real_parser(
     parsed = parse_args(command[command.index("src.build") + 1 :])
     assert parsed.from_capture == "/datastore"
     assert parsed.profile == 0
+
+
+def _reuse_build(tmp_path, monkeypatch, sysfs_config):
+    from pcileechfwgenerator.host_collect import snapshot as snapshot_mod
+
+    datastore = tmp_path / "datastore"
+    fixture = offline_fixture(datastore)
+    root = tmp_path / "sys"
+    if sysfs_config:
+        config = bytes.fromhex(json.loads(fixture.read_text())["config_space_hex"])
+        (root / "0000:03:00.0").mkdir(parents=True)
+        (root / "0000:03:00.0" / "config").write_bytes(config)
+    monkeypatch.setattr(snapshot_mod, "SYSFS_PCI_ROOT", root)
+    seen = []
+    monkeypatch.setattr(
+        pcileech, "run_local_templating", lambda args: seen.append(args) or 0
+    )
+    monkeypatch.setattr(pcileech, "run_host_collect", lambda args: 1)
+    args = pcileech.create_parser().parse_args(
+        [
+            "build",
+            "--bdf",
+            "0000:03:00.0",
+            "--board",
+            "pcileech_75t484_x1",
+            "--datastore",
+            str(datastore),
+            "--templates-only",
+            "--local",
+        ]
+    )
+    assert pcileech.handle_build(args) == 0
+    return datastore, seen[0]
+
+
+def test_reuse_with_absent_donor_routes_through_from_capture(tmp_path, monkeypatch):
+    datastore, args = _reuse_build(tmp_path, monkeypatch, sysfs_config=False)
+    assert Path(args.from_capture) == datastore.resolve()
+
+
+def test_reuse_with_present_donor_stays_live(tmp_path, monkeypatch):
+    _, args = _reuse_build(tmp_path, monkeypatch, sysfs_config=True)
+    assert not getattr(args, "from_capture", None)

@@ -1048,8 +1048,15 @@ def handle_build(args):
             if rc != 0:
                 return rc
         snapshot = load_snapshot(device_ctx, msix_path, args.bdf)
-        if reused:
-            verify_current_device(snapshot)
+        if reused and verify_current_device(snapshot) == "absent":
+            log_warning_safe(
+                logger,
+                "Donor is not present at the captured address; rebuilding from "
+                "the saved capture as an unverified offline build",
+                prefix="BUILD",
+            )
+            args.from_capture = str(datastore.resolve())
+            return run_offline_build(args)
 
         # Stage 2: templating / parsing (container or local)
         container_mode = getattr(args, "container_mode", "auto")

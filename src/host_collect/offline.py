@@ -249,9 +249,11 @@ def validate_render_request(
     from pcileechfwgenerator.exceptions import ConfigurationError
 
     source, output = Path(source).resolve(), Path(output).resolve()
-    if source == output or source in output.parents or output in source.parents:
+    # A subdirectory of the capture (the default <datastore>/output) cannot
+    # replace the top-level capture files; the capture itself or an ancestor can.
+    if source == output or output in source.parents:
         raise ConfigurationError(
-            "Offline output and capture directories must not overlap"
+            "Offline output must not be the capture directory or contain it"
         )
     if template_output:
         target = Path(template_output).expanduser().resolve()

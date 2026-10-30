@@ -409,3 +409,54 @@ def test_unserialisable_context_reports_serialisation_error(tmp_path):
     with pytest.raises(SnapshotError, match="not JSON-serialisable"):
         write_snapshot(tmp_path, BDF, make_config(), {}, {"bar_models": object()})
     assert not list(tmp_path.iterdir())
+
+
+def _sysfs(tmp_path, monkeypatch, config=None):
+    from pcileechfwgenerator.host_collect import snapshot as snapshot_mod
+
+    root = tmp_path / "sys"
+    if config is not None:
+        (root / BDF).mkdir(parents=True)
+        (root / BDF / "config").write_bytes(config)
+    monkeypatch.setattr(snapshot_mod, "SYSFS_PCI_ROOT", root)
+
+
+def test_verify_returns_absent_when_device_missing(tmp_path, monkeypatch):
+    make_snapshot(tmp_path / "cap")
+    _sysfs(tmp_path, monkeypatch)
+    assert verify_current_device(read_snapshot(tmp_path / "cap")) == "absent"
+
+
+def test_verify_raises_on_identity_change(tmp_path, monkeypatch):
+    make_snapshot(tmp_path / "cap")
+    changed = bytearray(config_bytes())
+    changed[2] ^= 1
+    _sysfs(tmp_path, monkeypatch, bytes(changed))
+    with pytest.raises(SnapshotError, match="changed identity"):
+        verify_current_device(read_snapshot(tmp_path / "cap"))
+
+
+def test_verify_returns_verified_on_match(tmp_path, monkeypatch):
+    make_snapshot(tmp_path / "cap")
+    _sysfs(tmp_path, monkeypatch, config_bytes())
+    assert verify_current_device(read_snapshot(tmp_path / "cap")) == "verified"
+
+
+@pytest.mark.parametrize(
+    "module", ["pcileechfwgenerator.build", "pcileechfwgenerator.device_clone.msix"]
+)
+def test_msix_preload_with_vfio_requires_present_device(tmp_path, monkeypatch, module):
+    import importlib
+
+    MSIXManager = importlib.import_module(module).MSIXManager
+    make_snapshot(tmp_path / "cap")
+    _sysfs(tmp_path, monkeypatch)
+    for name in (
+        "DEVICE_CONTEXT_PATH",
+        "PCILEECH_DISABLE_VFIO",
+        "PCILEECH_HOST_CONTEXT_ONLY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("MSIX_DATA_PATH", str(tmp_path / "cap" / "msix_data.json"))
+    with pytest.raises(SnapshotError, match="not present"):
+        MSIXManager(BDF).preload_data()

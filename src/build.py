@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pcileechfwgenerator.host_collect.snapshot import (
+    SnapshotError,
     load_configured_snapshot,
     verify_current_device,
 )
@@ -273,8 +274,11 @@ class MSIXManager:
         # Keep validation outside the optional live-probe exception handler.
         snapshot = load_configured_snapshot(self.bdf, include_msix_only=True)
         if snapshot is not None:
-            if not disable_vfio:
-                verify_current_device(snapshot)
+            if not disable_vfio and verify_current_device(snapshot) == "absent":
+                # A live run needs the device; only offline builds may proceed.
+                raise SnapshotError(
+                    "the donor device is not present for a live build"
+                )
             msix_info = snapshot.msix["msix_info"]
             if msix_info and int(msix_info.get("table_size", 0)) > 0:
                 return MSIXData(

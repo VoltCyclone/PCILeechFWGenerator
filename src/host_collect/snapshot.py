@@ -29,6 +29,12 @@ from pydantic import (
 
 CONTEXT_NAME = "device_context.json"
 MSIX_NAME = "msix_data.json"
+SYSFS_PCI_ROOT = Path("/sys/bus/pci/devices")
+
+# How a capture used in a build was established: read via VFIO this run,
+# matched against live sysfs this run, or neither (offline input, or a reused
+# capture whose donor is absent). Only "unverified" builds carry the canary.
+CaptureTrust = Literal["live", "verified", "unverified"]
 
 
 class SnapshotError(ConfigurationError):
@@ -222,16 +228,24 @@ def load_configured_snapshot(
     return load_snapshot(context, msix, expected_bdf)
 
 
-def verify_current_device(snapshot: DonorSnapshot) -> None:
-    """Check a reused host capture against a read-only live PCI header."""
-    path = Path("/sys/bus/pci/devices") / snapshot.identity.bdf / "config"
+def verify_current_device(snapshot: DonorSnapshot) -> Literal["verified", "absent"]:
+    """Check a reused host capture against a read-only live PCI header.
+
+    Returns "absent" when no device exists at the captured address; callers
+    decide whether that permits an unverified build. A different device at
+    the address, or an unreadable header, is always an error.
+    """
+    path = SYSFS_PCI_ROOT / snapshot.identity.bdf / "config"
     try:
         with path.open("rb") as stream:
             config = stream.read(64)
+    except FileNotFoundError:
+        return "absent"
     except OSError:
         raise SnapshotError("cannot verify the current donor PCI identity") from None
     if device_identity(config) != device_identity(snapshot.config_space):
         raise SnapshotError("the device at this PCI address has changed identity")
+    return "verified"
 
 
 def ensure_capture_destination(directory: Path) -> None:
