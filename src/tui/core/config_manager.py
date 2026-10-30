@@ -24,6 +24,7 @@ except ImportError:
 from ..models.config import BuildConfiguration as LegacyBuildConfiguration
 from ..models.configuration import BuildConfiguration
 from ..models.error import ErrorSeverity, TUIError
+from .build_contract import UNSUPPORTED_SETTINGS
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -34,6 +35,18 @@ CACHE_DIR = Path(
         "PCILEECH_CACHE_DIR", os.path.expanduser("~/.cache/pcileechfwgenerator")
     )
 )
+
+
+def migrate_legacy_configuration(data: dict) -> tuple[dict, list[str]]:
+    """Neutralize retired profile overrides and report each changed field."""
+    migrated = data.copy()
+    warnings = []
+    for field in ("advanced_sv", "enable_variance", "donor_dump"):
+        neutral = UNSUPPORTED_SETTINGS[field]
+        if field in migrated and migrated[field] != neutral:
+            migrated[field] = neutral
+            warnings.append(f"Warning: Legacy setting {field} reset to {neutral!r}")
+    return migrated, warnings
 
 
 class ConfigManager:
@@ -123,6 +136,10 @@ class ConfigManager:
                     # Read the old profile
                     with open(profile_path, "r") as f:
                         profile_data = json.load(f)
+
+                    profile_data, warnings = migrate_legacy_configuration(profile_data)
+                    for warning in warnings:
+                        print(warning)
 
                     # Create a BuildConfiguration from the data using the new Pydantic model
                     try:
@@ -221,6 +238,10 @@ class ConfigManager:
 
             with open(profile_path, "r") as f:
                 profile_data = json.load(f)
+
+            profile_data, warnings = migrate_legacy_configuration(profile_data)
+            for warning in warnings:
+                print(warning)
 
             try:
                 return BuildConfiguration(**profile_data)
@@ -583,7 +604,12 @@ class ConfigManager:
                 return None
 
             try:
-                config = BuildConfiguration.load_from_file(import_path)
+                with open(import_path, "r") as f:
+                    profile_data = json.load(f)
+                profile_data, warnings = migrate_legacy_configuration(profile_data)
+                for warning in warnings:
+                    print(warning)
+                config = BuildConfiguration.from_dict(profile_data)
             except json.JSONDecodeError as e:
                 print(
                     f"Invalid JSON in import file: Error at line {e.lineno}, column {e.colno}: {e.msg}"

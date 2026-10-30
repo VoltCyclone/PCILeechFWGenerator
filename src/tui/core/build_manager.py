@@ -4,13 +4,14 @@ Build Manager for PCILeech TUI application.
 This module provides services for validating and building firmware for devices.
 """
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 from ..models.device import PCIDevice
 from ..models.progress import BuildProgress
-from .build_contract import validate_build_configuration
+from .build_contract import resolve_datastore_directory, validate_build_configuration
 
 
 class BuildManager:
@@ -102,7 +103,16 @@ class BuildManager:
             config = self.app.current_config.copy()
             config.output_directory = output_path
             output = Path(output_path).expanduser().resolve()
-            existing = {path.resolve() for path in output.rglob("*") if path.is_file()}
+            datastore = resolve_datastore_directory(config)
+
+            def snapshot() -> Dict[str, Path]:
+                return {
+                    str(path.relative_to(output)): path
+                    for path in output.rglob("*")
+                    if path.is_file() and not path.resolve().is_relative_to(datastore)
+                }
+
+            existing = await asyncio.to_thread(snapshot)
 
             def on_progress(progress: BuildProgress) -> None:
                 self.app.build_progress = progress
@@ -114,10 +124,11 @@ class BuildManager:
             if not success:
                 return False, "Build cancelled"
             # Undo owns only newly created files, never pre-existing outputs.
+            created = await asyncio.to_thread(snapshot)
             artifacts = {
-                str(path.relative_to(output)): str(path)
-                for path in output.rglob("*")
-                if path.is_file() and path.resolve() not in existing
+                name: str(path)
+                for name, path in created.items()
+                if name not in existing
             }
             return True, artifacts
         except Exception as exc:

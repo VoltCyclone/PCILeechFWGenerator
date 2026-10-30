@@ -195,3 +195,26 @@ def test_stage_two_rejects_nonfinite_duration_before_vfio(duration, monkeypatch)
     with pytest.raises(build.ConfigurationError, match="finite"):
         build.ConfigurationManager().create_from_args(args)
     decision.assert_not_called()
+
+
+@pytest.mark.parametrize("explicit", [True, False])
+@pytest.mark.parametrize("production_profiling", [True, False])
+def test_production_defaults_respects_explicit_profile_zero(
+    monkeypatch, explicit, production_profiling
+):
+    from pcileechfwgenerator.utils.vfio_decision import VFIODecision
+
+    monkeypatch.setenv("PCILEECH_PRODUCTION_DEFAULTS", "1")
+    monkeypatch.setitem(
+        build.PRODUCTION_DEFAULTS, "BEHAVIOR_PROFILING", production_profiling
+    )
+    monkeypatch.setattr(
+        build, "make_vfio_decision", lambda *a, **kw: VFIODecision(True, [], "enabled")
+    )
+    args = build.parse_args(
+        ["--bdf", "0000:03:00.0", "--board", "pcileech_75t484_x1"]
+        + (["--profile", "0"] if explicit else [])
+    )
+    assert args.profile_explicit is explicit
+    config = build.ConfigurationManager().create_from_args(args)
+    assert config.enable_profiling is (False if explicit else production_profiling)

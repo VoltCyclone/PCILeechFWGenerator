@@ -656,7 +656,8 @@ class ConfigurationManager:
             vfio_decision = make_vfio_decision(args, logger=self.logger)
         disable_vfio = not vfio_decision.enabled
         if use_prod:
-            enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
+            if not getattr(args, "profile_explicit", True):
+                enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
             preload_msix = PRODUCTION_DEFAULTS.get("MSIX_CAPABILITY", True)
 
         if disable_vfio:
@@ -1984,6 +1985,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
 
     parsed = parser.parse_args(argv)
+    parsed.profile_explicit = parsed.profile is not None
     if parsed.profile is None:
         parsed.profile = 0 if parsed.from_capture else DEFAULT_PROFILE_DURATION
     return parsed

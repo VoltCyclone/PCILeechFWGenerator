@@ -29,8 +29,25 @@ UNSUPPORTED_SETTINGS: dict[str, Any] = {
 }
 
 
+def resolve_datastore_directory(config: BuildConfiguration) -> Path:
+    """Resolve capture storage independently of generated output files."""
+    if config.datastore_directory:
+        return Path(config.datastore_directory).expanduser().resolve()
+    if config.output_directory:
+        return (
+            Path(config.output_directory).expanduser().resolve().parent
+            / "pcileech_datastore"
+        )
+    return Path.cwd() / "pcileech_datastore"
+
+
 def validate_build_configuration(config: BuildConfiguration) -> None:
     """Reject unsupported requests before collection or other side effects."""
+    if config.output_directory and config.datastore_directory:
+        output = Path(config.output_directory).expanduser().resolve()
+        datastore = resolve_datastore_directory(config)
+        if datastore.is_relative_to(output):
+            raise ValueError("datastore must be outside the output directory")
     invalid = [
         f"{field} (use {neutral!r})"
         for field, neutral in UNSUPPORTED_SETTINGS.items()
@@ -79,7 +96,7 @@ def build_command(bdf: str, config: BuildConfiguration) -> list[str]:
     )
     for option, value in (
         ("--output", config.output_directory),
-        ("--datastore", config.datastore_directory),
+        ("--datastore", resolve_datastore_directory(config)),
         ("--donor-template", config.donor_info_file),
     ):
         if value:

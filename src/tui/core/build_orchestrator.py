@@ -274,7 +274,13 @@ class BuildOrchestrator:
         await coro()
         if self._should_cancel:
             raise asyncio.CancelledError("Build cancelled")
-        await self._update_progress(stage, 100, end_msg)
+        final_stage = stage
+        if self._current_progress:
+            stages = list(BuildStage)
+            current_stage = self._current_progress.stage
+            if stages.index(current_stage) > stages.index(stage):
+                final_stage = current_stage
+        await self._update_progress(final_stage, 100, end_msg)
 
         if self._current_progress:
             self._current_progress.mark_stage_complete(stage)

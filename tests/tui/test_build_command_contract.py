@@ -254,3 +254,75 @@ def test_fresh_builtin_profiles_are_supported_and_old_profiles_are_preserved(
     legacy.write_text('{"donor_dump": true}')
     assert manager.create_default_profiles()
     assert legacy.read_text() == '{"donor_dump": true}'
+
+
+@pytest.mark.parametrize("with_output", [True, False])
+def test_build_command_datastore_outside_output(tmp_path, monkeypatch, with_output):
+    from pathlib import Path
+    from pcileechfwgenerator.tui.core.build_contract import build_command
+
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "out"
+    config = BuildConfiguration(
+        board_type="pcileech_75t484_x1",
+        output_directory=str(output) if with_output else None,
+    )
+    argv = build_command("0000:03:00.0", config)
+    ds = Path(argv[argv.index("--datastore") + 1])
+    assert ds == tmp_path / "pcileech_datastore"
+    assert output not in ds.parents and ds != output
+
+
+@pytest.mark.parametrize("suffix", ["", "capture"])
+def test_datastore_inside_output_is_rejected(tmp_path, suffix):
+    from pcileechfwgenerator.tui.core.build_contract import build_command
+
+    config = BuildConfiguration(
+        board_type="pcileech_75t484_x1",
+        output_directory=str(tmp_path),
+        datastore_directory=str(tmp_path / suffix),
+    )
+    with pytest.raises(ValueError, match="datastore"):
+        build_command("0000:03:00.0", config)
+
+
+@pytest.mark.asyncio
+async def test_undo_never_deletes_capture_files(tmp_path, monkeypatch):
+    import threading
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    from pcileechfwgenerator.tui.core.build_manager import BuildManager
+
+    output = tmp_path / "out"
+    capture = output / "capture"
+    capture.mkdir(parents=True)
+    app = MagicMock()
+    app.current_config = BuildConfiguration(
+        board_type="pcileech_75t484_x1", datastore_directory=str(capture)
+    )
+    manager = BuildManager(app)
+    manager.validate_configuration = AsyncMock(return_value=(True, []))
+    main_thread = threading.get_ident()
+    rglob = Path.rglob
+    threads = []
+
+    def tracked_rglob(path, pattern):
+        threads.append(threading.get_ident())
+        return rglob(path, pattern)
+
+    monkeypatch.setattr(Path, "rglob", tracked_rglob)
+
+    async def build(*args):
+        (capture / "device_context.json").write_text("{}")
+        (output / "new.bit").write_text("artifact")
+        return True
+
+    app.build_orchestrator.start_build = AsyncMock(side_effect=build)
+    success, artifacts = await manager.build_firmware(
+        SimpleNamespace(is_suitable=True), str(output)
+    )
+    assert success
+    assert artifacts == {"new.bit": str(output / "new.bit")}
+    assert len(threads) == 2 and all(t != main_thread for t in threads)
+    assert await manager.clean_build_artifacts(artifacts)
+    assert (capture / "device_context.json").exists()
