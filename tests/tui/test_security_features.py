@@ -6,6 +6,7 @@ functionality added to enhance security.
 """
 
 import asyncio
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,24 +20,17 @@ class TestInputValidator(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        # Create a temporary test file and directory
-        self.test_dir = Path("test_dir")
+        # Per-test temporary directory, so parallel workers never share paths
+        self._tmp = tempfile.TemporaryDirectory()
+        self.test_dir = Path(self._tmp.name) / "test_dir"
         self.test_file = self.test_dir / "test_file.txt"
 
-        if not self.test_dir.exists():
-            self.test_dir.mkdir()
-
-        if not self.test_file.exists():
-            self.test_file.write_text("test content")  # Write content so file is not empty
+        self.test_dir.mkdir()
+        self.test_file.write_text("test content")  # Write content so file is not empty
 
     def tearDown(self):
         """Clean up test fixtures."""
-        # Remove test file and directory
-        if self.test_file.exists():
-            self.test_file.unlink()
-
-        if self.test_dir.exists():
-            self.test_dir.rmdir()
+        self._tmp.cleanup()
 
     def test_validate_file_path(self):
         """Test file path validation."""

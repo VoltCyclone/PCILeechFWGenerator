@@ -209,7 +209,7 @@ def test_run_local_build_success(monkeypatch, tmp_path: Path):
     # Make relative import from pcileechfwgenerator.cli.container work
     import sys
 
-    sys.modules["pcileechfwgenerator.build"] = fake_build
+    monkeypatch.setitem(sys.modules, "pcileechfwgenerator.build", fake_build)
 
     cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
     run_local_build(cfg)
@@ -222,7 +222,7 @@ def test_run_local_build_failure(monkeypatch, tmp_path: Path):
     fake_build.main = lambda args: 5  # non-zero exit
     import sys
 
-    sys.modules["pcileechfwgenerator.build"] = fake_build
+    monkeypatch.setitem(sys.modules, "pcileechfwgenerator.build", fake_build)
     cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
     with pytest.raises(BuildError):
         run_local_build(cfg)
