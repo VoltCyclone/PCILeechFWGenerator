@@ -11,6 +11,7 @@ import os
 import shlex
 import signal
 import subprocess
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -39,6 +40,8 @@ PROCESS_TERMINATION_TIMEOUT = 2.0  # Seconds to wait for process termination
 
 # Progress parsing tokens for easier maintenance
 READLINE_TIMEOUT_SEC = 1.0  # readline polling cadence in _run_shell
+FAILURE_TAIL_LINES = 40  # child output lines quoted in a failure error
+FAILURE_TAIL_LINE_CHARS = 1000  # cap per quoted line; overlong lines are chunked
 
 
 LOG_PROGRESS_TOKENS = {
@@ -798,6 +801,8 @@ class BuildOrchestrator:
         argv = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
         process = await asyncio.create_subprocess_exec(
             *argv,
+            stdin=asyncio.subprocess.DEVNULL,
+            limit=1 << 20,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=os.name == "posix",
@@ -814,16 +819,22 @@ class BuildOrchestrator:
 
         self._build_process = process
         stderr_chunks: List[bytes] = []
+        tail = deque(maxlen=FAILURE_TAIL_LINES)
 
         async def drain(stream, sink) -> None:
             while stream is not None:
-                line = await stream.readline()
+                try:
+                    line = await stream.readline()
+                except (asyncio.LimitOverrunError, ValueError):
+                    # Keep draining oversized output so the child cannot block.
+                    line = await stream.read(65536)
                 if not line:
                     return
+                decoded = line.decode("utf-8", errors="replace")
+                tail.append(decoded.rstrip("\r\n")[:FAILURE_TAIL_LINE_CHARS])
                 if sink is not None:
                     sink.append(line)
                 else:
-                    decoded = line.decode("utf-8", errors="replace")
                     for pattern, (
                         stage,
                         percent,
@@ -881,6 +892,8 @@ class BuildOrchestrator:
                 safe_format(
                     "Build command failed with code {code}", code=process.returncode
                 )
+                + "\n--- last output ---\n"
+                + "\n".join(tail)
             )
         return subprocess.CompletedProcess(argv, process.returncode, "", stderr)
 

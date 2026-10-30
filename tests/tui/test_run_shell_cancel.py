@@ -180,3 +180,48 @@ async def test_cancelled_pipeline_never_marks_success():
         if not running.done():
             await orch.cancel_build()
             await asyncio.wait_for(running, 5)
+
+
+@pytest.mark.asyncio
+async def test_child_stdin_is_devnull():
+    import os
+    import sys
+
+    orch = BuildOrchestrator()
+    # Supply nonempty inherited stdin so this also catches regressions in CI.
+    saved_stdin = os.dup(0)
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"inherited input")
+        os.close(write_fd)
+        os.dup2(read_fd, 0)
+        await orch._run_shell(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.exit(0 if sys.stdin.read() == '' else 3)",
+            ]
+        )
+    finally:
+        os.dup2(saved_stdin, 0)
+        os.close(saved_stdin)
+        os.close(read_fd)
+
+
+@pytest.mark.asyncio
+async def test_failure_message_includes_stdout_tail():
+    import sys
+
+    orch = BuildOrchestrator()
+    with pytest.raises(Exception, match="boom-reason"):
+        await orch._run_shell(
+            [sys.executable, "-c", "print('boom-reason'); raise SystemExit(1)"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_overlong_line_does_not_fail_build():
+    import sys
+
+    orch = BuildOrchestrator()
+    await orch._run_shell([sys.executable, "-c", "print('x'*200000)"])
