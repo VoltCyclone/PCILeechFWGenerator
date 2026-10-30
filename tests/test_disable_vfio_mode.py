@@ -197,6 +197,10 @@ class TestProfilingSkip:
         # Avoid that by providing a minimal device_context.json with config_space_hex
         ctx = offline_fixture(tmp_path / "capture")
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
+        # The env-var capture path models the Stage 2 container.
+        import pcileechfwgenerator.build as build
+
+        monkeypatch.setattr(build, "_in_container", lambda: True)
 
         fb = FirmwareBuilder(cfg)
 
@@ -218,6 +222,10 @@ class TestGeneratorConfig:
     def test_generator_strict_vfio_false_when_disabled(self, monkeypatch, tmp_path):
         ctx = offline_fixture(tmp_path / "capture")
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
+        # The env-var capture path models the Stage 2 container.
+        import pcileechfwgenerator.build as build
+
+        monkeypatch.setattr(build, "_in_container", lambda: True)
 
         cfg = BuildConfiguration(
             bdf="0000:03:00.0",
@@ -239,3 +247,98 @@ class TestGeneratorConfig:
         fb = FirmwareBuilder(cfg)
         assert hasattr(fb.gen.config, 'strict_vfio')
         assert getattr(fb.gen.config, 'strict_vfio') is False
+
+
+def _legacy_capture(tmp_path, monkeypatch, *, in_container, bar_size=64 << 20):
+    """A container-style host capture exposed only through the legacy env vars."""
+    import pcileechfwgenerator.build as build
+
+    capture = tmp_path / "capture"
+    offline_fixture(capture, size=bar_size)
+    monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(capture / "device_context.json"))
+    monkeypatch.setenv("MSIX_DATA_PATH", str(capture / "msix_data.json"))
+    monkeypatch.setattr(build, "_in_container", lambda: in_container)
+    return capture
+
+
+def _cfg(tmp_path, **overrides):
+    values = dict(
+        bdf="0000:03:00.0",
+        board="pcileech_75t484_x1",
+        output_dir=tmp_path / "out",
+        enable_profiling=False,
+        disable_vfio=True,
+    )
+    values.update(overrides)
+    return BuildConfiguration(**values)
+
+
+def test_legacy_container_path_allows_large_bar(tmp_path, monkeypatch):
+    _legacy_capture(tmp_path, monkeypatch, in_container=True)
+    fb = FirmwareBuilder(_cfg(tmp_path))
+    assert fb.config.offline_input is False
+    assert fb.offline_capture is None
+
+
+def test_legacy_container_path_still_validates_capture(tmp_path, monkeypatch):
+    capture = _legacy_capture(tmp_path, monkeypatch, in_container=True)
+    (capture / "msix_data.json").unlink()
+    with pytest.raises(ConfigurationError):
+        FirmwareBuilder(_cfg(tmp_path))
+
+
+def test_legacy_env_path_refused_outside_container(tmp_path, monkeypatch):
+    _legacy_capture(tmp_path, monkeypatch, in_container=False)
+    with pytest.raises(ConfigurationError, match="--from-capture"):
+        FirmwareBuilder(_cfg(tmp_path))
+
+
+def test_explicit_from_capture_sets_offline_input_and_limits(tmp_path):
+    capture = tmp_path / "capture"
+    offline_fixture(capture, size=64 << 20)
+    with pytest.raises(ConfigurationError, match="16 MiB"):
+        FirmwareBuilder(_cfg(tmp_path, from_capture=capture))
+
+
+def test_from_capture_always_marks_offline_input(tmp_path):
+    capture = tmp_path / "capture"
+    offline_fixture(capture)
+    fb = FirmwareBuilder(_cfg(tmp_path, from_capture=capture))
+    assert fb.config.offline_input is True
+    assert fb.offline_capture is not None
+
+
+def test_create_from_args_sets_offline_input_only_for_from_capture(tmp_path):
+    from pcileechfwgenerator.build import parse_args
+
+    capture = tmp_path / "capture"
+    offline_fixture(capture)
+    out = str(tmp_path / "out")
+    offline = ConfigurationManager().create_from_args(
+        parse_args(
+            [
+                "--from-capture",
+                str(capture),
+                "--board",
+                "pcileech_75t484_x1",
+                "--output",
+                out,
+            ]
+        )
+    )
+    live = ConfigurationManager().create_from_args(
+        parse_args(
+            [
+                "--bdf",
+                "0000:03:00.0",
+                "--board",
+                "pcileech_75t484_x1",
+                "--output",
+                out,
+                "--profile",
+                "0",
+            ]
+        )
+    )
+    assert offline.offline_input is True
+    assert live.offline_input is False

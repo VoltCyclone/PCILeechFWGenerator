@@ -58,6 +58,7 @@ def test_offline_render_without_any_hardware_access(tmp_path, monkeypatch, legac
         FirmwareBuilder,
         parse_args,
     )
+    from pcileechfwgenerator.exceptions import ConfigurationError
 
     source = tmp_path / "capture"
     offline_fixture(source, size=16384, msix=True)
@@ -111,6 +112,17 @@ def test_offline_render_without_any_hardware_access(tmp_path, monkeypatch, legac
         [*source_args, "--board", "pcileech_75t484_x1", "--output", str(output)]
     )
     config = ConfigurationManager().create_from_args(args)
+    if legacy:
+        # Outside the build container the legacy aliases are refused, before
+        # any hardware access, instead of silently bypassing --from-capture.
+        import pcileechfwgenerator.build as build
+
+        monkeypatch.setattr(build, "_in_container", lambda: False)
+        with pytest.raises(ConfigurationError, match="--from-capture"):
+            FirmwareBuilder(config)
+        assert not accesses and not output.exists()
+        assert {p.name: p.read_bytes() for p in source.iterdir()} == inputs
+        return
     artifacts = FirmwareBuilder(config).build()
     assert artifacts
     assert any(path.suffix == ".coe" for path in output.rglob("*"))

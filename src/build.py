@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pcileechfwgenerator.host_collect.snapshot import (
     SnapshotError,
     load_configured_snapshot,
+    load_snapshot,
     verify_current_device,
 )
 from pcileechfwgenerator.string_utils import (
@@ -144,6 +145,14 @@ class BuildConfiguration:
     enable_mmio_learning: bool = True
     force_recapture: bool = False
     from_capture: Optional[Path] = None
+    # True only for an explicit --from-capture build; such builds are
+    # unverified and are the only ones rendered with the offline canary.
+    offline_input: bool = False
+
+
+def _in_container() -> bool:
+    """Whether this process runs inside the Stage 2 build container."""
+    return Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
 
 
 @dataclass(slots=True)
@@ -686,6 +695,7 @@ class ConfigurationManager:
             enable_mmio_learning=enable_mmio_learning,
             force_recapture=force_recapture,
             from_capture=Path(from_capture).resolve() if from_capture else None,
+            offline_input=bool(from_capture),
         )
 
     def extract_device_config(
@@ -833,6 +843,13 @@ class FirmwareBuilder:
         # Legacy host-context-only flags are aliases for the same strict reader,
         # never permission to probe hardware when saved data is incomplete.
         if config.disable_vfio and not config.from_capture:
+            # The env-var capture path exists for the live container stage
+            # only; elsewhere it would bypass --from-capture handling.
+            if not _in_container():
+                raise ConfigurationError(
+                    "Host-context-only mode is internal to container builds; "
+                    "use --from-capture"
+                )
             default_context = Path(
                 os.environ.get("MSIX_DATA_PATH", "/app/output/msix_data.json")
             ).with_name("device_context.json")
@@ -853,8 +870,11 @@ class FirmwareBuilder:
                     "Host-context-only mode requires a canonical capture pair; "
                     "use --from-capture"
                 )
-            config.from_capture = context_path.parent.resolve()
+            # A live container capture: validate strictly, without the offline
+            # render limits; env-configured consumers load it during the build.
+            load_snapshot(context_path, msix_path, config.bdf)
         if config.from_capture:
+            config.offline_input = True
             from .host_collect.offline import (
                 load_offline_capture,
                 validate_render_request,
