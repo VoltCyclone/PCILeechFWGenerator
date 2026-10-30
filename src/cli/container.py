@@ -680,11 +680,25 @@ def run_build(cfg: BuildConfig) -> None:
         except TypeError:
             # Fallback to legacy signature: (bdf, logger)
             collector = HostDeviceCollector(cfg.bdf, logger)
+        from ..host_collect.snapshot import CONTEXT_NAME, MSIX_NAME, SnapshotError
+
         try:
             # Collect all device info (MSI-X, config space, BARs, etc.) in one go.
             # Side effect: data is written to output_dir for container use.
-            collector.collect_device_context(output_dir)
-            
+            try:
+                collector.collect_device_context(output_dir)
+            except SnapshotError:
+                # SnapshotError's --datastore hint does not apply to this path.
+                if any(
+                    (output_dir / name).exists() or (output_dir / name).is_symlink()
+                    for name in (CONTEXT_NAME, MSIX_NAME)
+                ):
+                    raise BuildError(
+                        f"capture destination {output_dir} already contains a "
+                        "capture; remove it to recollect"
+                    ) from None
+                raise
+
             log_info_safe(
                 logger,
                 "Complete device context collected on host - "

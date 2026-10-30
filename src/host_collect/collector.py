@@ -135,62 +135,6 @@ class HostCollector:
             )
             return {}
 
-    def _extract_device_ids(self, cfg: bytes) -> Dict[str, Any]:
-        """Extract device identification fields from config space."""
-        if len(cfg) < 64:
-            log_error_safe(
-                self.logger,
-                "Config space too short for device ID extraction",
-                prefix="COLLECT",
-            )
-            return {}
-
-        try:
-            # Extract basic device IDs (offsets 0x00-0x0B)
-            vendor_id = int.from_bytes(cfg[0:2], "little")
-            device_id = int.from_bytes(cfg[2:4], "little")
-            revision_id = cfg[8]
-            class_code = int.from_bytes(cfg[9:12], "little")
-
-            # Extract subsystem IDs (offsets 0x2C-0x2F)
-            subsystem_vendor_id = None
-            subsystem_device_id = None
-            if len(cfg) >= 48:
-                subsystem_vendor_id = int.from_bytes(cfg[44:46], "little")
-                subsystem_device_id = int.from_bytes(cfg[46:48], "little")
-
-            log_info_safe(
-                self.logger,
-                safe_format(
-                    "Extracted device IDs: VID=0x{vid:04x} DID=0x{did:04x} "
-                    "Class=0x{cls:06x} Rev=0x{rev:02x}",
-                    vid=vendor_id,
-                    did=device_id,
-                    cls=class_code,
-                    rev=revision_id,
-                ),
-                prefix="COLLECT",
-            )
-
-            return {
-                "vendor_id": vendor_id,
-                "device_id": device_id,
-                "revision_id": revision_id,
-                "class_code": class_code,
-                "subsystem_vendor_id": subsystem_vendor_id,
-                "subsystem_device_id": subsystem_device_id,
-            }
-        except (IndexError, ValueError) as e:
-            # Only byte slicing and int.from_bytes happen here, so only
-            # IndexError/ValueError are expected; other errors indicate a code
-            # bug and should propagate.
-            log_error_safe(
-                self.logger,
-                safe_format("Failed to extract device IDs: {err}", err=str(e)),
-                prefix="COLLECT",
-            )
-            return {}
-
     def _visualize(self, buf: bytes) -> None:
         # Simple hex dump with offsets
         lines = []

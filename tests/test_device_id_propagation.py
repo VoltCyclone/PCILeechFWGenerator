@@ -104,62 +104,6 @@ def network_controller_config_space():
     return bytes(config_space)
 
 
-class TestHostCollectorDeviceIDExtraction:
-    """Test that HostCollector properly extracts device IDs from config space."""
-    
-    def test_extract_device_ids_audio_controller(self, audio_controller_config_space):
-        """Test extraction of device IDs from audio controller config space."""
-        from pcileechfwgenerator.host_collect.collector import HostCollector
-        
-        collector = HostCollector(
-            bdf="0000:00:1f.3",
-            datastore=Path("/tmp"),
-            logger=None
-        )
-        
-        device_ids = collector._extract_device_ids(audio_controller_config_space)
-        
-        assert device_ids["vendor_id"] == 0x8086, "Vendor ID should be Intel (0x8086)"
-        assert device_ids["device_id"] == 0x0a0c, "Device ID should be 0x0a0c"
-        assert device_ids["class_code"] == 0x040300, "Class code should be Audio (0x040300)"
-        assert device_ids["revision_id"] == 0x01, "Revision ID should be 0x01"
-        assert device_ids["subsystem_vendor_id"] == 0x8086, "Subsystem vendor should be 0x8086"
-        assert device_ids["subsystem_device_id"] == 0x7221, "Subsystem device should be 0x7221"
-    
-    def test_extract_device_ids_network_controller(self, network_controller_config_space):
-        """Test extraction of device IDs from network controller config space."""
-        from pcileechfwgenerator.host_collect.collector import HostCollector
-        
-        collector = HostCollector(
-            bdf="0000:03:00.0",
-            datastore=Path("/tmp"),
-            logger=None
-        )
-        
-        device_ids = collector._extract_device_ids(network_controller_config_space)
-        
-        assert device_ids["vendor_id"] == 0x10ec, "Vendor ID should be Realtek (0x10ec)"
-        assert device_ids["device_id"] == 0x8168, "Device ID should be 0x8168"
-        assert device_ids["class_code"] == 0x020000, "Class code should be Ethernet (0x020000)"
-        assert device_ids["revision_id"] == 0x15, "Revision ID should be 0x15"
-    
-    def test_extract_device_ids_short_config_space(self):
-        """Test that extraction handles short config space gracefully."""
-        from pcileechfwgenerator.host_collect.collector import HostCollector
-        
-        collector = HostCollector(
-            bdf="0000:00:00.0",
-            datastore=Path("/tmp"),
-            logger=None
-        )
-        
-        short_config = bytes([0x00] * 32)  # Only 32 bytes
-        device_ids = collector._extract_device_ids(short_config)
-        
-        # Should return empty dict for insufficient data
-        assert device_ids == {}
-
-
 class TestHostCollectorSavesDeviceIDs:
     """Test that HostCollector saves device IDs to device_context.json."""
     

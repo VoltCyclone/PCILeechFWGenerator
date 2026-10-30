@@ -476,3 +476,55 @@ def test_run_build_skips_restore_when_no_original_driver(
     run_build(cfg)
     assert calls["restore"] == 0
 
+
+
+def test_container_run_build_reports_occupied_destination(monkeypatch, tmp_path: Path):
+    """A second deprecated run_build into the same output names the path."""
+    import sys
+
+    from pcileechfwgenerator.host_collect.snapshot import (
+        ensure_capture_destination,
+        write_snapshot,
+    )
+    from tests.snapshot_helpers import make_config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container, "check_podman_available", lambda: True)
+    monkeypatch.setattr(container, "require_podman", lambda: None)
+    monkeypatch.setattr(container, "image_exists", lambda _: False)
+    monkeypatch.setattr(container, "build_image", lambda *a: None)
+    monkeypatch.setattr(container, "get_current_driver", lambda bdf: None)
+    monkeypatch.setattr(container, "restore_driver", lambda bdf, drv: None)
+    monkeypatch.setattr(container, "_get_iommu_group", lambda bdf: 12)
+
+    class StubCollector:
+        def __init__(self, bdf, logger, **kwargs):
+            self.bdf = bdf
+
+        def collect_device_context(self, out_dir):
+            ensure_capture_destination(out_dir)
+            write_snapshot(out_dir, self.bdf, make_config(), {})
+
+    fake_module = types.ModuleType("host_device_collector")
+    fake_module.HostDeviceCollector = StubCollector
+    monkeypatch.setitem(
+        sys.modules, "pcileechfwgenerator.cli.host_device_collector", fake_module
+    )
+    real_exists = Path.exists
+    monkeypatch.setattr(
+        "pathlib.Path.exists",
+        lambda p: True if "/dev/vfio" in str(p) else real_exists(p),
+    )
+    monkeypatch.setattr(
+        container.subprocess,
+        "run",
+        lambda cmd, **kw: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    cfg = BuildConfig(bdf="0000:03:00.0", board="pcileech_35t325_x4")
+    run_build(cfg)
+    with pytest.raises(BuildError) as error:
+        run_build(cfg)
+    message = str(error.value)
+    assert str((tmp_path / "output").resolve()) in message
+    assert "--datastore" not in message
