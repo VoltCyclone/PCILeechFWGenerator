@@ -12,7 +12,10 @@ from pcileechfwgenerator.build import FirmwareBuilder
 from pcileechfwgenerator.exceptions import ConfigurationError
 from pcileechfwgenerator.host_collect.collector import HostCollector
 from pcileechfwgenerator.host_collect.snapshot import (
+    CaptureIdentity,
     SnapshotError,
+    _validate_payload,
+    device_identity,
     load_configured_snapshot,
     load_snapshot,
     normalize_bdf,
@@ -20,7 +23,7 @@ from pcileechfwgenerator.host_collect.snapshot import (
     write_snapshot,
 )
 
-from tests.snapshot_helpers import config_bytes, make_snapshot
+from tests.snapshot_helpers import config_bytes, make_config, make_snapshot
 
 
 def read_snapshot(directory, bdf="0000:03:00.0"):
@@ -141,7 +144,6 @@ def test_validation_error_keeps_recovery_message_and_omits_input(tmp_path):
         ("vendor_id", 1),
         ("config_space_hex", "xyz"),
         ("config_space_hex", "00" * 256),
-        ("device_info", {"device_id": 1}),
         ("template_context", {"device_config": {"vendor_id": "8086"}}),
     ],
 )
@@ -343,3 +345,67 @@ def test_host_reuse_checks_live_identity_before_templating(
     collect.assert_not_called()
     assert template.call_count == (0 if changed else 1)
     assert vivado.call_count == (0 if changed else 1)
+
+
+BDF = "0000:03:00.0"
+
+
+def identity_for(config):
+    import hashlib
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    return CaptureIdentity(
+        schema_version=1,
+        capture_id=uuid4(),
+        collected_at=datetime.now(timezone.utc),
+        bdf=BDF,
+        config_space_size=len(config),
+        config_space_sha256=hashlib.sha256(config).hexdigest(),
+        **device_identity(config),
+    )
+
+
+def test_type1_header_identity_ignores_prefetch_upper_bits():
+    a = make_config(header_type=0x01)
+    b = bytearray(a)
+    b[0x2C:0x30] = b"\x01\x00\x00\x00"
+    assert device_identity(bytes(a)) == device_identity(bytes(b))
+    assert "subsystem_vendor_id" not in device_identity(bytes(a))
+
+
+def test_type1_capture_round_trips(tmp_path):
+    cfg = make_config(header_type=0x01)
+    write_snapshot(tmp_path, BDF, cfg, {})
+    assert read_snapshot(tmp_path).identity.subsystem_vendor_id is None
+
+
+def test_type1_capture_with_subsystem_identity_rejected(tmp_path):
+    path = make_snapshot(tmp_path, make_config(header_type=0x01))
+    edit_json(path, lambda p: p["capture"].update({"subsystem_vendor_id": 0x8086}))
+    with pytest.raises(SnapshotError):
+        read_snapshot(tmp_path)
+
+
+def test_device_info_with_substituted_subsystem_is_not_a_conflict(tmp_path):
+    cfg = make_config(subsystem_vendor_id=0xFFFF, subsystem_device_id=0xFFFF)
+    ctx = {"device_info": {"subsystem_vendor_id": 0x8086}}
+    write_snapshot(tmp_path, BDF, cfg, {}, ctx)  # must not raise
+    assert read_snapshot(tmp_path).context["device_info"] == ctx["device_info"]
+
+
+def test_decimal_string_identity_field_is_rejected_as_invalid_not_misread():
+    cfg = make_config(revision_id=0x10)
+    with pytest.raises(SnapshotError, match="invalid revision_id"):
+        _validate_payload({"revision_id": "16"}, identity_for(cfg), cfg)
+
+
+def test_hex_string_identity_field_still_accepted():
+    cfg = make_config(revision_id=0x10)
+    _validate_payload({"revision_id": "0x10"}, identity_for(cfg), cfg)
+
+
+def test_unserialisable_context_reports_serialisation_error(tmp_path):
+    with pytest.raises(SnapshotError, match="not JSON-serialisable"):
+        write_snapshot(tmp_path, BDF, make_config(), {}, {"bar_models": object()})
+    assert not list(tmp_path.iterdir())

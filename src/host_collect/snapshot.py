@@ -52,17 +52,23 @@ def normalize_bdf(value: str) -> str:
 
 
 def device_identity(config: bytes) -> dict[str, int]:
-    """Extract stable identification fields, excluding mutable PCI registers."""
+    """Extract stable identification fields, excluding mutable PCI registers.
+
+    Subsystem IDs exist only in type-0 headers; in a type-1 bridge header the
+    same bytes are the mutable prefetchable-base upper bits.
+    """
     if len(config) < 64:
         raise SnapshotError("config space is shorter than the PCI header")
-    return {
+    identity = {
         "vendor_id": int.from_bytes(config[0:2], "little"),
         "device_id": int.from_bytes(config[2:4], "little"),
         "revision_id": config[8],
         "class_code": int.from_bytes(config[9:12], "little"),
-        "subsystem_vendor_id": int.from_bytes(config[44:46], "little"),
-        "subsystem_device_id": int.from_bytes(config[46:48], "little"),
     }
+    if config[0x0E] & 0x7F == 0:
+        identity["subsystem_vendor_id"] = int.from_bytes(config[44:46], "little")
+        identity["subsystem_device_id"] = int.from_bytes(config[46:48], "little")
+    return identity
 
 
 class CaptureIdentity(BaseModel):
@@ -78,8 +84,8 @@ class CaptureIdentity(BaseModel):
     device_id: int = Field(strict=True, ge=0, le=0xFFFF)
     revision_id: int = Field(strict=True, ge=0, le=0xFF)
     class_code: int = Field(strict=True, ge=0, le=0xFFFFFF)
-    subsystem_vendor_id: int = Field(strict=True, ge=0, le=0xFFFF)
-    subsystem_device_id: int = Field(strict=True, ge=0, le=0xFFFF)
+    subsystem_vendor_id: int | None = Field(default=None, strict=True, ge=0, le=0xFFFF)
+    subsystem_device_id: int | None = Field(default=None, strict=True, ge=0, le=0xFFFF)
     config_space_size: int = Field(strict=True, ge=64, le=4096)
     config_space_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -106,6 +112,9 @@ class DonorSnapshot:
     config_space: bytes
 
 
+_HEX_FIELD = re.compile(r"0x[0-9a-fA-F]+")
+
+
 def _validate_payload(
     payload: dict[str, Any], identity: CaptureIdentity, config: bytes
 ) -> None:
@@ -122,13 +131,15 @@ def _validate_payload(
     for key, expected in device_identity(config).items():
         if key in payload:
             value = payload[key]
-            try:
-                value = int(value, 16) if isinstance(value, str) else value
-            except ValueError:
-                raise SnapshotError(f"invalid {key}") from None
+            if isinstance(value, str):
+                # Decimal strings would be silently misread as hex.
+                if not _HEX_FIELD.fullmatch(value):
+                    raise SnapshotError(f"invalid {key}")
+                value = int(value, 16)
             if type(value) is not int or value != expected:
                 raise SnapshotError(f"{key} conflicts with captured config space")
-    for key in ("template_context", "device_config", "device_info"):
+    # device_info is derived (e.g. substituted subsystem IDs), not identity.
+    for key in ("template_context", "device_config"):
         if key in payload:
             if not isinstance(payload[key], dict):
                 raise SnapshotError(f"invalid {key}")
@@ -155,7 +166,10 @@ def _read_capture(path: Path) -> tuple[dict[str, Any], CaptureIdentity, bytes]:
         raise SnapshotError(f"config space length mismatch in {path.name}")
     if hashlib.sha256(config).hexdigest() != identity.config_space_sha256:
         raise SnapshotError(f"config space checksum mismatch in {path.name}")
-    for key, value in device_identity(config).items():
+    expected = device_identity(config)
+    for key in ("subsystem_vendor_id", "subsystem_device_id"):
+        expected.setdefault(key, None)
+    for key, value in expected.items():
         if getattr(identity, key) != value:
             raise SnapshotError(f"capture {key} conflicts with config space")
     _validate_payload(payload, identity, config)
@@ -255,7 +269,7 @@ def write_snapshot(
         )
     except ValidationError:
         raise SnapshotError("invalid collected config space") from None
-    metadata = identity.model_dump(mode="json")
+    metadata = identity.model_dump(mode="json", exclude_none=True)
     payload = dict(context or {})
     _validate_payload(payload, identity, config)
     common = {
@@ -281,10 +295,15 @@ def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
     """Exclusively publish an already validated pair without changing identity."""
     ensure_capture_destination(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    payload, sidecar = snapshot.context, snapshot.msix
+    try:
+        documents = [
+            json.dumps(data, indent=2) for data in (snapshot.msix, snapshot.context)
+        ]
+    except (TypeError, ValueError):
+        raise SnapshotError("capture context is not JSON-serialisable") from None
     temporary: list[Path] = []
     try:
-        for data in (sidecar, payload):
+        for document in documents:
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -293,7 +312,7 @@ def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
                 delete=False,
             ) as stream:
                 temporary.append(Path(stream.name))
-                json.dump(data, stream, indent=2)
+                stream.write(document)
                 stream.flush()
                 # The Stage 2 container must be able to read the host capture.
                 os.fchmod(stream.fileno(), 0o644)
@@ -306,7 +325,7 @@ def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
                 os.fsync(fd)
             finally:
                 os.close(fd)
-    except (OSError, TypeError, ValueError):
+    except OSError:
         raise SnapshotError(
             "capture publication failed or destination became occupied"
         ) from None

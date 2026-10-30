@@ -12,6 +12,29 @@ def config_bytes():
     return bytes(data)
 
 
+def make_config(
+    *,
+    vendor_id=0x8086,
+    device_id=0x10D3,
+    revision_id=0x00,
+    class_code=0x020000,
+    header_type=0x00,
+    subsystem_vendor_id=0x8086,
+    subsystem_device_id=0xA01F,
+):
+    """Build a 4096-byte config space; subsystem fields apply to type-0 only."""
+    data = bytearray(4096)
+    data[0:2] = vendor_id.to_bytes(2, "little")
+    data[2:4] = device_id.to_bytes(2, "little")
+    data[8] = revision_id
+    data[9:12] = class_code.to_bytes(3, "little")
+    data[0x0E] = header_type
+    if header_type & 0x7F == 0:
+        data[0x2C:0x2E] = subsystem_vendor_id.to_bytes(2, "little")
+        data[0x2E:0x30] = subsystem_device_id.to_bytes(2, "little")
+    return bytes(data)
+
+
 def make_snapshot(
     directory, config=None, bdf="0000:03:00.0", msix_info=None, context=None
 ):
@@ -22,9 +45,10 @@ def make_snapshot(
         "device_id": int.from_bytes(config[2:4], "little"),
         "revision_id": config[8],
         "class_code": int.from_bytes(config[9:12], "little"),
-        "subsystem_vendor_id": int.from_bytes(config[44:46], "little"),
-        "subsystem_device_id": int.from_bytes(config[46:48], "little"),
     }
+    if config[0x0E] & 0x7F == 0:  # type-1 bridges have no subsystem registers
+        ids["subsystem_vendor_id"] = int.from_bytes(config[44:46], "little")
+        ids["subsystem_device_id"] = int.from_bytes(config[46:48], "little")
     capture = {
         "schema_version": 1,
         "capture_id": str(uuid4()),
