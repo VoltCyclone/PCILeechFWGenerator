@@ -161,7 +161,7 @@ def test_invalid_bar_lengths_fail_before_output(tmp_path, size):
     source, target = tmp_path / "source", tmp_path / "imported"
     offline_fixture(source, size=size)
     with pytest.raises(SnapshotError):
-        import_capture(source, target)
+        import_capture(source, target, "0000:03:00.0")
     assert not target.exists()
 
 
@@ -303,7 +303,7 @@ def test_legacy_capture_errors_are_actionable_and_do_not_create_outputs(
         else:
             (source / "msix_data.json").unlink()
     with pytest.raises(SnapshotError, match="Collect|capture collect"):
-        import_capture(source, output)
+        import_capture(source, output, "0000:03:00.0")
     assert not output.exists()
 
 
@@ -317,13 +317,13 @@ def test_import_preserves_capture_identity_and_source_and_refuses_overwrite(tmp_
     offline_fixture(source, size=16384, msix=True)
     before = {path.name: path.read_bytes() for path in source.iterdir()}
     first = load_offline_capture(source)
-    copied = import_capture(source, target)
+    copied = import_capture(source, target, "0000:03:00.0")
     assert first.identity == copied.identity == load_offline_capture(target).identity
     assert before == {path.name: path.read_bytes() for path in source.iterdir()}
     assert first.context == json.loads((target / "device_context.json").read_text())
     after = {path.name: path.read_bytes() for path in target.iterdir()}
     with pytest.raises(SnapshotError, match="already contains"):
-        import_capture(source, target)
+        import_capture(source, target, "0000:03:00.0")
     assert after == {path.name: path.read_bytes() for path in target.iterdir()}
 
 
@@ -360,6 +360,8 @@ def test_capture_cli_validate_import_and_offline_build_skip_host_checks(
             "pcileech",
             "capture",
             "import",
+            "--bdf",
+            "0000:03:00.0",
             "--input",
             str(source),
             "--output",
@@ -672,3 +674,99 @@ def test_absent_msix_extra_keys_are_ignored(tmp_path):
     edit["msix_info"] = {"table_size": 0, "vector_count": 0}
     (tmp_path / "msix_data.json").write_text(json.dumps(edit))
     load_offline_capture(tmp_path)
+
+
+def test_oversized_capture_rejected(tmp_path):
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+    from pcileechfwgenerator.host_collect.snapshot import MAX_CAPTURE_FILE_BYTES
+
+    offline_fixture(tmp_path)
+    path = tmp_path / "device_context.json"
+    payload = json.loads(path.read_text())
+    payload["padding"] = "x" * MAX_CAPTURE_FILE_BYTES
+    path.write_text(json.dumps(payload))
+    with pytest.raises(SnapshotError, match="too large"):
+        load_offline_capture(tmp_path)
+
+
+@pytest.mark.parametrize("name", ["device_context.json", "msix_data.json"])
+def test_symlinked_capture_rejected(tmp_path, name):
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    real = tmp_path / "real"
+    offline_fixture(real)
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    for file in ("device_context.json", "msix_data.json"):
+        target = linked / file
+        if file == name:
+            target.symlink_to(real / file)
+        else:
+            target.write_bytes((real / file).read_bytes())
+    with pytest.raises(SnapshotError, match="symlink"):
+        load_offline_capture(linked)
+
+
+def test_import_requires_bdf(tmp_path):
+    with pytest.raises(SystemExit) as error:
+        pcileech.create_parser().parse_args(
+            [
+                "capture",
+                "import",
+                "--input",
+                str(tmp_path),
+                "--output",
+                str(tmp_path / "o"),
+            ]
+        )
+    assert error.value.code == 2
+
+
+def test_import_rejects_capture_for_other_bdf(tmp_path):
+    offline_fixture(tmp_path / "src")
+    args = pcileech.create_parser().parse_args(
+        [
+            "capture",
+            "import",
+            "--bdf",
+            "0000:04:00.0",
+            "--input",
+            str(tmp_path / "src"),
+            "--output",
+            str(tmp_path / "dst"),
+        ]
+    )
+    assert pcileech.handle_capture(args) == 1
+    assert not (tmp_path / "dst").exists()
+
+
+def test_validate_bdf_is_optional(tmp_path):
+    offline_fixture(tmp_path)
+    parser = pcileech.create_parser()
+    assert (
+        pcileech.handle_capture(
+            parser.parse_args(["capture", "validate", "--input", str(tmp_path)])
+        )
+        == 0
+    )
+    assert (
+        pcileech.handle_capture(
+            parser.parse_args(
+                [
+                    "capture",
+                    "validate",
+                    "--input",
+                    str(tmp_path),
+                    "--bdf",
+                    "0000:04:00.0",
+                ]
+            )
+        )
+        == 1
+    )
+
+
+def test_unassigned_bar_zero_range_is_unimplemented():
+    from pcileechfwgenerator.host_collect.offline import capture_bar_sizes
+
+    assert capture_bar_sizes("0x0 0x0 0x200\n" + "0x0 0x0 0x0\n" * 5) == [0] * 6

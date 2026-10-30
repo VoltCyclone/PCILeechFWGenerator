@@ -46,7 +46,8 @@ def capture_bar_sizes(resource_text: str) -> list[int]:
             raise SnapshotError("malformed PCI resource record") from None
         if min(start, end, flags) < 0 or end < start:
             raise SnapshotError("invalid PCI resource range")
-        if not (start or end or flags):
+        if start == end == 0:
+            # Unassigned or unimplemented BAR; flags alone carry no size.
             sizes.append(0)
         elif not flags & 0x300:
             raise SnapshotError("BAR resource is neither memory nor I/O")
@@ -231,9 +232,11 @@ def load_offline_capture(
     return validate_offline_snapshot(snapshot)
 
 
-def import_capture(source: Path, destination: Path) -> DonorSnapshot:
+def import_capture(
+    source: Path, destination: Path, expected_bdf: str
+) -> DonorSnapshot:
     """Publish a validated copy, retaining capture ID/time and preserving inputs."""
-    snapshot = load_offline_capture(source)
+    snapshot = load_offline_capture(source, expected_bdf)
     publish_snapshot(destination, snapshot)
     return snapshot
 

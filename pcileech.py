@@ -639,6 +639,8 @@ Environment Variables:
     for action in ("validate", "import"):
         action_parser = capture_actions.add_parser(action)
         action_parser.add_argument("--input", required=True)
+        # Import must name the donor it expects; validate may check one.
+        action_parser.add_argument("--bdf", required=action == "import")
         if action == "import":
             action_parser.add_argument("--output", required=True)
 
@@ -953,10 +955,12 @@ def handle_capture(args: argparse.Namespace) -> int:
             load_offline_capture(directory, args.bdf)
         elif args.capture_action == "import":
             import_capture(
-                Path(args.input).expanduser(), Path(args.output).expanduser()
+                Path(args.input).expanduser(),
+                Path(args.output).expanduser(),
+                args.bdf,
             )
         else:
-            load_offline_capture(Path(args.input).expanduser())
+            load_offline_capture(Path(args.input).expanduser(), args.bdf)
         print("Capture validated: schema 1 with offline resource extension 1")
         print(
             "Consistency verified; authenticity and hardware behavior "

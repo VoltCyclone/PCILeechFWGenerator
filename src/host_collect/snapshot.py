@@ -30,6 +30,8 @@ from pydantic import (
 CONTEXT_NAME = "device_context.json"
 MSIX_NAME = "msix_data.json"
 SYSFS_PCI_ROOT = Path("/sys/bus/pci/devices")
+# Real captures are a few KiB; the cap bounds memory use on hostile input.
+MAX_CAPTURE_FILE_BYTES = 1 << 20
 
 # How a capture used in a build was established: read via VFIO this run,
 # matched against live sysfs this run, or neither (offline input, or a reused
@@ -153,6 +155,14 @@ def _validate_payload(
 
 
 def _read_capture(path: Path) -> tuple[dict[str, Any], CaptureIdentity, bytes]:
+    if path.is_symlink():
+        raise SnapshotError(f"{path.name} is a symlink")
+    try:
+        too_large = path.stat().st_size > MAX_CAPTURE_FILE_BYTES
+    except OSError:
+        raise SnapshotError(f"missing or unreadable {path.name}") from None
+    if too_large:
+        raise SnapshotError(f"{path.name} is too large")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):

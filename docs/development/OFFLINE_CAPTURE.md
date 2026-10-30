@@ -16,7 +16,7 @@ sudo -E .venv/bin/python pcileech.py capture collect \
 .venv/bin/python pcileech.py capture validate --input ./captures/donor-new
 
 # Optional: validate and publish an immutable copy in a fresh directory.
-.venv/bin/python pcileech.py capture import \
+.venv/bin/python pcileech.py capture import --bdf 0000:03:00.0 \
   --input ./captures/donor-new --output ./captures/imported
 
 # Render artifacts locally, without collection or Vivado.
@@ -24,7 +24,8 @@ sudo -E .venv/bin/python pcileech.py capture collect \
   --board pcileech_75t484_x1 --templates-only --local --output ./rendered
 ```
 
-The capture supplies the BDF; an explicit `--bdf` must match. Offline builds use
+The capture supplies the BDF; an explicit `--bdf` must match. `capture import`
+requires `--bdf` so an import always names the donor it expects. Offline builds use
 local templating by default. Explicit `--container-mode container` forwards the
 same validated capture through a read-only mount. Omit `--templates-only` only
 when host Vivado synthesis is wanted and configured. The installed `pcileech`
