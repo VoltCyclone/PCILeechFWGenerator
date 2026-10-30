@@ -599,3 +599,64 @@ def test_reuse_with_absent_donor_routes_through_from_capture(tmp_path, monkeypat
 def test_reuse_with_present_donor_stays_live(tmp_path, monkeypatch):
     _, args = _reuse_build(tmp_path, monkeypatch, sysfs_config=True)
     assert not getattr(args, "from_capture", None)
+
+
+def _placeholder_capture(directory, msix=False):
+    """A real-looking I210 donor (8086:1533) whose IDs collide with placeholders."""
+    offline_fixture(directory, msix=msix)
+
+    def mutate(config):
+        config[0:4] = bytes.fromhex("86803315")
+
+    rewrite_config(directory, mutate)
+    return directory
+
+
+def test_live_write_snapshot_accepts_placeholder_pair_donor(tmp_path):
+    from pcileechfwgenerator.host_collect.snapshot import write_snapshot
+
+    source = _placeholder_capture(tmp_path / "fixture")
+    context = json.loads((source / "device_context.json").read_text())
+    write_snapshot(
+        tmp_path / "live",
+        "0000:03:00.0",
+        bytes.fromhex(context["config_space_hex"]),
+        {},
+        {"offline_resources": context["offline_resources"]},
+    )
+
+
+def test_offline_placeholder_honors_escape_hatch(tmp_path, monkeypatch):
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    monkeypatch.setenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", "1")
+    load_offline_capture(_placeholder_capture(tmp_path))
+
+
+def test_offline_placeholder_rejected_by_default(tmp_path, monkeypatch):
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    monkeypatch.delenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", raising=False)
+    with pytest.raises(SnapshotError, match="placeholder"):
+        load_offline_capture(_placeholder_capture(tmp_path))
+
+
+def test_msix_extra_keys_are_ignored(tmp_path):
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    offline_fixture(tmp_path, size=16384, msix=True)
+    load_offline_capture(tmp_path)  # valid before the extra field is added
+    edit = json.loads((tmp_path / "msix_data.json").read_text())
+    edit["msix_info"]["vector_count"] = 8
+    (tmp_path / "msix_data.json").write_text(json.dumps(edit))
+    load_offline_capture(tmp_path)
+
+
+def test_absent_msix_extra_keys_are_ignored(tmp_path):
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    offline_fixture(tmp_path)
+    edit = json.loads((tmp_path / "msix_data.json").read_text())
+    edit["msix_info"] = {"table_size": 0, "vector_count": 0}
+    (tmp_path / "msix_data.json").write_text(json.dumps(edit))
+    load_offline_capture(tmp_path)

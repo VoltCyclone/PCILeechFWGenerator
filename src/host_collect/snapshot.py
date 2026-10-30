@@ -297,10 +297,8 @@ def write_snapshot(
     if not isinstance(msix_info, dict):
         raise SnapshotError("invalid collected MSI-X data")
     snapshot = DonorSnapshot(identity, payload, sidecar, config)
-    if "offline_resources" in payload:
-        from .offline import validate_offline_snapshot
-
-        validate_offline_snapshot(snapshot)
+    # Offline-only checks run when a capture is loaded for offline use, never
+    # here: a live collect must not reject what the live build would accept.
     publish_snapshot(directory, snapshot)
     return snapshot
 
