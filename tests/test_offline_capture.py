@@ -149,6 +149,7 @@ def rewrite_config(directory, mutate):
         bytes(config),
         context={
             "offline_resources": context["offline_resources"],
+            "host_binding": context["host_binding"],
         },
         msix_info=sidecar["msix_info"],
     )

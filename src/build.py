@@ -146,7 +146,7 @@ class BuildConfiguration:
     force_recapture: bool = False
     from_capture: Optional[Path] = None
     # True only for an explicit --from-capture build; such builds are
-    # unverified and are the only ones rendered with the offline canary.
+    # unverified and are the only ones that get the offline warnings and lock.
     offline_input: bool = False
 
 

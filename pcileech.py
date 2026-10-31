@@ -1374,6 +1374,12 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
             "-v",
             f"{datastore}:/datastore"
             + (":ro" if getattr(args, "from_capture", None) else ""),
+            # The capture host lock compares against the host's machine ID.
+            *(
+                ["-v", "/etc/machine-id:/etc/machine-id:ro"]
+                if getattr(args, "from_capture", None)
+                else []
+            ),
             "-v",
             f"{str(output_dir)}:/artifacts",
             "pcileech-fwgen",

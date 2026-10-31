@@ -35,7 +35,7 @@ MAX_CAPTURE_FILE_BYTES = 1 << 20
 
 # How a capture used in a build was established: read via VFIO this run,
 # matched against live sysfs this run, or neither (offline input, or a reused
-# capture whose donor is absent). Only "unverified" builds carry the canary.
+# capture whose donor is absent). Only "unverified" builds need the risk acceptance.
 CaptureTrust = Literal["live", "verified", "unverified"]
 
 
@@ -295,6 +295,13 @@ def write_snapshot(
         raise SnapshotError("invalid collected config space") from None
     metadata = identity.model_dump(mode="json", exclude_none=True)
     payload = dict(context or {})
+    from .host_binding import HOST_BINDING_KEY, binding_record
+
+    # Always this host's binding, never one supplied by the caller.
+    payload.pop(HOST_BINDING_KEY, None)
+    binding = binding_record()
+    if binding is not None:
+        payload[HOST_BINDING_KEY] = binding
     _validate_payload(payload, identity, config)
     common = {
         "capture": metadata,

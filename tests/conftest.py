@@ -195,3 +195,15 @@ def mock_file_manager():
     manager.write_file = MagicMock()
     manager.create_directories = MagicMock()
     return manager
+
+
+@pytest.fixture(autouse=True)
+def _pinned_host_fingerprint(monkeypatch):
+    """Make this test host look like the host that collected fixture captures."""
+    from pcileechfwgenerator.host_collect import host_binding
+
+    from tests.snapshot_helpers import TEST_HOST_FINGERPRINT
+
+    monkeypatch.setattr(
+        host_binding, "host_fingerprint", lambda: TEST_HOST_FINGERPRINT
+    )

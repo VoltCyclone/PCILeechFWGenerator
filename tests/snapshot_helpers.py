@@ -4,6 +4,17 @@ import hashlib
 import json
 from uuid import uuid4
 
+# Stands in for this host's fingerprint; tests/conftest.py pins it.
+TEST_HOST_FINGERPRINT = "f" * 64
+
+
+def host_binding_record(fingerprint=TEST_HOST_FINGERPRINT):
+    return {
+        "schema_version": 1,
+        "method": "machine-id-sha256",
+        "fingerprint": fingerprint,
+    }
+
 
 def config_bytes():
     data = bytearray(256)
@@ -98,5 +109,6 @@ def offline_fixture(directory, *, size=4096, msix=False):
                 "source": "linux_sysfs_resource",
                 "bar_sizes": [size, 0, 0, 0, 0, 0],
             },
+            "host_binding": host_binding_record(),
         },
     )

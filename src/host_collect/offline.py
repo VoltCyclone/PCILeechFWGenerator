@@ -229,7 +229,11 @@ def load_offline_capture(
     snapshot = load_snapshot(
         directory / CONTEXT_NAME, directory / MSIX_NAME, expected_bdf
     )
-    return validate_offline_snapshot(snapshot)
+    from .host_binding import verify_host_binding
+
+    validate_offline_snapshot(snapshot)
+    verify_host_binding(snapshot)
+    return snapshot
 
 
 def import_capture(
