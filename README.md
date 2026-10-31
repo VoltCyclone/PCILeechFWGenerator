@@ -79,8 +79,19 @@ requested PCI address and current device identity. See the
 
 The CLI also provides `capture collect`, `capture
 validate`, `capture import`, and `build --from-capture DIR --templates-only`.
-Complete captures include measured BAR lengths and can be rendered locally
-without Linux/VFIO access. See the [offline workflow and its current limits](docs/development/OFFLINE_CAPTURE.md).
+Complete captures include measured BAR lengths and can be rebuilt later without
+the donor connected, on the machine that collected them. See the
+[offline workflow and its current limits](docs/development/OFFLINE_CAPTURE.md).
+
+> [!WARNING]
+> **Builds from a saved capture are unverified.** The donor is not read during
+> the build, so nothing confirms the capture still describes hardware you have.
+> Every such build prints a large warning, asks you to accept the risk (or
+> requires `--accept-offline-risk` when not run at a terminal), and writes
+> `OFFLINE_BUILD_WARNING.txt` next to its artifacts. Captures are locked to the
+> machine that collected them and are marked with `CAPTURE_WARNING.txt`; do not
+> share them. Use the firmware only with hardware you own, against systems you
+> own or are explicitly authorised to test.
 
 > ⚠️ **Don't skip the venv!** Running `pip install pcileechfwgenerator` directly will fail with `externally-managed-environment` on modern systems.
 
