@@ -996,6 +996,11 @@ class FirmwareBuilder:
             self._clean_stale_build_state()
             self.build_logger.pop_phase("stale_state_cleanup")
 
+            if self.config.offline_input and self.offline_capture is not None:
+                from .host_collect.offline_notice import write_build_warning
+
+                write_build_warning(self.config.output_dir, self.offline_capture)
+
             self.build_logger.push_phase("template_validation")
             self._validate_board_template()
             self.build_logger.pop_phase("template_validation")

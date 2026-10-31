@@ -361,3 +361,6 @@ def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
     finally:
         for temp in temporary:
             temp.unlink(missing_ok=True)
+    from .offline_notice import write_capture_warning
+
+    write_capture_warning(directory)

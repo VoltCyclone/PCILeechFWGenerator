@@ -130,3 +130,103 @@ def test_library_offline_config_requires_acceptance(tmp_path):
     )
     with pytest.raises(ConfigurationError, match="accepting the unverified-build risk"):
         FirmwareBuilder(config)
+
+
+def test_collect_writes_capture_warning(tmp_path):
+    from pcileechfwgenerator.host_collect.offline_notice import CAPTURE_WARNING
+    from pcileechfwgenerator.host_collect.snapshot import write_snapshot
+
+    from tests.snapshot_helpers import make_config
+
+    write_snapshot(tmp_path, "0000:03:00.0", make_config(), {})
+    assert (tmp_path / "CAPTURE_WARNING.txt").read_text() == CAPTURE_WARNING
+
+
+def test_import_writes_capture_warning_and_capture_still_loads(tmp_path):
+    from pcileechfwgenerator.host_collect.offline import (
+        import_capture,
+        load_offline_capture,
+    )
+
+    offline_fixture(tmp_path / "src")
+    before = {p.name for p in (tmp_path / "src").iterdir()}
+    import_capture(tmp_path / "src", tmp_path / "dst", "0000:03:00.0")
+    assert (tmp_path / "dst" / "CAPTURE_WARNING.txt").is_file()
+    assert {p.name for p in (tmp_path / "src").iterdir()} == before
+    load_offline_capture(tmp_path / "dst")  # extra file is ignored
+
+
+def test_existing_capture_warning_is_not_replaced(tmp_path):
+    from pcileechfwgenerator.host_collect.offline_notice import write_capture_warning
+
+    (tmp_path / "CAPTURE_WARNING.txt").write_text("keep")
+    write_capture_warning(tmp_path)
+    assert (tmp_path / "CAPTURE_WARNING.txt").read_text() == "keep"
+
+
+def test_failed_publication_writes_no_warning(tmp_path, monkeypatch):
+    import os
+
+    from pcileechfwgenerator.host_collect.snapshot import SnapshotError, write_snapshot
+
+    from tests.snapshot_helpers import make_config
+
+    def broken_link(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "link", broken_link)
+    with pytest.raises(SnapshotError):
+        write_snapshot(tmp_path, "0000:03:00.0", make_config(), {})
+    assert not (tmp_path / "CAPTURE_WARNING.txt").exists()
+
+
+def test_offline_build_writes_build_warning(tmp_path):
+    from pcileechfwgenerator.host_collect.offline_notice import (
+        BUILD_WARNING_NAME,
+        write_build_warning,
+    )
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    offline_fixture(tmp_path / "capture")
+    snapshot = load_offline_capture(tmp_path / "capture")
+    path = write_build_warning(tmp_path / "out", snapshot)
+    text = path.read_text()
+    assert path.name == BUILD_WARNING_NAME
+    assert OFFLINE_BUILD_WARNING in text
+    assert str(snapshot.identity.capture_id) in text
+    assert "unverified" in text
+    details = text.split("Build details", 1)[1].lower()
+    assert "vendor" not in details and "device id" not in details
+
+
+def test_full_offline_render_writes_build_warning(tmp_path, monkeypatch):
+    import subprocess
+
+    from pcileechfwgenerator.build import (
+        ConfigurationManager,
+        FirmwareBuilder,
+        parse_args,
+    )
+
+    original = subprocess.Popen
+
+    def only_git(*args, **kwargs):
+        if args and isinstance(args[0], (list, tuple)) and args[0][0] == "git":
+            return original(*args, **kwargs)
+        raise AssertionError("offline render launched a subprocess")
+
+    monkeypatch.setattr(subprocess, "Popen", only_git)
+    offline_fixture(tmp_path / "capture", size=16384, msix=True)
+    args = parse_args(
+        [
+            "--from-capture",
+            str(tmp_path / "capture"),
+            ACCEPT_FLAG,
+            "--board",
+            "pcileech_75t484_x1",
+            "--output",
+            str(tmp_path / "out"),
+        ]
+    )
+    FirmwareBuilder(ConfigurationManager().create_from_args(args)).build()
+    assert (tmp_path / "out" / "OFFLINE_BUILD_WARNING.txt").is_file()
