@@ -148,6 +148,8 @@ class BuildConfiguration:
     # True only for an explicit --from-capture build; such builds are
     # unverified and are the only ones that get the offline warnings and lock.
     offline_input: bool = False
+    # Set only after the user accepted the unverified-build risk.
+    offline_risk_accepted: bool = False
 
 
 def _in_container() -> bool:
@@ -644,6 +646,7 @@ class ConfigurationManager:
         preload_msix = getattr(args, "preload_msix", True)
 
         from_capture = getattr(args, "from_capture", None)
+        offline_risk_accepted = False
         if from_capture:
             from .host_collect.offline import load_offline_capture
             from .utils.vfio_decision import VFIODecision
@@ -657,6 +660,12 @@ class ConfigurationManager:
                 raise ConfigurationError(
                     "Offline builds cannot profile, recapture or override donor data"
                 )
+            from .host_collect.offline_notice import confirm_offline_build
+
+            accepted = bool(getattr(args, "accept_offline_risk", False))
+            # A forwarded acceptance already showed the warning on the host.
+            confirm_offline_build(accepted, warn=not accepted)
+            offline_risk_accepted = True
             args.bdf = snapshot.identity.bdf
             vfio_decision = VFIODecision(
                 False, ["explicit offline capture"], "offline_capture"
@@ -696,6 +705,7 @@ class ConfigurationManager:
             force_recapture=force_recapture,
             from_capture=Path(from_capture).resolve() if from_capture else None,
             offline_input=bool(from_capture),
+            offline_risk_accepted=offline_risk_accepted,
         )
 
     def extract_device_config(
@@ -875,6 +885,11 @@ class FirmwareBuilder:
             load_snapshot(context_path, msix_path, config.bdf)
         if config.from_capture:
             config.offline_input = True
+            if not config.offline_risk_accepted:
+                raise ConfigurationError(
+                    "Offline builds require accepting the unverified-build risk "
+                    "(--accept-offline-risk or the interactive prompt)"
+                )
             from .host_collect.offline import (
                 load_offline_capture,
                 validate_render_request,
@@ -1915,6 +1930,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Disable preloading of MSI-X data before VFIO binding",
     )
     parser.add_argument("--from-capture", help="Validated offline capture directory")
+    parser.add_argument(
+        "--accept-offline-risk",
+        action="store_true",
+        help="Accept the risks of an unverified --from-capture build without a prompt",
+    )
     parser.add_argument(
         "--host-context-only",
         action="store_true",

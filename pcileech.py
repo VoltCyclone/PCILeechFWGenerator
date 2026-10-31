@@ -654,6 +654,14 @@ Environment Variables:
         "--from-capture", help="Validated offline capture directory"
     )
     build_parser.add_argument(
+        "--accept-offline-risk",
+        action="store_true",
+        help=(
+            "Accept the risks of an unverified offline build without the "
+            "interactive y/N prompt (required when not run at a terminal)"
+        ),
+    )
+    build_parser.add_argument(
         "--templates-only",
         action="store_true",
         help="Generate artifacts without running Vivado",
@@ -996,6 +1004,13 @@ def run_offline_build(args: argparse.Namespace) -> int:
         )
     output = build_output_directory(args)
     validate_render_request(snapshot, source, output, args.generate_donor_template)
+    from pcileechfwgenerator.host_collect.offline_notice import (
+        confirm_offline_build,
+    )
+
+    confirm_offline_build(getattr(args, "accept_offline_risk", False))
+    # Accepted once on the host; the templating stage only records it.
+    args.accept_offline_risk = True
     args.bdf = snapshot.identity.bdf
     args.datastore = str(source)
     args.from_capture = str(source)
@@ -1399,6 +1414,8 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
 
     if getattr(args, "from_capture", None):
         cmd.extend(["--from-capture", "/datastore"])
+        if getattr(args, "accept_offline_risk", False):
+            cmd.append("--accept-offline-risk")
 
     # Forward optional CLI flags to container so behavior matches local mode
     if getattr(args, "enable_error_injection", False):
@@ -1489,6 +1506,7 @@ def run_local_templating(args):
             output=str(output_dir),
             profile=getattr(args, "profile", 0),
             from_capture=getattr(args, "from_capture", None),
+            accept_offline_risk=getattr(args, "accept_offline_risk", False),
             preload_msix=True,
             output_template=getattr(args, "generate_donor_template", None),
             donor_template=getattr(args, "donor_template", None),

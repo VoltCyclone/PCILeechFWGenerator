@@ -99,7 +99,7 @@ def test_offline_render_without_any_hardware_access(tmp_path, monkeypatch, legac
         raise AssertionError("offline renderer launched a subprocess")
 
     monkeypatch.setattr(subprocess, "Popen", forbidden_process)
-    source_args = ["--from-capture", str(source)]
+    source_args = ["--from-capture", str(source), "--accept-offline-risk"]
     if legacy:
         key, name = (
             ("DEVICE_CONTEXT_PATH", "device_context.json")
@@ -385,6 +385,7 @@ def test_capture_cli_validate_import_and_offline_build_skip_host_checks(
             "--board",
             "pcileech_75t484_x1",
             "--templates-only",
+            "--accept-offline-risk",
             "--output",
             str(output),
         ],
@@ -599,6 +600,7 @@ def _reuse_build(tmp_path, monkeypatch, sysfs_config):
             "--datastore",
             str(datastore),
             "--templates-only",
+            "--accept-offline-risk",
             "--local",
         ]
     )

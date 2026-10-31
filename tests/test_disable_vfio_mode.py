@@ -297,13 +297,17 @@ def test_explicit_from_capture_sets_offline_input_and_limits(tmp_path):
     capture = tmp_path / "capture"
     offline_fixture(capture, size=64 << 20)
     with pytest.raises(ConfigurationError, match="16 MiB"):
-        FirmwareBuilder(_cfg(tmp_path, from_capture=capture))
+        FirmwareBuilder(
+            _cfg(tmp_path, from_capture=capture, offline_risk_accepted=True)
+        )
 
 
 def test_from_capture_always_marks_offline_input(tmp_path):
     capture = tmp_path / "capture"
     offline_fixture(capture)
-    fb = FirmwareBuilder(_cfg(tmp_path, from_capture=capture))
+    fb = FirmwareBuilder(
+        _cfg(tmp_path, from_capture=capture, offline_risk_accepted=True)
+    )
     assert fb.config.offline_input is True
     assert fb.offline_capture is not None
 
@@ -319,6 +323,7 @@ def test_create_from_args_sets_offline_input_only_for_from_capture(tmp_path):
             [
                 "--from-capture",
                 str(capture),
+                "--accept-offline-risk",
                 "--board",
                 "pcileech_75t484_x1",
                 "--output",
