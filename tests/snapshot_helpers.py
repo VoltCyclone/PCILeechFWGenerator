@@ -100,33 +100,3 @@ def offline_fixture(directory, *, size=4096, msix=False):
             },
         },
     )
-
-
-def _ext_header(cap_id, next_offset, version=1):
-    return ((next_offset << 20) | (version << 16) | cap_id).to_bytes(4, "little")
-
-
-def config_with_ext_caps(caps):
-    """4096-byte config with extended caps given as (offset, id[, next]) tuples.
-
-    Without an explicit next, each capability links to the following entry and
-    the last one ends the chain.
-    """
-    data = bytearray(make_config())
-    for index, cap in enumerate(caps):
-        offset, cap_id = cap[0], cap[1]
-        if len(cap) > 2:
-            next_offset = cap[2]
-        else:
-            next_offset = caps[index + 1][0] if index + 1 < len(caps) else 0
-        data[offset : offset + 4] = _ext_header(cap_id, next_offset)
-        data[offset + 4 : offset + 8] = b"\x11\x22\x33\x44"  # non-zero body
-    return bytes(data)
-
-
-def config_with_nonzero_ext_space():
-    """A single extended capability followed by no free 32-byte window."""
-    data = bytearray(make_config())
-    data[0x100:0x104] = _ext_header(0x0001, 0)
-    data[0x104:0x1000] = b"\xa5" * (0x1000 - 0x104)
-    return bytes(data)
