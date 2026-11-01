@@ -1147,6 +1147,7 @@ def run_host_collect(args):
         enable_mmio_learning=enable_mmio_learning,
         force_recapture=force_recapture,
         complete_capture=True,
+        strict_offline_resources=False,
     )
     rc = collector.run()
     if rc == 0:

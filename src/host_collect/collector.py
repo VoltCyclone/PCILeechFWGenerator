@@ -17,6 +17,7 @@ from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
+    log_warning_safe,
     safe_format,
 )
 
@@ -38,6 +39,7 @@ class HostCollector:
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
         complete_capture: bool = False,
+        strict_offline_resources: bool = True,
     ) -> None:
         self.bdf = normalize_bdf(bdf)
         self.datastore = datastore
@@ -45,6 +47,9 @@ class HostCollector:
         self.enable_mmio_learning = enable_mmio_learning
         self.force_recapture = force_recapture
         self.complete_capture = complete_capture
+        # Live builds only need the BAR extension for container rendering, so
+        # a live collect may proceed without it; explicit offline collects may not.
+        self.strict_offline_resources = strict_offline_resources
 
     def run(self) -> int:
         try:
@@ -62,15 +67,29 @@ class HostCollector:
             context = None
             if self.complete_capture:
                 from .offline import capture_bar_sizes
+                from .snapshot import SnapshotError
 
                 resource = Path("/sys/bus/pci/devices") / self.bdf / "resource"
-                context = {
-                    "offline_resources": {
-                        "schema_version": 1,
-                        "source": "linux_sysfs_resource",
-                        "bar_sizes": capture_bar_sizes(resource.read_text()),
+                try:
+                    context = {
+                        "offline_resources": {
+                            "schema_version": 1,
+                            "source": "linux_sysfs_resource",
+                            "bar_sizes": capture_bar_sizes(resource.read_text()),
+                        }
                     }
-                }
+                except (SnapshotError, OSError) as error:
+                    if self.strict_offline_resources:
+                        raise
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "BAR lengths not recorded ({err}); this capture "
+                            "serves local live builds only",
+                            err=str(error),
+                        ),
+                        prefix="COLLECT",
+                    )
             write_snapshot(self.datastore, self.bdf, cfg, msix_info, context)
             log_info_safe(
                 self.logger,

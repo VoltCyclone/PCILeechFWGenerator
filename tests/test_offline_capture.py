@@ -853,3 +853,50 @@ def test_identity_capture_does_not_skip_generator(tmp_path, monkeypatch):
         bdf="0000:03:00.0", board="b", output_dir=tmp_path / "out"
     )
     assert builder._check_host_collected_context() is None
+
+
+@pytest.mark.parametrize("size,ok", [(64, False), (128, True)])
+def test_render_requires_memory_bar_of_min_size(tmp_path, size, ok):
+    from pcileechfwgenerator.exceptions import ConfigurationError
+    from pcileechfwgenerator.host_collect.offline import (
+        load_offline_capture,
+        validate_render_request,
+    )
+
+    offline_fixture(tmp_path / "capture", size=size)
+    snapshot = load_offline_capture(tmp_path / "capture")
+    if ok:
+        validate_render_request(snapshot, tmp_path / "capture", tmp_path / "out")
+    else:
+        with pytest.raises(ConfigurationError, match="at least 128 bytes"):
+            validate_render_request(snapshot, tmp_path / "capture", tmp_path / "out")
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_malformed_resource_fails_only_strict_collection(tmp_path, monkeypatch, strict):
+    from pathlib import Path
+
+    from pcileechfwgenerator.host_collect.collector import HostCollector
+
+    fixture_path = offline_fixture(tmp_path / "fixture")
+    config = bytes.fromhex(json.loads(fixture_path.read_text())["config_space_hex"])
+    monkeypatch.setattr(HostCollector, "_read_config_space", lambda self: config)
+    original = Path.read_text
+
+    def resource(path, *args, **kwargs):
+        if str(path).endswith("/resource"):
+            return "not a resource file\n"
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", resource)
+    target = tmp_path / "collected"
+    collector = HostCollector(
+        "0000:03:00.0",
+        target,
+        complete_capture=True,
+        strict_offline_resources=strict,
+    )
+    assert collector.run() == (1 if strict else 0)
+    if not strict:
+        context = json.loads((target / "device_context.json").read_text())
+        assert "offline_resources" not in context
