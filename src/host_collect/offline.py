@@ -267,9 +267,18 @@ def validate_render_request(
             raise ConfigurationError(
                 "Template export must not modify the input capture"
             )
+    from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
+
     bars = captured_bars(snapshot)
     if not any(bar.is_memory for bar in bars):
         raise ConfigurationError("Offline rendering requires an implemented memory BAR")
+    # Like live builds (and the 7-series PCIe IP), serve only BARs of at
+    # least MIN_MEMORY_SIZE; fail here rather than at Vivado IP generation.
+    min_memory = BAR_SIZE_CONSTANTS["MIN_MEMORY_SIZE"]
+    if not any(bar.is_memory and bar.size >= min_memory for bar in bars):
+        raise ConfigurationError(
+            f"Offline rendering requires a memory BAR of at least {min_memory} bytes"
+        )
     if sum(bar.size for bar in bars) > MAX_RENDER_BAR_BYTES:
         raise ConfigurationError(
             "Offline rendering currently supports at most 16 MiB of total BAR "
