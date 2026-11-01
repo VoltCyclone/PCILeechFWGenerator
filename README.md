@@ -71,6 +71,28 @@ pip install pcileechfwgenerator[tui]
 pcileech version
 ```
 
+Saved donor captures now require matching, versioned device-context and MSI-X
+files. Older or incomplete captures must be collected again into a fresh
+`--datastore`; collection never overwrites an existing capture. Reuse checks the
+requested PCI address and current device identity. See the
+[capture format and migration guide](docs/development/CAPTURE_FORMAT.md).
+
+The CLI also provides `capture collect`, `capture
+validate`, `capture import`, and `build --from-capture DIR --templates-only`.
+Complete captures include measured BAR lengths and can be rebuilt later without
+the donor connected, on the machine that collected them. See the
+[offline workflow and its current limits](docs/development/OFFLINE_CAPTURE.md).
+
+> [!WARNING]
+> **Builds from a saved capture are unverified.** The donor is not read during
+> the build, so nothing confirms the capture still describes hardware you have.
+> Every such build prints a large warning, asks you to accept the risk (or
+> requires `--accept-offline-risk` when not run at a terminal), and writes
+> `OFFLINE_BUILD_WARNING.txt` next to its artifacts. Captures are locked to the
+> machine that collected them and are marked with `CAPTURE_WARNING.txt`; do not
+> share them. Use the firmware only with hardware you own, against systems you
+> own or are explicitly authorised to test.
+
 > ⚠️ **Don't skip the venv!** Running `pip install pcileechfwgenerator` directly will fail with `externally-managed-environment` on modern systems.
 
 ### Running with Root Access (Required for VFIO)
@@ -194,6 +216,14 @@ Install with TUI support:
 ```bash
 pip install pcileechfwgenerator[tui]
 ```
+
+#### TUI build settings and older profiles
+
+The TUI uses the shared CLI pipeline in the active Python environment. Select a
+real board and choose local or container templating; both modes still collect on
+the Linux host and run Vivado on the host. Unsupported legacy profile settings
+produce an error before collection. See the [TUI build contract and migration
+guide](docs/development/TUI_BUILD_CONTRACT.md) for supported options.
 
 #### "Permission denied" / VFIO Errors
 

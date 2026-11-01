@@ -258,7 +258,7 @@ class TestLocalTemplating:
 
         with patch("pcileechfwgenerator.build.FirmwareBuilder", return_value=mock_builder):
             with patch("pcileechfwgenerator.build.ConfigurationManager") as mock_cfg_mgr:
-                mock_cfg = MagicMock()
+                mock_cfg = MagicMock(enable_profiling=False)
                 mock_cfg_mgr.return_value.create_from_args.return_value = mock_cfg
 
                 result = pcileech.run_local_templating(args)
@@ -378,7 +378,9 @@ class TestUnifiedFlowOrchestration:
             call_order.append("host_collect")
             # Create datastore structure
             (tmp_path / "datastore").mkdir(exist_ok=True)
-            (tmp_path / "datastore" / "device_context.json").write_text("{}")
+            from tests.snapshot_helpers import make_snapshot
+
+            make_snapshot(tmp_path / "datastore")
             return 0
 
         def mock_container(a):
@@ -438,14 +440,22 @@ class TestUnifiedFlowOrchestration:
         mock_container.assert_not_called()
         mock_vivado.assert_not_called()
 
-    def test_handle_build_skips_collect_if_datastore_exists(self, tmp_path):
+    def test_handle_build_skips_collect_if_verified_capture_exists(
+        self, tmp_path, monkeypatch
+    ):
         """Verify Stage 1 is skipped if datastore already exists."""
         import pcileech
 
         # Pre-create datastore
         datastore = tmp_path / "datastore"
         datastore.mkdir()
-        (datastore / "device_context.json").write_text("{}")
+        from tests.snapshot_helpers import make_snapshot
+
+        make_snapshot(datastore)
+        verify = MagicMock()
+        monkeypatch.setattr(
+            "pcileechfwgenerator.host_collect.snapshot.verify_current_device", verify
+        )
 
         args = SimpleNamespace(
             bdf="0000:03:00.0",
@@ -466,5 +476,6 @@ class TestUnifiedFlowOrchestration:
                             result = pcileech.handle_build(args)
 
         assert result == 0
-        # Host collect should NOT have been called
+        # Existing captures are reused only after checking the current donor.
         mock_collect.assert_not_called()
+        verify.assert_called_once()

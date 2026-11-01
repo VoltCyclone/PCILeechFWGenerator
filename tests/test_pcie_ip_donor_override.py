@@ -178,7 +178,17 @@ class TestApplyPcieIpDonorOverride:
 
 
 class TestBuildWiringIpOverride:
-    """FirmwareBuilder._patch_fifo_with_donor_ids also wires the IP override."""
+    """FirmwareBuilder._patch_fifo_with_donor_ids also wires the IP override.
+
+    Wiring fixtures use 8086:10D3 so the existing placeholder-pair policy
+    accepts them. The pure emitter tests above intentionally use 8086:1533;
+    those do not pass through the production donor-context validation gate.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _enforce_production_donor_policy(self, monkeypatch):
+        """Do not let a developer's escape hatch hide invalid test fixtures."""
+        monkeypatch.delenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", raising=False)
 
     def _make_builder(self, output_dir):
         # Some other tests stub `pcileechfwgenerator.build` via sys.modules
@@ -221,7 +231,7 @@ class TestBuildWiringIpOverride:
             "template_context": {
                 "device_config": {
                     "vendor_id_int": 0x8086,
-                    "device_id_int": 0x1533,
+                    "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
@@ -252,7 +262,7 @@ class TestBuildWiringIpOverride:
             "template_context": {
                 "device_config": {
                     "vendor_id_int": 0x8086,
-                    "device_id_int": 0x1533,
+                    "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
@@ -293,7 +303,7 @@ class TestBuildWiringIpOverride:
                 "pcileech_config": {"max_payload_size": 512},
                 "device_config": {
                     "vendor_id_int": 0x8086,
-                    "device_id_int": 0x1533,
+                    "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
@@ -352,7 +362,7 @@ class TestBuildWiringIpOverride:
             "template_context": {
                 "device_config": {
                     "vendor_id_int": 0x8086,
-                    "device_id_int": 0x1533,
+                    "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,

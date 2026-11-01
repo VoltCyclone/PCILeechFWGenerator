@@ -63,6 +63,10 @@ from pcileechfwgenerator.device_clone.vfio_access import (
 )
 from pcileechfwgenerator.error_utils import extract_root_cause
 from pcileechfwgenerator.exceptions import ContextError
+from pcileechfwgenerator.host_collect.snapshot import (
+    SnapshotError,
+    load_configured_snapshot,
+)
 from pcileechfwgenerator.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
@@ -688,7 +692,17 @@ class PCILeechContextBuilder:
         self.validation_level = validation_level
         self.logger = logging.getLogger(__name__)
         self._context_cache: Dict[str, Any] = {}
-        self._vfio_manager = VFIODeviceManager(self.device_bdf, self.logger)
+        from pcileechfwgenerator.host_collect.snapshot import DonorSnapshot
+
+        candidate = getattr(config, "offline_capture", None)
+        self.offline_capture = (
+            candidate if isinstance(candidate, DonorSnapshot) else None
+        )
+        self._vfio_manager = (
+            None
+            if self.offline_capture
+            else VFIODeviceManager(self.device_bdf, self.logger)
+        )
         if fallback_manager:
             self.fallback_manager = fallback_manager
         else:
@@ -888,7 +902,7 @@ class PCILeechContextBuilder:
         try:
             need_speed = "pcie_max_link_speed" not in context
             need_width = "pcie_max_link_width" not in context
-            if need_speed or need_width:
+            if (need_speed or need_width) and not self.offline_capture:
                 bdf = self.device_bdf
                 base = f"/sys/bus/pci/devices/{bdf}"
 
@@ -1030,13 +1044,21 @@ class PCILeechContextBuilder:
         try:
             import os as _os
 
-            context["vfio_device"] = _os.path.exists("/dev/vfio/vfio")
+            context["vfio_device"] = (
+                False if self.offline_capture else _os.path.exists("/dev/vfio/vfio")
+            )
         except Exception:
             context["vfio_device"] = False
 
         try:
-            self._vfio_manager._vfio_access.ensure_binding(self.device_bdf)
-            context["vfio_binding_verified"] = True
+            if getattr(self, "offline_capture", None):
+                context["vfio_binding_verified"] = False
+                context["data_source"] = "offline_capture"
+                context["capture_id"] = str(self.offline_capture.identity.capture_id)
+                context["bar_content_source"] = "derived, not sampled"
+            else:
+                self._vfio_manager._vfio_access.ensure_binding(self.device_bdf)
+                context["vfio_binding_verified"] = True
         except Exception:
             context.setdefault("vfio_binding_verified", False)
 
@@ -1181,6 +1203,8 @@ class PCILeechContextBuilder:
         missing_required = [k for k in required_fields if k not in config_space_data]
 
         if missing_required:
+            if getattr(self, "offline_capture", None):
+                raise ContextError("Offline capture is missing device identifiers")
             if self.validation_level == ValidationLevel.STRICT:
                 essential_missing = [
                     k for k in CORE_DEVICE_IDS if k not in config_space_data
@@ -1362,6 +1386,8 @@ class PCILeechContextBuilder:
         if not all(
             k in config_data for k in ["config_space_hex", "config_space_size", "bars"]
         ):
+            if getattr(self, "offline_capture", None):
+                raise ContextError("Offline capture is missing config-space data")
             from pcileechfwgenerator.device_clone.config_space_manager import (
                 ConfigSpaceManager,
             )
@@ -1608,17 +1634,14 @@ class PCILeechContextBuilder:
         import os
 
         device_context_path = os.getenv("DEVICE_CONTEXT_PATH")
-        if device_context_path and os.path.exists(device_context_path):
+        snapshot = load_configured_snapshot(device_bdf) if device_context_path else None
+        if snapshot is not None:
             try:
-                import json
-
                 from pcileechfwgenerator.device_clone.bar_model_loader import (
                     deserialize_bar_model,
                 )
 
-                with open(device_context_path, "r") as f:
-                    device_context = json.load(f)
-
+                device_context = snapshot.context
                 bar_models_data = device_context.get("bar_models")
                 if bar_models_data:
                     models = {}
@@ -1751,7 +1774,10 @@ class PCILeechContextBuilder:
         force_recapture: bool = False,
     ) -> Dict[str, Any]:
         """Build BAR configuration with optional MMIO learning."""
-        self._check_and_fix_power_state()
+        if not getattr(self, "offline_capture", None):
+            self._check_and_fix_power_state()
+        else:
+            enable_mmio_learning = False
         bars = config_space_data["bars"]
         bar_configs = self._analyze_bars(bars)
         primary_bar = self._select_primary_bar(bar_configs)
@@ -1775,7 +1801,11 @@ class PCILeechContextBuilder:
             )
 
         device_bdf = config_space_data.get("device_bdf", self.device_bdf)
-        bar_samples = self._sample_bar_data_direct(device_bdf, bar_configs)
+        bar_samples = (
+            {}
+            if getattr(self, "offline_capture", None)
+            else self._sample_bar_data_direct(device_bdf, bar_configs)
+        )
 
         bar_models = {}
         if enable_mmio_learning:
@@ -1786,6 +1816,9 @@ class PCILeechContextBuilder:
                     enable_mmio_learning=enable_mmio_learning,
                     force_recapture=force_recapture,
                 )
+            except SnapshotError:
+                # A rejected donor capture is never an optional learning failure.
+                raise
             except Exception as e:
                 log_warning_safe(
                     self.logger,
@@ -1891,6 +1924,20 @@ class PCILeechContextBuilder:
 
     def _analyze_bars(self, bars):
         """Analyze BARs with detailed progress output."""
+        if getattr(self, "offline_capture", None):
+            return [
+                BarConfiguration(
+                    index=bar.index,
+                    base_address=bar.address,
+                    size=bar.size,
+                    bar_type=BAR_TYPE_MEMORY_64BIT if bar.is_64bit else 0,
+                    prefetchable=bar.prefetchable,
+                    is_memory=bar.is_memory,
+                    is_io=bar.is_io,
+                    is_64bit=bar.is_64bit,
+                )
+                for bar in bars
+            ]
         bar_configs = []
         log_info_safe(
             self.logger,
@@ -2491,7 +2538,9 @@ class PCILeechContextBuilder:
         )
 
     def _get_vendor_name(self, vendor_id: str) -> str:
-        """Get vendor name via lspci."""
+        """Get vendor name via lspci for live builds only."""
+        if getattr(self, "offline_capture", None):
+            return safe_format("Vendor {vendor_id}", vendor_id=vendor_id)
         import subprocess
 
         try:
@@ -2519,7 +2568,9 @@ class PCILeechContextBuilder:
         return safe_format("Vendor {vendor_id}", vendor_id=vendor_id)
 
     def _get_device_name(self, vendor_id: str, device_id: str) -> str:
-        """Get device name via lspci."""
+        """Get device name via lspci for live builds only."""
+        if getattr(self, "offline_capture", None):
+            return safe_format("Device {device_id}", device_id=device_id)
         import subprocess
 
         try:

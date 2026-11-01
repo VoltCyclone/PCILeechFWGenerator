@@ -54,3 +54,25 @@ async def test_container_build_runs_container_validation(tmp_path, monkeypatch):
 def test_get_app_is_removed():
     """The widget-walking helper is the root cause; it must not return."""
     assert not hasattr(BuildOrchestrator, "_get_app")
+
+
+@pytest.mark.asyncio
+async def test_progress_does_not_regress_after_vivado_stage():
+    from pcileechfwgenerator.tui.core.build_orchestrator import BuildOrchestrator
+    from pcileechfwgenerator.tui.models.progress import BuildProgress, BuildStage
+
+    orchestrator = BuildOrchestrator()
+    orchestrator._current_progress = BuildProgress(
+        BuildStage.ENVIRONMENT_VALIDATION, 0, "Starting"
+    )
+
+    async def build():
+        await orchestrator._update_progress(BuildStage.VIVADO_SYNTHESIS, 80, "Vivado")
+
+    await orchestrator._run_stage(
+        BuildStage.ENVIRONMENT_VALIDATION, build, "Start", "Done"
+    )
+    progress = orchestrator.get_current_progress()
+    assert progress.stage == BuildStage.VIVADO_SYNTHESIS
+    assert progress.completion_percent == 100
+    assert progress.current_operation == "Done"

@@ -9,7 +9,9 @@ import datetime
 import logging
 import os
 import shlex
+import signal
 import subprocess
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -29,6 +31,7 @@ from pcileechfwgenerator.string_utils import (
 from ..models.config import BuildConfiguration
 from ..models.device import PCIDevice
 from ..models.progress import BuildProgress, BuildStage, ValidationResult
+from .build_contract import build_command
 
 # Constants
 PCILEECH_FPGA_REPO = "https://github.com/VoltCyclone/voltcyclone-fpga.git"
@@ -37,6 +40,8 @@ PROCESS_TERMINATION_TIMEOUT = 2.0  # Seconds to wait for process termination
 
 # Progress parsing tokens for easier maintenance
 READLINE_TIMEOUT_SEC = 1.0  # readline polling cadence in _run_shell
+FAILURE_TAIL_LINES = 40  # child output lines quoted in a failure error
+FAILURE_TAIL_LINE_CHARS = 1000  # cap per quoted line; overlong lines are chunked
 
 
 LOG_PROGRESS_TOKENS = {
@@ -85,6 +90,7 @@ class BuildOrchestrator:
         # shutdown in its finally. A late _update_resource_usage tick after
         # shutdown must be a no-op, not a RuntimeError.
         self._executor: Optional[ThreadPoolExecutor] = None
+        self._termination_lock = asyncio.Lock()
         self._last_resource_update = 0
         self._config: Optional[BuildConfiguration] = None
 
@@ -194,6 +200,12 @@ class BuildOrchestrator:
             for stage, coro, start_msg, end_msg in build_stages:
                 await self._run_stage(stage, coro, start_msg, end_msg)
 
+            if self._should_cancel:
+                raise asyncio.CancelledError("Build cancelled")
+
+            # The shared CLI returns success only after all three stages.
+            for stage in BuildStage:
+                self._current_progress.mark_stage_complete(stage)
             # Build complete
             self._current_progress.completion_percent = 100.0
             self._current_progress.current_operation = "Build completed successfully"
@@ -229,87 +241,16 @@ class BuildOrchestrator:
         Returns:
             List of (stage, coroutine, start_message, end_message) tuples
         """
-        # Start with validation stages
-        build_stages = [
+        # Validate before creating tasks or performing any host operations.
+        build_command(device.bdf, config)
+        return [
             (
                 BuildStage.ENVIRONMENT_VALIDATION,
-                lambda: self._validate_environment(),
-                "Validating environment",
-                "Environment validation complete",
-            ),
-            (
-                BuildStage.ENVIRONMENT_VALIDATION,
-                lambda: self._validate_pci_config(device, config),
-                "Validating PCI configuration values",
-                "PCI configuration validation complete",
-            ),
+                lambda: self._run_vivado_synthesis(device, config),
+                "Running shared build pipeline",
+                "Shared build pipeline complete",
+            )
         ]
-
-        # Add donor module check if needed
-        if config.donor_dump and not config.local_build:
-            build_stages.append(
-                (
-                    BuildStage.ENVIRONMENT_VALIDATION,
-                    lambda: self._check_donor_module(config),
-                    "Checking donor_dump module status",
-                    "Donor module check complete",
-                )
-            )
-
-        # Add device analysis and register extraction
-        build_stages.extend(
-            [
-                (
-                    BuildStage.DEVICE_ANALYSIS,
-                    lambda: self._analyze_device(device),
-                    "Analyzing device configuration",
-                    "Device analysis complete",
-                ),
-                (
-                    BuildStage.REGISTER_EXTRACTION,
-                    lambda: self._extract_registers(device),
-                    "Extracting device registers",
-                    "Register extraction complete",
-                ),
-            ]
-        )
-
-        # Add behavior profiling if enabled
-        if config.behavior_profiling:
-            build_stages.append(
-                (
-                    BuildStage.REGISTER_EXTRACTION,
-                    lambda: self._run_behavior_profiling(device, config),
-                    "Starting behavior profiling",
-                    "Behavior profiling complete",
-                )
-            )
-
-        # Add final stages
-        build_stages.extend(
-            [
-                (
-                    BuildStage.SYSTEMVERILOG_GENERATION,
-                    lambda: self._generate_systemverilog(device, config),
-                    "Generating SystemVerilog",
-                    "SystemVerilog generation complete",
-                ),
-                (
-                    BuildStage.VIVADO_SYNTHESIS,
-                    lambda: self._run_vivado_synthesis(device, config),
-                    "Starting Vivado synthesis",
-                    "Vivado synthesis complete",
-                ),
-                (
-                    BuildStage.BITSTREAM_GENERATION,
-                    lambda: self._generate_bitstream(config),
-                    "Generating bitstream",
-                    "Bitstream generation complete",
-                ),
-            ]
-        )
-
-        return build_stages
 
     async def _run_stage(
         self, stage: BuildStage, coro: Callable, start_msg: str, end_msg: str
@@ -331,7 +272,15 @@ class BuildOrchestrator:
 
         await self._update_progress(stage, 0, start_msg)
         await coro()
-        await self._update_progress(stage, 100, end_msg)
+        if self._should_cancel:
+            raise asyncio.CancelledError("Build cancelled")
+        final_stage = stage
+        if self._current_progress:
+            stages = list(BuildStage)
+            current_stage = self._current_progress.stage
+            if stages.index(current_stage) > stages.index(stage):
+                final_stage = current_stage
+        await self._update_progress(final_stage, 100, end_msg)
 
         if self._current_progress:
             self._current_progress.mark_stage_complete(stage)
@@ -345,23 +294,33 @@ class BuildOrchestrator:
         """
         self._should_cancel = True
 
-        if self._build_process:
-            try:
-                logger.info("Attempting to cancel build process")
-                self._build_process.terminate()
+        if self._build_process is not None:
+            await self._terminate_process(self._build_process)
 
-                # Wait for graceful termination
+    async def _terminate_process(self, process: asyncio.subprocess.Process) -> None:
+        """Stop the process session, including tools launched by the CLI."""
+        async with self._termination_lock:
+
+            def send(sig: int) -> None:
                 try:
-                    await asyncio.wait_for(
-                        self._build_process.wait(),
-                        timeout=PROCESS_TERMINATION_TIMEOUT,
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("Process did not terminate gracefully, forcing kill")
-                    self._build_process.kill()
+                    if os.name == "posix":
+                        os.killpg(process.pid, sig)
+                    elif process.returncode is None:
+                        process.terminate() if sig == signal.SIGTERM else process.kill()
+                except ProcessLookupError:
+                    # The process group already exited; nothing left to signal.
+                    pass
 
-            except (psutil.Error, asyncio.CancelledError, ProcessLookupError) as e:
-                self._report_exception("Error during build cancellation", e)
+            send(signal.SIGTERM)
+            try:
+                await asyncio.wait_for(process.wait(), PROCESS_TERMINATION_TIMEOUT)
+            except asyncio.TimeoutError:
+                # Ignored on purpose: the finally block escalates to SIGKILL.
+                pass
+            finally:
+                # A descendant can outlive its parent or keep inherited pipes open.
+                send(signal.SIGKILL)
+            await process.wait()
 
     def get_current_progress(self) -> Optional[BuildProgress]:
         """Get the current build progress state."""
@@ -846,149 +805,105 @@ class BuildOrchestrator:
             )
 
     async def _run_shell(self, cmd, monitor=True) -> subprocess.CompletedProcess:
-        """
-        Run a shell command with optional output monitoring.
-
-        Args:
-            cmd: Command to run (string or list)
-            monitor: Whether to monitor output for progress updates
-
-        Returns:
-            subprocess.CompletedProcess: Command result
-
-        Raises:
-            RuntimeError: If command fails
-        """
-        if isinstance(cmd, list):
-            # shlex.join quotes args that contain spaces so paths and other
-            # spaced values survive create_subprocess_shell's reparse.
-            cmd_str = shlex.join(cmd)
-        else:
-            cmd_str = cmd
-
-        if not monitor:
-            # Simple command execution without monitoring
-            process = await asyncio.create_subprocess_shell(
-                cmd_str,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await process.communicate()
-
-            returncode = process.returncode if process.returncode is not None else 0
-            return subprocess.CompletedProcess(
-                args=cmd_str,
-                returncode=returncode,
-                stdout=stdout.decode("utf-8"),
-                stderr=stderr.decode("utf-8"),
-            )
-
-        # Monitored command execution — drain stdout and stderr concurrently
-        # with a short readline timeout so we can poll _should_cancel even
-        # when a grandchild (Vivado) keeps the pipe open indefinitely.
-        self._build_process = await asyncio.create_subprocess_shell(
-            cmd_str,
+        """Execute argv without a shell; monitor output and cancel the process tree."""
+        argv = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.DEVNULL,
+            limit=1 << 20,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=os.name == "posix",
+            env={**os.environ, "NO_INTERACTIVE": "1", "PYTHONUNBUFFERED": "1"},
         )
-
-        stderr_chunks: List[bytes] = []
-
-        async def _drain(stream, sink: Optional[List[bytes]]) -> None:
-            """Read one stream until EOF or cancel, never blocking forever."""
-            if stream is None:
-                return
-            while True:
-                try:
-                    line = await asyncio.wait_for(
-                        stream.readline(), timeout=READLINE_TIMEOUT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    # Pipe is idle. Bail if we've been cancelled or the
-                    # process has exited and the pipe is closed.
-                    if self._should_cancel:
-                        return
-                    if self._build_process.returncode is not None:
-                        return
-                    continue
-
-                if not line:
-                    return
-
-                if sink is not None:
-                    sink.append(line)
-
-                # Only stdout drives progress updates.
-                if sink is None:
-                    line_str = line.decode("utf-8", errors="replace").strip()
-                    if line_str:
-                        for pattern, (
-                            stage,
-                            percent,
-                            msg,
-                        ) in LOG_PROGRESS_TOKENS.items():
-                            if pattern in line_str:
-                                await self._update_progress(stage, percent, msg)
-                                break
-
-        stdout_task = asyncio.create_task(_drain(self._build_process.stdout, None))
-        stderr_task = asyncio.create_task(
-            _drain(self._build_process.stderr, stderr_chunks)
-        )
-
-        try:
-            while True:
-                if self._should_cancel:
-                    self._build_process.terminate()
-                    try:
-                        await asyncio.wait_for(self._build_process.wait(), timeout=2.0)
-                    except asyncio.TimeoutError:
-                        self._build_process.kill()
-                        await self._build_process.wait()
-                    break
-
-                if self._build_process.returncode is not None:
-                    break
-
-                try:
-                    await asyncio.wait_for(
-                        self._build_process.wait(), timeout=READLINE_TIMEOUT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    continue
-        finally:
-            # Ensure both drain tasks finish before we read stderr_chunks.
-            for task in (stdout_task, stderr_task):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-
-        if self._should_cancel:
+        if not monitor:
+            stdout, stderr = await process.communicate()
             return subprocess.CompletedProcess(
-                args=cmd_str,
-                returncode=self._build_process.returncode or -1,
-                stdout="",
-                stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
+                argv,
+                process.returncode,
+                stdout.decode("utf-8", errors="replace"),
+                stderr.decode("utf-8", errors="replace"),
             )
 
-        if self._build_process.returncode != 0:
-            error_msg = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        self._build_process = process
+        stderr_chunks: List[bytes] = []
+        tail = deque(maxlen=FAILURE_TAIL_LINES)
+
+        async def drain(stream, sink) -> None:
+            while stream is not None:
+                try:
+                    line = await stream.readline()
+                except (asyncio.LimitOverrunError, ValueError):
+                    # Keep draining oversized output so the child cannot block.
+                    line = await stream.read(65536)
+                if not line:
+                    return
+                decoded = line.decode("utf-8", errors="replace")
+                tail.append(decoded.rstrip("\r\n")[:FAILURE_TAIL_LINE_CHARS])
+                if sink is not None:
+                    sink.append(line)
+                else:
+                    for pattern, (
+                        stage,
+                        percent,
+                        message,
+                    ) in LOG_PROGRESS_TOKENS.items():
+                        if pattern in decoded:
+                            await self._update_progress(stage, percent, message)
+                            break
+
+        readers = [
+            asyncio.create_task(drain(process.stdout, None)),
+            asyncio.create_task(drain(process.stderr, stderr_chunks)),
+        ]
+        try:
+            while process.returncode is None:
+                if self._should_cancel:
+                    await self._terminate_process(process)
+                    break
+                try:
+                    await asyncio.wait_for(process.wait(), READLINE_TIMEOUT_SEC)
+                except asyncio.TimeoutError:
+                    continue
+            # Consume trailing diagnostics before reporting the return code.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*readers), PROCESS_TERMINATION_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                await self._terminate_process(process)
+                if not self._should_cancel:
+                    raise RuntimeError(
+                        "Build process exited but its child "
+                        "output streams remained open"
+                    )
+        except BaseException:
+            await self._terminate_process(process)
+            raise
+        finally:
+            for task in readers:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            self._build_process = None
+
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        if self._should_cancel:
+            return subprocess.CompletedProcess(
+                argv, process.returncode or -1, "", stderr
+            )
+        if process.returncode != 0:
             self._add_progress_error(
-                "Build command failed: {msg}", msg=error_msg or "unknown error"
+                "Build command failed: {msg}", msg=stderr or "unknown error"
             )
             raise RuntimeError(
                 safe_format(
-                    "Build command failed with code {code}",
-                    code=self._build_process.returncode,
+                    "Build command failed with code {code}", code=process.returncode
                 )
+                + "\n--- last output ---\n"
+                + "\n".join(tail)
             )
-
-        return subprocess.CompletedProcess(
-            args=cmd_str,
-            returncode=self._build_process.returncode,
-            stdout="",
-            stderr=b"".join(stderr_chunks).decode("utf-8", errors="replace"),
-        )
+        return subprocess.CompletedProcess(argv, process.returncode, "", stderr)
 
     async def _validate_pci_config(
         self, device: PCIDevice, config: BuildConfiguration
@@ -1267,89 +1182,21 @@ class BuildOrchestrator:
         self, device: PCIDevice, config: BuildConfiguration
     ) -> None:
         """
-        Run Vivado synthesis in container or locally.
+        Run the complete shared pipeline with host-side Vivado synthesis.
 
         Args:
             device: The PCIe device to synthesize for
             config: Build configuration
         """
-        # Convert config to CLI-like args (no method available on TUI model)
-        cli_args = {
-            "advanced_sv": bool(config.advanced_sv),
-            "enable_variance": bool(config.enable_variance),
-            "enable_behavior_profiling": bool(config.behavior_profiling),
-            "behavior_profile_duration": float(config.profile_duration),
-            "use_donor_dump": bool(config.donor_dump),
-            "donor_info_file": config.donor_info_file,
-            "skip_board_check": bool(config.skip_board_check),
-        }
-
-        # Build the command as a list[str] from the start — strings with
-        # embedded spaces (paths, multi-word args) survive intact this way.
-        # Common build args (everything after the script name):
-        build_args: List[str] = [
-            "--bdf",
-            device.bdf,
-            "--board",
-            config.board_type,
-        ]
-        if cli_args.get("advanced_sv"):
-            build_args.append("--advanced-sv")
-        if cli_args.get("enable_variance"):
-            build_args.append("--enable-variance")
-        if cli_args.get("enable_behavior_profiling"):
-            build_args.extend(
-                [
-                    "--enable-behavior-profiling",
-                    "--profile-duration",
-                    str(cli_args["behavior_profile_duration"]),
-                ]
+        result = await self._run_shell(build_command(device.bdf, config))
+        if self._should_cancel:
+            raise asyncio.CancelledError("Build cancelled")
+        if result.returncode != 0:
+            raise RuntimeError(
+                safe_format(
+                    "Build command failed with code {code}", code=result.returncode
+                )
             )
-        if cli_args.get("use_donor_dump"):
-            build_args.append("--use-donor-dump")
-        donor_info_file = cli_args.get("donor_info_file")
-        if (
-            donor_info_file
-            and isinstance(donor_info_file, str)
-            and donor_info_file.strip()
-        ):
-            build_args.extend(["--donor-info-file", donor_info_file])
-        if cli_args.get("skip_board_check"):
-            build_args.append("--skip-board-check")
-        build_args.append("--run-vivado")
-
-        if config.local_build:
-            if self._current_progress:
-                self._current_progress.current_operation = "Running local build"
-                await self._notify_progress()
-
-            await self._run_shell(["python3", "src/build.py", *build_args])
-        else:
-            # Get IOMMU group for VFIO device
-            from ...cli.vfio_handler import _get_iommu_group
-
-            iommu_group = await asyncio.get_running_loop().run_in_executor(
-                None, _get_iommu_group, device.bdf
-            )
-            vfio_device = f"/dev/vfio/{iommu_group}"
-
-            container_cmd: List[str] = [
-                "podman",
-                "run",
-                "--rm",
-                "-it",
-                "--privileged",
-                f"--device={vfio_device}",
-                "--device=/dev/vfio/vfio",
-                "-v",
-                f"{os.getcwd()}/output:/app/output",
-                "pcileechfwgenerator:latest",
-                "python3",
-                "/app/src/build.py",
-                *build_args,
-            ]
-
-            await self._run_shell(container_cmd)
 
     async def _generate_bitstream(self, config: BuildConfiguration) -> None:
         """

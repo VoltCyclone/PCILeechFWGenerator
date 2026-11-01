@@ -14,6 +14,9 @@ from unittest import mock
 
 import pytest
 
+from pcileechfwgenerator.exceptions import ConfigurationError
+from tests.snapshot_helpers import make_snapshot
+
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
@@ -101,62 +104,6 @@ def network_controller_config_space():
     return bytes(config_space)
 
 
-class TestHostCollectorDeviceIDExtraction:
-    """Test that HostCollector properly extracts device IDs from config space."""
-    
-    def test_extract_device_ids_audio_controller(self, audio_controller_config_space):
-        """Test extraction of device IDs from audio controller config space."""
-        from pcileechfwgenerator.host_collect.collector import HostCollector
-        
-        collector = HostCollector(
-            bdf="0000:00:1f.3",
-            datastore=Path("/tmp"),
-            logger=None
-        )
-        
-        device_ids = collector._extract_device_ids(audio_controller_config_space)
-        
-        assert device_ids["vendor_id"] == 0x8086, "Vendor ID should be Intel (0x8086)"
-        assert device_ids["device_id"] == 0x0a0c, "Device ID should be 0x0a0c"
-        assert device_ids["class_code"] == 0x040300, "Class code should be Audio (0x040300)"
-        assert device_ids["revision_id"] == 0x01, "Revision ID should be 0x01"
-        assert device_ids["subsystem_vendor_id"] == 0x8086, "Subsystem vendor should be 0x8086"
-        assert device_ids["subsystem_device_id"] == 0x7221, "Subsystem device should be 0x7221"
-    
-    def test_extract_device_ids_network_controller(self, network_controller_config_space):
-        """Test extraction of device IDs from network controller config space."""
-        from pcileechfwgenerator.host_collect.collector import HostCollector
-        
-        collector = HostCollector(
-            bdf="0000:03:00.0",
-            datastore=Path("/tmp"),
-            logger=None
-        )
-        
-        device_ids = collector._extract_device_ids(network_controller_config_space)
-        
-        assert device_ids["vendor_id"] == 0x10ec, "Vendor ID should be Realtek (0x10ec)"
-        assert device_ids["device_id"] == 0x8168, "Device ID should be 0x8168"
-        assert device_ids["class_code"] == 0x020000, "Class code should be Ethernet (0x020000)"
-        assert device_ids["revision_id"] == 0x15, "Revision ID should be 0x15"
-    
-    def test_extract_device_ids_short_config_space(self):
-        """Test that extraction handles short config space gracefully."""
-        from pcileechfwgenerator.host_collect.collector import HostCollector
-        
-        collector = HostCollector(
-            bdf="0000:00:00.0",
-            datastore=Path("/tmp"),
-            logger=None
-        )
-        
-        short_config = bytes([0x00] * 32)  # Only 32 bytes
-        device_ids = collector._extract_device_ids(short_config)
-        
-        # Should return empty dict for insufficient data
-        assert device_ids == {}
-
-
 class TestHostCollectorSavesDeviceIDs:
     """Test that HostCollector saves device IDs to device_context.json."""
     
@@ -232,14 +179,14 @@ class TestHostCollectorSavesDeviceIDs:
 
 class TestBuildUsesCollectedDeviceIDs:
     """Test that build.py properly uses device IDs from host context."""
-    
+
     def test_host_context_uses_collected_device_ids(
         self, temp_dir, audio_controller_config_space
     ):
         """Test that build system uses device IDs from host collection."""
         if not imports_available:
             pytest.skip("FirmwareBuilder import not available")
-            
+
         # Create device_context.json with collected device IDs
         device_context = {
             "config_space_hex": audio_controller_config_space.hex(),
@@ -250,11 +197,15 @@ class TestBuildUsesCollectedDeviceIDs:
             "subsystem_vendor_id": 0x8086,
             "subsystem_device_id": 0x7221,
         }
-        
-        ctx_path = temp_dir / "device_context.json"
-        with open(ctx_path, "w") as f:
-            json.dump(device_context, f)
-        
+
+        # Only a rendered template_context may bypass the generator.
+        ctx_path = make_snapshot(
+            temp_dir,
+            audio_controller_config_space,
+            bdf="0000:00:1f.3",
+            context={"template_context": device_context},
+        )
+
         # Set environment variable to point to our test file
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
             config = BuildConfiguration(
@@ -264,17 +215,17 @@ class TestBuildUsesCollectedDeviceIDs:
                 enable_profiling=False,
                 parallel_writes=False,
             )
-            
+
             builder = FirmwareBuilder(config)
-            
+
             # Check that host context is loaded
             host_context = builder._check_host_collected_context()
-            
+
             assert host_context is not None, "Host context should be loaded"
             assert host_context["vendor_id"] == 0x8086, "Should use collected vendor ID"
             assert host_context["device_id"] == 0x0a0c, "Should use collected device ID"
             assert host_context["class_code"] == 0x040300, "Should use collected class code"
-    
+
     def test_config_space_data_populated_from_host_context(
         self, temp_dir, network_controller_config_space
     ):
@@ -291,11 +242,13 @@ class TestBuildUsesCollectedDeviceIDs:
             "subsystem_vendor_id": 0x10ec,
             "subsystem_device_id": 0x8168,
         }
-        
-        ctx_path = temp_dir / "device_context.json"
-        with open(ctx_path, "w") as f:
-            json.dump(device_context, f)
-        
+
+        ctx_path = make_snapshot(
+            temp_dir,
+            network_controller_config_space,
+            context={"template_context": device_context},
+        )
+
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
             config = BuildConfiguration(
                 bdf="0000:03:00.0",
@@ -303,14 +256,14 @@ class TestBuildUsesCollectedDeviceIDs:
                 output_dir=temp_dir,
                 enable_profiling=False,
             )
-            
+
             builder = FirmwareBuilder(config)
             host_context = builder._check_host_collected_context()
-            
+
             # Simulate the build process creating config_space_data
             config_space_hex = host_context.get("config_space_hex", "")
             config_space_bytes = bytes.fromhex(config_space_hex) if config_space_hex else b""
-            
+
             config_space_data = {
                 "raw_config_space": config_space_bytes,
                 "config_space_hex": config_space_hex,
@@ -325,13 +278,13 @@ class TestBuildUsesCollectedDeviceIDs:
                     "revision_id": host_context.get("revision_id"),
                 },
             }
-            
+
             # Verify the formatted IDs match the network controller
             assert config_space_data["vendor_id"] == "10ec", "Vendor ID should be formatted correctly"
             assert config_space_data["device_id"] == "8168", "Device ID should be formatted correctly"
             assert config_space_data["class_code"] == "020000", "Class code should be formatted correctly"
             assert config_space_data["revision_id"] == "15", "Revision ID should be formatted correctly"
-            
+
             # Verify device_info contains integer values
             assert config_space_data["device_info"]["vendor_id"] == 0x10ec
             assert config_space_data["device_info"]["device_id"] == 0x8168
@@ -340,105 +293,100 @@ class TestBuildUsesCollectedDeviceIDs:
 
 class TestNoRegressionToDefaultValues:
     """Regression tests to ensure defaults are NOT used when real IDs are available."""
-    
+
     def test_no_default_vendor_id_when_collected(
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that default vendor ID (0x10ec) is NOT used when real ID is collected."""
         from pcileechfwgenerator.host_collect.collector import HostCollector
-        
+
         monkeypatch.setattr(
             HostCollector,
             "_read_config_space",
             lambda self: audio_controller_config_space
         )
-        
+
         collector = HostCollector(
             bdf="0000:00:1f.3",
             datastore=temp_dir,
             logger=None
         )
         collector.run()
-        
+
         with open(temp_dir / "device_context.json", "r") as f:
             ctx = json.load(f)
-        
+
         # Should NOT be default Realtek (0x10ec), should be Intel (0x8086)
         assert ctx["vendor_id"] != 0x10ec, "Should not use default vendor ID"
         assert ctx["vendor_id"] == 0x8086, "Should use actual Intel vendor ID"
-    
+
     def test_no_default_device_id_when_collected(
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that default device ID (0x8168) is NOT used when real ID is collected."""
         from pcileechfwgenerator.host_collect.collector import HostCollector
-        
+
         monkeypatch.setattr(
             HostCollector,
             "_read_config_space",
             lambda self: audio_controller_config_space
         )
-        
+
         collector = HostCollector(
             bdf="0000:00:1f.3",
             datastore=temp_dir,
             logger=None
         )
         collector.run()
-        
+
         with open(temp_dir / "device_context.json", "r") as f:
             ctx = json.load(f)
-        
+
         # Should NOT be default RTL8168 (0x8168), should be audio controller (0x0a0c)
         assert ctx["device_id"] != 0x8168, "Should not use default device ID"
         assert ctx["device_id"] == 0x0a0c, "Should use actual audio controller device ID"
-    
+
     def test_no_generic_class_code_when_collected(
         self, temp_dir, audio_controller_config_space, monkeypatch
     ):
         """Test that generic class code (0x000000) is NOT used when real class is collected."""
         from pcileechfwgenerator.host_collect.collector import HostCollector
-        
+
         monkeypatch.setattr(
             HostCollector,
             "_read_config_space",
             lambda self: audio_controller_config_space
         )
-        
+
         collector = HostCollector(
             bdf="0000:00:1f.3",
             datastore=temp_dir,
             logger=None
         )
         collector.run()
-        
+
         with open(temp_dir / "device_context.json", "r") as f:
             ctx = json.load(f)
-        
+
         # Should NOT be generic (0x000000), should be audio (0x040300)
         assert ctx["class_code"] != 0x000000, "Should not use generic class code"
         assert ctx["class_code"] == 0x040300, "Should use actual audio class code"
 
 
-class TestBackwardCompatibility:
-    """Test that the fix doesn't break existing functionality."""
-    
-    def test_old_device_context_still_works(self, temp_dir):
-        """Test that old device_context.json format without device IDs returns None."""
+class TestLegacyCaptureRejection:
+    """Legacy files cannot establish capture identity and must be recollected."""
+
+    def test_old_device_context_stops_build(self, temp_dir):
         if not imports_available:
             pytest.skip("FirmwareBuilder import not available")
-        """Test that old device_context.json format without device IDs returns None."""
-        # Old format - only config_space_hex (no device IDs)
-        # This format is intentionally incomplete and should return None
-        # forcing the system to use VFIO to extract device IDs
         old_format_context = {
             "config_space_hex": "86800c0a060410000103040010000000" + "00" * 240
         }
-        
+
         ctx_path = temp_dir / "device_context.json"
         with open(ctx_path, "w") as f:
             json.dump(old_format_context, f)
-        
+
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
             config = BuildConfiguration(
                 bdf="0000:00:1f.3",
@@ -446,10 +394,6 @@ class TestBackwardCompatibility:
                 output_dir=temp_dir,
                 enable_profiling=False,
             )
-            
-            builder = FirmwareBuilder(config)
-            host_context = builder._check_host_collected_context()
-            
-            # Should return None for incomplete context, forcing VFIO path
-            # This is the correct behavior - we need device IDs!
-            assert host_context is None, "Incomplete context should return None to force VFIO extraction"
+
+            with pytest.raises(ConfigurationError, match="legacy"):
+                FirmwareBuilder(config)

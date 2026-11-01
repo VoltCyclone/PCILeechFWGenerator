@@ -27,7 +27,7 @@ class TestBuildConfiguration:
         assert config.name == "Test Config"
         assert config.board_type == "pcileech_75t484_x1"
         assert config.device_type == "network"
-        assert config.advanced_sv is True  # Default value
+        assert config.advanced_sv is False  # Unsupported override defaults off
 
     def test_configuration_validation(self):
         """Test validation of configuration values."""
@@ -45,31 +45,14 @@ class TestBuildConfiguration:
             BuildConfiguration(name="", board_type="pcileech_75t484_x1")
         assert "Configuration name cannot be empty" in str(exc_info.value)
 
-    def test_advanced_features_validation(self):
-        """Test validation of advanced features dependencies."""
-        # Test behavior profiling requiring advanced_sv
-        with pytest.raises(ValueError) as exc_info:
-            BuildConfiguration(
-                name="Test Config",
-                board_type="pcileech_75t484_x1",
-                advanced_sv=False,
-                behavior_profiling=True,
-            )
-        assert "Behavior profiling requires advanced SystemVerilog" in str(
-            exc_info.value
+    def test_profiling_does_not_require_unavailable_advanced_sv_override(self):
+        config = BuildConfiguration(
+            board_type="pcileech_75t484_x1",
+            advanced_sv=False,
+            behavior_profiling=True,
+            local_build=True,
         )
-
-        # Test performance counters requiring advanced_sv
-        with pytest.raises(ValueError) as exc_info:
-            BuildConfiguration(
-                name="Test Config",
-                board_type="pcileech_75t484_x1",
-                advanced_sv=False,
-                enable_performance_counters=True,
-            )
-        assert "Performance counters require advanced SystemVerilog" in str(
-            exc_info.value
-        )
+        assert config.behavior_profiling
 
     def test_profile_duration_validation(self):
         """Test validation of profile duration."""
@@ -245,3 +228,74 @@ class TestPluginSystem:
         # Shutdown the plugin
         manager.unregister_plugin("test_plugin")
         plugin.shutdown.assert_called_once()
+
+
+def test_legacy_profile_is_migrated_with_warnings():
+    from pcileechfwgenerator.tui.core.config_manager import migrate_legacy_configuration
+    from pcileechfwgenerator.tui.core.build_contract import validate_build_configuration
+
+    original = dict(
+        board_type="pcileech_75t484_x1",
+        advanced_sv=True,
+        enable_variance=True,
+        donor_dump=True,
+    )
+    data, warnings = migrate_legacy_configuration(original)
+    assert validate_build_configuration(BuildConfiguration(**data)) is None
+    assert len(warnings) == 3
+    assert original["advanced_sv"] is True
+    assert migrate_legacy_configuration(data) == (data, [])
+    assert migrate_legacy_configuration({}) == ({}, [])
+
+
+@pytest.mark.parametrize("imported", [False, True])
+def test_saved_legacy_profile_loads_with_warnings(
+    tmp_path, monkeypatch, capsys, imported
+):
+    from pcileechfwgenerator.tui.core import config_manager
+    from pcileechfwgenerator.tui.core.build_contract import validate_build_configuration
+
+    monkeypatch.setattr(config_manager, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(
+        config_manager.ConfigManager, "_migrate_old_profiles", lambda self: None
+    )
+    manager = config_manager.ConfigManager()
+    path = manager.config_dir / "legacy.json"
+    path.write_text(
+        json.dumps(
+            dict(
+                board_type="pcileech_75t484_x1",
+                advanced_sv=True,
+                enable_variance=True,
+                donor_dump=True,
+            )
+        )
+    )
+    name = manager.import_profile(path) if imported else "legacy"
+    config = manager.load_profile(name)
+    assert config is not None
+    assert validate_build_configuration(config) is None
+    warnings = capsys.readouterr().out
+    assert all(
+        field in warnings for field in ("advanced_sv", "enable_variance", "donor_dump")
+    )
+
+
+def test_import_profile_drops_unknown_legacy_keys(tmp_path, monkeypatch):
+    """Profiles from older versions with retired keys must still import."""
+    from pcileechfwgenerator.tui.core import config_manager
+
+    monkeypatch.setattr(config_manager, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(
+        config_manager.ConfigManager, "_migrate_old_profiles", lambda self: None
+    )
+    manager = config_manager.ConfigManager()
+    path = tmp_path / "old.json"
+    path.write_text(
+        json.dumps(
+            dict(board_type="pcileech_75t484_x1", advanced_sv=True, retired_key=1)
+        )
+    )
+    name = manager.import_profile(path)
+    assert name is not None
+    assert manager.load_profile(name).advanced_sv is False

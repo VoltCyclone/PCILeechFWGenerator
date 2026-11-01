@@ -6,7 +6,6 @@ information in a single VFIO binding session on the host, eliminating the need
 for VFIO operations inside the container.
 """
 
-import json
 import logging
 import time
 from dataclasses import asdict
@@ -19,6 +18,11 @@ from pcileechfwgenerator.device_clone.device_info_lookup import DeviceInfoLookup
 from pcileechfwgenerator.device_clone.msix import MSIXData, MSIXManager
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
 from pcileechfwgenerator.exceptions import BuildError
+from pcileechfwgenerator.host_collect.snapshot import (
+    ensure_capture_destination,
+    normalize_bdf,
+    write_snapshot,
+)
 from pcileechfwgenerator.string_utils import (
     log_error_safe,
     log_info_safe,
@@ -33,7 +37,9 @@ class HostDeviceCollector:
     def _serialize_msix_data(self, msix_data: MSIXData) -> Optional[Dict[str, Any]]:
         """Serialize msix_data if preloaded, else return None."""
         if msix_data.preloaded:
-            return asdict(msix_data)
+            payload = asdict(msix_data)
+            payload.pop("config_space_bytes", None)
+            return payload
         return None
 
     def __init__(
@@ -51,7 +57,7 @@ class HostDeviceCollector:
             enable_mmio_learning: Enable MMIO trace capture for BAR models
             force_recapture: Force recapture even if cached models exist
         """
-        self.bdf = bdf
+        self.bdf = normalize_bdf(bdf)
         self.logger = logger or logging.getLogger(__name__)
         self.enable_mmio_learning = enable_mmio_learning
         self.force_recapture = force_recapture
@@ -79,6 +85,8 @@ class HostDeviceCollector:
         log_info_safe(
             self.logger, "Collecting complete device context on host", prefix="HOST"
         )
+
+        ensure_capture_destination(output_dir)
 
         # Use single VFIO binding session to collect all data.
         # The VFIOBinder context manager handles bind/unbind and holds the
@@ -154,7 +162,7 @@ class HostDeviceCollector:
                         "collector_version": "1.0",
                     },
                 }
-                self._save_collected_data(output_dir, collected_data)
+                collected_data = self._save_collected_data(output_dir, collected_data)
 
                 log_info_safe(
                     self.logger,
@@ -326,82 +334,20 @@ class HostDeviceCollector:
             )
             return None
 
-    def _save_collected_data(self, output_dir: Path, data: Dict[str, Any]) -> None:
-        """Save collected device data to files for container consumption.
-
-        Args:
-            output_dir: Output directory
-            data: Collected device data
-        """
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save complete device context
-        context_file = output_dir / "device_context.json"
-        with open(context_file, "w") as f:
-            json.dump(data, f, indent=2)
-
-        # Validate that the file was written correctly
-        try:
-            with open(context_file, "r") as f:
-                test_data = json.load(f)
-            test_hex = test_data.get("config_space_hex", "")
-            if len(test_hex) != len(data["config_space_hex"]):
-                log_error_safe(
-                    self.logger,
-                    safe_format(
-                        "Config space hex corrupted: {orig} -> {saved} chars",
-                        orig=len(data["config_space_hex"]),
-                        saved=len(test_hex),
-                    ),
-                    prefix="HOST",
-                )
-        except Exception as e:
-            log_warning_safe(
-                self.logger,
-                safe_format("Failed to validate saved context file: {err}", err=str(e)),
-                prefix="HOST",
-            )
-
-        # Save MSI-X data separately for backward compatibility
-        if data.get("msix_data"):
-            msix_file = output_dir / "msix_data.json"
-            msix_payload = {
-                "bdf": data["bdf"],
-                "msix_info": data["msix_data"]["msix_info"],
-                "config_space_hex": data["config_space_hex"],
-            }
-            with open(msix_file, "w") as f:
-                json.dump(msix_payload, f, indent=2)
-
-            # Validate MSIX file as well
-            try:
-                with open(msix_file, "r") as f:
-                    test_msix = json.load(f)
-                test_msix_hex = test_msix.get("config_space_hex", "")
-                if len(test_msix_hex) != len(data["config_space_hex"]):
-                    log_error_safe(
-                        self.logger,
-                        safe_format(
-                            "MSIX config space hex corrupted during save: "
-                            "{orig} -> {saved} chars",
-                            orig=len(data["config_space_hex"]),
-                            saved=len(test_msix_hex),
-                        ),
-                        prefix="HOST",
-                    )
-            except Exception as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to validate saved MSIX file: {err}", err=str(e)
-                    ),
-                    prefix="HOST",
-                )
-
+    def _save_collected_data(
+        self, output_dir: Path, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Save a versioned, immutable context and matching MSI-X sidecar."""
+        snapshot = write_snapshot(
+            output_dir,
+            self.bdf,
+            bytes.fromhex(data["config_space_hex"]),
+            (data.get("msix_data") or {}).get("msix_info") or {},
+            context=data,
+        )
         log_info_safe(
             self.logger,
-            safe_format(
-                "Host device data saved → {context_file}", context_file=context_file
-            ),
+            "Host device context and matching MSI-X capture saved",
             prefix="HOST",
         )
+        return snapshot.context

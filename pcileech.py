@@ -514,6 +514,49 @@ def rebuild_vfio_constants():
         return False
 
 
+def profile_seconds(value: str) -> float:
+    """Parse a finite, bounded profiling duration, including fractional seconds."""
+    import math
+
+    seconds = float(value)
+    if not math.isfinite(seconds) or not 0 <= seconds <= 3600:
+        raise argparse.ArgumentTypeError("profile must be between 0 and 3600 seconds")
+    return seconds
+
+
+def validate_build_options(args: argparse.Namespace) -> None:
+    """Reject unsupported overrides before touching donor hardware."""
+    unsupported = [
+        name
+        for name in ("advanced_sv", "enable_variance")
+        if getattr(args, name, False)
+    ]
+    if getattr(args, "device_type", "generic") not in (None, "generic"):
+        unsupported.append("device_type")
+    if unsupported:
+        raise ValueError("Unsupported build options: " + ", ".join(unsupported))
+    local = (
+        getattr(args, "local", False)
+        or getattr(args, "container_mode", "auto") == "local"
+    )
+    if profile_seconds(str(getattr(args, "profile", 0))) and not local:
+        raise ValueError("Behavior profiling requires explicit local mode")
+    donor_template = getattr(args, "donor_template", None)
+    if donor_template and not Path(donor_template).expanduser().is_file():
+        raise ValueError("Donor template file does not exist")
+
+
+def build_output_directory(args: argparse.Namespace) -> Path:
+    """Resolve the artifact directory consistently for all pipeline stages."""
+    output = getattr(args, "output", None) or getattr(args, "build_dir", None)
+    if output:
+        return Path(output).expanduser().resolve()
+    return (
+        Path(getattr(args, "datastore", "pcileech_datastore")).expanduser().resolve()
+        / "output"
+    )
+
+
 def create_parser():
     """Create the main argument parser with subcommands."""
     # Determine script name for auto-command detection
@@ -582,10 +625,46 @@ Environment Variables:
     # Create subparsers for different modes
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    capture_parser = subparsers.add_parser(
+        "capture", help="Collect, import or validate a donor capture"
+    )
+    capture_actions = capture_parser.add_subparsers(
+        dest="capture_action", required=True
+    )
+    collect_parser = capture_actions.add_parser(
+        "collect", help="Explicit Linux host collection"
+    )
+    collect_parser.add_argument("--bdf", required=True)
+    collect_parser.add_argument("--output", required=True)
+    for action in ("validate", "import"):
+        action_parser = capture_actions.add_parser(action)
+        action_parser.add_argument("--input", required=True)
+        # Import must name the donor it expects; validate may check one.
+        action_parser.add_argument("--bdf", required=action == "import")
+        if action == "import":
+            action_parser.add_argument("--output", required=True)
+
     # Build command (CLI mode)
     build_parser = subparsers.add_parser("build", help="Build firmware (CLI mode)")
     build_parser.add_argument(
-        "--bdf", required=True, help="PCI Bus:Device.Function (e.g., 0000:03:00.0)"
+        "--bdf",
+        help="PCI address (required for live collection; checked if supplied offline)",
+    )
+    build_parser.add_argument(
+        "--from-capture", help="Validated offline capture directory"
+    )
+    build_parser.add_argument(
+        "--accept-offline-risk",
+        action="store_true",
+        help=(
+            "Accept the risks of an unverified offline build without the "
+            "interactive y/N prompt (required when not run at a terminal)"
+        ),
+    )
+    build_parser.add_argument(
+        "--templates-only",
+        action="store_true",
+        help="Generate artifacts without running Vivado",
     )
     build_parser.add_argument(
         "--board",
@@ -595,10 +674,12 @@ Environment Variables:
     build_parser.add_argument(
         "--advanced-sv",
         action="store_true",
-        help="Enable advanced SystemVerilog features",
+        help="Legacy override (unsupported; omit this option)",
     )
     build_parser.add_argument(
-        "--enable-variance", action="store_true", help="Enable manufacturing variance"
+        "--enable-variance",
+        action="store_true",
+        help="Legacy override (unsupported; omit this option)",
     )
     build_parser.add_argument(
         "--enable-error-injection",
@@ -609,7 +690,17 @@ Environment Variables:
         ),
     )
     build_parser.add_argument(
-        "--build-dir", default="build", help="Directory for generated firmware files"
+        "--output",
+        "--build-dir",
+        dest="output",
+        help="Artifact directory (default: <datastore>/output)",
+    )
+    build_parser.add_argument(
+        "--profile",
+        type=profile_seconds,
+        default=0.0,
+        metavar="SECONDS",
+        help="Local behavior profiling duration; 0 disables profiling (default)",
     )
     build_parser.add_argument(
         "--generate-donor-template",
@@ -623,7 +714,7 @@ Environment Variables:
         "--device-type",
         choices=KNOWN_DEVICE_TYPES,
         default="generic",
-        help="Override device type detection (default: auto-detect from class code)",
+        help="Legacy device override (only generic/automatic detection is supported)",
     )
     build_parser.add_argument(
         "--vivado-path",
@@ -745,7 +836,10 @@ def main():
     args = parser.parse_args()
 
     # Skip requirements check if requested
-    if not args.skip_requirements_check:
+    offline_request = bool(getattr(args, "from_capture", None)) or (
+        args.command == "capture" and args.capture_action != "collect"
+    )
+    if not args.skip_requirements_check and not offline_request:
         try:
             requirements_ok = check_and_install_requirements()
 
@@ -799,7 +893,10 @@ def main():
             return 1
 
     # Check sudo requirements for hardware operations (Linux only)
-    if args.command in ["build", "check"]:
+    needs_hardware = (args.command in ["build", "check"] and not offline_request) or (
+        args.command == "capture" and args.capture_action == "collect"
+    )
+    if needs_hardware:
         if not is_linux:
             log_error_safe(logger, "This command requires Linux.", prefix="MAIN")
             return 1
@@ -812,7 +909,12 @@ def main():
             return 1
 
     # Check VFIO requirements for build operations (Linux only)
-    if args.command == "build" and is_linux and not check_vfio_requirements():
+    if (
+        args.command == "build"
+        and not offline_request
+        and is_linux
+        and not check_vfio_requirements()
+    ):
         log_error_safe(
             logger,
             "Run 'sudo python3 pcileech.py check' to validate VFIO setup.",
@@ -822,6 +924,8 @@ def main():
 
     # Route to appropriate handler with safe imports
     try:
+        if args.command == "capture":
+            return handle_capture(args)
         if args.command == "build":
             return handle_build(args)
         elif args.command == "tui":
@@ -842,10 +946,94 @@ def main():
         return 1
 
 
+def handle_capture(args: argparse.Namespace) -> int:
+    """Execute explicit collection or pure capture validation/import."""
+    from pcileechfwgenerator.host_collect.offline import (
+        import_capture,
+        load_offline_capture,
+    )
+    from pcileechfwgenerator.host_collect.collector import HostCollector
+
+    try:
+        if args.capture_action == "collect":
+            directory = Path(args.output).expanduser().resolve()
+            rc = HostCollector(args.bdf, directory, complete_capture=True).run()
+            if rc:
+                return rc
+            load_offline_capture(directory, args.bdf)
+        elif args.capture_action == "import":
+            import_capture(
+                Path(args.input).expanduser(),
+                Path(args.output).expanduser(),
+                args.bdf,
+            )
+        else:
+            load_offline_capture(Path(args.input).expanduser(), args.bdf)
+        print("Capture validated: schema 1 with offline resource extension 1")
+        print(
+            "Consistency verified; authenticity and hardware behavior "
+            "are not established."
+        )
+        return 0
+    except Exception as exc:
+        log_error_safe(
+            get_logger(__name__), "Capture operation failed: {error}", error=str(exc)
+        )
+        return 1
+
+
+def run_offline_build(args: argparse.Namespace) -> int:
+    """Generate solely from a complete capture, with optional host synthesis."""
+    from pcileechfwgenerator.host_collect.offline import (
+        load_offline_capture,
+        validate_render_request,
+    )
+
+    source = Path(args.from_capture).expanduser().resolve()
+    snapshot = load_offline_capture(source, args.bdf)
+    if args.board not in set(get_available_boards()):
+        raise ValueError("Unknown target board")
+    if (
+        args.profile
+        or args.host_collect_only
+        or args.force_recapture
+        or args.donor_template
+    ):
+        raise ValueError(
+            "Offline builds cannot profile, collect, recapture or override donor data"
+        )
+    output = build_output_directory(args)
+    validate_render_request(snapshot, source, output, args.generate_donor_template)
+    from pcileechfwgenerator.host_collect.offline_notice import (
+        confirm_offline_build,
+    )
+
+    confirm_offline_build(getattr(args, "accept_offline_risk", False))
+    # Accepted once on the host; the templating stage only records it.
+    args.accept_offline_risk = True
+    args.bdf = snapshot.identity.bdf
+    args.datastore = str(source)
+    args.from_capture = str(source)
+    if args.container_mode == "container" and not args.local:
+        rc = run_container_templating(args)
+    else:
+        rc = run_local_templating(args)
+    if rc:
+        return rc
+    return 0 if args.templates_only else run_host_vivado(args)
+
+
 def handle_build(args):
     """Handle CLI build mode."""
     logger = get_logger(__name__)
     try:
+        validate_build_options(args)
+        if getattr(args, "from_capture", None):
+            return run_offline_build(args)
+        if not args.bdf:
+            raise ValueError(
+                "Live builds require --bdf; use --from-capture for offline input"
+            )
         # Validate board before proceeding
         valid_boards = set(get_available_boards())
         if args.board not in valid_boards:
@@ -859,10 +1047,17 @@ def handle_build(args):
         if getattr(args, "host_collect_only", False):
             return run_host_collect(args)
 
-        # If datastore exists we assume stages 1 done; otherwise run it now
+        from pcileechfwgenerator.host_collect.snapshot import (
+            load_snapshot,
+            verify_current_device,
+        )
+
         datastore = Path(args.datastore)
         device_ctx = datastore / "device_context.json"
-        if not device_ctx.exists():
+        msix_path = datastore / "msix_data.json"
+        # An incomplete capture is an error, never permission to replace data.
+        reused = any(p.exists() or p.is_symlink() for p in (device_ctx, msix_path))
+        if not reused:
             log_info_safe(
                 logger,
                 "No datastore found; running host collect now",
@@ -871,6 +1066,16 @@ def handle_build(args):
             rc = run_host_collect(args)
             if rc != 0:
                 return rc
+        snapshot = load_snapshot(device_ctx, msix_path, args.bdf)
+        if reused and verify_current_device(snapshot) == "absent":
+            log_warning_safe(
+                logger,
+                "Donor is not present at the captured address; rebuilding from "
+                "the saved capture as an unverified offline build",
+                prefix="BUILD",
+            )
+            args.from_capture = str(datastore.resolve())
+            return run_offline_build(args)
 
         # Stage 2: templating / parsing (container or local)
         container_mode = getattr(args, "container_mode", "auto")
@@ -883,7 +1088,7 @@ def handle_build(args):
             return rc
 
         # Stage 3: host-side Vivado batch
-        return run_host_vivado(args)
+        return 0 if getattr(args, "templates_only", False) else run_host_vivado(args)
 
     except KeyboardInterrupt:
         log_error_safe(logger, "Build interrupted by user", prefix="BUILD")
@@ -920,12 +1125,10 @@ def run_host_collect(args):
 
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
     datastore.mkdir(parents=True, exist_ok=True)
-    
+
     # Ensure output directory exists with proper permissions for container access
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Set permissions to allow container writes (0o755 = rwxr-xr-x)
-    output_dir.chmod(0o755)
 
     # Get MMIO learning flags
     enable_mmio_learning = not getattr(args, "no_mmio_learning", False)
@@ -943,6 +1146,8 @@ def run_host_collect(args):
         logger,
         enable_mmio_learning=enable_mmio_learning,
         force_recapture=force_recapture,
+        complete_capture=True,
+        strict_offline_resources=False,
     )
     rc = collector.run()
     if rc == 0:
@@ -989,21 +1194,21 @@ def run_container_templating(args):
     """Stage 2a: launch container with datastore mounted to run templating."""
     logger = get_logger(__name__)
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine execution mode
     mode = getattr(args, "container_mode", "auto")
     runtime = _detect_container_runtime()
     can_use_container = runtime is not None
-    
+
     # Log workflow explanation
     log_info_safe(
         logger,
         "Stage 2: Template generation from collected device data",
         prefix="BUILD"
     )
-    
+
     # Resolve mode (logging happens in helper functions)
     if mode == "container":
         if not can_use_container:
@@ -1022,7 +1227,7 @@ def run_container_templating(args):
         else:
             # Both options available - check if interactive (logs decision)
             use_container = _choose_container_mode(runtime, logger)
-    
+
     # Single logging point for final decision
     if use_container:
         log_info_safe(
@@ -1129,6 +1334,7 @@ def _choose_container_mode(runtime: str, logger) -> bool:
 
 def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, logger):
     """Execute templating in container."""
+    validate_build_options(args)
     if not _ensure_container_image(runtime, logger, tag="pcileech-fwgen"):
         return 1
 
@@ -1150,7 +1356,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "Container env: PCILEECH_DISABLE_VFIO=1 (no VFIO in container)",
         prefix="BUILD"
     )
-    
+
     # Build command with container-specific env vars
     # These are ONLY set in the container subprocess, not globally
     cmd = [
@@ -1159,7 +1365,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
         "--rm",
         "-i",
     ]
-    
+
     # Add user namespace mapping to prevent permission issues
     # This ensures files created in the container have the correct
     # ownership on the host
@@ -1169,30 +1375,57 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     elif runtime == "docker":
         # Docker: run as current user
         cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
-    
+
     # Environment variables and volume mounts
-    cmd.extend([
-        "-e", "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
-        "-e", "MSIX_DATA_PATH=/datastore/msix_data.json", 
-        "-e", "PCILEECH_HOST_CONTEXT_ONLY=1",
-        "-e", "PCILEECH_DISABLE_VFIO=1",
-        "-v", f"{str(datastore)}:/datastore",
-        "pcileech-fwgen",
-        "python3",
-        "-m",
-        "src.build",
-        "--bdf", args.bdf,
-        "--board", args.board,
-        "--output", "/datastore/output",
-    ])
+    cmd.extend(
+        [
+            "-e",
+            "DEVICE_CONTEXT_PATH=/datastore/device_context.json",
+            "-e",
+            "MSIX_DATA_PATH=/datastore/msix_data.json",
+            "-e",
+            "PCILEECH_HOST_CONTEXT_ONLY=1",
+            "-e",
+            "PCILEECH_DISABLE_VFIO=1",
+            "-v",
+            f"{datastore}:/datastore"
+            + (":ro" if getattr(args, "from_capture", None) else ""),
+            # The container renders from the capture, so it must honour the
+            # same placeholder-ID escape hatch as the host.
+            *(
+                ["-e", "PCILEECH_ALLOW_PLACEHOLDER_IDS=1"]
+                if os.environ.get("PCILEECH_ALLOW_PLACEHOLDER_IDS") == "1"
+                else []
+            ),
+            # The capture host lock compares against the host's machine ID.
+            *(
+                ["-v", "/etc/machine-id:/etc/machine-id:ro"]
+                if getattr(args, "from_capture", None)
+                else []
+            ),
+            "-v",
+            f"{str(output_dir)}:/artifacts",
+            "pcileech-fwgen",
+            "python3",
+            "-m",
+            "src.build",
+            "--bdf",
+            args.bdf,
+            "--board",
+            args.board,
+            "--output",
+            "/artifacts",
+            "--profile",
+            "0",
+        ]
+    )
+
+    if getattr(args, "from_capture", None):
+        cmd.extend(["--from-capture", "/datastore"])
+        if getattr(args, "accept_offline_risk", False):
+            cmd.append("--accept-offline-risk")
 
     # Forward optional CLI flags to container so behavior matches local mode
-    if getattr(args, "device_type", None):
-        cmd.extend(["--device-type", args.device_type])
-    if getattr(args, "enable_variance", False):
-        cmd.append("--enable-variance")
-    if getattr(args, "advanced_sv", False):
-        cmd.append("--advanced-sv")
     if getattr(args, "enable_error_injection", False):
         cmd.append("--enable-error-injection")
     if getattr(args, "no_mmio_learning", False):
@@ -1200,9 +1433,19 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     if getattr(args, "force_recapture", False):
         cmd.append("--force-recapture")
     if getattr(args, "donor_template", None):
-        cmd.extend(["--donor-template", args.donor_template])
+        template = Path(args.donor_template).expanduser().resolve()
+        image_index = cmd.index("pcileech-fwgen")
+        cmd[image_index:image_index] = ["-v", f"{template}:/donor/template.json:ro"]
+        cmd.extend(["--donor-template", "/donor/template.json"])
     if getattr(args, "generate_donor_template", None):
-        cmd.extend(["--output-template", "/datastore/donor_info_template.json"])
+        template_output = Path(args.generate_donor_template).expanduser().resolve()
+        template_output.parent.mkdir(parents=True, exist_ok=True)
+        image_index = cmd.index("pcileech-fwgen")
+        cmd[image_index:image_index] = [
+            "-v",
+            f"{template_output.parent}:/template-output",
+        ]
+        cmd.extend(["--output-template", f"/template-output/{template_output.name}"])
 
     log_info_safe(
         logger,
@@ -1234,7 +1477,7 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
                 safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
                 prefix="BUILD",
             )
-    
+
     return result
 
 
@@ -1252,7 +1495,7 @@ def run_local_templating(args):
         return 1
 
     datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # In local mode the process has direct access to the PCI device, so
@@ -1270,6 +1513,8 @@ def run_local_templating(args):
             board=args.board,
             output=str(output_dir),
             profile=getattr(args, "profile", 0),
+            from_capture=getattr(args, "from_capture", None),
+            accept_offline_risk=getattr(args, "accept_offline_risk", False),
             preload_msix=True,
             output_template=getattr(args, "generate_donor_template", None),
             donor_template=getattr(args, "donor_template", None),
@@ -1277,9 +1522,16 @@ def run_local_templating(args):
             vivado_jobs=getattr(args, "vivado_jobs", 4),
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
+            no_mmio_learning=getattr(args, "no_mmio_learning", False),
+            force_recapture=getattr(args, "force_recapture", False),
         )
 
         cfg = ConfigurationManager().create_from_args(cfg_args)
+        if bool(cfg.enable_profiling) != bool(cfg_args.profile):
+            raise ValueError(
+                "Effective profiling differs from the requested setting; "
+                "check VFIO and PCILEECH_PRODUCTION_DEFAULTS"
+            )
         builder = FirmwareBuilder(cfg)
         artifacts = builder.build()
     finally:
@@ -1294,7 +1546,7 @@ def run_local_templating(args):
         safe_format("Templating complete; artifacts: {n}", n=len(artifacts)),
         prefix="BUILD",
     )
-    
+
     # Generate COE visualization report
     try:
         from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
@@ -1305,7 +1557,7 @@ def run_local_templating(args):
             safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
             prefix="BUILD",
         )
-    
+
     return 0
 
 
@@ -1322,8 +1574,7 @@ def run_host_vivado(args):
         )
         return 1
 
-    datastore = Path(getattr(args, "datastore", "pcileech_datastore")).resolve()
-    output_dir = datastore / "output"
+    output_dir = build_output_directory(args)
     if not output_dir.exists():
         log_error_safe(
             logger,
@@ -1823,7 +2074,7 @@ def handle_donor_template(args):
         return 1
 
 
- 
+
 
 if __name__ == "__main__":
     sys.exit(main())

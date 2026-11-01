@@ -659,7 +659,7 @@ class SystemVerilogGenerator:
         )
 
     def generate_pcileech_integration_code(
-        self, vfio_context: Dict[str, Any]
+        self, vfio_context: Dict[str, Any], *, offline: bool = False
     ) -> str:
         """
         Legacy method for generating PCILeech integration code.
@@ -679,7 +679,7 @@ class SystemVerilogGenerator:
 
         # Additional environment-aware detection to reduce false negatives in
         # local builds where VFIO is active but flags weren't propagated.
-        if not has_direct:
+        if not has_direct and not offline:
             has_direct = self._detect_vfio_environment()
 
         try:
@@ -693,7 +693,7 @@ class SystemVerilogGenerator:
         except Exception:
             skip_check = False
 
-        if not (has_direct or was_verified or skip_check):
+        if not (offline or has_direct or was_verified or skip_check):
             raise TemplateRenderError(
                 "VFIO device access failed: no /dev/vfio/vfio or IOMMU group "
                 "devices detected, and vfio_binding_verified flag not set. "

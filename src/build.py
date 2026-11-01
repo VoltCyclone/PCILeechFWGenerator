@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -28,6 +29,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from pcileechfwgenerator.host_collect.snapshot import (
+    SnapshotError,
+    load_configured_snapshot,
+    load_snapshot,
+    verify_current_device,
+)
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -125,7 +132,7 @@ class BuildConfiguration:
     output_dir: Path
     enable_profiling: bool = True
     preload_msix: bool = True
-    profile_duration: int = DEFAULT_PROFILE_DURATION
+    profile_duration: float = DEFAULT_PROFILE_DURATION
     parallel_writes: bool = True
     max_workers: int = MAX_PARALLEL_FILE_WRITES
     output_template: Optional[str] = None
@@ -137,6 +144,17 @@ class BuildConfiguration:
     disable_vfio: bool = False
     enable_mmio_learning: bool = True
     force_recapture: bool = False
+    from_capture: Optional[Path] = None
+    # True only for an explicit --from-capture build; such builds are
+    # unverified and are the only ones that get the offline warnings and lock.
+    offline_input: bool = False
+    # Set only after the user accepted the unverified-build risk.
+    offline_risk_accepted: bool = False
+
+
+def _in_container() -> bool:
+    """Whether this process runs inside the Stage 2 build container."""
+    return Path("/run/.containerenv").exists() or Path("/.dockerenv").exists()
 
 
 @dataclass(slots=True)
@@ -259,128 +277,31 @@ class MSIXManager:
         self.logger = logger or get_logger(self.__class__.__name__)
 
     def preload_data(self) -> MSIXData:
-        """Read MSI-X data from sysfs config space. Returns empty on failure."""
+        """Load a validated capture or read live config; invalid captures fail closed."""
+        disable_vfio = bool(os.environ.get("DEVICE_CONTEXT_PATH")) or any(
+            os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+            for name in ("PCILEECH_DISABLE_VFIO", "PCILEECH_HOST_CONTEXT_ONLY")
+        )
+        # Keep validation outside the optional live-probe exception handler.
+        snapshot = load_configured_snapshot(self.bdf, include_msix_only=True)
+        if snapshot is not None:
+            if not disable_vfio and verify_current_device(snapshot) == "absent":
+                # A live run needs the device; only offline builds may proceed.
+                raise SnapshotError(
+                    "the donor device is not present for a live build"
+                )
+            msix_info = snapshot.msix["msix_info"]
+            if msix_info and int(msix_info.get("table_size", 0)) > 0:
+                return MSIXData(
+                    preloaded=True,
+                    msix_info=msix_info,
+                    config_space_hex=snapshot.config_space.hex(),
+                    config_space_bytes=snapshot.config_space,
+                )
+            return MSIXData(preloaded=False)
+        if disable_vfio:
+            return MSIXData(preloaded=False)
         try:
-            # In host-context-only mode, never touch sysfs/VFIO;
-            # use pre-saved files only
-            disable_vfio = str(os.environ.get("PCILEECH_DISABLE_VFIO", "")).lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            ) or str(os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "")).lower() in (
-                "1",
-                "true",
-                "yes",
-                "on",
-            )
-            if disable_vfio:
-                msix_path = os.environ.get(
-                    "MSIX_DATA_PATH",
-                    "/app/output/msix_data.json",
-                )
-                try:
-                    if msix_path and os.path.exists(msix_path):
-                        with open(msix_path, "r") as f:
-                            payload = json.load(f)
-                        # Support different shapes
-                        msix_info = payload.get("capability_info") or payload.get(
-                            "msix_info"
-                        )
-                        cfg_hex = payload.get("config_space_hex")
-                        cfg_bytes = bytes.fromhex(cfg_hex) if cfg_hex else None
-                        if not msix_info and cfg_hex:
-                            msix_info = parse_msix_capability(cfg_hex)
-                        if msix_info and int(msix_info.get("table_size", 0)) > 0:
-                            log_info_safe(
-                                self.logger,
-                                safe_format(
-                                    "Loaded MSI-X from {path} ({n} vectors)",
-                                    path=msix_path,
-                                    n=msix_info.get("table_size", 0),
-                                ),
-                                prefix="MSIX",
-                            )
-                            return MSIXData(
-                                preloaded=True,
-                                msix_info=msix_info,
-                                config_space_hex=cfg_hex,
-                                config_space_bytes=cfg_bytes,
-                            )
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Failed to load MSI-X from host file: {err}", err=str(e)
-                        ),
-                        prefix="MSIX",
-                    )
-                # Do not attempt sysfs/VFIO in strict mode
-                log_info_safe(
-                    self.logger,
-                    (
-                        "MSI-X preload: host-context-only mode active; "
-                        "skipping sysfs/VFIO"
-                    ),
-                    prefix="MSIX",
-                )
-                return MSIXData(preloaded=False)
-            log_info_safe(self.logger, "Preloading MSI-X data before VFIO binding")
-
-            # 1) Prefer host-provided JSON (mounted into container) if available
-            #    This preserves MSI-X context when container lacks sysfs/VFIO access.
-            try:
-                msix_json_path = os.environ.get(
-                    "MSIX_DATA_PATH", "/app/output/msix_data.json"
-                )
-                if msix_json_path and os.path.exists(msix_json_path):
-                    with open(msix_json_path, "r") as f:
-                        payload = json.load(f)
-
-                    # Warn if BDF in MSI-X data doesn't match current device
-                    bdf_in = payload.get("bdf")
-                    if bdf_in and bdf_in != self.config.bdf:
-                        log_warning_safe(
-                            self.logger,
-                            safe_format(
-                                "MSI-X data BDF {data_bdf} does not match "
-                                "current device BDF {dev_bdf}",
-                                data_bdf=bdf_in,
-                                dev_bdf=self.config.bdf,
-                            ),
-                            prefix="MSIX",
-                        )
-                    msix_info = payload.get("msix_info")
-                    cfg_hex = payload.get("config_space_hex")
-                    if msix_info and isinstance(msix_info, dict):
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Loaded MSI-X from {path} ({vectors} vectors)",
-                                path=msix_json_path,
-                                vectors=msix_info.get("table_size", 0),
-                            ),
-                            prefix="MSIX",
-                        )
-                        return MSIXData(
-                            preloaded=True,
-                            msix_info=msix_info,
-                            config_space_hex=cfg_hex,
-                            config_space_bytes=(
-                                bytes.fromhex(cfg_hex) if cfg_hex else None
-                            ),
-                        )
-            except Exception as e:
-                # Non-fatal; fall back to sysfs path
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "MSI-X JSON ingestion skipped: {err}",
-                        err=str(e),
-                    ),
-                    prefix="MSIX",
-                )
-
             config_space_path = CONFIG_SPACE_PATH_TEMPLATE.format(self.bdf)
             if not os.path.exists(config_space_path):
                 log_warning_safe(
@@ -724,10 +645,37 @@ class ConfigurationManager:
         enable_profiling = args.profile > 0
         preload_msix = getattr(args, "preload_msix", True)
 
-        vfio_decision = make_vfio_decision(args, logger=self.logger)
+        from_capture = getattr(args, "from_capture", None)
+        offline_risk_accepted = False
+        if from_capture:
+            from .host_collect.offline import load_offline_capture
+            from .utils.vfio_decision import VFIODecision
+
+            snapshot = load_offline_capture(Path(from_capture), args.bdf)
+            if (
+                args.profile
+                or getattr(args, "donor_template", None)
+                or getattr(args, "force_recapture", False)
+            ):
+                raise ConfigurationError(
+                    "Offline builds cannot profile, recapture or override donor data"
+                )
+            from .host_collect.offline_notice import confirm_offline_build
+
+            accepted = bool(getattr(args, "accept_offline_risk", False))
+            # A forwarded acceptance already showed the warning on the host.
+            confirm_offline_build(accepted, warn=not accepted)
+            offline_risk_accepted = True
+            args.bdf = snapshot.identity.bdf
+            vfio_decision = VFIODecision(
+                False, ["explicit offline capture"], "offline_capture"
+            )
+        else:
+            vfio_decision = make_vfio_decision(args, logger=self.logger)
         disable_vfio = not vfio_decision.enabled
         if use_prod:
-            enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
+            if not getattr(args, "profile_explicit", True):
+                enable_profiling = PRODUCTION_DEFAULTS.get("BEHAVIOR_PROFILING", True)
             preload_msix = PRODUCTION_DEFAULTS.get("MSIX_CAPABILITY", True)
 
         if disable_vfio:
@@ -755,6 +703,9 @@ class ConfigurationManager:
             disable_vfio=disable_vfio,
             enable_mmio_learning=enable_mmio_learning,
             force_recapture=force_recapture,
+            from_capture=Path(from_capture).resolve() if from_capture else None,
+            offline_input=bool(from_capture),
+            offline_risk_accepted=offline_risk_accepted,
         )
 
     def extract_device_config(
@@ -862,16 +813,16 @@ class ConfigurationManager:
 
     def _validate_args(self, args: argparse.Namespace) -> None:
         """Validate command line arguments."""
-        if not self._is_valid_bdf(args.bdf):
+        if not getattr(args, "from_capture", None) and not self._is_valid_bdf(args.bdf):
             raise ConfigurationError(
                 f"Invalid BDF format: {args.bdf}. "
                 "Expected format: XXXX:XX:XX.X (e.g., 0000:03:00.0)"
             )
 
-        if args.profile < 0:
+        if not math.isfinite(args.profile) or args.profile < 0:
             raise ConfigurationError(
                 safe_format(
-                    "Invalid profile duration: {profile}. Must be >= 0",
+                    "Invalid profile duration: {profile}. Must be >= 0 and finite",
                     profile=args.profile,
                 )
             )
@@ -879,7 +830,7 @@ class ConfigurationManager:
     def _is_valid_bdf(self, bdf: str) -> bool:
         """Check if BDF string matches XXXX:XX:XX.X format."""
         pattern = r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$"
-        return bool(re.match(pattern, bdf))
+        return isinstance(bdf, str) and bool(re.match(pattern, bdf))
 
 
 class FirmwareBuilder:
@@ -898,6 +849,93 @@ class FirmwareBuilder:
     ):
         """Initialize the firmware builder with dependency injection."""
         self.config = config
+        self.offline_capture = None
+        self.capture_mode = "offline"
+        # Legacy host-context-only flags are aliases for the same strict reader,
+        # never permission to probe hardware when saved data is incomplete.
+        if config.disable_vfio and not config.from_capture:
+            # The env-var capture path exists for the live container stage
+            # only; elsewhere it would bypass --from-capture handling.
+            if not _in_container():
+                raise ConfigurationError(
+                    "Host-context-only mode is internal to container builds; "
+                    "use --from-capture"
+                )
+            default_context = Path(
+                os.environ.get("MSIX_DATA_PATH", "/app/output/msix_data.json")
+            ).with_name("device_context.json")
+            context_path = Path(
+                os.environ.get("DEVICE_CONTEXT_PATH", str(default_context))
+            )
+            msix_path = Path(
+                os.environ.get(
+                    "MSIX_DATA_PATH", str(context_path.with_name("msix_data.json"))
+                )
+            )
+            if (
+                context_path.name != "device_context.json"
+                or msix_path.name != "msix_data.json"
+                or context_path.parent.resolve() != msix_path.parent.resolve()
+            ):
+                raise ConfigurationError(
+                    "Host-context-only mode requires a canonical capture pair; "
+                    "use --from-capture"
+                )
+            # The live container stage cannot size BARs or read the device, so
+            # it renders from the host-verified capture with the same validated
+            # renderer as offline builds (but no unverified-build safeguards).
+            snapshot = load_snapshot(context_path, msix_path, config.bdf)
+            from .host_collect.offline import (
+                validate_offline_snapshot,
+                validate_render_request,
+            )
+
+            try:
+                validate_offline_snapshot(snapshot)
+                validate_render_request(
+                    snapshot,
+                    context_path.parent,
+                    config.output_dir,
+                    config.output_template,
+                )
+            except ConfigurationError as error:
+                raise ConfigurationError(
+                    "Container builds render from the saved capture, which this "
+                    f"renderer cannot handle ({error}); rerun with "
+                    "--container-mode local"
+                ) from None
+            self.offline_capture = snapshot
+            self.capture_mode = "container"
+            config.enable_mmio_learning = False
+        if config.from_capture:
+            config.offline_input = True
+            if not config.offline_risk_accepted:
+                raise ConfigurationError(
+                    "Offline builds require accepting the unverified-build risk "
+                    "(--accept-offline-risk or the interactive prompt)"
+                )
+            from .host_collect.offline import (
+                load_offline_capture,
+                validate_render_request,
+            )
+
+            self.offline_capture = load_offline_capture(config.from_capture, config.bdf)
+            if (
+                config.enable_profiling
+                or config.donor_template
+                or config.force_recapture
+            ):
+                raise ConfigurationError(
+                    "Offline configuration requests live collection or donor overrides"
+                )
+            validate_render_request(
+                self.offline_capture,
+                config.from_capture,
+                config.output_dir,
+                config.output_template,
+            )
+            config.disable_vfio = True
+            config.enable_mmio_learning = False
         self.logger = logger or get_logger(self.__class__.__name__)
 
         self.build_logger = get_build_logger(self.logger)
@@ -981,6 +1019,11 @@ class FirmwareBuilder:
             self.build_logger.push_phase("stale_state_cleanup")
             self._clean_stale_build_state()
             self.build_logger.pop_phase("stale_state_cleanup")
+
+            if self.config.offline_input and self.offline_capture is not None:
+                from .host_collect.offline_notice import write_build_warning
+
+                write_build_warning(self.config.output_dir, self.offline_capture)
 
             self.build_logger.push_phase("template_validation")
             self._validate_board_template()
@@ -1240,7 +1283,12 @@ class FirmwareBuilder:
             PCILeechGenerator,
         )
 
-        preloaded_config_space = self._load_preloaded_config_space()
+        offline_capture = getattr(self, "offline_capture", None)
+        preloaded_config_space = (
+            offline_capture.config_space
+            if offline_capture
+            else self._load_preloaded_config_space()
+        )
 
         if preloaded_config_space:
             log_info_safe(
@@ -1279,10 +1327,17 @@ class FirmwareBuilder:
             template_dir=None,
             output_dir=self.config.output_dir,
             enable_behavior_profiling=self.config.enable_profiling,
+            behavior_capture_duration=self.config.profile_duration,
             enable_error_injection=getattr(
                 self.config, "enable_error_injection", False
             ),
             preloaded_config_space=preloaded_config_space,
+            offline_capture=offline_capture,
+            capture_mode=getattr(self, "capture_mode", "offline"),
+            enable_mmio_learning=(
+                False if offline_capture else self.config.enable_mmio_learning
+            ),
+            force_recapture=self.config.force_recapture,
         )
         # Explicitly relax VFIO when host data is provided or VFIO is disabled
         # Note: Container environments typically have VFIO warnings due to
@@ -1339,301 +1394,30 @@ class FirmwareBuilder:
         return None
 
     def _load_preloaded_config_space(self) -> Optional[bytes]:
-        """Load preloaded config space from host collection."""
-        context_path = os.environ.get(
-            "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
-        )
-        msix_path = os.environ.get("MSIX_DATA_PATH", "/app/output/msix_data.json")
-
-        if not context_path:
-            return None
-
-        if not os.path.exists(context_path):
-            return None
-
-        try:
-            with open(context_path, "r") as f:
-                payload = json.load(f)
-
-            if not isinstance(payload, dict):
-                log_warning_safe(
-                    self.logger,
-                    "Device context file does not contain a valid dictionary",
-                    prefix="HOST_CFG",
-                )
-                return None
-
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "Loaded device context with keys: {keys}", keys=list(payload.keys())
-                ),
-                prefix="HOST_CFG",
-            )
-
-        except json.JSONDecodeError as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Device context file is not valid JSON: {path} - {err}",
-                    path=context_path,
-                    err=str(e),
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-        except (OSError, IOError) as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Failed to read device context file: {path} - {err}",
-                    path=context_path,
-                    err=str(e),
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-
-        config_space_hex = payload.get("config_space_hex")
-
-        metadata = payload.get("collection_metadata", {})
-        expected_length = metadata.get("config_space_hex_length")
-        if expected_length and config_space_hex:
-            actual_length = len(config_space_hex)
-            if actual_length != expected_length:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Config space hex length mismatch: expected {expected}, "
-                        "got {actual} (possible corruption)",
-                        expected=expected_length,
-                        actual=actual_length,
-                    ),
-                    prefix="HOST_CFG",
-                )
-
-        # Also support nested path when full template_context was saved by host
-        if not config_space_hex:
-            try:
-                tc = payload.get("template_context") or {}
-                if isinstance(tc, dict):
-                    config_space_hex = tc.get("config_space_hex")
-            except (AttributeError, KeyError, TypeError) as e:
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "Template context extraction failed: {err}", err=str(e)
-                    ),
-                    prefix="HOST_CFG",
-                )
-                config_space_hex = None
-            except Exception as e:
-                log_debug_safe(
-                    self.logger,
-                    safe_format(
-                        "Unexpected error in template context extraction: {err}",
-                        err=str(e),
-                    ),
-                    prefix="HOST_CFG",
-                )
-                config_space_hex = None
-
-        if config_space_hex:
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "Loaded config_space_hex from JSON: {length} characters",
-                    length=len(config_space_hex),
-                ),
-                prefix="HOST_CFG",
-            )
-
-            if len(config_space_hex) < 512:  # < 256 bytes, likely truncated
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Config space hex appears truncated: {length} chars "
-                        "(expected ~8192 for 4096 bytes)",
-                        length=len(config_space_hex),
-                    ),
-                    prefix="HOST_CFG",
-                )
-                if msix_path and os.path.exists(msix_path):
-                    try:
-                        with open(msix_path, "r") as f:
-                            msix_payload = json.load(f)
-                        alt_hex = msix_payload.get("config_space_hex")
-                        if alt_hex and len(alt_hex) > len(config_space_hex):
-                            log_info_safe(
-                                self.logger,
-                                "Using longer config_space_hex from MSIX data file",
-                                prefix="HOST_CFG",
-                            )
-                            config_space_hex = alt_hex
-                    except Exception as e:
-                        log_debug_safe(
-                            self.logger,
-                            safe_format(
-                                "Failed to load alternative config from MSIX: {err}",
-                                err=str(e),
-                            ),
-                            prefix="HOST_CFG",
-                        )
-        if not config_space_hex:
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "No config_space_hex in device context; trying MSI-X: {path}",
-                    path=context_path,
-                ),
-                prefix="HOST_CFG",
-            )
-            try:
-                if msix_path and os.path.exists(msix_path):
-                    with open(msix_path, "r") as f:
-                        msix_payload = json.load(f)
-                    config_space_hex = msix_payload.get("config_space_hex")
-                    if config_space_hex:
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Loaded config_space_hex from MSI-X ({size} chars)",
-                                size=len(config_space_hex),
-                            ),
-                            prefix="HOST_CFG",
-                        )
-                    else:
-                        log_debug_safe(
-                            self.logger,
-                            safe_format(
-                                "MSI-X payload missing config_space_hex: {path}",
-                                path=msix_path,
-                            ),
-                            prefix="HOST_CFG",
-                        )
-                else:
-                    log_debug_safe(
-                        self.logger,
-                        safe_format(
-                            "MSI-X data file not found at {path}",
-                            path=msix_path,
-                        ),
-                        prefix="HOST_CFG",
-                    )
-            except json.JSONDecodeError as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "MSI-X data file invalid JSON: {path} - {err}",
-                        path=msix_path,
-                        err=str(e),
-                    ),
-                    prefix="HOST_CFG",
-                )
-            except (OSError, IOError) as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to read MSI-X data file: {path} - {err}",
-                        path=msix_path,
-                        err=str(e),
-                    ),
-                    prefix="HOST_CFG",
-                )
-            if not config_space_hex:
-                return None
-
-        try:
-            if len(config_space_hex) < 128:  # < 64 bytes
-                log_error_safe(
-                    self.logger,
-                    "Config space hex too short (< 64 bytes), corrupted data",
-                    prefix="HOST_CFG",
-                )
-                return None
-
-            config_space_bytes = bytes.fromhex(config_space_hex)
-        except ValueError as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Invalid hex string in config_space_hex: {err}", err=str(e)
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-
-        if len(config_space_bytes) < 64:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Config space too small: {size} bytes (minimum 64 expected)",
-                    size=len(config_space_bytes),
-                ),
-                prefix="HOST_CFG",
-            )
-            return None
-
-        log_info_safe(
-            self.logger,
-            safe_format(
-                "Loaded preloaded config space from host: {size} bytes",
-                size=len(config_space_bytes),
-            ),
-            prefix="HOST_CFG",
-        )
-        return config_space_bytes
+        """Load config only from a complete capture matching the requested donor."""
+        snapshot = load_configured_snapshot(self.config.bdf)
+        return snapshot.config_space if snapshot is not None else None
 
     def _check_host_collected_context(self) -> Optional[Dict[str, Any]]:
-        """Check for complete device context collected on host."""
-        try:
-            context_path = os.environ.get(
-                "DEVICE_CONTEXT_PATH", "/app/output/device_context.json"
-            )
-            if context_path and os.path.exists(context_path):
-                with open(context_path, "r") as f:
-                    payload = json.load(f)
+        """Return validated host context; rejected captures must stop the build."""
+        if getattr(self, "offline_capture", None) is not None:
+            return None
 
-                # Check for nested template_context (old format)
-                # or use payload directly
-                template_context = payload.get("template_context")
-                if template_context:
-                    log_info_safe(
-                        self.logger,
-                        safe_format(
-                            "Loaded complete device context from host: "
-                            "{keys} keys available",
-                            keys=len(template_context.keys()),
-                        ),
-                        prefix="HOST_CTX",
-                    )
-                    return template_context
-
-                # New format - device IDs directly in payload
-                if "config_space_hex" in payload and "vendor_id" in payload:
-                    log_info_safe(
-                        self.logger,
-                        safe_format(
-                            "Loaded device context with device IDs from host: "
-                            "VID=0x{vid:04x} DID=0x{did:04x}",
-                            vid=payload.get("vendor_id", 0),
-                            did=payload.get("device_id", 0),
-                        ),
-                        prefix="HOST_CTX",
-                    )
-                    return payload
-
-        except Exception as e:
-            log_debug_safe(
-                self.logger,
-                safe_format("Host context check failed: {err}", err=str(e)),
-                prefix="HOST_CTX",
-            )
-
+        snapshot = load_configured_snapshot(self.config.bdf)
+        if snapshot is None:
+            return None
+        # Only a capture carrying a rendered template context may skip the
+        # generator; plain identity captures must be rendered.
+        template_context = snapshot.context.get("template_context")
+        if isinstance(template_context, dict) and template_context:
+            return template_context
         return None
 
     def _preload_msix(self) -> MSIXData:
         """Preload MSI-X data if configured."""
+        if getattr(self, "offline_capture", None) is not None:
+            return MSIXData(preloaded=False)
+
         if self.config.preload_msix:
             return self.msix_manager.preload_data()
         return MSIXData(preloaded=False)
@@ -2023,6 +1807,15 @@ class FirmwareBuilder:
                 prefix="BUILD",
             )
             return
+        if getattr(self, "offline_capture", None) is not None:
+            from .host_collect.offline import capture_provenance
+
+            device_info = {
+                **device_info,
+                "input_capture": capture_provenance(
+                    self.offline_capture, getattr(self, "capture_mode", "offline")
+                ),
+            }
         self.file_manager.write_json("device_info.json", device_info)
 
     def _store_device_config(self, result: Dict[str, Any]) -> None:
@@ -2141,7 +1934,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
     parser.add_argument(
         "--bdf",
-        required=True,
         help="PCI Bus/Device/Function address (e.g., 0000:03:00.0)",
     )
     parser.add_argument(
@@ -2151,8 +1943,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        type=int,
-        default=DEFAULT_PROFILE_DURATION,
+        type=float,
+        default=None,
         metavar="SECONDS",
         help=(
             "Capture behavior profile for N seconds (default: "
@@ -2173,6 +1965,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         dest="preload_msix",
         default=True,
         help="Disable preloading of MSI-X data before VFIO binding",
+    )
+    parser.add_argument("--from-capture", help="Validated offline capture directory")
+    parser.add_argument(
+        "--accept-offline-risk",
+        action="store_true",
+        help="Accept the risks of an unverified --from-capture build without a prompt",
     )
     parser.add_argument(
         "--host-context-only",
@@ -2263,7 +2061,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Suppress the reproduction command hint on failure.",
     )
 
-    return parser.parse_args(argv)
+    parsed = parser.parse_args(argv)
+    parsed.profile_explicit = parsed.profile is not None
+    if parsed.profile is None:
+        parsed.profile = 0 if parsed.from_capture else DEFAULT_PROFILE_DURATION
+    return parsed
 
 
 def main(argv: Optional[List[str]] = None) -> int:

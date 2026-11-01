@@ -55,5 +55,10 @@ Out of scope:
   what the tool itself assumes.
 - Misuse of generated firmware against systems you don't own or have permission
   to test — that's a policy issue, not a vulnerability.
+- Requests to remove the offline-build warnings, the risk-acceptance prompt or
+  the collecting-host lock on captures. These are deliberate safeguards for
+  builds from unverified captures, documented in
+  [docs/development/OFFLINE_CAPTURE.md](docs/development/OFFLINE_CAPTURE.md);
+  the lock is known not to be tamper-proof.
 
 [advisories]: https://github.com/VoltCyclone/PCILeechFWGenerator/security/advisories/new

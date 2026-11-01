@@ -26,8 +26,11 @@ class _FakeConfigSpaceManager:
         self.strict_vfio = strict_vfio
 
     def read_vfio_config_space(self) -> bytes:
-        # 256 bytes of deterministic data
-        return bytes([i % 256 for i in range(256)])
+        # In-memory header consistent with extracted_info below.
+        data = bytearray(256)
+        data[:4] = bytes.fromhex("de10d71a")
+        data[8:12] = bytes.fromhex("a1000203")
+        return bytes(data)
 
     def extract_device_info(self, config_space_bytes: bytes) -> Dict[str, Any]:
         return {
@@ -182,7 +185,9 @@ def test_save_collected_data_writes_both_files(tmp_path: Path, logger):
 
     data = {
         "bdf": "0000:03:00.0",
-        "config_space_hex": "01020304",
+        "config_space_hex": _FakeConfigSpaceManager("0000:03:00.0")
+        .read_vfio_config_space()
+        .hex(),
         "device_info": {"vendor_id": 0x10DE, "device_id": 0x1AD7},
         "msix_data": {
             "msix_info": {
@@ -214,3 +219,41 @@ def test_save_collected_data_writes_both_files(tmp_path: Path, logger):
     msix_payload = json.loads(msix_path.read_text())
     assert msix_payload["bdf"] == "0000:03:00.0"
     assert msix_payload["msix_info"]["table_size"] == 4
+
+
+def test_full_collector_publishes_serializable_msix_capture(
+    monkeypatch, tmp_path, logger
+):
+    import pcileechfwgenerator.cli.host_device_collector as hdc
+    from pcileechfwgenerator.host_collect.snapshot import load_snapshot
+
+    monkeypatch.setattr(hdc, "VFIOBinder", _DummyBinder)
+    monkeypatch.setattr(hdc, "ConfigSpaceManager", _FakeConfigSpaceManager)
+    monkeypatch.setattr(hdc, "DeviceInfoLookup", _FakeDeviceInfoLookup)
+    monkeypatch.setattr(hdc, "parse_msix_capability", lambda _: {"table_size": 4})
+    collector = HostDeviceCollector("03:00.0", logger, enable_mmio_learning=False)
+    result = collector.collect_device_context(tmp_path)
+    snapshot = load_snapshot(
+        tmp_path / "device_context.json", tmp_path / "msix_data.json", "03:00.0"
+    )
+    assert result == snapshot.context
+    assert snapshot.msix["msix_info"]["table_size"] == 4
+    assert "config_space_bytes" not in result["msix_data"]
+
+
+def test_full_collector_rejects_occupied_destination_before_binding(
+    monkeypatch, tmp_path
+):
+    from unittest.mock import Mock
+    from pcileechfwgenerator.host_collect.snapshot import SnapshotError
+
+    existing = tmp_path / "device_context.json"
+    existing.write_bytes(b"previous capture")
+    binder = Mock(side_effect=AssertionError("unexpected bind"))
+    monkeypatch.setattr(
+        "pcileechfwgenerator.cli.host_device_collector.VFIOBinder", binder
+    )
+    with pytest.raises(SnapshotError, match="already contains"):
+        HostDeviceCollector("03:00.0").collect_device_context(tmp_path)
+    binder.assert_not_called()
+    assert existing.read_bytes() == b"previous capture"

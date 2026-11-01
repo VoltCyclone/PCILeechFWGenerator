@@ -86,24 +86,19 @@ def test_msix_json_ingestion_via_env(tmp_path, monkeypatch):
         "enabled": True,
         "function_mask": False,
     }
-    payload = {
-        "bdf": "0000:00:00.0",
-        "msix_info": msix_info,
-        "config_space_hex": "00" * 256,
-    }
-    json_path = tmp_path / "msix_data.json"
-    json_path.write_text(__import__("json").dumps(payload))
+    from tests.snapshot_helpers import config_bytes, make_snapshot
 
-    # Point manager to this JSON and make sysfs path look missing
+    make_snapshot(tmp_path, bdf="0000:00:00.0", msix_info=msix_info)
+    json_path = tmp_path / "msix_data.json"
     monkeypatch.setenv("MSIX_DATA_PATH", str(json_path))
-    monkeypatch.setattr("os.path.exists", lambda p: p == str(json_path))
+    monkeypatch.setenv("PCILEECH_HOST_CONTEXT_ONLY", "1")
 
     mgr = MSIXManager("0000:00:00.0")
     data = mgr.preload_data()
 
     assert data.preloaded is True
     assert data.msix_info == msix_info
-    assert data.config_space_hex == payload["config_space_hex"]
+    assert data.config_space_hex == config_bytes().hex()
 
 
 import os

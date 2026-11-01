@@ -103,7 +103,7 @@ class UICoordinator:
     def update_device_table(self) -> None:
         """Update the device table with current filtered devices"""
         device_table = self.app.query_one("#device-table")
-        
+
         # Use VirtualDeviceTable's set_data method for proper virtualization
         # The VirtualDeviceTable will handle clearing and rendering efficiently
         device_table.set_data(self.app.filtered_devices)
@@ -155,16 +155,10 @@ class UICoordinator:
             self.app.log_notification("Build already in progress", severity="warning")
             return
 
-        # Check donor module status before starting build if donor_dump is enabled
-        if (
-            self.app.current_config.donor_dump
-            and not self.app.current_config.local_build
-        ):
-            if not await self._validate_donor_module():
-                self.app.log_notification("Build cancelled", severity="warning")
-                return
-
         try:
+            from .build_contract import validate_build_configuration
+
+            validate_build_configuration(self.app.current_config)
             # Update button states
             self.app.query_one("#start-build").disabled = True
             self.app.query_one("#stop-build").disabled = False
@@ -541,8 +535,9 @@ class UICoordinator:
                 button.label = "🚫 Disable Donor Dump"
                 button.variant = "error"
             else:
-                button.label = "🎯 Enable Donor Dump"
-                button.variant = "success"
+                button.label = "Donor Dump Unavailable"
+                button.variant = "default"
+            button.disabled = not self.app.current_config.donor_dump
         except Exception:
             # Button might not exist in tests
             pass

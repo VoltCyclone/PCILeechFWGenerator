@@ -6,10 +6,12 @@ This module provides services for validating and building firmware for devices.
 
 import asyncio
 import os
+from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 from ..models.device import PCIDevice
-from ..models.progress import BuildProgress, BuildStage
+from ..models.progress import BuildProgress
+from .build_contract import resolve_datastore_directory, validate_build_configuration
 
 
 class BuildManager:
@@ -37,6 +39,10 @@ class BuildManager:
                 - List[str]: List of validation messages
         """
         validation_messages = []
+        try:
+            validate_build_configuration(self.app.current_config)
+        except ValueError as exc:
+            validation_messages.append(str(exc))
 
         # Check if device is suitable for firmware generation
         if not device.is_suitable:
@@ -91,124 +97,42 @@ class BuildManager:
                     If unsuccessful, an error message
         """
         try:
-            # Create output directory if it doesn't exist
-            os.makedirs(output_path, exist_ok=True)
-
-            # Validate configuration first
-            is_valid, validation_messages = await self.validate_configuration(device)
+            is_valid, messages = await self.validate_configuration(device)
             if not is_valid:
-                return False, "\n".join(validation_messages)
+                return False, "\n".join(messages)
+            config = self.app.current_config.copy()
+            config.output_directory = output_path
+            output = Path(output_path).expanduser().resolve()
+            datastore = resolve_datastore_directory(config)
 
-            # Get configuration from the current app state
-            config = self.app.current_config
-
-            # Initialize build progress with the environment validation stage
-            build_progress = BuildProgress(
-                stage=BuildStage.ENVIRONMENT_VALIDATION,
-                completion_percent=0.0,
-                current_operation="Initializing build environment",
-            )
-            self.app.build_progress = build_progress
-
-            # Update UI with initial progress
-            self.app.ui_coordinator.update_build_progress_display()
-
-            # do this inside the function to avoid circular imports
-            try:
-                from pcileechfwgenerator.build import (
-                    BuildConfiguration as CoreBuildConfig,
-                )
-                from pcileechfwgenerator.build import (
-                    FirmwareBuilder,
-                )
-            except ImportError as e:
-                build_progress.add_error(f"Failed to import build system: {str(e)}")
-                return False, f"Build system import failed: {str(e)}"
-
-            # Start with environment validation stage
-            build_progress.stage = BuildStage.ENVIRONMENT_VALIDATION
-            build_progress.completion_percent = 10.0
-            build_progress.current_operation = "Setting up build configuration"
-            self.app.ui_coordinator.update_build_progress_display()
-
-            # Prepare build arguments
-            try:
-                # Map TUI configuration to core build configuration
-                core_args = {
-                    "bdf": device.bdf,
-                    "board": config.board_type,
-                    "output_dir": output_path,
+            def snapshot() -> Dict[str, Path]:
+                return {
+                    str(path.relative_to(output)): path
+                    for path in output.rglob("*")
+                    if path.is_file() and not path.resolve().is_relative_to(datastore)
                 }
 
-                # Add optional parameters if configured
-                if config.donor_info_file:
-                    core_args["donor_info_file"] = config.donor_info_file
+            existing = await asyncio.to_thread(snapshot)
 
-                if config.behavior_profiling:
-                    core_args["profile_duration"] = config.profile_duration
-
-                # Set build flags based on configuration
-                if hasattr(config, "local_build") and config.local_build:
-                    core_args["local_build"] = True
-
-                if hasattr(config, "skip_board_check") and config.skip_board_check:
-                    core_args["skip_board_check"] = True
-
-                # Create the core build configuration
-                core_config = CoreBuildConfig(**core_args)
-
-                # Update progress
-                build_progress.completion_percent = 15.0
-                build_progress.current_operation = "Creating firmware builder"
+            def on_progress(progress: BuildProgress) -> None:
+                self.app.build_progress = progress
                 self.app.ui_coordinator.update_build_progress_display()
 
-                # Create the firmware builder
-                builder = FirmwareBuilder(core_config)
-
-                # Move to device analysis stage
-                build_progress.stage = BuildStage.DEVICE_ANALYSIS
-                build_progress.completion_percent = 0.0
-                build_progress.current_operation = "Analyzing device configuration"
-                build_progress.mark_stage_complete(BuildStage.ENVIRONMENT_VALIDATION)
-                self.app.ui_coordinator.update_build_progress_display()
-
-                # Run the actual build process
-                try:
-                    # Execute the build off the event loop so the TUI keeps
-                    # repainting during long Vivado synthesis runs.
-                    artifacts = await asyncio.to_thread(builder.build)
-
-                    # Mark the build as complete
-                    build_progress.stage = BuildStage.BITSTREAM_GENERATION
-                    build_progress.completion_percent = 100.0
-                    build_progress.current_operation = "Build completed successfully"
-                    build_progress.mark_stage_complete(BuildStage.DEVICE_ANALYSIS)
-                    build_progress.mark_stage_complete(BuildStage.REGISTER_EXTRACTION)
-                    build_progress.mark_stage_complete(
-                        BuildStage.SYSTEMVERILOG_GENERATION
-                    )
-                    build_progress.mark_stage_complete(BuildStage.VIVADO_SYNTHESIS)
-                    build_progress.mark_stage_complete(BuildStage.BITSTREAM_GENERATION)
-                    self.app.ui_coordinator.update_build_progress_display()
-
-                    # Return success with artifact paths
-                    artifact_dict = {os.path.basename(path): path for path in artifacts}
-                    return True, artifact_dict
-
-                except Exception as build_error:
-                    build_progress.add_error(
-                        f"Build process failed: {str(build_error)}"
-                    )
-                    self.app.ui_coordinator.update_build_progress_display()
-                    return False, f"Build execution failed: {str(build_error)}"
-
-            except Exception as config_error:
-                build_progress.add_error(f"Configuration error: {str(config_error)}")
-                self.app.ui_coordinator.update_build_progress_display()
-                return False, f"Build configuration failed: {str(config_error)}"
-
-        except Exception as e:
-            return False, f"Build failed: {str(e)}"
+            success = await self.app.build_orchestrator.start_build(
+                device, config, on_progress
+            )
+            if not success:
+                return False, "Build cancelled"
+            # Undo owns only newly created files, never pre-existing outputs.
+            created = await asyncio.to_thread(snapshot)
+            artifacts = {
+                name: str(path)
+                for name, path in created.items()
+                if name not in existing
+            }
+            return True, artifacts
+        except Exception as exc:
+            return False, f"Build failed: {exc}"
 
     async def clean_build_artifacts(self, artifacts: Dict[str, str]) -> bool:
         """

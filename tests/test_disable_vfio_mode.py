@@ -4,6 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from pcileechfwgenerator.exceptions import ConfigurationError
+from tests.snapshot_helpers import make_snapshot
+from tests.snapshot_helpers import offline_fixture
+
 from pcileechfwgenerator.build import (
     BuildConfiguration,
     ConfigurationManager,
@@ -97,7 +101,8 @@ class TestDisableVFIOConfig:
 
 
 class TestPreloadedConfigSpace:
-    def test_loads_from_template_context_hex(self, monkeypatch, tmp_path):
+
+    def test_legacy_nested_context_is_rejected(self, monkeypatch, tmp_path):
         # Prepare minimal device_context.json with nested
         # template_context.config_space_hex
         hex_str = '00' * 128  # 128 bytes
@@ -125,10 +130,8 @@ class TestPreloadedConfigSpace:
             enable_error_injection=False,
             disable_vfio=False,
         )
-        fb = FirmwareBuilder(cfg)
-        data = fb._load_preloaded_config_space()
-        assert isinstance(data, bytes)
-        assert len(data) == 128
+        with pytest.raises(ConfigurationError, match="legacy"):
+            FirmwareBuilder(cfg)
 
 
 class TestMSIXManagerDisable:
@@ -146,9 +149,7 @@ class TestMSIXManagerDisable:
             'function_mask': 0,
         }
         msix_path = tmp_path / 'msix_data.json'
-        msix_path.write_text(
-            json.dumps({'msix_info': msix_info, 'config_space_hex': '00' * 128})
-        )
+        make_snapshot(tmp_path, msix_info=msix_info)
         monkeypatch.setenv('MSIX_DATA_PATH', str(msix_path))
         m = MSIXManager(bdf='0000:03:00.0')
 
@@ -176,10 +177,10 @@ class TestMSIXManagerDisable:
 class TestProfilingSkip:
     def test_generate_profile_skips_when_disabled(self, monkeypatch, tmp_path):
         cfg = BuildConfiguration(
-            bdf='0000:03:00.0',
-            board='pcileech_100t484_x1',
-            output_dir=tmp_path,
-            enable_profiling=True,
+            bdf="0000:03:00.0",
+            board="pcileech_100t484_x1",
+            output_dir=tmp_path / "artifacts",
+            enable_profiling=False,
             preload_msix=False,
             profile_duration=10,
             parallel_writes=True,
@@ -194,10 +195,12 @@ class TestProfilingSkip:
         )
         # Create a builder; _init_components will fail if it can't find host data.
         # Avoid that by providing a minimal device_context.json with config_space_hex
-        hex_str = '00' * 128
-        ctx = tmp_path / 'device_context.json'
-        ctx.write_text(json.dumps({'config_space_hex': hex_str}))
+        ctx = offline_fixture(tmp_path / "capture")
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
+        # The env-var capture path models the Stage 2 container.
+        import pcileechfwgenerator.build as build
+
+        monkeypatch.setattr(build, "_in_container", lambda: True)
 
         fb = FirmwareBuilder(cfg)
 
@@ -209,21 +212,25 @@ class TestProfilingSkip:
             raise AssertionError('should not be called')
 
         fb.profiler.capture_behavior_profile = fake_capture  # type: ignore
+        # The disable guard also wins if a caller later flips this flag.
+        cfg.enable_profiling = True
         fb._generate_profile()
         assert called['hit'] is False
 
 
 class TestGeneratorConfig:
     def test_generator_strict_vfio_false_when_disabled(self, monkeypatch, tmp_path):
-        hex_str = '00' * 128
-        ctx = tmp_path / 'device_context.json'
-        ctx.write_text(json.dumps({'config_space_hex': hex_str}))
+        ctx = offline_fixture(tmp_path / "capture")
         monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
+        # The env-var capture path models the Stage 2 container.
+        import pcileechfwgenerator.build as build
+
+        monkeypatch.setattr(build, "_in_container", lambda: True)
 
         cfg = BuildConfiguration(
-            bdf='0000:03:00.0',
-            board='pcileech_100t484_x1',
-            output_dir=tmp_path,
+            bdf="0000:03:00.0",
+            board="pcileech_100t484_x1",
+            output_dir=tmp_path / "artifacts",
             enable_profiling=False,
             preload_msix=False,
             profile_duration=0,
@@ -240,3 +247,113 @@ class TestGeneratorConfig:
         fb = FirmwareBuilder(cfg)
         assert hasattr(fb.gen.config, 'strict_vfio')
         assert getattr(fb.gen.config, 'strict_vfio') is False
+
+
+def _legacy_capture(tmp_path, monkeypatch, *, in_container, bar_size=64 << 20):
+    """A container-style host capture exposed only through the legacy env vars."""
+    import pcileechfwgenerator.build as build
+
+    capture = tmp_path / "capture"
+    offline_fixture(capture, size=bar_size)
+    monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(capture / "device_context.json"))
+    monkeypatch.setenv("MSIX_DATA_PATH", str(capture / "msix_data.json"))
+    monkeypatch.setattr(build, "_in_container", lambda: in_container)
+    return capture
+
+
+def _cfg(tmp_path, **overrides):
+    values = dict(
+        bdf="0000:03:00.0",
+        board="pcileech_75t484_x1",
+        output_dir=tmp_path / "out",
+        enable_profiling=False,
+        disable_vfio=True,
+    )
+    values.update(overrides)
+    return BuildConfiguration(**values)
+
+
+def test_container_path_renders_from_capture_without_offline_safeguards(
+    tmp_path, monkeypatch
+):
+    _legacy_capture(tmp_path, monkeypatch, in_container=True, bar_size=4096)
+    fb = FirmwareBuilder(_cfg(tmp_path))
+    assert fb.config.offline_input is False
+    assert fb.config.offline_risk_accepted is False  # no prompt for verified input
+    assert fb.offline_capture is not None
+    assert fb.capture_mode == "container"
+
+
+def test_container_path_large_bar_points_to_local_mode(tmp_path, monkeypatch):
+    _legacy_capture(tmp_path, monkeypatch, in_container=True)  # 64 MiB BAR
+    with pytest.raises(ConfigurationError, match="--container-mode local"):
+        FirmwareBuilder(_cfg(tmp_path))
+
+
+def test_legacy_container_path_still_validates_capture(tmp_path, monkeypatch):
+    capture = _legacy_capture(tmp_path, monkeypatch, in_container=True)
+    (capture / "msix_data.json").unlink()
+    with pytest.raises(ConfigurationError):
+        FirmwareBuilder(_cfg(tmp_path))
+
+
+def test_legacy_env_path_refused_outside_container(tmp_path, monkeypatch):
+    _legacy_capture(tmp_path, monkeypatch, in_container=False)
+    with pytest.raises(ConfigurationError, match="--from-capture"):
+        FirmwareBuilder(_cfg(tmp_path))
+
+
+def test_explicit_from_capture_sets_offline_input_and_limits(tmp_path):
+    capture = tmp_path / "capture"
+    offline_fixture(capture, size=64 << 20)
+    with pytest.raises(ConfigurationError, match="16 MiB"):
+        FirmwareBuilder(
+            _cfg(tmp_path, from_capture=capture, offline_risk_accepted=True)
+        )
+
+
+def test_from_capture_always_marks_offline_input(tmp_path):
+    capture = tmp_path / "capture"
+    offline_fixture(capture)
+    fb = FirmwareBuilder(
+        _cfg(tmp_path, from_capture=capture, offline_risk_accepted=True)
+    )
+    assert fb.config.offline_input is True
+    assert fb.offline_capture is not None
+
+
+def test_create_from_args_sets_offline_input_only_for_from_capture(tmp_path):
+    from pcileechfwgenerator.build import parse_args
+
+    capture = tmp_path / "capture"
+    offline_fixture(capture)
+    out = str(tmp_path / "out")
+    offline = ConfigurationManager().create_from_args(
+        parse_args(
+            [
+                "--from-capture",
+                str(capture),
+                "--accept-offline-risk",
+                "--board",
+                "pcileech_75t484_x1",
+                "--output",
+                out,
+            ]
+        )
+    )
+    live = ConfigurationManager().create_from_args(
+        parse_args(
+            [
+                "--bdf",
+                "0000:03:00.0",
+                "--board",
+                "pcileech_75t484_x1",
+                "--output",
+                out,
+                "--profile",
+                "0",
+            ]
+        )
+    )
+    assert offline.offline_input is True
+    assert live.offline_input is False

@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Reuse existing MSI-X parser
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.host_collect.snapshot import (
+    ensure_capture_destination,
+    normalize_bdf,
+    write_snapshot,
+)
 from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
     log_info_safe,
+    log_warning_safe,
     safe_format,
 )
 
@@ -22,9 +27,8 @@ CONFIG_PATH_TEMPLATE = "/sys/bus/pci/devices/{bdf}/config"
 class HostCollector:
     """Collect PCIe device information on the host and write a datastore.
 
-    Writes:
-      - device_context.json: { "config_space_hex": "..." }
-      - msix_data.json: { "config_space_hex": "...", "msix_info": {..} }
+    Writes a versioned device_context.json and matching msix_data.json using
+    the shared capture identity contract. Existing capture files are preserved.
     """
 
     def __init__(
@@ -34,15 +38,22 @@ class HostCollector:
         logger=None,
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
+        complete_capture: bool = False,
+        strict_offline_resources: bool = True,
     ) -> None:
-        self.bdf = bdf
+        self.bdf = normalize_bdf(bdf)
         self.datastore = datastore
         self.logger = logger or get_logger(self.__class__.__name__)
         self.enable_mmio_learning = enable_mmio_learning
         self.force_recapture = force_recapture
+        self.complete_capture = complete_capture
+        # Live builds only need the BAR extension for container rendering, so
+        # a live collect may proceed without it; explicit offline collects may not.
+        self.strict_offline_resources = strict_offline_resources
 
     def run(self) -> int:
         try:
+            ensure_capture_destination(self.datastore)
             cfg = self._read_config_space()
             if cfg is None:
                 return 1
@@ -53,50 +64,36 @@ class HostCollector:
             cfg_hex = cfg.hex()
             msix_info = self._parse_msix(cfg_hex)
 
-            # Extract device identifiers from config space
-            device_ids = self._extract_device_ids(cfg)
+            context = None
+            if self.complete_capture:
+                from .offline import capture_bar_sizes
+                from .snapshot import SnapshotError
 
-            # Write device_context.json with extracted device IDs
-            ctx_path = self.datastore / "device_context.json"
-            with open(ctx_path, "w") as f:
-                json.dump(
-                    {
-                        "config_space_hex": cfg_hex,
-                        "vendor_id": device_ids["vendor_id"],
-                        "device_id": device_ids["device_id"],
-                        "class_code": device_ids["class_code"],
-                        "revision_id": device_ids["revision_id"],
-                        "subsystem_vendor_id": device_ids.get("subsystem_vendor_id"),
-                        "subsystem_device_id": device_ids.get("subsystem_device_id"),
-                    },
-                    f,
-                    indent=2,
-                )
+                resource = Path("/sys/bus/pci/devices") / self.bdf / "resource"
+                try:
+                    context = {
+                        "offline_resources": {
+                            "schema_version": 1,
+                            "source": "linux_sysfs_resource",
+                            "bar_sizes": capture_bar_sizes(resource.read_text()),
+                        }
+                    }
+                except (SnapshotError, OSError) as error:
+                    if self.strict_offline_resources:
+                        raise
+                    log_warning_safe(
+                        self.logger,
+                        safe_format(
+                            "BAR lengths not recorded ({err}); this capture "
+                            "serves local live builds only",
+                            err=str(error),
+                        ),
+                        prefix="COLLECT",
+                    )
+            write_snapshot(self.datastore, self.bdf, cfg, msix_info, context)
             log_info_safe(
                 self.logger,
-                safe_format(
-                    "Wrote {path} with device IDs: VID={vid:04x} DID={did:04x}",
-                    path=str(ctx_path),
-                    vid=device_ids["vendor_id"],
-                    did=device_ids["device_id"],
-                ),
-                prefix="COLLECT",
-            )
-
-            # Write msix_data.json
-            msix_path = self.datastore / "msix_data.json"
-            with open(msix_path, "w") as f:
-                json.dump(
-                    {
-                        "config_space_hex": cfg_hex,
-                        "msix_info": msix_info,
-                    },
-                    f,
-                    indent=2,
-                )
-            log_info_safe(
-                self.logger,
-                safe_format("Wrote {path}", path=str(msix_path)),
+                "Wrote matching device context and MSI-X capture files",
                 prefix="COLLECT",
             )
 
@@ -153,62 +150,6 @@ class HostCollector:
             log_debug_safe(
                 self.logger,
                 safe_format("MSI-X parse skipped: {err}", err=str(e)),
-                prefix="COLLECT",
-            )
-            return {}
-
-    def _extract_device_ids(self, cfg: bytes) -> Dict[str, Any]:
-        """Extract device identification fields from config space."""
-        if len(cfg) < 64:
-            log_error_safe(
-                self.logger,
-                "Config space too short for device ID extraction",
-                prefix="COLLECT",
-            )
-            return {}
-
-        try:
-            # Extract basic device IDs (offsets 0x00-0x0B)
-            vendor_id = int.from_bytes(cfg[0:2], "little")
-            device_id = int.from_bytes(cfg[2:4], "little")
-            revision_id = cfg[8]
-            class_code = int.from_bytes(cfg[9:12], "little")
-
-            # Extract subsystem IDs (offsets 0x2C-0x2F)
-            subsystem_vendor_id = None
-            subsystem_device_id = None
-            if len(cfg) >= 48:
-                subsystem_vendor_id = int.from_bytes(cfg[44:46], "little")
-                subsystem_device_id = int.from_bytes(cfg[46:48], "little")
-
-            log_info_safe(
-                self.logger,
-                safe_format(
-                    "Extracted device IDs: VID=0x{vid:04x} DID=0x{did:04x} "
-                    "Class=0x{cls:06x} Rev=0x{rev:02x}",
-                    vid=vendor_id,
-                    did=device_id,
-                    cls=class_code,
-                    rev=revision_id,
-                ),
-                prefix="COLLECT",
-            )
-
-            return {
-                "vendor_id": vendor_id,
-                "device_id": device_id,
-                "revision_id": revision_id,
-                "class_code": class_code,
-                "subsystem_vendor_id": subsystem_vendor_id,
-                "subsystem_device_id": subsystem_device_id,
-            }
-        except (IndexError, ValueError) as e:
-            # Only byte slicing and int.from_bytes happen here, so only
-            # IndexError/ValueError are expected; other errors indicate a code
-            # bug and should propagate.
-            log_error_safe(
-                self.logger,
-                safe_format("Failed to extract device IDs: {err}", err=str(e)),
                 prefix="COLLECT",
             )
             return {}
