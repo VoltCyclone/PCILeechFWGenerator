@@ -108,6 +108,7 @@ def write_capture_warning(directory: Path) -> None:
         with open(directory / CAPTURE_WARNING_NAME, "x", encoding="utf-8") as f:
             f.write(CAPTURE_WARNING)
     except FileExistsError:
+        # Keep an existing notice; capture directories are never rewritten.
         pass
     except OSError as error:
         log_warning_safe(

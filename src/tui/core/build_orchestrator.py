@@ -308,12 +308,14 @@ class BuildOrchestrator:
                     elif process.returncode is None:
                         process.terminate() if sig == signal.SIGTERM else process.kill()
                 except ProcessLookupError:
+                    # The process group already exited; nothing left to signal.
                     pass
 
             send(signal.SIGTERM)
             try:
                 await asyncio.wait_for(process.wait(), PROCESS_TERMINATION_TIMEOUT)
             except asyncio.TimeoutError:
+                # Ignored on purpose: the finally block escalates to SIGKILL.
                 pass
             finally:
                 # A descendant can outlive its parent or keep inherited pipes open.
