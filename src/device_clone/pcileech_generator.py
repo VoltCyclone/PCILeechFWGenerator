@@ -90,6 +90,8 @@ class PCILeechGenerationConfig:
     preloaded_config_space: Optional[bytes] = None
     enable_error_injection: bool = False
     offline_capture: Optional[DonorSnapshot] = None
+    # "offline" (unverified --from-capture) or "container" (host-verified).
+    capture_mode: str = "offline"
     enable_mmio_learning: bool = True
     force_recapture: bool = False
 
@@ -1407,7 +1409,9 @@ class PCILeechGenerator:
         if getattr(self, "offline_capture", None) is not None:
             from pcileechfwgenerator.host_collect.offline import capture_provenance
 
-            metadata["input_capture"] = capture_provenance(self.offline_capture)
+            metadata["input_capture"] = capture_provenance(
+                self.offline_capture, self.config.capture_mode
+            )
         return metadata
 
     def save_generated_firmware(

@@ -277,11 +277,17 @@ def validate_render_request(
         )
 
 
-def capture_provenance(snapshot: DonorSnapshot) -> dict[str, Any]:
-    """Describe saved inputs without implying measured BAR or interrupt behavior."""
+def capture_provenance(
+    snapshot: DonorSnapshot, mode: Literal["offline", "container"] = "offline"
+) -> dict[str, Any]:
+    """Describe saved inputs without implying measured BAR or interrupt behavior.
+
+    ``offline`` renders are unverified; ``container`` renders use a capture the
+    host verified (or collected) in the same build.
+    """
     return {
         **snapshot.identity.model_dump(mode="json"),
-        "mode": "offline",
+        "mode": mode,
         "resource_schema_version": 1,
         "bar_content_source": "derived, not sampled",
         "behavior_profile_captured": False,

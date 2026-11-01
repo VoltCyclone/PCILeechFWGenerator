@@ -230,3 +230,21 @@ def test_full_offline_render_writes_build_warning(tmp_path, monkeypatch):
     )
     FirmwareBuilder(ConfigurationManager().create_from_args(args)).build()
     assert (tmp_path / "out" / "OFFLINE_BUILD_WARNING.txt").is_file()
+
+
+@pytest.mark.parametrize("allowed", [True, False])
+def test_container_forwards_placeholder_escape_hatch(tmp_path, monkeypatch, allowed):
+    args = _offline_args(tmp_path)
+    args.container_mode, args.local, args.bdf = "container", False, "0000:03:00.0"
+    if allowed:
+        monkeypatch.setenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", "1")
+    else:
+        monkeypatch.delenv("PCILEECH_ALLOW_PLACEHOLDER_IDS", raising=False)
+    run = Mock(return_value=Mock(returncode=1))
+    monkeypatch.setattr(pcileech, "_ensure_container_image", lambda *a, **k: True)
+    monkeypatch.setattr(pcileech.subprocess, "run", run)
+    pcileech._run_in_container(
+        args, "podman", tmp_path / "capture", tmp_path / "out", logging.getLogger()
+    )
+    command = run.call_args.args[0]
+    assert ("PCILEECH_ALLOW_PLACEHOLDER_IDS=1" in command) is allowed

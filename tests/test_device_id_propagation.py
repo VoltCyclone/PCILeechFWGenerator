@@ -198,8 +198,12 @@ class TestBuildUsesCollectedDeviceIDs:
             "subsystem_device_id": 0x7221,
         }
 
+        # Only a rendered template_context may bypass the generator.
         ctx_path = make_snapshot(
-            temp_dir, audio_controller_config_space, bdf="0000:00:1f.3"
+            temp_dir,
+            audio_controller_config_space,
+            bdf="0000:00:1f.3",
+            context={"template_context": device_context},
         )
 
         # Set environment variable to point to our test file
@@ -239,7 +243,11 @@ class TestBuildUsesCollectedDeviceIDs:
             "subsystem_device_id": 0x8168,
         }
 
-        ctx_path = make_snapshot(temp_dir, network_controller_config_space)
+        ctx_path = make_snapshot(
+            temp_dir,
+            network_controller_config_space,
+            context={"template_context": device_context},
+        )
 
         with mock.patch.dict(os.environ, {"DEVICE_CONTEXT_PATH": str(ctx_path)}):
             config = BuildConfiguration(

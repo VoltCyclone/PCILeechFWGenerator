@@ -773,3 +773,83 @@ def test_unassigned_bar_zero_range_is_unimplemented():
     from pcileechfwgenerator.host_collect.offline import capture_bar_sizes
 
     assert capture_bar_sizes("0x0 0x0 0x200\n" + "0x0 0x0 0x0\n" * 5) == [0] * 6
+
+
+def test_container_build_renders_donor_modules_from_capture(tmp_path, monkeypatch):
+    """The live container stage renders the donor, not board defaults."""
+    import builtins
+    import io
+    import os
+    import subprocess
+
+    import pcileechfwgenerator.build as build
+
+    from tests.snapshot_helpers import config_bytes
+
+    capture = tmp_path / "capture"
+    offline_fixture(capture, size=16384, msix=True)
+    monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(capture / "device_context.json"))
+    monkeypatch.setenv("MSIX_DATA_PATH", str(capture / "msix_data.json"))
+    monkeypatch.setenv("PCILEECH_HOST_CONTEXT_ONLY", "1")
+    monkeypatch.setattr(build, "_in_container", lambda: True)
+    touched = []
+
+    def guarded(original):
+        def wrapped(path, *args, **kwargs):
+            value = (
+                os.fspath(path) if isinstance(path, (str, bytes, os.PathLike)) else ""
+            )
+            value = value.decode() if isinstance(value, bytes) else value
+            if value.startswith(("/sys", "/dev/vfio", "/proc/bus")):
+                touched.append(value)
+                raise AssertionError("container render touched hardware")
+            return original(path, *args, **kwargs)
+
+        return wrapped
+
+    for module, name in ((builtins, "open"), (io, "open"), (os, "open")):
+        monkeypatch.setattr(module, name, guarded(getattr(module, name)))
+    real_popen = subprocess.Popen
+
+    def only_git(*args, **kwargs):
+        if args and isinstance(args[0], (list, tuple)) and args[0][0] == "git":
+            return real_popen(*args, **kwargs)
+        raise AssertionError("container render launched a subprocess")
+
+    monkeypatch.setattr(subprocess, "Popen", only_git)
+    output = tmp_path / "out"
+    args = build.parse_args(
+        [
+            "--host-context-only",
+            "--bdf",
+            "0000:03:00.0",
+            "--board",
+            "pcileech_75t484_x1",
+            "--output",
+            str(output),
+            "--profile",
+            "0",
+        ]
+    )
+    build.FirmwareBuilder(build.ConfigurationManager().create_from_args(args)).build()
+    assert not touched
+    coe = (output / "src" / "pcileech_cfgspace.coe").read_text()
+    donor_dw0 = config_bytes()[:4][::-1].hex()  # first DWORD, as the COE prints it
+    assert donor_dw0 in coe.lower()
+    assert list((output / "src").glob("*.sv")), "generator SV modules missing"
+    info = json.loads((output / "device_info.json").read_text())
+    assert info["input_capture"]["mode"] == "container"
+    assert not (output / "OFFLINE_BUILD_WARNING.txt").exists()
+
+
+def test_identity_capture_does_not_skip_generator(tmp_path, monkeypatch):
+    import pcileechfwgenerator.build as build
+
+    offline_fixture(tmp_path)
+    monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(tmp_path / "device_context.json"))
+    builder = object.__new__(build.FirmwareBuilder)
+    builder.offline_capture = None
+    builder.config = build.BuildConfiguration(
+        bdf="0000:03:00.0", board="b", output_dir=tmp_path / "out"
+    )
+    assert builder._check_host_collected_context() is None

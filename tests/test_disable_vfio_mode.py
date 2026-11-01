@@ -273,11 +273,21 @@ def _cfg(tmp_path, **overrides):
     return BuildConfiguration(**values)
 
 
-def test_legacy_container_path_allows_large_bar(tmp_path, monkeypatch):
-    _legacy_capture(tmp_path, monkeypatch, in_container=True)
+def test_container_path_renders_from_capture_without_offline_safeguards(
+    tmp_path, monkeypatch
+):
+    _legacy_capture(tmp_path, monkeypatch, in_container=True, bar_size=4096)
     fb = FirmwareBuilder(_cfg(tmp_path))
     assert fb.config.offline_input is False
-    assert fb.offline_capture is None
+    assert fb.config.offline_risk_accepted is False  # no prompt for verified input
+    assert fb.offline_capture is not None
+    assert fb.capture_mode == "container"
+
+
+def test_container_path_large_bar_points_to_local_mode(tmp_path, monkeypatch):
+    _legacy_capture(tmp_path, monkeypatch, in_container=True)  # 64 MiB BAR
+    with pytest.raises(ConfigurationError, match="--container-mode local"):
+        FirmwareBuilder(_cfg(tmp_path))
 
 
 def test_legacy_container_path_still_validates_capture(tmp_path, monkeypatch):

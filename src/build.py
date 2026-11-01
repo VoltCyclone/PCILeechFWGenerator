@@ -850,6 +850,7 @@ class FirmwareBuilder:
         """Initialize the firmware builder with dependency injection."""
         self.config = config
         self.offline_capture = None
+        self.capture_mode = "offline"
         # Legacy host-context-only flags are aliases for the same strict reader,
         # never permission to probe hardware when saved data is incomplete.
         if config.disable_vfio and not config.from_capture:
@@ -880,9 +881,32 @@ class FirmwareBuilder:
                     "Host-context-only mode requires a canonical capture pair; "
                     "use --from-capture"
                 )
-            # A live container capture: validate strictly, without the offline
-            # render limits; env-configured consumers load it during the build.
-            load_snapshot(context_path, msix_path, config.bdf)
+            # The live container stage cannot size BARs or read the device, so
+            # it renders from the host-verified capture with the same validated
+            # renderer as offline builds (but no unverified-build safeguards).
+            snapshot = load_snapshot(context_path, msix_path, config.bdf)
+            from .host_collect.offline import (
+                validate_offline_snapshot,
+                validate_render_request,
+            )
+
+            try:
+                validate_offline_snapshot(snapshot)
+                validate_render_request(
+                    snapshot,
+                    context_path.parent,
+                    config.output_dir,
+                    config.output_template,
+                )
+            except ConfigurationError as error:
+                raise ConfigurationError(
+                    "Container builds render from the saved capture, which this "
+                    f"renderer cannot handle ({error}); rerun with "
+                    "--container-mode local"
+                ) from None
+            self.offline_capture = snapshot
+            self.capture_mode = "container"
+            config.enable_mmio_learning = False
         if config.from_capture:
             config.offline_input = True
             if not config.offline_risk_accepted:
@@ -1309,6 +1333,7 @@ class FirmwareBuilder:
             ),
             preloaded_config_space=preloaded_config_space,
             offline_capture=offline_capture,
+            capture_mode=getattr(self, "capture_mode", "offline"),
             enable_mmio_learning=(
                 False if offline_capture else self.config.enable_mmio_learning
             ),
@@ -1381,7 +1406,12 @@ class FirmwareBuilder:
         snapshot = load_configured_snapshot(self.config.bdf)
         if snapshot is None:
             return None
-        return snapshot.context.get("template_context") or snapshot.context
+        # Only a capture carrying a rendered template context may skip the
+        # generator; plain identity captures must be rendered.
+        template_context = snapshot.context.get("template_context")
+        if isinstance(template_context, dict) and template_context:
+            return template_context
+        return None
 
     def _preload_msix(self) -> MSIXData:
         """Preload MSI-X data if configured."""
@@ -1782,7 +1812,9 @@ class FirmwareBuilder:
 
             device_info = {
                 **device_info,
-                "input_capture": capture_provenance(self.offline_capture),
+                "input_capture": capture_provenance(
+                    self.offline_capture, getattr(self, "capture_mode", "offline")
+                ),
             }
         self.file_manager.write_json("device_info.json", device_info)
 

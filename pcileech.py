@@ -1389,6 +1389,13 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
             "-v",
             f"{datastore}:/datastore"
             + (":ro" if getattr(args, "from_capture", None) else ""),
+            # The container renders from the capture, so it must honour the
+            # same placeholder-ID escape hatch as the host.
+            *(
+                ["-e", "PCILEECH_ALLOW_PLACEHOLDER_IDS=1"]
+                if os.environ.get("PCILEECH_ALLOW_PLACEHOLDER_IDS") == "1"
+                else []
+            ),
             # The capture host lock compares against the host's machine ID.
             *(
                 ["-v", "/etc/machine-id:/etc/machine-id:ro"]

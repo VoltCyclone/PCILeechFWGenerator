@@ -299,7 +299,17 @@ def test_host_context_device_config_construction(
     raw[:4] = bytes.fromhex("12191400")
     raw[8:12] = bytes.fromhex("a130030c")
     raw[44:48] = bytes.fromhex("34127856")
-    context_file = make_snapshot(temp_dir, bytes(raw), bdf=valid_bdf)
+    from pcileechfwgenerator.host_collect.snapshot import device_identity
+
+    # The host-context path needs a rendered template_context to skip the
+    # generator; a plain identity capture is rendered instead.
+    template_context = {"config_space_hex": bytes(raw).hex(), **device_identity(raw)}
+    context_file = make_snapshot(
+        temp_dir,
+        bytes(raw),
+        bdf=valid_bdf,
+        context={"template_context": template_context},
+    )
 
     with mock.patch.dict(
         os.environ, {"DEVICE_CONTEXT_PATH": str(context_file)}
