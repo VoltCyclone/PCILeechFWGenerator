@@ -176,6 +176,9 @@ same directory. Missing data stops the build.
 
 ## Current limits and evidence
 
+All builds currently ship zeroed extended configuration space (`0x100`–`0xFFF`);
+see [Known issue: extended configuration space is always zero](EXTENDED_CONFIG_SPACE.md).
+
 Offline rendering disables live profiling, MMIO learning, sysfs/VFIO enrichment,
 interrupt-table reads and PCI name lookup subprocesses. Profiling, force-recapture
 and donor-template overrides conflict with offline input and are rejected.
