@@ -146,10 +146,10 @@ def test_terminal_cap_body_is_clamped_to_4kb():
     out = build_relocated_extended_config(img)
     assert len(out) == len(img)
     user = [w for w in _walk_ids(out) if w[0] >= USER_EXT_CAP_START]
-    # AER's span consumes the space; the terminal cap no longer fits and is
-    # dropped rather than overflowing 4KB.
-    assert [w[1] for w in user] == [0x0001]
-    assert user[-1][2] == 0
+    # AER's donor span (0x100..0xFF8) cannot fit after 0x10C, so it is dropped
+    # rather than overflowing 4KB; the user chain is empty and terminated.
+    assert user == []
+    assert ConfigSpace(out).read_dword(USER_EXT_CAP_START) == 0
 
 
 def test_chain_that_cannot_fit_is_truncated_not_overflowed():
