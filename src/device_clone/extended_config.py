@@ -30,9 +30,13 @@ _ARI_CAP_ID = 0x000E
 # Donor capabilities replaced by the core's hard IP.
 EXT_CAP_DROP = frozenset({_DSN_CAP_ID})
 
-# Donor capabilities the generated core cannot honour (SR-IOV, Multi-Function
-# VC, Resizable BAR, etc.); they are omitted rather than half-cloned.
-EXT_CAP_OMIT = frozenset({0x0010, 0x000F, 0x0013, 0x001B, 0x0015, 0x001D})
+# Donor capabilities the generated core cannot honour; omitted rather than
+# half-cloned: SR-IOV (0x0010), ATS (0x000F), PRI (0x0013), PASID (0x001B),
+# Resizable BAR (0x0015), DPC (0x001D), and Multi-Function VC (0x0008, 0x0009;
+# a single-function clone must not advertise multi-function VC topology).
+EXT_CAP_OMIT = frozenset(
+    {0x0008, 0x0009, 0x0010, 0x000F, 0x0013, 0x001B, 0x0015, 0x001D}
+)
 
 _HEADER_MASK = 0x000FFFFF  # id + version; clears next-pointer bits 31:20
 

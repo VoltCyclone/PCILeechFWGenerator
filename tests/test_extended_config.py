@@ -164,7 +164,9 @@ def test_chain_that_cannot_fit_is_truncated_not_overflowed():
 
 def test_drop_and_omit_sets_are_pinned():
     assert EXT_CAP_DROP == frozenset({0x0003})
-    assert EXT_CAP_OMIT == frozenset({0x0010, 0x000F, 0x0013, 0x001B, 0x0015, 0x001D})
+    assert EXT_CAP_OMIT == frozenset(
+        {0x0008, 0x0009, 0x0010, 0x000F, 0x0013, 0x001B, 0x0015, 0x001D}
+    )
 
 
 @pytest.mark.parametrize("omit_id", sorted(EXT_CAP_OMIT))

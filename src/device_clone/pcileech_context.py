@@ -70,7 +70,10 @@ from pcileechfwgenerator.host_collect.snapshot import (
     SnapshotError,
     load_configured_snapshot,
 )
-from pcileechfwgenerator.pci_capability.constants import PCI_CONFIG_SPACE_MIN_SIZE
+from pcileechfwgenerator.pci_capability.constants import (
+    PCI_CONFIG_SPACE_MIN_SIZE,
+    PCI_EXT_CONFIG_SPACE_END,
+)
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -104,6 +107,9 @@ from pcileechfwgenerator.utils.unified_context import (
     ensure_template_compatibility,
 )
 from pcileechfwgenerator.utils.validation_constants import SV_FILE_HEADER
+
+# Hex chars in a full 4096-byte config-space image (2 per byte).
+FULL_CONFIG_SPACE_HEX_LEN = PCI_EXT_CONFIG_SPACE_END * 2
 
 _MSIX_BASE_RUNTIME_FLAGS: Dict[str, Any] = {
     # Clear table & PBA memories on reset
@@ -1402,11 +1408,9 @@ class PCILeechContextBuilder:
             config_data = {**device_info, **config_data}
 
         raw_hex = config_data.get("config_space_hex", "")
-        if (
-            config_data.get("config_space_size", 256) > 256
-            and isinstance(raw_hex, str)
-            and len(raw_hex) == 8192
-        ):
+        # Keyed on hex length alone so it matches the COE template copy-gate
+        # (raw_data >= 4096 bytes), regardless of reported config_space_size.
+        if isinstance(raw_hex, str) and len(raw_hex) >= FULL_CONFIG_SPACE_HEX_LEN:
             raw_hex = build_relocated_extended_config(raw_hex)
 
         return {

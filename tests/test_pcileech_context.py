@@ -1540,6 +1540,16 @@ class TestExtendedConfigRelocationWiring:
         assert ConfigSpace(ctx["raw_data"]).read_dword(0x10C) & 0xFFFF == 0x0001
         assert ctx["raw_data"] != _donor_ext_hex()
 
+    def test_full_image_relocated_despite_underreported_size(self, mock_config):
+        from pcileechfwgenerator.pci_capability.core import ConfigSpace
+
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        ctx = builder._build_config_space_context(self._config(_donor_ext_hex(), 256))
+
+        assert len(ctx["raw_data"]) == 8192
+        assert ctx["raw_data"] != _donor_ext_hex()
+        assert ConfigSpace(ctx["raw_data"]).read_dword(0x10C) & 0xFFFF == 0x0001
+
     def test_short_config_left_unchanged(self, mock_config):
         builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
         short = "ab" * 256
