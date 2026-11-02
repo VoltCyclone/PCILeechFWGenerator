@@ -509,7 +509,13 @@ class WritemaskGenerator:
                         wr_mask, protected_bits, cap_start_index
                     )
 
-        # Write output COE file
+        # The cloned extended region (0x100-0xFFF) is strictly read-only: the
+        # shadow BRAM has no RW1C hardware, so a writable extended bit would
+        # latch a driver's write-1-to-clear instead of clearing it.
+        for idx in range(0x100 // 4, len(wr_mask)):
+            wr_mask[idx] = "00000000"
+
+        # Write output COE file (always regenerated; never reuses a stale file)
         self._write_writemask_coe(wr_mask, output_path)
 
         log_info_safe(

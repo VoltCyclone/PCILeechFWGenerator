@@ -129,6 +129,14 @@ WRITE_PROTECTED_BITS_VSEC = ( #pragma: no cover
     "ffffffff",  # Vendor Specific
 )
 
+# Root Complex Register Block (ext cap 0x000A): fully protected.
+WRITE_PROTECTED_BITS_RCRB = ( #pragma: no cover
+    "ffffffff",  # RCRB Header
+    "ffffffff",  # RCRB Vendor ID / Device ID
+    "ffffffff",  # RCRB Capabilities
+    "ffffffff",  # RCRB Control
+)
+
 WRITE_PROTECTED_BITS_AER = ( #pragma: no cover
     "00000000",  # AER Cap
     "00000000",  # Uncorrectable Error Status
@@ -276,7 +284,8 @@ WRITEMASK_DICT = { #pragma: no cover
     "0x03": WRITE_PROTECTED_BITS_VPD,
     "0x01": WRITE_PROTECTED_BITS_PM,
     "0x09": WRITE_PROTECTED_BITS_VSC,
-    "0x000A": WRITE_PROTECTED_BITS_VSEC,
+    "0x000A": WRITE_PROTECTED_BITS_RCRB,
+    "0x000B": WRITE_PROTECTED_BITS_VSEC,
     "0x0001": WRITE_PROTECTED_BITS_AER,
     "0x0002": WRITE_PROTECTED_BITS_VC,
     "0x0003": WRITE_PROTECTED_BITS_DSN,
