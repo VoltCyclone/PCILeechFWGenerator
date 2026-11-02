@@ -47,6 +47,9 @@ from pcileechfwgenerator.device_clone.donor_capability_extractor import (
     extract_donor_capabilities,
     extract_dsn_value,
 )
+from pcileechfwgenerator.device_clone.extended_config import (
+    build_relocated_extended_config,
+)
 from pcileechfwgenerator.device_clone.fallback_manager import (
     FallbackManager,
     get_global_fallback_manager,
@@ -1398,8 +1401,16 @@ class PCILeechContextBuilder:
 
             config_data = {**device_info, **config_data}
 
+        raw_hex = config_data.get("config_space_hex", "")
+        if (
+            config_data.get("config_space_size", 256) > 256
+            and isinstance(raw_hex, str)
+            and len(raw_hex) == 8192
+        ):
+            raw_hex = build_relocated_extended_config(raw_hex)
+
         return {
-            "raw_data": config_data.get("config_space_hex", ""),
+            "raw_data": raw_hex,
             "size": config_data.get("config_space_size", 256),
             "device_info": config_data.get("device_info", {}),
             "vendor_id": config_data["vendor_id"],

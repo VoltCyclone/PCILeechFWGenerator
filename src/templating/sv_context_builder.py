@@ -808,6 +808,9 @@ class SVContextBuilder:
                 "revision_id",
                 template_context.get("revision_id", self.constants.DEFAULT_REVISION_ID),
             ),
+            "raw_data": config_space_ctx.get("raw_data", ""),
+            "size": config_space_ctx.get("size", 256),
+            "has_extended_config": config_space_ctx.get("has_extended_config", False),
         }
 
         # ------------------------------------------------------------------
