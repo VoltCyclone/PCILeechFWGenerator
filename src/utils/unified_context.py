@@ -700,7 +700,8 @@ class UnifiedContextBuilder:
                 "revision_id": revision_id,
             }
             missing_strict: List[str] = [
-                key for key in strict_required if not provided.get(key)
+                # 0 / "0000" are donor data; only an absent value is missing.
+                key for key in strict_required if provided.get(key) in (None, "")
             ]
             if missing_strict:
                 msg = safe_format(
@@ -711,8 +712,11 @@ class UnifiedContextBuilder:
                 raise ConfigurationError(msg)
         else:
             # Set defaults for optional fields (compatibility mode)
-            subsystem_vendor_id = subsystem_vendor_id or vendor_id
-            subsystem_device_id = subsystem_device_id or device_id
+            # None means "not collected"; a raw 0 is donor data and is kept.
+            if subsystem_vendor_id is None:
+                subsystem_vendor_id = vendor_id
+            if subsystem_device_id is None:
+                subsystem_device_id = device_id
             class_code = class_code or DEFAULT_CLASS_CODE
             revision_id = revision_id or DEFAULT_REVISION_ID
 

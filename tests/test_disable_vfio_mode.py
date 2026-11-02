@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from pcileechfwgenerator.exceptions import ConfigurationError
-from tests.snapshot_helpers import make_snapshot
+from tests.snapshot_helpers import make_snapshot, msix_config
 from tests.snapshot_helpers import offline_fixture
 
 from pcileechfwgenerator.build import (
@@ -146,10 +146,10 @@ class TestMSIXManagerDisable:
             'pba_bir': 0,
             'pba_offset': 0x1080,
             'enabled': True,
-            'function_mask': 0,
+            'function_mask': False,
         }
         msix_path = tmp_path / 'msix_data.json'
-        make_snapshot(tmp_path, msix_info=msix_info)
+        make_snapshot(tmp_path, msix_config(msix_info), msix_info=msix_info)
         monkeypatch.setenv('MSIX_DATA_PATH', str(msix_path))
         m = MSIXManager(bdf='0000:03:00.0')
 

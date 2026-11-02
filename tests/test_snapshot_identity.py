@@ -23,7 +23,12 @@ from pcileechfwgenerator.host_collect.snapshot import (
     write_snapshot,
 )
 
-from tests.snapshot_helpers import config_bytes, make_config, make_snapshot
+from tests.snapshot_helpers import (
+    config_bytes,
+    make_config,
+    make_snapshot,
+    msix_config,
+)
 
 
 def read_snapshot(directory, bdf="0000:03:00.0"):
@@ -460,3 +465,184 @@ def test_msix_preload_with_vfio_requires_present_device(tmp_path, monkeypatch, m
     monkeypatch.setenv("MSIX_DATA_PATH", str(tmp_path / "cap" / "msix_data.json"))
     with pytest.raises(SnapshotError, match="not present"):
         MSIXManager(BDF).preload_data()
+
+
+@pytest.mark.parametrize("svid, ssid", [(0xFFFF, 0xFFFF), (0xFFFF, 0xA01F), (0x8086, 0xFFFF)])
+def test_live_subsystem_extraction_matches_capture_identity(svid, ssid):
+    """Live and offline builds use one rule: raw donor subsystem IDs (#682)."""
+    from pcileechfwgenerator.device_clone.config_space_manager import (
+        ConfigSpaceManager,
+    )
+    from pcileechfwgenerator.host_collect.snapshot import device_identity
+
+    cfg = make_config(subsystem_vendor_id=svid, subsystem_device_id=ssid)
+    live = ConfigSpaceManager(BDF)._extract_subsystem_info(cfg)
+    offline = device_identity(cfg)
+    assert live == (svid, ssid)
+    assert live == (offline["subsystem_vendor_id"], offline["subsystem_device_id"])
+
+
+_MSIX = {
+    "table_size": 8,
+    "table_bir": 2,
+    "table_offset": 0x180,
+    "pba_bir": 2,
+    "pba_offset": 0x400,
+    "enabled": True,
+    "function_mask": False,
+}
+_ABSENT = dict.fromkeys(_MSIX, 0) | {"enabled": False, "function_mask": False}
+
+
+def _load(tmp_path, config, msix_info):
+    from pcileechfwgenerator.host_collect.snapshot import load_snapshot
+
+    make_snapshot(tmp_path, config, bdf=BDF, msix_info=msix_info)
+    return load_snapshot(
+        tmp_path / "device_context.json", tmp_path / "msix_data.json", BDF
+    )
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("table_offset", 0x200),
+        ("table_bir", 0),
+        ("pba_offset", 0x800),
+        ("table_size", 64),
+        ("enabled", False),
+    ],
+)
+def test_sidecar_msix_conflicting_with_config_rejected(tmp_path, field, value):
+    """An edited sidecar with intact config bytes must not drive injection (#682)."""
+    with pytest.raises(SnapshotError, match="MSI-X"):
+        _load(tmp_path, msix_config(_MSIX), {**_MSIX, field: value})
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"table_size": True},  # 1 == True
+        {"enabled": 1},
+        {"table_offset": float(_MSIX["table_offset"])},
+        {"function_mask": 0},
+    ],
+)
+def test_sidecar_msix_wrong_types_rejected(tmp_path, edit):
+    """Equal-but-mistyped values reach SV/format code; require parser types."""
+    layout = {**_MSIX, "table_size": 1} if "table_size" in edit else _MSIX
+    with pytest.raises(SnapshotError, match="MSI-X"):
+        _load(tmp_path, msix_config(layout), {**layout, **edit})
+
+
+def test_sidecar_msix_present_requires_every_layout_field(tmp_path):
+    partial = {k: v for k, v in _MSIX.items() if k != "table_bir"}
+    with pytest.raises(SnapshotError, match="MSI-X table_bir"):
+        _load(tmp_path, msix_config({**_MSIX, "table_bir": 0}), partial)
+
+
+def test_sidecar_msix_without_capability_rejected(tmp_path):
+    with pytest.raises(SnapshotError, match="MSI-X"):
+        _load(tmp_path, config_bytes(), _MSIX)
+
+
+@pytest.mark.parametrize(
+    "build_config, msix_info",
+    [
+        (lambda: msix_config(_MSIX), _MSIX),
+        (config_bytes, {}),
+        (config_bytes, _ABSENT),
+        (config_bytes, {"table_size": 0, "vector_count": 0}),  # partial absent
+        (lambda: config_bytes()[:64], _ABSENT),  # unprivileged 64-byte read
+    ],
+)
+def test_collector_produced_sidecars_still_load(tmp_path, build_config, msix_info):
+    """Whatever parse_msix_capability wrote for these bytes must keep loading."""
+    _load(tmp_path, build_config(), msix_info)
+
+
+def test_live_bridge_has_no_subsystem_ids():
+    """Type-1 bytes at 0x2C are prefetch-base fields, not an identity (#682)."""
+    from pcileechfwgenerator.device_clone.config_space_manager import (
+        ConfigSpaceManager,
+    )
+    from pcileechfwgenerator.host_collect.snapshot import device_identity
+
+    cfg = bytearray(make_config(header_type=0x01, class_code=0x060400))
+    cfg[0x2C:0x30] = bytes.fromhex("f0ffffff")  # prefetchable base upper 32
+    manager = ConfigSpaceManager(BDF)
+    assert manager._extract_subsystem_info(bytes(cfg)) == (None, None)
+    info = manager.extract_device_info(bytes(cfg))  # logging must cope with None
+    assert info["subsystem_vendor_id"] is None
+    assert "subsystem_vendor_id" not in device_identity(bytes(cfg))
+
+
+@pytest.mark.parametrize(
+    "value, expected", [(None, "1912"), ("", "1912"), ("0000", "0000"), ("ffff", "ffff")]
+)
+def test_normalize_subsystem_keeps_raw_zero(value, expected):
+    from pcileechfwgenerator.device_clone.identifier_normalizer import (
+        IdentifierNormalizer,
+    )
+
+    assert IdentifierNormalizer.normalize_subsystem(value, "1912") == expected
+
+
+@pytest.mark.parametrize("value", ["0000", "0x0000", "00"])
+def test_strict_identity_accepts_raw_zero_fields(value):
+    """0 is donor data in strict mode too; only None/"" is missing (#682)."""
+    from pcileechfwgenerator.utils.unified_context import UnifiedContextBuilder
+
+    UnifiedContextBuilder(strict_identity=True).create_active_device_config(
+        vendor_id="1912",
+        device_id="0014",
+        subsystem_vendor_id=value,
+        subsystem_device_id=value,
+        class_code="0c0330",
+        revision_id=value,
+    )
+
+
+def test_strict_identity_still_rejects_missing_fields():
+    from pcileechfwgenerator.exceptions import ConfigurationError
+    from pcileechfwgenerator.utils.unified_context import UnifiedContextBuilder
+
+    with pytest.raises(ConfigurationError):
+        UnifiedContextBuilder(strict_identity=True).create_active_device_config(
+            vendor_id="1912", device_id="0014", class_code="0c0330", revision_id="00"
+        )
+
+
+def test_short_config_has_no_subsystem_ids():
+    """Too-short reads must not invent a 0:0 identity now that 0 is real."""
+    from pcileechfwgenerator.device_clone.config_space_manager import (
+        ConfigSpaceManager,
+    )
+
+    assert ConfigSpaceManager(BDF)._extract_subsystem_info(bytes(40)) == (None, None)
+
+
+def test_fifo_missing_subsystem_device_falls_back_like_coe_helper():
+    from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
+        donor_ids_from_template_context,
+    )
+
+    ctx = {"device_config": {"vendor_id_int": 0x8086, "device_id_int": 0x10D3}}
+    assert donor_ids_from_template_context(ctx).subsystem_id == 0x10D3
+
+
+@pytest.mark.parametrize(
+    "ctx, expected",
+    [
+        ({"subsystem_vendor_id": 0, "subsystem_device_id": 0}, ("0000", "0000")),
+        ({"subsystem_vendor_id": "1028", "subsystem_device_id": 0x1100}, ("1028", "1100")),
+        ({}, (None, None)),  # type-1 / not collected: templates use main IDs
+    ],
+)
+def test_build_fallback_subsystem_fields(ctx, expected):
+    from pcileechfwgenerator.build import _subsystem_fields
+
+    fields = _subsystem_fields(ctx)
+    assert (fields["subsystem_vendor_id"], fields["subsystem_device_id"]) == expected
+    if expected[0] is not None:
+        assert fields["subsystem_vendor_id_int"] == int(expected[0], 16)

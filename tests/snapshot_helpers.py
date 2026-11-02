@@ -79,8 +79,10 @@ def make_snapshot(
     return path
 
 
-def offline_fixture(directory, *, size=4096, msix=False):
+def offline_fixture(directory, *, size=4096, msix=False, subsystem=(0, 0)):
     config = bytearray(config_bytes())
+    config[0x2C:0x2E] = subsystem[0].to_bytes(2, "little")
+    config[0x2E:0x30] = subsystem[1].to_bytes(2, "little")
     config[0x10:0x14] = (0x80000000).to_bytes(4, "little")
     info = {}
     if msix:
@@ -112,3 +114,24 @@ def offline_fixture(directory, *, size=4096, msix=False):
             "host_binding": host_binding_record(),
         },
     )
+
+
+def msix_config(msix_info, config=None):
+    """Config bytes whose MSI-X capability at 0x40 encodes ``msix_info``.
+
+    Sidecar layout fields are checked against the config bytes on load, so
+    fixtures carrying MSI-X data must describe a capability that exists.
+    """
+    data = bytearray(config_bytes() if config is None else config)
+    control = (msix_info["table_size"] - 1) & 0x7FF
+    control |= 0x8000 if msix_info["enabled"] else 0
+    control |= 0x4000 if msix_info["function_mask"] else 0
+    data[6] |= 0x10
+    data[0x34] = 0x40
+    data[0x40:0x42] = bytes([0x11, 0x00])
+    data[0x42:0x44] = control.to_bytes(2, "little")
+    table = msix_info["table_offset"] | msix_info["table_bir"]
+    pba = msix_info["pba_offset"] | msix_info["pba_bir"]
+    data[0x44:0x48] = table.to_bytes(4, "little")
+    data[0x48:0x4C] = pba.to_bytes(4, "little")
+    return bytes(data)

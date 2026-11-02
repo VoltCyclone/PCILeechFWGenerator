@@ -61,8 +61,11 @@ class IdentifierNormalizer:
     def normalize_subsystem(
         value: Optional[Any], main_value: str, length: int = 4
     ) -> str:
-        """Normalize subsystem ID, fallback to main value if missing/invalid."""
-        if value is None or str(value).lower() in ("none", "", "0000"):
+        """Normalize subsystem ID; fall back to the main value only if missing.
+
+        0x0000 is a real donor value (read from the header) and is kept.
+        """
+        if value is None or str(value).lower() in ("none", ""):
             return IdentifierNormalizer.normalize_hex(main_value, length)
         return IdentifierNormalizer.normalize_hex(value, length)
 

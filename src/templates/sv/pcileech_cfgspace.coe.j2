@@ -146,21 +146,11 @@ FFFFFFFF,
 00000000,
 
 ; Subsystem Vendor ID (0x2C-0x2D) and Subsystem ID (0x2E-0x2F)
-{% set has_device = device is defined %}
-{% set has_subsys_device_id = has_device and hasattr(device, 'subsys_device_id') %}
-{% set has_subsys_vendor_id = has_device and hasattr(device, 'subsys_vendor_id') %}
-{% set valid_subsys_device_id = has_subsys_device_id and device.subsys_device_id != "0000" %}
-{% set valid_subsys_vendor_id = has_subsys_vendor_id and device.subsys_vendor_id != "0000" %}
-{# Subsystem IDs - use centralized helpers with proper fallbacks #}
+{# Raw donor values; 0x0000 is real data, never "not configured" #}
 {% set subsys_vid_str = get_subsystem_vendor_id(device_config, device, vendor_id_int) %}
 {% set subsys_dev_str = get_subsystem_device_id(device_config, device, device_id_int) %}
-{% if subsys_dev_str != '0000' and subsys_vid_str != '0000' %}
 ; Subsystem: {{ subsys_dev_str }}:{{ subsys_vid_str }}
 {{ subsys_dev_str }}{{ subsys_vid_str }},
-{% else %}
-; Subsystem: Not configured
-00000000,
-{% endif %}
 
 ; Expansion ROM Base Address (0x30-0x33) - Disabled
 00000000,

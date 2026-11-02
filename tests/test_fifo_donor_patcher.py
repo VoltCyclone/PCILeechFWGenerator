@@ -469,10 +469,9 @@ class TestDonorIdsFromTemplateContext:
         }
         assert donor_ids_from_template_context(ctx) is None
 
-    def test_subsystem_zero_falls_back_to_main_vendor(self):
-        # Real devices often report subsystem IDs of 0; mirror the helper-macro
-        # behavior of falling back to the main vendor so the patch still produces
-        # a valid build.
+    def test_subsystem_zero_is_kept_raw(self):
+        # Real devices often report subsystem IDs of 0. That is donor data and
+        # must match the COE / IP config, not become a VID:0000 hybrid (#682).
         ctx = {
             "device_config": {
                 "vendor_id_int": 0x8086,
@@ -483,7 +482,17 @@ class TestDonorIdsFromTemplateContext:
             }
         }
         donor = donor_ids_from_template_context(ctx)
-        assert donor == DonorIDs(0x8086, 0x10D3, 0x8086, 0x0000, 0x03)
+        assert donor == DonorIDs(0x8086, 0x10D3, 0x0000, 0x0000, 0x03)
+
+    def test_missing_subsystem_vendor_falls_back_to_main_vendor(self):
+        ctx = {
+            "device_config": {
+                "vendor_id_int": 0x8086,
+                "device_id_int": 0x10D3,
+                "revision_id_int": 0x03,
+            }
+        }
+        assert donor_ids_from_template_context(ctx).subsystem_vendor_id == 0x8086
 
     def test_returns_none_for_known_placeholder_pair(self):
         # A populated-but-synthetic pair (Intel I210 default 0x8086:0x1533) must

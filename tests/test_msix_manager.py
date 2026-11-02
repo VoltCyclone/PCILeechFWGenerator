@@ -86,9 +86,11 @@ def test_msix_json_ingestion_via_env(tmp_path, monkeypatch):
         "enabled": True,
         "function_mask": False,
     }
-    from tests.snapshot_helpers import config_bytes, make_snapshot
+    from tests.snapshot_helpers import make_snapshot, msix_config
 
-    make_snapshot(tmp_path, bdf="0000:00:00.0", msix_info=msix_info)
+    make_snapshot(
+        tmp_path, msix_config(msix_info), bdf="0000:00:00.0", msix_info=msix_info
+    )
     json_path = tmp_path / "msix_data.json"
     monkeypatch.setenv("MSIX_DATA_PATH", str(json_path))
     monkeypatch.setenv("PCILEECH_HOST_CONTEXT_ONLY", "1")
@@ -98,7 +100,7 @@ def test_msix_json_ingestion_via_env(tmp_path, monkeypatch):
 
     assert data.preloaded is True
     assert data.msix_info == msix_info
-    assert data.config_space_hex == config_bytes().hex()
+    assert data.config_space_hex == msix_config(msix_info).hex()
 
 
 import os
@@ -186,3 +188,35 @@ def test_preload_reads_msix_table(tmp_path, monkeypatch):
     assert mi["table_size"] == 2
     assert mi["table_bir"] == 0
     assert mi["table_offset"] == offset
+
+
+@pytest.mark.parametrize("module", ["build", "device_clone.msix"])
+def test_sidecar_preload_passes_only_layout_fields(tmp_path, monkeypatch, module):
+    """Extra sidecar keys never reach capability_info on live builds (#682)."""
+    import importlib
+
+    from tests.snapshot_helpers import make_snapshot, msix_config
+
+    layout = {
+        "table_size": 8,
+        "table_bir": 2,
+        "table_offset": 0x180,
+        "pba_bir": 2,
+        "pba_offset": 0x400,
+        "enabled": True,
+        "function_mask": False,
+    }
+    extra = {"table_entries": [{"data": "00" * 16}], "table_init_hex": "dead"}
+    make_snapshot(
+        tmp_path,
+        msix_config(layout),
+        bdf="0000:00:00.0",
+        msix_info={**layout, **extra},
+    )
+    monkeypatch.setenv("MSIX_DATA_PATH", str(tmp_path / "msix_data.json"))
+    monkeypatch.setenv("PCILEECH_HOST_CONTEXT_ONLY", "1")
+    manager_cls = importlib.import_module(
+        f"pcileechfwgenerator.{module}"
+    ).MSIXManager
+
+    assert manager_cls("0000:00:00.0").preload_data().msix_info == layout

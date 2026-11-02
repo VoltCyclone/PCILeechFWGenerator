@@ -892,8 +892,17 @@ class ConfigSpaceManager:
             "bist": config_space[15],
         }
 
-    def _extract_subsystem_info(self, config_space: bytes) -> Tuple[int, int]:
-        """Extract subsystem vendor and device IDs with validation."""
+    def _extract_subsystem_info(
+        self, config_space: bytes
+    ) -> Tuple[Optional[int], Optional[int]]:
+        """Extract raw subsystem IDs; (None, None) when the header has none.
+
+        Only type-0 headers carry subsystem IDs at 0x2C. On type-1 bridges
+        those bytes are prefetch-base fields, so reading them would invent an
+        identity; this mirrors snapshot.device_identity() (offline path).
+        """
+        if len(config_space) > 0x0E and config_space[0x0E] & 0x7F:
+            return None, None
         if len(config_space) >= 48:
             subsys_vendor_id = int.from_bytes(config_space[44:46], "little")
             subsys_device_id = int.from_bytes(config_space[46:48], "little")
@@ -912,51 +921,14 @@ class ConfigSpaceManager:
                 prefix="SUBS",
             )
 
-            # Validate subsystem IDs - detect clearly invalid values
-            # CRITICAL: Preserve original subsystem IDs even if 0x0000
-            # Some devices legitimately have 0x0000 subsystem IDs
-            # Only replace 0xFFFF (invalid device marker)
-            if subsys_vendor_id == 0xFFFF:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Invalid subsystem vendor ID 0x{subsys_vendor:04x} (0xFFFF), using main vendor ID 0x{vendor:04x}",
-                        subsys_vendor=subsys_vendor_id,
-                        vendor=vendor_id,
-                    ),
-                    prefix="SUBS",
-                )
-                subsys_vendor_id = vendor_id
-            elif subsys_vendor_id == 0x0000:
-                # 0x0000 can be legitimate for some devices, just log it
+            # Raw donor values, including 0xFFFF (unprogrammed EEPROM) and
+            # 0x0000: offline/container builds read these bytes unmodified via
+            # device_identity(), so substituting here would make the same
+            # donor produce different subsystem IDs depending on mode (#682).
+            if 0xFFFF in (subsys_vendor_id, subsys_device_id):
                 log_info_safe(
                     logger,
-                    safe_format(
-                        "Subsystem vendor ID is 0x0000 - this may be normal for some devices (main vendor: 0x{vendor:04x})",
-                        vendor=vendor_id,
-                    ),
-                    prefix="SUBS",
-                )
-
-            if subsys_device_id == 0xFFFF:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "Invalid subsystem device ID 0x{subsys_device:04x} (0xFFFF), using main device ID 0x{device:04x}",
-                        subsys_device=subsys_device_id,
-                        device=device_id,
-                    ),
-                    prefix="SUBS",
-                )
-                subsys_device_id = device_id
-            elif subsys_device_id == 0x0000:
-                # 0x0000 can be legitimate for some devices, just log it
-                log_info_safe(
-                    logger,
-                    safe_format(
-                        "Subsystem device ID is 0x0000 - this may be normal for some devices (main device: 0x{device:04x})",
-                        device=device_id,
-                    ),
+                    "Subsystem ID contains 0xFFFF; keeping the raw donor value",
                     prefix="SUBS",
                 )
 
@@ -989,12 +961,13 @@ class ConfigSpaceManager:
         log_warning_safe(
             logger,
             safe_format(
-                "Config space too short ({length} bytes) for subsystem ID extraction, returning 0",
+                "Config space too short ({length} bytes) for subsystem ID extraction",
                 length=len(config_space),
             ),
             prefix="SUBS",
         )
-        return 0, 0
+        # 0 is real donor data, so an unread value must be None, not 0.
+        return None, None
 
     def _extract_bar_info(self, config_space: bytes) -> List[BarInfo]:
         """Extract BAR information using the unified BAR parser."""
@@ -1121,16 +1094,24 @@ class ConfigSpaceManager:
         log_info_safe(
             logger,
             safe_format(
-                "  Subsystem Vendor: 0x{subsys_vendor_id:04x}",
-                subsys_vendor_id=subsys_vendor_id,
+                "  Subsystem Vendor: {subsys_vendor_id}",
+                subsys_vendor_id=(
+                    "none (type-1 header)"
+                    if subsys_vendor_id is None
+                    else f"0x{subsys_vendor_id:04x}"
+                ),
             ),
             prefix="INFO",
         )
         log_info_safe(
             logger,
             safe_format(
-                "  Subsystem Device: 0x{subsys_device_id:04x}",
-                subsys_device_id=subsys_device_id,
+                "  Subsystem Device: {subsys_device_id}",
+                subsys_device_id=(
+                    "none (type-1 header)"
+                    if subsys_device_id is None
+                    else f"0x{subsys_device_id:04x}"
+                ),
             ),
             prefix="INFO",
         )

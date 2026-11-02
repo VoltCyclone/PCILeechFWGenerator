@@ -1308,8 +1308,16 @@ class TCLBuilder:
             device_id=final_device_id,
             revision_id=final_revision_id,
             class_code=final_class_code,
-            subsys_vendor_id=subsys_vendor_id or config_subsys_vendor_id,
-            subsys_device_id=subsys_device_id or config_subsys_device_id,
+            subsys_vendor_id=(
+                subsys_vendor_id
+                if subsys_vendor_id is not None
+                else config_subsys_vendor_id
+            ),
+            subsys_device_id=(
+                subsys_device_id
+                if subsys_device_id is not None
+                else config_subsys_device_id
+            ),
             # Donor-derived PCIe link fields (optional)
             pcie_max_link_speed_code=kwargs.get("pcie_max_link_speed_code"),
             pcie_max_link_width=kwargs.get("pcie_max_link_width"),

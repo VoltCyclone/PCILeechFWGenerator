@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.host_collect.offline import MSIX_LAYOUT_FIELDS
 from pcileechfwgenerator.host_collect.snapshot import (
     SnapshotError,
     load_configured_snapshot,
@@ -67,8 +68,11 @@ class MSIXManager:
             if not disable_vfio and verify_current_device(snapshot) == "absent":
                 # A live run needs the device; only offline builds may proceed.
                 raise SnapshotError("the donor device is not present for a live build")
-            msix_info = snapshot.msix["msix_info"]
-            if msix_info and int(msix_info.get("table_size", 0)) > 0:
+            raw = snapshot.msix["msix_info"]
+            if raw and int(raw.get("table_size", 0)) > 0:
+                # load_snapshot verified these against the config bytes; extra
+                # sidecar keys are unverified and never forwarded (#682).
+                msix_info = {key: raw[key] for key in MSIX_LAYOUT_FIELDS}
                 return MSIXData(
                     preloaded=True,
                     msix_info=msix_info,
