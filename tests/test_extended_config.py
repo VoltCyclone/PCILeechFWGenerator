@@ -2,7 +2,11 @@
 
 from typing import List, Tuple
 
+import pytest
+
 from pcileechfwgenerator.device_clone.extended_config import (
+    EXT_CAP_DROP,
+    EXT_CAP_OMIT,
     USER_EXT_CAP_START,
     build_relocated_extended_config,
 )
@@ -136,17 +140,16 @@ def test_only_dropped_dsn_yields_empty_user_chain():
     assert cs.read_dword(USER_EXT_CAP_START) == 0
 
 
-def test_unterminated_or_oversized_body_is_clamped_within_4kb():
-    donor = _donor_hex_with_caps([(0x0001, 0)])
-    out = build_relocated_extended_config(donor)
-    assert len(out) == len(donor)
-
-
 def test_terminal_cap_body_is_clamped_to_4kb():
     # Terminal cap at the very end of the space: fixed-length copy must clamp.
     img = _build([(0x100, 0x0001, 0xFF8), (0xFF8, 0x000D, 0)])
     out = build_relocated_extended_config(img)
     assert len(out) == len(img)
+    user = [w for w in _walk_ids(out) if w[0] >= USER_EXT_CAP_START]
+    # AER's span consumes the space; the terminal cap no longer fits and is
+    # dropped rather than overflowing 4KB.
+    assert [w[1] for w in user] == [0x0001]
+    assert user[-1][2] == 0
 
 
 def test_chain_that_cannot_fit_is_truncated_not_overflowed():
@@ -154,4 +157,40 @@ def test_chain_that_cannot_fit_is_truncated_not_overflowed():
     out = build_relocated_extended_config(img)
     assert len(out) == len(img)
     user = [w for w in _walk_ids(out) if w[0] >= USER_EXT_CAP_START]
-    assert user[-1][2] == 0  # chain still terminates
+    assert [w[1] for w in user] == [0x0001, 0x000E]
+    assert 0x000D not in [w[1] for w in user]
+    assert user[-1][2] == 0
+
+
+def test_drop_and_omit_sets_are_pinned():
+    assert EXT_CAP_DROP == frozenset({0x0003})
+    assert EXT_CAP_OMIT == frozenset({0x0010, 0x000F, 0x0013, 0x001B, 0x0015, 0x001D})
+
+
+@pytest.mark.parametrize("omit_id", sorted(EXT_CAP_OMIT))
+def test_each_omitted_cap_is_removed(omit_id):
+    donor = _donor_hex_with_caps([(0x0001, 0), (omit_id, 0), (0x000D, 0)])
+    out = build_relocated_extended_config(donor)
+    user = [w for w in _walk_ids(out) if w[0] >= USER_EXT_CAP_START]
+    assert [w[1] for w in user] == [0x0001, 0x000D]
+
+
+def _assert_in_bounds_and_terminates(donor: str) -> None:
+    out = build_relocated_extended_config(donor)
+    assert len(out) == len(donor)
+    walk = _walk_ids(out)  # walker visits each offset once; must return
+    assert all(0x100 <= off < 0x1000 and off % 4 == 0 for off, _, _ in walk)
+    assert all(nxt == 0 or 0x100 <= nxt < 0x1000 for _, _, nxt in walk)
+    user = [w for w in walk if w[0] >= USER_EXT_CAP_START]
+    if user:
+        assert user[-1][2] == 0
+
+
+def test_cyclic_donor_pointer_terminates():
+    img = _build([(0x100, 0x0001, 0x140), (0x140, 0x000E, 0x100)])
+    _assert_in_bounds_and_terminates(img)
+
+
+def test_unaligned_donor_pointer_terminates():
+    img = _build([(0x100, 0x0001, 0x142), (0x140, 0x000E, 0)])
+    _assert_in_bounds_and_terminates(img)
