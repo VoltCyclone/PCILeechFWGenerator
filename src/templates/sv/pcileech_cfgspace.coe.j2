@@ -150,7 +150,7 @@ FFFFFFFF,
 
 ; Capabilities Pointer (0x34), Reserved (0x35-0x3B)
 ; Points to first capability at 0x40
-{{ "%02X" % (CAP_OFFSET_PM | safe_int(0)) }}000000,
+000000{{ "%02X" % (CAP_OFFSET_PM | safe_int(0)) }},
 ; Reserved (0x38-0x3B)
 00000000,
 
