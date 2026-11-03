@@ -91,10 +91,10 @@ memory_initialization_vector=
 {{ get_device_id(device_config, device, config_space, device_id_int) }}{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
 
 ; Command Register (0x04-0x05) and Status Register (0x06-0x07)
-; Command: Memory Space Enable + Bus Master Enable
-; Status: Capabilities List + Fast Back-to-Back + 66MHz Capable
-{% set command_register = "0210" if (safe_attr(device_config, 'enable_dma_operations', true)) else "0200" %}
-{{ command_register }}0006,
+; Command (0x04-0x05): Memory Space Enable + Bus Master Enable
+; Status (0x06-0x07)=0x0210: Capabilities-List bit set unconditionally because
+; the capability chain below is always emitted (PCI 6.7).
+02100006,
 
 ; Revision ID (0x08), Programming Interface (0x09), Sub Class (0x0A), Base Class (0x0B)
 {{ safe_attr(config_space, 'class_code', '00') | string }}{{ safe_attr(config_space, 'revision_id', '00') | string }},
@@ -163,14 +163,17 @@ FFFFFFFF,
 ; =====================================================================
 
 ; Power Management Capability ({{ CAP_OFFSET_PM }}-{{ CAP_OFFSET_PM + 7 }})
-; Cap ID=0x01, Next=0x50, PMC=0x0003, PMCSR=0x0000
-{% set next_cap = CAP_OFFSET_MSI %}
+; Cap ID=0x01, Next=first live cap after PM, PMC=0x0003, PMCSR=0x0000
+{% set msix_enabled = is_msix_supported() %}
+{#- PM's next-pointer skips the MSI slot to MSI-X when MSI-X is active: the
+    MSI slot at CAP_OFFSET_MSI is zeroed in that configuration, so pointing
+    PM there would dead-end the chain before MSI-X and PCIe. -#}
+{% set next_cap = CAP_OFFSET_MSIX if msix_enabled else CAP_OFFSET_MSI %}
 {% set pm_cap_header = "0003" ~ ("%02X" % (next_cap | safe_int(0))) ~ "01" %}
 {{ pm_cap_header }},
 00000000,
 
-{# Define variables outside conditional blocks so they're always available #}
-{% set msix_enabled = is_msix_supported() %}
+{# next_cap redefined for the MSI/MSI-X headers; msix_enabled set above. #}
 {% set next_cap = CAP_OFFSET_PCIE %}
 {% set msi_cap_header = "0080" ~ ("%02X" % (next_cap | safe_int(0))) ~ "05" %}
 {% set msix_control = ("%04X" % ((msix_config.num_vectors - 1) | safe_int(0))) if (msix_config.num_vectors|default(0) > 0) else "0000" %}
