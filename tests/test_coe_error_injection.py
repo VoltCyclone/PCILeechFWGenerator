@@ -1,4 +1,3 @@
-import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -91,12 +90,7 @@ def test_coe_error_injection_comment_toggles(tmp_path: Path):
         "This build enables error injection hooks" in coe_flag
     ), "Error injection comment missing when flag is enabled"
 
-    # Basic AER field sanity: ensure capability section emitted
-    aer_field_markers = [
-        "Uncorrectable Error Mask",
-        "Uncorrectable Error Severity",
-        "Correctable Error Mask",
-        "Advanced Error Capabilities",
-    ]
-    for marker in aer_field_markers:
-        assert re.search(marker.split()[0], coe_flag, re.IGNORECASE)
+    # AER is an extended capability (>=0x100); standard space must NOT carry
+    # an AER-shaped header. The 0xA0-0xDF region is always reserved/zeroed.
+    assert "Reserved standard-space region (0xA0-0xDF)" in coe_flag
+    assert "Advanced Error Reporting Capability" not in coe_flag

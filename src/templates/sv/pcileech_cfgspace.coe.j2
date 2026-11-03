@@ -237,8 +237,13 @@ FFFFFFFF,
 
 ; PCIe Capability ({{ CAP_OFFSET_PCIE }}-{{ CAP_OFFSET_PCIE + 63 }})
 ; Cap ID=0x10, Next=0x00 (end of chain), PCIe Capabilities=0x0002
-{% set next_cap = CAP_OFFSET_AER if device_config.enable_advanced_features else 0 %}
-{% set pcie_cap_header = "0002" ~ ("%02X" % (next_cap | safe_int(0))) ~ "10" %}
+{#- PCIe is the last capability in the 8-bit standard chain. AER is a PCIe
+    *extended* capability (ext cap ID 0x0001, valid only at config offset
+    >= 0x100) and is cloned into extended config space by the extended-config
+    pipeline. Linking the 0xA0 block here via an 8-bit next-pointer would
+    expose its AER-shaped header as a malformed second Cap ID 0x01 (Power
+    Management), so the chain terminates at PCIe regardless of AER emission. -#}
+{% set pcie_cap_header = "00020010" %}
 {{ pcie_cap_header }},
 
 ; Device Capabilities
@@ -272,60 +277,21 @@ FFFFFFFF,
 ; Padding (0x9C-0x9F) so the AER region lands at its absolute offset
 00000000,
 
-{% if device_config.enable_advanced_features %}
 ; =====================================================================
-; Advanced Error Reporting Capability ({{ CAP_OFFSET_AER }}-{{ CAP_OFFSET_AER + 63 }})
+; Reserved standard-space region (0xA0-0xDF) - always zeroed
 ; =====================================================================
-; Cap ID=0x01, Next=0x00, AER Capabilities=0x0000
-00000001,
-; Uncorrectable Error Status (latched events)
-00000000,
-; Uncorrectable Error Mask
-{% if aer is not defined or not aer %}
-; Warning: AER context missing - zeroing uncorrectable error mask
-{% endif %}
-{{ "%08X" % ((aer.uncorrectable_error_mask if (aer is defined and aer and (aer.uncorrectable_error_mask is defined)) else 0) | safe_int(0)) }},
-; Uncorrectable Error Severity
-{% if aer is not defined or not aer %}
-; Warning: AER context missing - zeroing uncorrectable error severity
-{% endif %}
-{{ "%08X" % ((aer.uncorrectable_error_severity if (aer is defined and aer and (aer.uncorrectable_error_severity is defined)) else 0) | safe_int(0)) }},
-; Correctable Error Status (latched events)
-00000000,
-; Correctable Error Mask
-{% if aer is not defined or not aer %}
-; Warning: AER context missing - zeroing correctable error mask
-{% endif %}
-{{ "%08X" % ((aer.correctable_error_mask if (aer is defined and aer and (aer.correctable_error_mask is defined)) else 0) | safe_int(0)) }},
-; Advanced Error Capabilities and Control
-{% if aer is not defined or not aer %}
-; Warning: AER context missing - zeroing advanced error capabilities
-{% endif %}
-{{ "%08X" % ((aer.advanced_error_capabilities if (aer is defined and aer and (aer.advanced_error_capabilities is defined)) else 0) | safe_int(0)) }},
-; Header Log (4 DWORDs)
-00000000,
-00000000,
-00000000,
-00000000,
+; AER is a PCIe *extended* capability (ext cap ID 0x0001) that is valid only
+; at config offset >= 0x100. The donor's real AER is cloned into extended
+; config space by the extended-config pipeline, so standard space carries no
+; AER-shaped header here (one would mis-read as a second Cap ID 0x01). These
+; 16 DWORDs stay zero to keep every later offset absolute.
 {% if device_config.enable_error_injection %}
 ; Optional Error Injection Control (implementation dependent)
 ; This build enables error injection hooks in HDL (not represented here).
 {% endif %}
-; Root Error Command
-00000000,
-; Root Error Status
-00000000,
-; Error Source Identification
-00000000,
-; Reserved
-00000000,
-00000000,
-{% else %}
-; AER not emitted: keep 0xA0-0xDF zeroed so offsets stay absolute
 {% for _ in range(16) %}
 00000000,
 {% endfor %}
-{% endif %}
 ; Padding (0xE0-0xFF): the standard 256-byte region must end exactly at 0x100
 {% for _ in range(8) %}
 00000000,
