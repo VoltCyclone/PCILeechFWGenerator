@@ -91,10 +91,27 @@ memory_initialization_vector=
 {{ get_device_id(device_config, device, config_space, device_id_int) }}{{ get_vendor_id(device_config, device, config_space, vendor_id_int) }},
 
 ; Command Register (0x04-0x05) and Status Register (0x06-0x07)
-; Command (0x04-0x05): Memory Space Enable + Bus Master Enable
-; Status (0x06-0x07)=0x0210: Capabilities-List bit set unconditionally because
-; the capability chain below is always emitted (PCI 6.7).
-02100006,
+; Command (0x04-0x05)=0x0006: Memory Space Enable + Bus Master Enable. The
+; firmware always drives DMA, so these are functional bits, not cloned.
+{#- Status (0x06-0x07): clone the donor's real Status register, but force the
+    Capabilities-List bit (bit 4 - the capability chain below is always emitted,
+    PCI 6.7) and clear the runtime / RW1C latched bits (Interrupt Status,
+    Master Data Parity Error, Target/Master Abort, Signaled SERR, Detected
+    Parity) which must read 0 at reset. The static RO bits (DEVSEL timing,
+    66MHz, Fast-B2B) are preserved as the donor reports them; a real PCIe
+    endpoint reports them 0, so no DEVSEL bit is fabricated (the old template
+    hard-coded 0x0210, inventing a DEVSEL-timing bit the device never set). -#}
+{% set _cs_raw = config_space.raw_data if (config_space is defined and config_space and config_space.raw_data is defined) else "" %}
+{% if _cs_raw and (_cs_raw | length) >= 16 %}
+{% set _donor_status = int(_cs_raw[12:14], 16) + int(_cs_raw[14:16], 16) * 256 %}
+{% elif config_space is defined and config_space and config_space.status is defined %}
+{% set _donor_status = config_space.status | safe_int(0x0010) %}
+{% else %}
+{% set _donor_status = 0x0010 %}
+{% endif %}
+{% set _status = (_donor_status | bitand(0x06F7)) | bitor(0x0010) %}
+; Status (0x06-0x07)=0x{{ "%04X" % _status }} (cloned: caps forced, RW1C cleared)
+{{ "%04X" % _status }}0006,
 
 ; Revision ID (0x08), Programming Interface (0x09), Sub Class (0x0A), Base Class (0x0B)
 {{ safe_attr(config_space, 'class_code', '00') | string }}{{ safe_attr(config_space, 'revision_id', '00') | string }},
