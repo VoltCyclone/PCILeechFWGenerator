@@ -14,7 +14,6 @@ run skips them by default. Enable with ``-m "e2e and requires_build_isolation"``
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import venv
@@ -34,15 +33,22 @@ def built_distributions(tmp_path_factory, repo_root: Path) -> Path:
     (otherwise ``--cov-fail-under`` and the like would silently mask
     pyproject misconfig, missing sdist files, etc.).
     """
+    # Guard on the real PEP 517 frontend's entry module, not the bare package
+    # name: a stray ``build/`` artifact dir in the repo root imports as a
+    # namespace package named ``build`` and would defeat a plain
+    # ``importorskip("build")`` (and then shadow ``python -m build``).
     pytest.importorskip(
-        "build",
+        "build.__main__",
         reason="`build` PEP 517 frontend not installed; "
         "add it via the [test] or [dev] extras",
     )
     out_dir = tmp_path_factory.mktemp("dist")
+    # Run from a neutral cwd and pass the project dir explicitly so a
+    # regenerated ``build/`` dir in the repo root can never shadow the
+    # ``build`` frontend during module resolution.
     proc = subprocess.run(
-        [sys.executable, "-m", "build", "--outdir", str(out_dir)],
-        cwd=str(repo_root),
+        [sys.executable, "-m", "build", "--outdir", str(out_dir), str(repo_root)],
+        cwd=str(tmp_path_factory.mktemp("build_cwd")),
         capture_output=True,
         text=True,
         timeout=240,

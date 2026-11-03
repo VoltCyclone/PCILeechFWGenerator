@@ -125,14 +125,33 @@ def isolated_workdir(tmp_path: Path, monkeypatch) -> Path:
 
 @pytest.fixture(scope="session")
 def container_runtime() -> str:
-    """Return the available container runtime name, or skip."""
-    runtime = next(
-        (r for r in ("podman", "docker") if shutil.which(r)),
-        None,
-    )
-    if runtime is None:
+    """Return a *usable* container runtime name, or skip.
+
+    A binary on ``PATH`` is not enough: on macOS ``podman`` is commonly
+    installed but its Linux VM is not started, so ``podman build`` fails to
+    connect. Probe each candidate with ``<rt> info`` and return the first one
+    that actually responds, so the test runs against a working runtime (or
+    skips cleanly when none is usable) instead of failing on a dead socket.
+    """
+    on_path = [r for r in ("podman", "docker") if shutil.which(r)]
+    if not on_path:
         pytest.skip("No container runtime (podman/docker) available")
-    return runtime
+    for runtime in on_path:
+        try:
+            probe = subprocess.run(
+                [runtime, "info"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if probe.returncode == 0:
+            return runtime
+    pytest.skip(
+        "Container runtime(s) on PATH are not usable "
+        f"({', '.join(on_path)} failed `info` — daemon/VM not running)"
+    )
 
 
 def collect_iter(path: Path, pattern: str) -> Iterable[Path]:
