@@ -1490,3 +1490,96 @@ def test_build_device_config_writes_subsystem_int_aliases():
     )
     assert dc["subsystem_vendor_id_int"] == 0x1043
     assert dc["subsystem_device_id_int"] == 0x8730
+
+
+# ============================================================================
+# Extended config-space relocation wiring (#681)
+# ============================================================================
+
+
+def _donor_ext_hex() -> str:
+    """4KB donor image: AER@0x100->DSN->ARI->TPH->LTR->ACS (I350 shape)."""
+    chain = [
+        (0x100, 0x0001, 0x140),
+        (0x140, 0x0003, 0x150),
+        (0x150, 0x000E, 0x1A0),
+        (0x1A0, 0x0017, 0x1C0),
+        (0x1C0, 0x0018, 0x1D0),
+        (0x1D0, 0x000D, 0x000),
+    ]
+    img = bytearray(4096)
+    img[0x06] = 0x10
+    for idx, (off, cap_id, nxt) in enumerate(chain):
+        hdr = cap_id | (1 << 16) | (nxt << 20)
+        img[off : off + 4] = hdr.to_bytes(4, "little")
+        for b in range(4, 8):
+            img[off + b] = 0xA0 + idx
+    return img.hex()
+
+
+class TestExtendedConfigRelocationWiring:
+    def _config(self, hex_data: str, size: int) -> Dict[str, Any]:
+        return {
+            "vendor_id": "8086",
+            "device_id": "1521",
+            "class_code": "020000",
+            "revision_id": "01",
+            "config_space_hex": hex_data,
+            "config_space_size": size,
+            "bars": [],
+        }
+
+    def test_raw_data_carries_relocated_extended_chain(self, mock_config):
+        from pcileechfwgenerator.pci_capability.core import ConfigSpace
+
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        ctx = builder._build_config_space_context(self._config(_donor_ext_hex(), 4096))
+
+        assert len(ctx["raw_data"]) == 8192
+        assert ctx["has_extended_config"] is True
+        assert ConfigSpace(ctx["raw_data"]).read_dword(0x10C) & 0xFFFF == 0x0001
+        assert ctx["raw_data"] != _donor_ext_hex()
+
+    def test_full_image_relocated_despite_underreported_size(self, mock_config):
+        from pcileechfwgenerator.pci_capability.core import ConfigSpace
+
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        ctx = builder._build_config_space_context(self._config(_donor_ext_hex(), 256))
+
+        assert len(ctx["raw_data"]) == 8192
+        assert ctx["raw_data"] != _donor_ext_hex()
+        assert ConfigSpace(ctx["raw_data"]).read_dword(0x10C) & 0xFFFF == 0x0001
+
+    def test_short_config_left_unchanged(self, mock_config):
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        short = "ab" * 256
+        ctx = builder._build_config_space_context(self._config(short, 256))
+        assert ctx["raw_data"] == short
+        assert ctx["has_extended_config"] is False
+
+    def test_sv_context_builder_preserves_raw_data(self):
+        import logging
+
+        from pcileechfwgenerator.templating.sv_context_builder import SVContextBuilder
+
+        builder = SVContextBuilder(logging.getLogger("test_ext_cfg"))
+        template_context = {
+            "device_config": {},
+            "config_space": {
+                "raw_data": "AA" * 4096,
+                "size": 4096,
+                "has_extended_config": True,
+                "class_code": "020000",
+                "revision_id": "01",
+            },
+            "vendor_id": "8086",
+            "device_id": "1521",
+        }
+        context = {"vendor_id": "8086", "device_id": "1521"}
+        builder._add_compatibility_fields(context, template_context)
+        cs = context["config_space"]
+        assert cs["raw_data"] == "AA" * 4096
+        assert cs["size"] == 4096
+        assert cs["has_extended_config"] is True
+        assert cs["class_code"] == "020000"
+        assert cs["revision_id"] == "01"

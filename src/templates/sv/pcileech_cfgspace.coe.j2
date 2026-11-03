@@ -151,6 +151,8 @@ FFFFFFFF,
 ; Capabilities Pointer (0x34), Reserved (0x35-0x3B)
 ; Points to first capability at 0x40
 {{ "%02X" % (CAP_OFFSET_PM | safe_int(0)) }}000000,
+; Reserved (0x38-0x3B)
+00000000,
 
 ; Interrupt Line (0x3C), Interrupt Pin (0x3D), Min_Gnt (0x3E), Max_Lat (0x3F)
 ; Using INTA (0x01) for interrupt pin
@@ -227,6 +229,8 @@ FFFFFFFF,
 00000000,
 00000000,
 {% endif %}
+; Padding (0x5C-0x5F) so the PCIe capability lands at its absolute offset
+00000000,
 
 ; PCIe Capability ({{ CAP_OFFSET_PCIE }}-{{ CAP_OFFSET_PCIE + 63 }})
 ; Cap ID=0x10, Next=0x00 (end of chain), PCIe Capabilities=0x0002
@@ -261,6 +265,8 @@ FFFFFFFF,
 ; Slot Capabilities 2
 00000000,
 ; Slot Control 2 and Status 2
+00000000,
+; Padding (0x9C-0x9F) so the AER region lands at its absolute offset
 00000000,
 
 {% if device_config.enable_advanced_features %}
@@ -311,8 +317,16 @@ FFFFFFFF,
 ; Reserved
 00000000,
 00000000,
+{% else %}
+; AER not emitted: keep 0xA0-0xDF zeroed so offsets stay absolute
+{% for _ in range(16) %}
 00000000,
+{% endfor %}
 {% endif %}
+; Padding (0xE0-0xFF): the standard 256-byte region must end exactly at 0x100
+{% for _ in range(8) %}
+00000000,
+{% endfor %}
 
 {% if device_config and hasattr(device_config, 'has_manufacturing_variance') and device_config.has_manufacturing_variance %}
 ; =====================================================================
