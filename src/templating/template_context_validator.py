@@ -631,12 +631,12 @@ class TemplateContextValidator:
                 vendor_id = source.get("vendor_id")
                 device_id = source.get("device_id")
                 class_code = source.get("class_code")
-                subsys_vendor_id = source.get("subsys_vendor_id") or source.get(
-                    "subsystem_vendor_id"
-                )
-                subsys_device_id = source.get("subsys_device_id") or source.get(
-                    "subsystem_device_id"
-                )
+                subsys_vendor_id = source.get("subsys_vendor_id")
+                if subsys_vendor_id is None:
+                    subsys_vendor_id = source.get("subsystem_vendor_id")
+                subsys_device_id = source.get("subsys_device_id")
+                if subsys_device_id is None:
+                    subsys_device_id = source.get("subsystem_device_id")
             else:
                 vendor_id = device_id = class_code = subsys_vendor_id = (
                     subsys_device_id

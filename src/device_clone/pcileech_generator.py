@@ -61,6 +61,11 @@ DWORD_SIZE = 4
 DWORDS_PER_MSIX_ENTRY = MSIX_ENTRY_SIZE // DWORD_SIZE
 
 
+def _hex_or_none(value: Optional[int]) -> Optional[str]:
+    """Format a 16-bit ID, keeping None (absent) distinct from 0x0000."""
+    return None if value is None else format(value, "04x")
+
+
 if TYPE_CHECKING:
     from pcileechfwgenerator.host_collect.snapshot import DonorSnapshot
 
@@ -548,11 +553,12 @@ class PCILeechGenerator:
             "device_id": format(device_info.get("device_id", 0), "04x"),
             "class_code": format(device_info.get("class_code", 0), "06x"),
             "revision_id": format(device_info.get("revision_id", 0), "02x"),
-            "subsystem_vendor_id": format(
-                device_info.get("subsystem_vendor_id", 0), "04x"
+            # None = no subsystem registers (type-1 header); 0 is donor data.
+            "subsystem_vendor_id": _hex_or_none(
+                device_info.get("subsystem_vendor_id")
             ),
-            "subsystem_device_id": format(
-                device_info.get("subsystem_device_id", 0), "04x"
+            "subsystem_device_id": _hex_or_none(
+                device_info.get("subsystem_device_id")
             ),
             "bars": device_info.get("bars", []),
             "config_space_size": len(config_space_bytes),
@@ -1577,9 +1583,13 @@ class PCILeechGenerator:
     def _preload_msix_data_early(self) -> Optional[Dict[str, Any]]:
         """Preload MSI-X data from sysfs before VFIO binding."""
         if getattr(self, "offline_capture", None) is not None:
-            info = self.offline_capture.msix["msix_info"]
-            if not info.get("table_size"):
+            from pcileechfwgenerator.host_collect.offline import MSIX_LAYOUT_FIELDS
+
+            raw = self.offline_capture.msix["msix_info"]
+            if not raw.get("table_size"):
                 return None
+            # Whitelist: a hand-edited sidecar must not inject table contents.
+            info = {key: raw[key] for key in MSIX_LAYOUT_FIELDS}
             return {
                 **info,
                 "capability_info": dict(info),

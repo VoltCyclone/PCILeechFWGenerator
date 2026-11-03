@@ -99,7 +99,7 @@ across all templates with proper fallback chains. These macros handle:
   {%- set main_vendor = get_vendor_id(device_config, device, none, vendor_id_int, _fallback) | safe_int(_fallback) -%}
   {%- if device_config and device_config.subsystem_vendor_id_int is defined -%}
     {{ '%04x' % (device_config.subsystem_vendor_id_int | safe_int(main_vendor)) }}
-  {%- elif device and device.subsys_vendor_id is defined and device.subsys_vendor_id != "0000" -%}
+  {%- elif device and device.subsys_vendor_id is defined and device.subsys_vendor_id is not none -%}
     {{ '%04x' % (device.subsys_vendor_id | safe_int(main_vendor)) }}
   {%- elif device_config and device_config.subsystem_vendor_id is defined -%}
     {{ '%04x' % (device_config.subsystem_vendor_id | safe_int(main_vendor)) }}
@@ -116,7 +116,7 @@ across all templates with proper fallback chains. These macros handle:
   {%- set main_device = get_device_id(device_config, device, none, device_id_int, _fallback) | safe_int(_fallback) -%}
   {%- if device_config and device_config.subsystem_device_id_int is defined -%}
     {{ '%04x' % (device_config.subsystem_device_id_int | safe_int(main_device)) }}
-  {%- elif device and device.subsys_device_id is defined and device.subsys_device_id != "0000" -%}
+  {%- elif device and device.subsys_device_id is defined and device.subsys_device_id is not none -%}
     {{ '%04x' % (device.subsys_device_id | safe_int(main_device)) }}
   {%- elif device_config and device_config.subsystem_device_id is defined -%}
     {{ '%04x' % (device_config.subsystem_device_id | safe_int(main_device)) }}

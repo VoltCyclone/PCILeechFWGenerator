@@ -206,7 +206,39 @@ def load_snapshot(
         )
     if not isinstance(msix.get("msix_info"), dict):
         raise SnapshotError("invalid MSI-X sidecar")
+    _check_msix_matches_config(msix["msix_info"], config)
     return DonorSnapshot(identity, context, msix, config)
+
+
+def _check_msix_matches_config(msix_info: dict[str, Any], config: bytes) -> None:
+    """Reject sidecar MSI-X layout that the checksummed config does not encode.
+
+    The SHA pins only the config bytes, so a hand-edited ``msix_info`` would
+    otherwise reach live MSI-X injection. Re-derive with the collectors' own
+    parser (not the offline-only strict walker, which rejects captures live
+    collection legitimately writes) so every genuine sidecar still matches.
+    ``{}`` is what collectors write on parse failure and is safe: no MSI-X
+    data is preloaded from it.
+    """
+    if not msix_info:
+        return
+    from pcileechfwgenerator.device_clone.msix_capability import (
+        parse_msix_capability,
+    )
+
+    expected = parse_msix_capability(config.hex())
+    present = bool(expected["table_size"])
+    for name, value in expected.items():
+        if name not in msix_info and not (present or value):
+            continue  # partial "absent" dicts are accepted, as offline does
+        actual = msix_info.get(name)
+        # Exact types: 1 == True and 4096.0 == 4096 would otherwise pass and
+        # reach SV rendering / hex formatting as the wrong type.
+        if type(actual) is not type(value) or actual != value:
+            raise SnapshotError(
+                f"MSI-X {name} in the sidecar conflicts with the captured config "
+                "space; recollect the donor"
+            )
 
 
 def load_configured_snapshot(

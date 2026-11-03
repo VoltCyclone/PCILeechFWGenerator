@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from pcileechfwgenerator.host_collect.offline import MSIX_LAYOUT_FIELDS
 from pcileechfwgenerator.host_collect.snapshot import (
     SnapshotError,
     load_configured_snapshot,
@@ -121,6 +122,25 @@ def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
         return _as_int(value, "optional_field")
     except Exception:  # pragma: no cover
         return None
+
+
+def _subsystem_fields(host_context: Dict[str, Any]) -> Dict[str, Any]:
+    """Subsystem IDs for a fallback device_config, keeping 0 distinct from None.
+
+    The ``*_int`` keys are what the template helpers read first; without them
+    they parse the string form, which misreads digit-only hex as decimal.
+    """
+    fields: Dict[str, Any] = {}
+    for key in ("subsystem_vendor_id", "subsystem_device_id"):
+        value = host_context.get(key)
+        if isinstance(value, str):
+            # PCI IDs are always hex, even when every digit is 0-9.
+            text = value.strip().lower().removeprefix("0x")
+            value = int(text, 16) if text else None
+        fields[key] = None if value is None else format(value, "04x")
+        if value is not None:
+            fields[f"{key}_int"] = value
+    return fields
 
 
 @dataclass(slots=True)
@@ -290,8 +310,11 @@ class MSIXManager:
                 raise SnapshotError(
                     "the donor device is not present for a live build"
                 )
-            msix_info = snapshot.msix["msix_info"]
-            if msix_info and int(msix_info.get("table_size", 0)) > 0:
+            raw = snapshot.msix["msix_info"]
+            if raw and int(raw.get("table_size", 0)) > 0:
+                # load_snapshot verified these against the config bytes; extra
+                # sidecar keys are unverified and never forwarded (#682).
+                msix_info = {key: raw[key] for key in MSIX_LAYOUT_FIELDS}
                 return MSIXData(
                     preloaded=True,
                     msix_info=msix_info,
@@ -1080,16 +1103,9 @@ class FirmwareBuilder:
                         "revision_id": format(
                             host_context.get("revision_id", 0), "02x"
                         ),
-                        "subsystem_vendor_id": (
-                            format(host_context.get("subsystem_vendor_id", 0), "04x")
-                            if host_context.get("subsystem_vendor_id")
-                            else "0000"
-                        ),
-                        "subsystem_device_id": (
-                            format(host_context.get("subsystem_device_id", 0), "04x")
-                            if host_context.get("subsystem_device_id")
-                            else "0000"
-                        ),
+                        # None (not collected / type-1) lets templates fall
+                        # back to the main IDs; a raw 0 is donor data.
+                        **_subsystem_fields(host_context),
                         "enable_perf_counters": False,
                         "enable_advanced_features": False,
                         "enable_error_injection": False,

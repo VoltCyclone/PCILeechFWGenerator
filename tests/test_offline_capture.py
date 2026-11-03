@@ -775,8 +775,7 @@ def test_unassigned_bar_zero_range_is_unimplemented():
     assert capture_bar_sizes("0x0 0x0 0x200\n" + "0x0 0x0 0x0\n" * 5) == [0] * 6
 
 
-def test_container_build_renders_donor_modules_from_capture(tmp_path, monkeypatch):
-    """The live container stage renders the donor, not board defaults."""
+def _container_render(tmp_path, monkeypatch, **fixture):
     import builtins
     import io
     import os
@@ -784,10 +783,8 @@ def test_container_build_renders_donor_modules_from_capture(tmp_path, monkeypatc
 
     import pcileechfwgenerator.build as build
 
-    from tests.snapshot_helpers import config_bytes
-
     capture = tmp_path / "capture"
-    offline_fixture(capture, size=16384, msix=True)
+    offline_fixture(capture, size=16384, msix=True, **fixture)
     monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(capture / "device_context.json"))
     monkeypatch.setenv("MSIX_DATA_PATH", str(capture / "msix_data.json"))
     monkeypatch.setenv("PCILEECH_HOST_CONTEXT_ONLY", "1")
@@ -833,6 +830,14 @@ def test_container_build_renders_donor_modules_from_capture(tmp_path, monkeypatc
     )
     build.FirmwareBuilder(build.ConfigurationManager().create_from_args(args)).build()
     assert not touched
+    return output
+
+
+def test_container_build_renders_donor_modules_from_capture(tmp_path, monkeypatch):
+    """The live container stage renders the donor, not board defaults."""
+    from tests.snapshot_helpers import config_bytes
+
+    output = _container_render(tmp_path, monkeypatch)
     coe = (output / "src" / "pcileech_cfgspace.coe").read_text()
     donor_dw0 = config_bytes()[:4][::-1].hex()  # first DWORD, as the COE prints it
     assert donor_dw0 in coe.lower()
@@ -900,3 +905,57 @@ def test_malformed_resource_fails_only_strict_collection(tmp_path, monkeypatch, 
     if not strict:
         context = json.loads((target / "device_context.json").read_text())
         assert "offline_resources" not in context
+
+
+def test_offline_msix_preload_passes_only_layout_fields(tmp_path):
+    """A hand-edited sidecar must not smuggle table contents into the build (#682)."""
+    from pcileechfwgenerator.device_clone.pcileech_generator import (
+        PCILeechGenerator,
+    )
+    from pcileechfwgenerator.host_collect.offline import load_offline_capture
+
+    offline_fixture(tmp_path, size=16384, msix=True)
+    edit = json.loads((tmp_path / "msix_data.json").read_text())
+    edit["msix_info"].update(
+        table_entries=[{"vector": 0, "data": "00" * 16}],
+        table_init_hex="deadbeef",
+        vector_count=8,
+    )
+    (tmp_path / "msix_data.json").write_text(json.dumps(edit))
+    generator = object.__new__(PCILeechGenerator)
+    generator.offline_capture = load_offline_capture(tmp_path)
+
+    data = generator._preload_msix_data_early()
+
+    layout = {
+        "table_size",
+        "table_bir",
+        "table_offset",
+        "pba_bir",
+        "pba_offset",
+        "enabled",
+        "function_mask",
+    }
+    assert set(data["capability_info"]) == layout
+    assert set(data) == layout | {
+        "capability_info",
+        "is_valid",
+        "validation_errors",
+        "preloaded",
+    }
+
+
+
+@pytest.mark.parametrize(
+    "svid, ssid",
+    [(0x0000, 0x0000), (0x1AF4, 0x0000), (0x0000, 0x1100), (0xFFFF, 0xFFFF)],
+)
+def test_render_keeps_raw_subsystem_ids(tmp_path, monkeypatch, svid, ssid):
+    """0x0000 / 0xFFFF are donor data, not 'missing'; never swap in VID:DID."""
+    import re
+
+    output = _container_render(tmp_path, monkeypatch, subsystem=(svid, ssid))
+    coe = (output / "src" / "pcileech_cfgspace.coe").read_text().lower()
+    # COE rows are DWORDs; DWORD 0x2C holds SSID:SVID.
+    dwords = re.findall(r"^([0-9a-f]{8}),", coe, re.MULTILINE)
+    assert dwords[0x2C // 4] == f"{ssid:04x}{svid:04x}"

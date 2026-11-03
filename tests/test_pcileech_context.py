@@ -589,7 +589,7 @@ class TestDeviceIdentifiers:
         [
             (None, None, "10ee", "7024"),  # Both missing
             ("", "", "10ee", "7024"),  # Empty strings
-            ("0000", "0000", "10ee", "7024"),  # Invalid zeros
+            ("0000", "0000", "0000", "0000"),  # Raw donor zeros are kept
             (None, "1234", "10ee", "1234"),  # Partial missing
         ],
     )

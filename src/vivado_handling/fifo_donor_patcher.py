@@ -268,9 +268,10 @@ def donor_ids_from_template_context(
     or zero — that signals the build never recovered real donor data, in
     which case patching with zeros would mask the bug.
 
-    Subsystem IDs of zero are tolerated and fall back to the main vendor
-    (matching the ``get_subsystem_vendor_id`` helper macro), since plenty
-    of real devices report ``0:0`` for subsystem fields.
+    Subsystem IDs of zero are real donor data (plenty of devices report
+    ``0:0``) and are kept, matching the COE and IP config. Only a missing
+    subsystem vendor falls back to the main vendor, as the
+    ``get_subsystem_vendor_id`` helper macro does.
     """
     device_config = (template_context or {}).get("device_config") or {}
     if not device_config:
@@ -304,11 +305,13 @@ def donor_ids_from_template_context(
 
     if revision_id is None:
         revision_id = 0
-    if not subsystem_vendor_id:
-        # Mirror get_subsystem_vendor_id helper: fall back to main vendor.
+    if subsystem_vendor_id is None:
+        # Mirror get_subsystem_vendor_id helper: fall back to main vendor only
+        # when missing; a raw 0x0000 is donor data.
         subsystem_vendor_id = vendor_id
     if subsystem_id is None:
-        subsystem_id = 0
+        # Same fallback as get_subsystem_device_id, so FIFO and COE agree.
+        subsystem_id = device_id
 
     return DonorIDs(
         vendor_id=vendor_id,

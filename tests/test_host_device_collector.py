@@ -228,9 +228,26 @@ def test_full_collector_publishes_serializable_msix_capture(
     from pcileechfwgenerator.host_collect.snapshot import load_snapshot
 
     monkeypatch.setattr(hdc, "VFIOBinder", _DummyBinder)
-    monkeypatch.setattr(hdc, "ConfigSpaceManager", _FakeConfigSpaceManager)
+    from tests.snapshot_helpers import msix_config
+
+    class _MsixConfigSpaceManager(_FakeConfigSpaceManager):
+        def read_vfio_config_space(self) -> bytes:
+            # The real parser runs on these bytes; the sidecar must match them.
+            return msix_config(
+                dict(
+                    table_size=4,
+                    table_bir=0,
+                    table_offset=0x1000,
+                    pba_bir=0,
+                    pba_offset=0x2000,
+                    enabled=False,
+                    function_mask=False,
+                ),
+                super().read_vfio_config_space(),
+            )
+
+    monkeypatch.setattr(hdc, "ConfigSpaceManager", _MsixConfigSpaceManager)
     monkeypatch.setattr(hdc, "DeviceInfoLookup", _FakeDeviceInfoLookup)
-    monkeypatch.setattr(hdc, "parse_msix_capability", lambda _: {"table_size": 4})
     collector = HostDeviceCollector("03:00.0", logger, enable_mmio_learning=False)
     result = collector.collect_device_context(tmp_path)
     snapshot = load_snapshot(

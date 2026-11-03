@@ -23,6 +23,18 @@ if TYPE_CHECKING:
 
 MAX_RENDER_BAR_BYTES = 16 * 1024 * 1024
 
+# The only sidecar MSI-X fields any build may consume. Everything else
+# (table contents, vector counts) is collector metadata and never trusted.
+MSIX_LAYOUT_FIELDS = (
+    "table_size",
+    "table_bir",
+    "table_offset",
+    "pba_bir",
+    "pba_offset",
+    "enabled",
+    "function_mask",
+)
+
 
 class OfflineResources(BaseModel):
     """Measured BAR lengths; config bytes alone cannot establish these sizes."""
