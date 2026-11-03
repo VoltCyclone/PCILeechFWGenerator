@@ -81,6 +81,25 @@ def test_msi_donor_chain_reaches_pcie():
     assert CAP_ID_PCIE in ids, f"PCIe unreachable; chain={chain}"
 
 
+def test_std_chain_terminates_at_pcie_without_malformed_aer():
+    # AER is a PCIe *extended* capability (ext cap ID 0x0001) valid only at
+    # config offset >= 0x100, where the extended-config pipeline clones the
+    # donor's real AER. The 0xA0 block in standard space reads as a second
+    # standard Cap ID 0x01 (Power Management) if the PCIe cap links to it via
+    # an 8-bit next-pointer. The standard chain must end at the PCIe cap so no
+    # OS walks into that malformed block -- on both MSI-X and MSI donors.
+    for num_vectors in (8, 0):
+        chain = _walk_std_caps(_render(num_vectors=num_vectors))
+        offs = {off for off, _, _ in chain}
+        assert 0xA0 not in offs, f"chain walks into misplaced AER at 0xA0: {chain}"
+        pm_caps = [off for off, cid, _ in chain if cid == CAP_ID_PM]
+        assert len(pm_caps) == 1, f"expected one PM cap, got {pm_caps}: {chain}"
+        last_off, last_id, last_next = chain[-1]
+        assert last_id == CAP_ID_PCIE and last_next == 0x00, (
+            f"chain must terminate at PCIe (next=0x00): {chain}"
+        )
+
+
 def test_capabilities_list_bit_set_regardless_of_dma():
     # Status register is bytes 0x06-0x07 = bits [31:16] of the DWORD at 0x04.
     for enable_dma in (True, False):
