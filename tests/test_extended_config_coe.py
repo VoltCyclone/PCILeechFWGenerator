@@ -68,7 +68,10 @@ def test_coe_standard_capabilities_sit_at_absolute_offsets():
     assert dwords[0x3C // 4] == 0x0000010B  # interrupt line/pin
     assert dwords[0x40 // 4] & 0xFF == 0x01  # PM
     assert dwords[0x60 // 4] & 0xFF == 0x10  # PCIe
-    assert dwords[0xA0 // 4] == 0x00000001  # AER
+    # 0xA0 is reserved standard space (zeroed): AER is an extended capability
+    # (ext cap ID 0x0001) cloned into extended config space at >=0x100, not a
+    # standard-space header that would mis-read as a second Cap ID 0x01.
+    assert dwords[0xA0 // 4] == 0x00000000
 
 
 def test_coe_256_byte_donor_has_zero_extended_region():
