@@ -276,6 +276,8 @@ class RepoManager:
             "pcileech_35t325_x4": repo_root / "CaptainDMA" / "35t325_x4",
             "pcileech_35t325_x1": repo_root / "CaptainDMA" / "35t325_x1",
             "pcileech_100t484_x1": repo_root / "CaptainDMA" / "100t484-1",
+            # CaptainDMA M2 100T shares the full-size 100T project/firmware.
+            "pcileech_100t484_m2": repo_root / "CaptainDMA" / "100t484-1",
             "pcileech_100t484_x4": repo_root / "ZDMA" / "100T",
             # Other boards
             "pcileech_enigma_x1": repo_root / "EnigmaX1",

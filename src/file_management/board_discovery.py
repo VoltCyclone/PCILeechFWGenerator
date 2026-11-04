@@ -96,6 +96,13 @@ class BoardDiscovery:
             "fpga_part": "xc7a100tfgg484-1",
             "max_lanes": 1,
         },
+        # CaptainDMA M2 100T: M.2 key-M variant, firmware-compatible with the
+        # full-size CaptainDMA 100T (shares the 100t484-1 project).
+        "pcileech_100t484_m2": {
+            "dir": "CaptainDMA/100t484-1",
+            "fpga_part": "xc7a100tfgg484-1",
+            "max_lanes": 1,
+        },
         "pcileech_100t484_x4": {
             "dir": "ZDMA/100T",
             "fpga_part": "xc7a100tfgg484-1",
@@ -147,6 +154,7 @@ class BoardDiscovery:
         "pcileech_pciescreamer_xc7a35": "IBUFDS_GTE2_X0Y0",
         # Artix-7 100T boards (FGG484 package)
         "pcileech_100t484_x1": "IBUFDS_GTE2_X0Y1",
+        "pcileech_100t484_m2": "IBUFDS_GTE2_X0Y1",
         "pcileech_100t484_x4": "IBUFDS_GTE2_X0Y1",
         "pcileech_netv2_100t": "IBUFDS_GTE2_X0Y1",
         "100t": "IBUFDS_GTE2_X0Y1",
@@ -481,6 +489,7 @@ class BoardDiscovery:
             "pcileech_35t325_x4": "CaptainDMA 35T x4",
             "pcileech_35t325_x1": "CaptainDMA 35T x1 (325)",
             "pcileech_100t484_x1": "CaptainDMA 100T",
+            "pcileech_100t484_m2": "CaptainDMA M2 100T",
             "pcileech_100t484_x4": "Artix-7 100T x4 (ZDMA-style)",
             "pcileech_enigma_x1": "CaptainDMA Enigma x1",
             "pcileech_squirrel": "CaptainDMA Squirrel",
