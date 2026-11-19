@@ -156,7 +156,7 @@ class NetworkLink(Exerciser):
                     try:
                         stat.read_text()
                     except OSError:
-                        pass
+                        pass  # the read is the exercise; an unreadable stat is fine
                 report.ran.append(f"{self.name} {name}")
         finally:
             down = _run([ip, "link", "set", "dev", name, "down"])
@@ -309,7 +309,7 @@ class BlockRead(Exerciser):
                 if any(root in p.resolve().parents for p in paths):
                     found.append(entry.name)
         except OSError:
-            pass
+            pass  # no readable block sysfs: report no backing disks
         return found
 
     @staticmethod
@@ -452,7 +452,7 @@ class SensorReads(Exerciser):
             try:
                 sensor.read_text()
             except OSError:
-                pass
+                pass  # the read is the exercise; an unreadable sensor is fine
         report.ran.append(f"{self.name} ({len(inputs[:64])})")
 
 

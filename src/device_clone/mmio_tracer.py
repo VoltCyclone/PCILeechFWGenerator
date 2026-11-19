@@ -695,7 +695,7 @@ END {
                     found[target] = target
                     heads.add(head)
                 except OSError:
-                    pass
+                    pass  # unresolvable head: handled as not found just below
             if head not in heads:
                 reasons.append(
                     safe_format(
@@ -958,7 +958,7 @@ END {
                 if len(fields) > 2:
                     mounted.add(fields[2])
         except OSError:
-            pass
+            pass  # readable stays False and is reported just below
         if not readable:
             reasons.append("cannot verify mounts: no mountinfo readable")
         return mounted

@@ -249,7 +249,7 @@ def _online_cpus(expected: set[int]) -> bool:
         try:
             _set_cpu_online(cpu)
         except OSError:
-            pass
+            pass  # the set comparison below reports any CPU left offline
     return _cpu_set(CPU_ONLINE.read_text()) == expected
 
 
