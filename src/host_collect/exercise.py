@@ -342,11 +342,9 @@ class BlockRead(Exerciser):
                 span = max(size - BLOCK_READ_BYTES, 0)
                 for i in range(BLOCK_READ_POINTS):
                     offset = (span * i // max(BLOCK_READ_POINTS - 1, 1)) & ~0xFFF
-                    # preadv reads into the aligned buffer O_DIRECT needs;
-                    # the project requires Python 3.11.
-                    os.preadv(  # nosemgrep: python37-compatibility-os1
-                        fd, [buffer], offset
-                    )
+                    # readv fills the page-aligned buffer O_DIRECT needs.
+                    os.lseek(fd, offset, os.SEEK_SET)
+                    os.readv(fd, [buffer])
             finally:
                 buffer.close()
         finally:
