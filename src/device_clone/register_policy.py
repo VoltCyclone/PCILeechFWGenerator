@@ -157,7 +157,6 @@ def compile_bar_model(
             overlapping.update((previous, key))
         if key[0] + key[1] > end:
             end, previous = key[0] + key[1], key
-    end = 0
     for (offset, width), group in sorted(groups.items()):
         if (offset, width) in overlapping:
             ref = group[0].ref.model_copy(update={"field_mask": width_mask(width)})

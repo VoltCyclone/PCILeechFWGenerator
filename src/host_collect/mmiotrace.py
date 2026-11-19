@@ -698,11 +698,15 @@ def _locked_capture(
         except (OSError, ValueError):
             incomplete.append("CPU state unreadable while tracing")
         fd = os.open(tracefs / "trace_pipe", os.O_RDONLY | os.O_NONBLOCK)
-        stop = threading.Event()
-        reader = threading.Thread(
-            target=_drain, args=(fd, chunks, stop, reader_status), daemon=True
-        )
-        reader.start()
+        try:
+            stop = threading.Event()
+            reader = threading.Thread(
+                target=_drain, args=(fd, chunks, stop, reader_status), daemon=True
+            )
+            reader.start()
+        except BaseException:
+            os.close(fd)  # the finally below that closes it is not reached
+            raise
         try:
             # The probe runs synchronously in the kernel and can stall; the
             # tracer (and its offlined CPUs) must not wait on it unbounded.

@@ -388,16 +388,24 @@ END {
                         unattributed_accesses=result.unattributed_accesses,
                         observer_result=result,
                         coverage_notes=[
-                            "Only ioread/iowrite 8/16/32 and ioremap/iounmap "
-                            "are instrumented.",
-                            "Pre-existing mappings, other mapping APIs, "
-                            "inline/raw/relaxed accessors and I/O-port BARs "
-                            "are unsupported; coverage is partial.",
-                            "Writes are attempts; physical completion and "
-                            "writability are unknown.",
-                            "A triggered rebind traces probe() only; driver "
-                            "setup deferred to work queues may fall outside "
-                            "the capture window.",
+                            (
+                                "Only ioread/iowrite 8/16/32 and ioremap/iounmap "
+                                "are instrumented."
+                            ),
+                            (
+                                "Pre-existing mappings, other mapping APIs, "
+                                "inline/raw/relaxed accessors and I/O-port BARs "
+                                "are unsupported; coverage is partial."
+                            ),
+                            (
+                                "Writes are attempts; physical completion and "
+                                "writability are unknown."
+                            ),
+                            (
+                                "A triggered rebind traces probe() only; driver "
+                                "setup deferred to work queues may fall outside "
+                                "the capture window."
+                            ),
                             "Unordered stderr loss markers discard all observations.",
                         ],
                     )

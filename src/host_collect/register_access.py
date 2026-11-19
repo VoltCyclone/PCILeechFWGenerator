@@ -177,12 +177,9 @@ class RegisterAccessBackend(Protocol):
 
     def discover_regions(self) -> tuple[RegisterRegion, ...]:
         """Return region metadata; raise OSError if discovery is unavailable."""
-        ...
 
     def read(self, ref: RegisterRef) -> AccessResult:
         """Read exactly ref.width bytes, reporting measured duration if known."""
-        ...
 
     def write(self, ref: RegisterRef, value: int, byte_enable: int) -> AccessResult:
         """Issue one explicit-width write with the specified byte lanes."""
-        ...
