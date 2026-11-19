@@ -398,6 +398,7 @@ class TestVFIOContainerHardening:
 
             with (
                 patch("pathlib.Path.exists", return_value=False),
+                patch("pathlib.Path.is_symlink", return_value=False),
                 patch.object(binder, "_cleanup_device_ids", mock_cleanup),
                 patch.object(binder, "_release_group_lock"),
             ):
@@ -423,6 +424,7 @@ class TestVFIOContainerHardening:
 
             with (
                 patch("pathlib.Path.exists", return_value=False),
+                patch("pathlib.Path.is_symlink", return_value=False),
                 patch.object(binder, "_cleanup_device_ids"),
                 patch.object(binder, "_release_group_lock", mock_release),
             ):
@@ -455,6 +457,7 @@ class TestVFIOContainerHardening:
 
             with (
                 patch("pathlib.Path.exists", return_value=False),
+                patch("pathlib.Path.is_symlink", return_value=False),
                 patch.object(binder, "_cleanup_device_ids", mock_cleanup),
                 patch.object(binder, "_release_group_lock", mock_release),
             ):
