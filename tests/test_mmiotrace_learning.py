@@ -593,21 +593,25 @@ def test_concurrent_capture_is_refused(tmp_path, host):
 
 
 def test_stalled_probe_stops_tracing_at_the_deadline(tmp_path, host, monkeypatch):
-    import threading
+    import time
 
     root = _tracefs(tmp_path)
     monkeypatch.setattr(mmiotrace, "PROBE_DEADLINE_SEC", 0.2)
-    release = threading.Event()
     states = []
 
     def stalled(_after):
-        release.wait(5)
-        states.append((root / "current_tracer").read_text().strip())
+        # Stall until tracing is switched off (bounded). Released on the
+        # event, not on a wall-clock timer, so a slow host cannot let the
+        # probe finish inside the deadline. If capture waited on the probe
+        # before stopping the tracer, this would time out and still read
+        # "mmiotrace".
+        deadline = time.monotonic() + 5
+        tracer = root / "current_tracer"
+        while tracer.read_text().strip() != "nop" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        states.append(tracer.read_text().strip())
 
-    timer = threading.Timer(0.4, release.set)
-    timer.start()
     result = _capture(tmp_path, root, stalled)
-    timer.cancel()
     # Tracer was already off when the probe ended. That late probe ran with
     # every CPU back, so no restoring re-probe is needed (or attempted).
     assert states == ["nop"]
