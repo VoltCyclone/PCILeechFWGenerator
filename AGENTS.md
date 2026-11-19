@@ -1,63 +1,37 @@
-# AGENTS.md — PCILeech Firmware Generator
+# AGENTS.md
 
-This file is a concentrated reference for AI coding agents working in the
-`PCILeechFWGenerator` repository. It assumes you know nothing about the project
-and need to make safe, useful changes quickly.
+Reference for AI coding agents working in `PCILeechFWGenerator`. It assumes no prior knowledge of the project.
 
 ---
 
-## Project overview
+## Project Overview
 
-**PCILeechFWGenerator** generates authentic PCIe DMA firmware bitstreams by
-cloning the PCIe configuration of a real donor device. The output is a Xilinx
-FPGA bitstream for PCILeech-family boards (e.g., PCIeSquirrel, EnigmaX1,
-ScreamerM2, ZDMA, CaptainDMA, GBOX, NeTV2, AC701/FT601, Acorn/FT2232H,
-SP605/FT601).
+PCILeechFWGenerator generates PCIe DMA firmware bitstreams by cloning the PCIe configuration of a real donor device. The output is a Xilinx FPGA bitstream for PCILeech-family boards (PCIeSquirrel, EnigmaX1, ScreamerM2, ZDMA, CaptainDMA, GBOX, NeTV2, AC701/FT601, Acorn/FT2232H, SP605/FT601).
 
 - **Author:** Ramsey McGrath <ramsey@voltcyclone.info>
 - **License:** MIT
-- **Language:** Python 3.11+ (supports 3.11 and 3.12)
-- **Operating system:** POSIX Linux only — VFIO is required for Stage 1 data
-collection. macOS, Windows, and WSL2 are not supported.
+- **Language:** Python 3.11 and 3.12
+- **Operating system:** Linux only. VFIO is required for Stage 1. macOS, Windows, and WSL2 are not supported.
 - **Repository:** <https://github.com/voltcyclone/PCILeechFWGenerator>
-- **Documentation site:** <https://pcileechfwgenerator.voltcyclone.info>
+- **Documentation:** <https://pcileechfwgenerator.voltcyclone.info>
 
-The tool is deliberately designed around **real donor hardware**. Synthetic donor
-profiles or placeholder IDs (`0xDEAD`, `0xBEEF`, `0x1234`, `0xFFFF`, etc.) are
-considered regressions, and the codebase actively rejects them.
+The tool is built around real donor hardware. Synthetic donor profiles and placeholder IDs (`0xDEAD`, `0xBEEF`, `0x1234`, `0xFFFF`) are regressions, and the code rejects them.
 
-Donor IDs are validated at multiple gates. Beyond the missing/zero check, builds
-also reject **known synthetic placeholder pairs** (`KNOWN_PLACEHOLDER_IDS` in
-`src/device_clone/constants.py`, enforced via `is_placeholder_donor_id`) such as
-the fabricated Intel I210 default `0x8086:0x1533`, the Realtek `0x10EC:0x8168`
-default, and the Xilinx FIFO defaults. A few of these pairs are also real device
-IDs; cloning a genuine such device requires setting
-`PCILEECH_ALLOW_PLACEHOLDER_IDS=1`, which bypasses **only** the placeholder-pair
-check (never the missing/zero check) and must not be used for shippable builds.
+Builds also reject known synthetic placeholder pairs (`KNOWN_PLACEHOLDER_IDS` in `src/device_clone/constants.py`, enforced through `is_placeholder_donor_id`). Examples are the fabricated Intel I210 default `0x8086:0x1533`, the Realtek `0x10EC:0x8168` default, and the Xilinx FIFO defaults. A few of these pairs are also real device IDs. Cloning such a device requires `PCILEECH_ALLOW_PLACEHOLDER_IDS=1`, which bypasses only the placeholder-pair check, never the missing or zero check, and must not be used for shippable builds.
 
 ---
 
-## Three-stage pipeline
+## Three-Stage Pipeline
 
-All functionality is organized around a host-container-host pipeline:
+1. **Stage 1, host collect** (`src/host_collect/`, `src/cli/vfio*.py`): Reads VID/PID, BARs, the capability chain, and MSI-X tables from a Linux host via VFIO. It also learns register behavior by tracing the native driver with `mmiotrace` (`src/host_collect/mmiotrace.py`, `register_learning.py`). Requires root. `--no-mmio-learning` skips the trace.
+2. **Stage 2, templating** (`src/templating/`, `src/templates/`): Renders Jinja2 templates into SystemVerilog, TCL, XDC, COE, and HEX files from the collected profile. Runs locally or in a Podman container. The container has no VFIO access.
+3. **Stage 3, Vivado build** (`src/vivado_handling/`): Produces a `.bit` bitstream. `build_all.tcl` is the only Stage 3 entry, and board `vivado_*.tcl` project scripts are not staged. Routed timing, clock coverage, DRC, and CDC gates run before the bitstream is written. WebPACK is sufficient for 7-series parts, and UltraScale needs a paid license.
 
-1. **Stage 1 — Host collect** (`src/host_collect/`, `src/cli/vfio*.py`)
-   Reads the donor device's VID/PID, BARs, capability chain, MSI-X tables, and
-   timing behavior from a Linux host via VFIO. Requires root.
-
-2. **Stage 2 — Templating** (`src/templating/`, `src/templates/`)
-   Renders Jinja2 templates into SystemVerilog, TCL, XDC, COE, and HEX files
-   using the collected donor profile. This can run locally or inside an
-   isolated Podman container. The container does **not** access VFIO.
-
-3. **Stage 3 — Vivado build** (`src/vivado_handling/`)
-   Runs Xilinx Vivado synthesis to produce a `.bit` bitstream. Requires a
-   working Vivado install (WebPACK is sufficient for 7-series; UltraScale needs
-   a paid license).
+MSI-X is served from the donor's own BAR, including multi-BAR layouts. Overview and limits are in `docs/development/MSIX_STATUS.md`.
 
 ---
 
-## Key configuration files
+## Key Configuration Files
 
 | File | Purpose |
 |------|---------|
@@ -69,32 +43,25 @@ All functionality is organized around a host-container-host pipeline:
 | `.pre-commit-config.yaml` | black, isort, flake8, mypy, bandit, pydocstyle, prettier, custom template validation |
 | `Containerfile` | Ubuntu 24.04 multi-stage image for Stage 2 container builds |
 | `entrypoint.sh` | Container entrypoint; conditionally skips VFIO ops when running in host-context-only mode |
-| `MANIFEST.in` | Curates files bundled into the sdist/wheel, including `lib/voltcyclone-fpga` |
+| `MANIFEST.in` | Curates files bundled into the sdist/wheel, including the board files, which the wheel installs under `pcileechfwgenerator/voltcyclone_fpga` |
 | `cliff.toml` | `git-cliff` configuration; release notes and `CHANGELOG.md` are generated from conventional commits |
 | `configs/fallbacks.yaml` | Last-resort defaults for non-sensitive template variables; critical IDs must never have fallbacks |
 | `.coveragerc` | Coverage.py source mapping and exclusions |
 
 ---
 
-## Technology stack
+## Technology Stack
 
-### Core runtime dependencies
+### Dependencies
 
-- `psutil>=5.9.0`
-- `pydantic>=2.0.0`
-- `aiofiles>=23.0.0`
-- `jinja2>=3.1.0`
-- `PyYAML>=6.0.0`
-- `colorlog>=6.7.0`
-- `typing_extensions>=4.0.0`
+Versions and extras are defined in `pyproject.toml`.
 
-### Optional extras
+- Runtime: `psutil`, `pydantic`, `aiofiles`, `jinja2`, `PyYAML`, `colorlog`, `typing_extensions`.
+- `[tui]`: `textual`, `rich`, `watchdog`.
+- `[testing]` and `[test]`: pytest and plugins.
+- `[dev]`: testing, TUI, black, isort, flake8, mypy, pre-commit, build, twine, bandit, pip-audit.
 
-- `[tui]` — `textual>=4.0.0`, `rich>=13.0.0`, `watchdog>=3.0.0`
-- `[testing]` / `[test]` — pytest, pytest-cov, pytest-mock, pytest-xdist, pytest-asyncio, packaging
-- `[dev]` — testing + TUI + black, isort, flake8, flake8-docstrings, flake8-import-order, mypy, pre-commit, build, twine, wheel, bandit, safety
-
-### External tooling
+### External Tooling
 
 - Xilinx Vivado 2022.2+ for Stage 3
 - Podman/Docker for the optional Stage 2 container
@@ -103,7 +70,7 @@ All functionality is organized around a host-container-host pipeline:
 
 ---
 
-## Code organization
+## Code Organization
 
 The package `pcileechfwgenerator` maps to the `src/` directory via
 `pyproject.toml` (`package-dir = {"pcileechfwgenerator" = "src"}`).
@@ -113,10 +80,9 @@ src/
 ├── pcileech_main.py              # Installed-package CLI entry point
 ├── __init__.py                   # Curated public API
 ├── __version__.py                # Runtime version resolver (setuptools-scm)
-├── pcileech.py (root)            # Unified source-checkout entry point
 ├── build.py                      # FirmwareBuilder and BuildConfiguration
 ├── cli/                          # Argument parsing, VFIO binder, diagnostics, container helpers, flash
-├── host_collect/                 # Stage 1: VFIO-based donor extraction
+├── host_collect/                 # Stage 1: VFIO donor extraction, mmiotrace register learning, captures
 ├── device_clone/                 # Donor profile parsing, BAR sizing, MSI-X, config space, board config
 ├── pci_capability/               # PCIe capability list construction and analyzers
 ├── templating/                   # Stage 2: Jinja2 renderer, TCL builder, SV generators, context validator
@@ -140,9 +106,9 @@ src/
 
 ### Git submodules
 
-- `lib/voltcyclone-fpga` — Board definitions, IP, constraints, synthesis templates
-- `site` — Hosted documentation source
-- `wiki` — GitHub wiki content
+- `lib/voltcyclone-fpga`: Board definitions, IP, constraints, synthesis templates
+- `site`: Hosted documentation source
+- `wiki`: GitHub wiki content
 
 For local development, initialize submodules:
 
@@ -155,7 +121,7 @@ initialization is not needed for container usage.
 
 ---
 
-## Entry points
+## Entry Points
 
 Installed console scripts (all dispatch to the same main function):
 
@@ -177,10 +143,11 @@ pcileech version
 pcileech tui
 pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1
 pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1 --local
+pcileech build --from-capture DIR --board pcileech_35t325_x1 --templates-only --accept-offline-risk
 pcileech build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
     --vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8
 pcileech check --device 0000:03:00.0
-pcileech flash pcileech_datastore/output/*.bit --board pcileech_35t325_x1
+pcileech flash firmware.bin --board pcileech_35t325_x1    # .bin, written through usbloader
 ```
 
 VFIO operations require root; use the venv Python with `sudo -E`:
@@ -191,7 +158,7 @@ sudo -E ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech_main tui
 
 ---
 
-## Build and test commands
+## Build and Test Commands
 
 ### Development setup
 
@@ -245,7 +212,7 @@ Coverage is configured with `--cov=src`, `--cov-fail-under=10`, HTML output in
 ```bash
 make lint      # flake8 + mypy
 make format    # black + isort
-make security  # bandit + safety
+make security  # bandit + dependency scan
 ```
 
 ### Template validation
@@ -277,11 +244,11 @@ make container          # build Podman image
 ### Release
 
 ```bash
-make release VERSION=0.14.16
+make release VERSION=X.Y.Z
 ```
 
 This regenerates `CHANGELOG.md` with `git-cliff`, commits it if changed, tags
-`v0.14.16`, and pushes. The `release.yml` GitHub Actions workflow then builds,
+`vX.Y.Z`, and pushes. The `release.yml` GitHub Actions workflow then builds,
 signs, generates release notes, and publishes to PyPI/TestPyPI.
 
 Versioning is driven entirely by `setuptools-scm` from git tags; do **not** edit
@@ -289,7 +256,7 @@ Versioning is driven entirely by `setuptools-scm` from git tags; do **not** edit
 
 ---
 
-## Code style guidelines
+## Code Style Guidelines
 
 - **Formatter:** Black with `--line-length=88`.
 - **Import sorting:** isort with `--profile=black --line-length=88`.
@@ -303,7 +270,7 @@ Versioning is driven entirely by `setuptools-scm` from git tags; do **not** edit
   `refactor:`, `test:`, `chore:`). The changelog is generated from these.
 - **Type hints:** Required for all public functions.
 
-### Project-specific hard rules
+### Project-Specific Hard Rules
 
 1. **No placeholder donor IDs** in templates or template-rendering code. Real
    device identifiers must propagate from the collected donor profile.
@@ -320,11 +287,11 @@ Versioning is driven entirely by `setuptools-scm` from git tags; do **not** edit
 
 ---
 
-## Testing instructions
+## Testing
 
 - Tests live in `tests/` and use pytest.
-- There are ~173 `test_*.py` files across unit, integration, e2e, and TUI
-  categories.
+- The suite has about 4,400 tests in 226 `test_*.py` files across unit,
+  integration, e2e, and TUI categories.
 - `conftest.py` provides shared fixtures.
 - `tests/mock_sysfs/` contains sysfs fixtures for hardware-free testing.
 - Slow and hardware-dependent tests are marked and skipped by default in CI.
@@ -342,18 +309,18 @@ make test-unit
 
 ---
 
-## CI/CD and deployment
+## CI/CD
 
 ### Workflows
 
-- **`.github/workflows/consolidated-ci.yml`** — Template validation, CodeQL
+- **`.github/workflows/consolidated-ci.yml`**: Template validation, CodeQL
   security analysis, unit tests (Python 3.11/3.12), coverage upload to Codecov,
   and packaging.
-- **`.github/workflows/security.yml`** — Dependency review, Bandit, Safety,
+- **`.github/workflows/security.yml`**: Dependency review, Bandit, pip-audit,
   Semgrep, and SARIF uploads.
-- **`.github/workflows/e2e-testing.yml`** — Fast e2e, build-isolation e2e, and
+- **`.github/workflows/e2e-testing.yml`**: Fast e2e, build-isolation e2e, and
   container-build e2e.
-- **`.github/workflows/release.yml`** — Triggered on `v*` tags; builds wheel/sdist,
+- **`.github/workflows/release.yml`**: Triggered on `v*` tags; builds wheel/sdist,
   attests provenance, generates release notes from `cliff.toml`, and publishes
   to PyPI (stable) or TestPyPI (alpha/beta/rc).
 
@@ -368,14 +335,14 @@ make test-unit
 
 ---
 
-## Security considerations
+## Security
 
 - The tool is intended for educational research and legitimate PCIe development
   only. Generated firmware contains real device identifiers and should be kept
   private.
 - Never build firmware on production or sensitive systems; use isolated
   hardware.
-- CI runs SAST and dependency scanning: Bandit, Safety, Semgrep, CodeQL.
+- CI runs SAST and dependency scanning: Bandit, pip-audit, Semgrep, CodeQL.
 - Do not introduce `shell=True`, hard-coded credentials, or synthetic donor
   data.
 - Report security issues through GitHub Security Advisories, not public issues.
@@ -383,36 +350,37 @@ make test-unit
 
 ---
 
-## Agent-specific notes
+## Agent Notes
 
-### Files you must not hand-edit
+### Files You Must Not Hand-Edit
 
-- `src/_version.py` — generated by `setuptools-scm`.
-- `lib/voltcyclone-fpga/` — upstream git submodule; changes must land in
+- `src/_version.py`: generated by `setuptools-scm`.
+- `lib/voltcyclone-fpga/`: upstream git submodule; changes must land in
   `VoltCyclone/voltcyclone-fpga` first, then the submodule pointer is bumped.
-- `CHANGELOG.md` — generated by `git-cliff`.
+- `CHANGELOG.md`: generated by `git-cliff`.
 
-### Common mistakes to avoid
+### Common Mistakes
 
-- Forgetting `--recurse-submodules` when cloning, which causes "no boards
-  available" errors.
+- Forgetting `--recurse-submodules` when cloning a source checkout, which
+  causes "no boards available" errors. pip installs bundle the board files and
+  are not affected.
 - Running `sudo pcileech` without preserving the virtualenv path; use
   `sudo -E ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech_main`.
 - Installing into the system Python on modern Linux; always use a venv.
 - Adding fallbacks in `configs/fallbacks.yaml` for device IDs or timing values.
 
-### Useful project tools
+### Project Tools
 
-- `scripts/validate_template_variables.py` — template variable validation
-- `scripts/check_templates.sh` — convenient template checking
-- `scripts/analyze_imports.py` — import analysis
-- `scripts/generate_api_docs.py` — documentation generation
-- `scripts/iommu_viewer.py` — lightweight IOMMU group viewer for VFIO debugging
-- `scripts/barviz.py` — BAR visualization
-- `scripts/lint_sv_block_decls.py` — SystemVerilog declaration-order linter
-- `.claude/skills/vivado-log-analyzer/` — analyze failed Vivado runs
-- `.claude/skills/new-board-target/` — guide for adding a new FPGA board
-- `.claude/agents/hardware-safety-reviewer.md` — domain-specific review for
+- `scripts/validate_template_variables.py`: template variable validation
+- `scripts/check_templates.sh`: convenient template checking
+- `scripts/analyze_imports.py`: import analysis
+- `scripts/generate_api_docs.py`: documentation generation
+- `scripts/iommu_viewer.py`: lightweight IOMMU group viewer for VFIO debugging
+- `scripts/barviz.py`: BAR visualization
+- `scripts/lint_sv_block_decls.py`: SystemVerilog declaration-order linter
+- `.claude/skills/vivado-log-analyzer/`: analyze failed Vivado runs
+- `.claude/skills/new-board-target/`: guide for adding a new FPGA board
+- `.claude/agents/hardware-safety-reviewer.md`: domain-specific review for
   PCIe/template/Vivado changes
 
 ---

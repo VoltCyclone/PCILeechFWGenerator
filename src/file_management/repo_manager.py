@@ -7,6 +7,7 @@ This utility provides access to board-specific files from the
 It provides methods to ensure the submodule is initialized, check for updates,
 and retrieve board paths and XDC files for various PCILeech boards.
 """
+
 from __future__ import annotations
 
 import os as _os
@@ -23,37 +24,29 @@ from ..string_utils import log_debug_safe, log_error_safe, log_info_safe, safe_f
 
 # Git submodule path - single source of truth
 REPO_URL = "https://github.com/VoltCyclone/voltcyclone-fpga.git"
+# Constraints for the MMCM-compensated FT601 PHY (FT601_PHY_MMCM=1). They name
+# cells the legacy PHY lacks, so a legacy build must leave the file out.
+FT601_MMCM_XDC = "pcileech_ft601_mmcm.xdc"
 
 # Container workdir where voltcyclone-fpga is placed during image build
 _CONTAINER_APP_ROOT = Path("/app")
 
+# Wheel installs carry the boards inside the package (see pyproject.toml).
+_BUNDLED_PATH = Path(__file__).resolve().parent.parent / "voltcyclone_fpga"
+
 
 def _resolve_repo_root() -> Path:
-    """Resolve the project root directory.
+    """Return the source checkout or container root that holds lib/.
 
-    When running from source (development/editable install), __file__-based
-    resolution works: src/file_management/repo_manager.py → three parents up
-    gives the project root containing lib/voltcyclone-fpga.
-
-    When pip-installed (e.g. in containers), __file__ points into
-    site-packages and the three-parent trick yields the wrong directory.
-    In that case, fall back to the container app root (/app) where the
-    Containerfile places lib/voltcyclone-fpga.
+    In a source checkout, three parents up from this file is the project root.
+    In a pip install that path is inside site-packages, so fall back to the
+    container root (/app), where the Containerfile places the submodule.
     """
-    # Try __file__-based resolution first (works for source/editable installs)
     source_root = Path(__file__).resolve().parent.parent.parent
     if (source_root / "lib" / "voltcyclone-fpga").exists():
         return source_root
-
-    # Pip-installed package: __file__ is in site-packages.
-    # Check the container app root where the Containerfile copies the submodule.
-    if (
-        _CONTAINER_APP_ROOT / "lib" / "voltcyclone-fpga"
-    ).exists():
+    if (_CONTAINER_APP_ROOT / "lib" / "voltcyclone-fpga").exists():
         return _CONTAINER_APP_ROOT
-
-    # Neither path has the submodule yet — return the source-based root so
-    # ensure_repo() can emit a clear "submodule missing" error downstream.
     return source_root
 
 
@@ -61,8 +54,20 @@ _REPO_ROOT = _resolve_repo_root()
 
 
 def _get_voltcyclone_fpga_path() -> Path:
-    """Return the canonical voltcyclone-fpga submodule path."""
-    return _REPO_ROOT / "lib" / "voltcyclone-fpga"
+    """Return the board tree: checkout or container first, then the wheel copy.
+
+    If none exists, return the checkout path so ensure_repo() reports the
+    missing submodule.
+    """
+    checkout = _REPO_ROOT / "lib" / "voltcyclone-fpga"
+    if not checkout.exists() and (_BUNDLED_PATH / "CaptainDMA").is_dir():
+        return _BUNDLED_PATH
+    return checkout
+
+
+def _is_bundled(path: Path) -> bool:
+    """True when *path* is the copy shipped inside the installed package."""
+    return path.resolve() == _BUNDLED_PATH
 
 
 # Compute the submodule path dynamically
@@ -81,29 +86,31 @@ _logger = get_logger(__name__)
 
 def _is_container_env() -> bool:
     """Detect if running inside a container environment.
-    
+
     Container environments don't have .git directories since COPY
     doesn't preserve git metadata. This affects validation logic.
     """
     return (
-        _os.path.exists("/.dockerenv") or
-        _os.path.exists("/run/.containerenv") or
-        _os.environ.get("container") in ("podman", "docker") or
-        _os.environ.get("PCILEECH_CONTAINER_MODE", "").lower() in ("1", "true", "yes") or
-        _os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "").lower() in ("1", "true", "yes")
+        _os.path.exists("/.dockerenv")
+        or _os.path.exists("/run/.containerenv")
+        or _os.environ.get("container") in ("podman", "docker")
+        or _os.environ.get("PCILEECH_CONTAINER_MODE", "").lower()
+        in ("1", "true", "yes")
+        or _os.environ.get("PCILEECH_HOST_CONTEXT_ONLY", "").lower()
+        in ("1", "true", "yes")
     )
 
 
 def _run(
-    cmd: List[str], 
-    *, 
-    cwd: Optional[Path] = None, 
+    cmd: List[str],
+    *,
+    cwd: Optional[Path] = None,
     env: Optional[dict] = None,
     capture_output: bool = False,
-    suppress_output: bool = False
+    suppress_output: bool = False,
 ) -> _sp.CompletedProcess:
     """Run *cmd* and return the completed process, raising on error.
-    
+
     Args:
         cmd: Command and arguments to run
         cwd: Working directory for command
@@ -111,27 +118,22 @@ def _run(
         capture_output: If True, capture stdout/stderr
         suppress_output: If True, suppress all output (validation checks)
     """
-    log_debug_safe(_logger,
-                   "Running {cmd} (cwd={cwd})",
-                   cmd=cmd,
-                   cwd=cwd,
-                   prefix="GIT"
-                   )
-    
+    log_debug_safe(_logger, "Running {cmd} (cwd={cwd})", cmd=cmd, cwd=cwd, prefix="GIT")
+
     kwargs = {
         "cwd": str(cwd) if cwd else None,
         "env": env,
         "check": True,
         "text": True,
     }
-    
+
     if capture_output:
         kwargs["capture_output"] = True
     elif suppress_output:
         # Suppress both stdout and stderr for validation checks
         kwargs["stdout"] = _sp.DEVNULL
         kwargs["stderr"] = _sp.DEVNULL
-    
+
     return _sp.run(cmd, **kwargs)
 
 
@@ -140,9 +142,9 @@ def _git_available() -> bool:
     try:
         # Suppress output to avoid noise in logs during validation
         _run(
-            ["git", "--version"], 
+            ["git", "--version"],
             env={**_os.environ, "GIT_TERMINAL_PROMPT": "0"},
-            suppress_output=True
+            suppress_output=True,
         )
         return True
     except Exception:
@@ -158,16 +160,13 @@ class RepoManager:
     """Utility class - no instantiation necessary."""
 
     def __new__(cls, *args, **kwargs):  # pragma: no cover - prevent misuse
-        raise TypeError(
-            "RepoManager may not be instantiated; call class methods only"
-        )
+        raise TypeError("RepoManager may not be instantiated; call class methods only")
 
     # ---------------------------------------------------------------------
     # Entry points
     # ---------------------------------------------------------------------
 
     @classmethod
-    
     def ensure_repo(cls) -> Path:
         """Ensure voltcyclone-fpga git submodule exists (single pathway).
 
@@ -182,44 +181,54 @@ class RepoManager:
         if not SUBMODULE_PATH.exists():
             # Provide context-aware error message
             if _is_container_env():
-                raise RuntimeError(safe_format(
-                    "voltcyclone-fpga not found at {path}.\n"
-                    "Container image may be corrupted or out of date.\n"
-                    "Remediation: Rebuild the container image with:\n"
-                    "  podman build -t pcileech-fwgen -f Containerfile .",
+                raise RuntimeError(
+                    safe_format(
+                        "voltcyclone-fpga not found at {path}.\n"
+                        "Container image may be corrupted or out of date.\n"
+                        "Remediation: Rebuild the container image with:\n"
+                        "  podman build -t pcileech-fwgen -f Containerfile .",
+                        path=SUBMODULE_PATH,
+                    )
+                )
+            raise RuntimeError(
+                safe_format(
+                    "Missing voltcyclone-fpga submodule at {path}.\n"
+                    "Remediation: git submodule update --init --recursive",
                     path=SUBMODULE_PATH,
-                ))
-            raise RuntimeError(safe_format(
-                "Missing voltcyclone-fpga submodule at {path}.\n"
-                "Remediation: git submodule update --init --recursive",
-                path=SUBMODULE_PATH,
-            ))
+                )
+            )
 
         if not cls._is_valid_repo(SUBMODULE_PATH):
             # Provide context-aware error message
             if _is_container_env():
-                raise RuntimeError(safe_format(
-                    "voltcyclone-fpga at {path} is incomplete or corrupted.\n"
-                    "Container image may need to be rebuilt.\n"
-                    "Remediation: Rebuild the container image with:\n"
-                    "  podman build -t pcileech-fwgen -f Containerfile .",
+                raise RuntimeError(
+                    safe_format(
+                        "voltcyclone-fpga at {path} is incomplete or corrupted.\n"
+                        "Container image may need to be rebuilt.\n"
+                        "Remediation: Rebuild the container image with:\n"
+                        "  podman build -t pcileech-fwgen -f Containerfile .",
+                        path=SUBMODULE_PATH,
+                    )
+                )
+            raise RuntimeError(
+                safe_format(
+                    "voltcyclone-fpga at {path} is not a valid git repository.\n"
+                    "Remediation: git submodule update --init --recursive",
                     path=SUBMODULE_PATH,
-                ))
-            raise RuntimeError(safe_format(
-                "voltcyclone-fpga at {path} is not a valid git repository.\n"
-                "Remediation: git submodule update --init --recursive",
-                path=SUBMODULE_PATH,
-            ))
+                )
+            )
 
         # Minimal required directories (validated again for explicit error)
         required_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
         missing = [d for d in required_dirs if not (SUBMODULE_PATH / d).exists()]
         if missing:
-            raise RuntimeError(safe_format(
-                "voltcyclone-fpga submodule incomplete; missing: {missing}.\n"
-                "Remediation: git submodule update --init --recursive",
-                missing=", ".join(missing),
-            ))
+            raise RuntimeError(
+                safe_format(
+                    "voltcyclone-fpga submodule incomplete; missing: {missing}.\n"
+                    "Remediation: git submodule update --init --recursive",
+                    missing=", ".join(missing),
+                )
+            )
 
         log_debug_safe(
             _logger,
@@ -230,23 +239,33 @@ class RepoManager:
         return SUBMODULE_PATH
 
     @classmethod
-    
     def update_submodule(cls) -> None:
         """Update the voltcyclone-fpga submodule to latest upstream changes.
 
         Raises:
             RuntimeError: If git is not available or update fails
         """
+        if _is_bundled(SUBMODULE_PATH):
+            raise RuntimeError(
+                "Boards are bundled with this install; upgrade the package "
+                "(pip install -U pcileechfwgenerator) to update them"
+            )
         if not _git_available():
             raise RuntimeError("git executable not available for submodule update")
-        
+
         log_info_safe(_logger, "Updating voltcyclone-fpga submodule...")
-        
+
         try:
             # Update submodule to latest commit from tracked branch
             _run(
-                ["git", "submodule", "update", "--remote", "--merge", 
-                 "lib/voltcyclone-fpga"],
+                [
+                    "git",
+                    "submodule",
+                    "update",
+                    "--remote",
+                    "--merge",
+                    "lib/voltcyclone-fpga",
+                ],
                 cwd=_REPO_ROOT,
             )
             log_info_safe(_logger, "Submodule updated successfully")
@@ -254,14 +273,11 @@ class RepoManager:
             log_error_safe(
                 _logger,
                 safe_format("Submodule update failed: {error}", error=exc),
-                prefix="REPO"
+                prefix="REPO",
             )
-            raise RuntimeError(
-                "Failed to update voltcyclone-fpga submodule"
-            ) from exc
+            raise RuntimeError("Failed to update voltcyclone-fpga submodule") from exc
 
     @classmethod
-    
     def get_board_path(
         cls, board_type: str, *, repo_root: Optional[Path] = None
     ) -> Path:
@@ -309,10 +325,14 @@ class RepoManager:
         return path
 
     @classmethod
-    
     def get_xdc_files(
-        cls, board_type: str, *, repo_root: Optional[Path] = None
+        cls,
+        board_type: str,
+        *,
+        repo_root: Optional[Path] = None,
+        ft601_phy_mmcm: bool = True,
     ) -> List[Path]:
+        """Board constraint files; ``ft601_phy_mmcm=False`` drops FT601_MMCM_XDC."""
         board_dir = cls.get_board_path(board_type, repo_root=repo_root)
         search_roots = [
             board_dir,
@@ -324,11 +344,14 @@ class RepoManager:
         for root in search_roots:
             if root.exists():
                 xdc.extend(sorted(root.glob("**/*.xdc")))
+        if not ft601_phy_mmcm:
+            xdc = [p for p in xdc if p.name != FT601_MMCM_XDC]
         if not xdc:
             raise RuntimeError(
                 safe_format(
                     "No .xdc files found for board '{board_type}' in {board_dir}",
-                    board_type=board_type, board_dir=board_dir
+                    board_type=board_type,
+                    board_dir=board_dir,
                 )
             )
         # De‑duplicate whilst preserving order
@@ -341,24 +364,29 @@ class RepoManager:
         return uniq
 
     @classmethod
-    
     def read_combined_xdc(
-        cls, board_type: str, *, repo_root: Optional[Path] = None
+        cls,
+        board_type: str,
+        *,
+        repo_root: Optional[Path] = None,
+        ft601_phy_mmcm: bool = True,
     ) -> str:
-        files = cls.get_xdc_files(board_type, repo_root=repo_root)
+        files = cls.get_xdc_files(
+            board_type, repo_root=repo_root, ft601_phy_mmcm=ft601_phy_mmcm
+        )
         parts = [
             f"# XDC constraints for {board_type}",
             f"# Sources: {[f.name for f in files]}",
         ]
         root = repo_root or cls.ensure_repo()
-        
+
         def _safe_rel(fp: Path, root: Path) -> str:
             """Get safe relative path for display."""
             try:
                 return str(fp.relative_to(root))
             except (ValueError, RuntimeError):
                 return fp.name
-        
+
         for fp in files:
             parts.append(f"\n# ==== {_safe_rel(fp, root)} ====")
             parts.append(fp.read_text(encoding="utf-8"))
@@ -369,27 +397,26 @@ class RepoManager:
     # ------------------------------------------------------------------
 
     @classmethod
-    
     def _is_valid_repo(cls, path: Path) -> bool:
         """Check if path contains a valid voltcyclone-fpga repository.
-        
+
         In container environments, .git directories are not preserved during
         COPY operations, so we validate by checking for required board directories
         instead. This is safe because the container builds clone the repo fresh.
         """
-        # In container mode, skip git validation and check for required content
-        if _is_container_env():
+        # Container images and wheel installs carry no .git; check content.
+        if _is_container_env() or _is_bundled(path):
             # Validate by checking for required board directories
             required_dirs = ["CaptainDMA", "EnigmaX1", "PCIeSquirrel"]
             if all((path / d).exists() for d in required_dirs):
                 log_debug_safe(
                     _logger,
-                    "Container mode: voltcyclone-fpga validated by content (no .git required)",
+                    "voltcyclone-fpga validated by content (no .git required)",
                     prefix="REPO",
                 )
                 return True
             return False
-        
+
         # Normal mode: require valid git repository
         git_dir = path / ".git"
         if not git_dir.exists():
@@ -401,17 +428,12 @@ class RepoManager:
         try:
             # Suppress output to avoid "fatal: not a git repository" errors
             # when .git points to unavailable submodule metadata in containers
-            _run(
-                ["git", "rev-parse", "--git-dir"], 
-                cwd=path, 
-                suppress_output=True
-            )
+            _run(["git", "rev-parse", "--git-dir"], cwd=path, suppress_output=True)
             return True
         except Exception:
             return False
 
     @classmethod
-    
     def _has_vendored_payload(cls, path: Path) -> bool:  # Deprecated single-path policy
         return False
 
@@ -427,7 +449,10 @@ def get_repo_manager() -> type[RepoManager]:
 
 
 def get_xdc_files(
-    board_type: str, *, repo_root: Optional[Path] = None
+    board_type: str,
+    *,
+    repo_root: Optional[Path] = None,
+    ft601_phy_mmcm: bool = True,
 ) -> List[Path]:
     """Wrapper function to get XDC files for a board type.
 
@@ -438,11 +463,16 @@ def get_xdc_files(
     Returns:
         List[Path]: List of XDC file paths
     """
-    return RepoManager.get_xdc_files(board_type, repo_root=repo_root)
+    return RepoManager.get_xdc_files(
+        board_type, repo_root=repo_root, ft601_phy_mmcm=ft601_phy_mmcm
+    )
 
 
 def read_combined_xdc(
-    board_type: str, *, repo_root: Optional[Path] = None
+    board_type: str,
+    *,
+    repo_root: Optional[Path] = None,
+    ft601_phy_mmcm: bool = True,
 ) -> str:
     """Wrapper function to read combined XDC content for a board type.
 
@@ -453,7 +483,9 @@ def read_combined_xdc(
     Returns:
         str: Combined XDC content
     """
-    return RepoManager.read_combined_xdc(board_type, repo_root=repo_root)
+    return RepoManager.read_combined_xdc(
+        board_type, repo_root=repo_root, ft601_phy_mmcm=ft601_phy_mmcm
+    )
 
 
 def is_repository_accessible(
@@ -482,7 +514,7 @@ def is_repository_accessible(
                 RepoManager.get_board_path(board_type, repo_root=repo_root)
             except Exception as e:
                 raise RuntimeError(f"Board not found: {board_type}") from e
-                
+
         return True
     except Exception as e:
         raise RuntimeError(f"Repository not accessible: {e}") from e

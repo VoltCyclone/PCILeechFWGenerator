@@ -54,7 +54,7 @@ Out of scope:
 - Issues that require an already-compromised host or physical access beyond
   what the tool itself assumes.
 - Misuse of generated firmware against systems you don't own or have permission
-  to test — that's a policy issue, not a vulnerability.
+  to test, that's a policy issue, not a vulnerability.
 - Requests to remove the offline-build warnings, the risk-acceptance prompt or
   the collecting-host lock on captures. These are deliberate safeguards for
   builds from unverified captures, documented in

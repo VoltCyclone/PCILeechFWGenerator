@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """container_build - unified VFIO‑aware Podman build runner"""
+
 from __future__ import annotations
 
 import os
@@ -70,7 +71,6 @@ def _get_iommu_group(bdf: str) -> int:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-
 @dataclass
 class BuildConfig:
     bdf: str
@@ -82,9 +82,7 @@ class BuildConfig:
     disable_power_management: bool = not PRODUCTION_DEFAULTS.get(
         "POWER_MANAGEMENT", False
     )
-    disable_error_handling: bool = not PRODUCTION_DEFAULTS.get(
-        "ERROR_HANDLING", False
-    )
+    disable_error_handling: bool = not PRODUCTION_DEFAULTS.get("ERROR_HANDLING", False)
     disable_performance_counters: bool = not PRODUCTION_DEFAULTS.get(
         "PERFORMANCE_COUNTERS", False
     )
@@ -110,6 +108,8 @@ class BuildConfig:
     donor_template: Optional[str] = None
     # experimental/testing features
     enable_error_injection: bool = False
+    writable_bar_fallback: bool = False
+    ft601_legacy_phy: bool = False
     # MMIO learning flags
     enable_mmio_learning: bool = True
     force_recapture: bool = False
@@ -182,6 +182,10 @@ class BuildConfig:
             args.extend(["--donor-template", self.donor_template])
         if self.enable_error_injection:
             args.append("--enable-error-injection")
+        if self.writable_bar_fallback:
+            args.append("--writable-bar-fallback")
+        if self.ft601_legacy_phy:
+            args.append("--ft601-legacy-phy")
         return args
 
     def __post_init__(self) -> None:
@@ -197,11 +201,7 @@ class BuildConfig:
                 )
             )
         # Enhanced board validation - check for non-empty string with content
-        if (
-            not self.board
-            or not isinstance(self.board, str)
-            or not self.board.strip()
-        ):
+        if not self.board or not isinstance(self.board, str) or not self.board.strip():
             raise ConfigurationError(
                 "Board name is required and cannot be empty. "
                 "Use --board to specify a valid board configuration "
@@ -243,7 +243,7 @@ def get_image_age_days(name: str) -> Optional[int]:
         )
         if result.returncode != 0:
             return None
-        
+
         created_str = result.stdout.strip()
         # Parse ISO format timestamp (e.g., "2024-12-01T10:30:00.123456789Z")
         from datetime import datetime, timezone
@@ -287,7 +287,7 @@ def check_image_staleness(name: str) -> None:
     """Check if image exists and warn if it's potentially stale."""
     if not image_exists(name):
         return
-    
+
     age_days = get_image_age_days(name)
     if age_days is not None and age_days > 7:
         log_warning_safe(
@@ -350,13 +350,13 @@ def _build_podman_command(
     ]
     # Mount output dir
     cmd.extend(["-v", f"{output_dir}:/app/output"])
-    
+
     # Set environment variables for prefilled data paths
     cmd.extend(["-e", "DEVICE_CONTEXT_PATH=/app/output/device_context.json"])
     cmd.extend(["-e", "MSIX_DATA_PATH=/app/output/msix_data.json"])
     # Signal container to use host-collected context and avoid VFIO/sysfs operations
     cmd.extend(["-e", "PCILEECH_HOST_CONTEXT_ONLY=1"])
-    
+
     # Mount kernel headers if present (Linux). On macOS this path won't exist.
     if kernel_headers and Path(kernel_headers).exists():
         cmd.extend(["-v", f"{kernel_headers}:/kernel-headers:ro"])
@@ -412,9 +412,7 @@ def prompt_user_for_local_build() -> bool:
     Only suppress prompting when explicitly signalled via NO_INTERACTIVE or CI.
     (Do NOT auto‑disable merely due to missing TTY; pytest monkeypatches input).
     """
-    non_interactive = bool(
-        os.environ.get("NO_INTERACTIVE") or os.environ.get("CI")
-    )
+    non_interactive = bool(os.environ.get("NO_INTERACTIVE") or os.environ.get("CI"))
     if non_interactive:
         log_error_safe(
             logger,
@@ -495,17 +493,13 @@ def run_local_build(cfg: BuildConfig) -> None:
         result = build_main(build_args)
         if result != 0:
             raise BuildError(
-                safe_format(
-                    "Local build failed with exit code {result}", result=result
-                )
+                safe_format("Local build failed with exit code {result}", result=result)
             )
 
         elapsed = time.time() - start
         log_info_safe(
             logger,
-            safe_format(
-                "Local build completed in {elapsed:.1f}s ✓", elapsed=elapsed
-            ),
+            safe_format("Local build completed in {elapsed:.1f}s ✓", elapsed=elapsed),
             prefix="LOCAL",
         )
     except Exception as e:
@@ -540,21 +534,21 @@ def run_local_build(cfg: BuildConfig) -> None:
 def run_build(cfg: BuildConfig) -> None:
     """
     DEPRECATED: High‑level orchestration: VFIO bind → container run → cleanup.
-    
+
     This function is deprecated and will be removed in a future version.
     Use pcileech.py's unified 3-stage flow instead:
       1. pcileech.run_host_collect() - Host-side data collection
       2. pcileech.run_container_templating() - Container-based rendering
       3. pcileech.run_host_vivado() - Host-side Vivado synthesis
-    
+
     For internal use only. External callers should use:
         python3 pcileech.py build --bdf ... --board ...
     """
     import warnings
-    
+
     warnings.warn(
         "run_build() is deprecated. Use pcileech.py's unified flow instead. "
-        "See UNIFIED_FLOW_IMPLEMENTATION.md for details.",
+        "Run: python3 pcileech.py build --bdf <BDF> --board <BOARD>.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -570,9 +564,7 @@ def run_build(cfg: BuildConfig) -> None:
             prefix="BUILD",
         )
 
-        non_interactive = bool(
-            os.environ.get("NO_INTERACTIVE") or os.environ.get("CI")
-        )
+        non_interactive = bool(os.environ.get("NO_INTERACTIVE") or os.environ.get("CI"))
         if non_interactive:
             log_error_safe(
                 logger,
@@ -708,10 +700,7 @@ def run_build(cfg: BuildConfig) -> None:
         except BuildError as e:
             log_error_safe(
                 logger,
-                safe_format(
-                    "Host device collection failed: {error}",
-                    error=str(e)
-                ),
+                safe_format("Host device collection failed: {error}", error=str(e)),
                 prefix="HOST",
             )
             raise
@@ -737,9 +726,7 @@ def run_build(cfg: BuildConfig) -> None:
                     ),
                     prefix="BUILD",
                 )
-                raise BuildError(
-                    "VFIO not available on host: /dev/vfio/vfio missing"
-                )
+                raise BuildError("VFIO not available on host: /dev/vfio/vfio missing")
 
             # 2) Verify group device exists on host at launch-time
             if not _Path(group_dev).exists():
@@ -770,9 +757,7 @@ def run_build(cfg: BuildConfig) -> None:
 
             # 3) Verify all devices in the IOMMU group are bound to vfio-pci
             devices_dir = _Path(
-                safe_format(
-                    "/sys/kernel/iommu_groups/{group}/devices", group=group_id
-                )
+                safe_format("/sys/kernel/iommu_groups/{group}/devices", group=group_id)
             )
             if devices_dir.exists():
                 unbound: list[str] = []
@@ -874,7 +859,7 @@ def run_build(cfg: BuildConfig) -> None:
                 )
         except subprocess.CalledProcessError as e:
             # Log captured container output if available
-            if hasattr(e, 'stdout') and e.stdout:
+            if hasattr(e, "stdout") and e.stdout:
                 log_error_safe(
                     logger,
                     "Container stdout:",
@@ -882,7 +867,7 @@ def run_build(cfg: BuildConfig) -> None:
                 )
                 for line in e.stdout.splitlines()[-50:]:  # Last 50 lines
                     log_error_safe(logger, f"  {line}", prefix="CONT")
-            if hasattr(e, 'stderr') and e.stderr:
+            if hasattr(e, "stderr") and e.stderr:
                 log_error_safe(
                     logger,
                     "Container stderr:",
@@ -894,8 +879,9 @@ def run_build(cfg: BuildConfig) -> None:
             try:
                 # Quick probe: if container failed and host devices exist,
                 # surface a helpful hint
-                if (not os.path.exists(group_dev) or
-                        not os.path.exists("/dev/vfio/vfio")):
+                if not os.path.exists(group_dev) or not os.path.exists(
+                    "/dev/vfio/vfio"
+                ):
                     log_error_safe(
                         logger,
                         safe_format(
@@ -976,9 +962,7 @@ def run_build(cfg: BuildConfig) -> None:
                         # Best-effort unbind from vfio-pci so the next
                         # build attempt can re-bind cleanly.
                         try:
-                            with open(
-                                "/sys/bus/pci/drivers/vfio-pci/unbind", "w"
-                            ) as f:
+                            with open("/sys/bus/pci/drivers/vfio-pci/unbind", "w") as f:
                                 f.write(f"{cfg.bdf}\n")
                         except Exception:
                             pass

@@ -8,27 +8,39 @@ for VFIO operations inside the container.
 
 import logging
 import time
-from dataclasses import asdict
+from contextlib import contextmanager
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional, cast
 
 from pcileechfwgenerator.cli.vfio_handler import VFIOBinder
 from pcileechfwgenerator.device_clone.config_space_manager import ConfigSpaceManager
 from pcileechfwgenerator.device_clone.device_info_lookup import DeviceInfoLookup
 from pcileechfwgenerator.device_clone.msix import MSIXData, MSIXManager
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.device_clone.register_evidence import LearningManifest
 from pcileechfwgenerator.exceptions import BuildError
+from pcileechfwgenerator.host_collect.mmiotrace import native_probe_observer
+from pcileechfwgenerator.host_collect.register_learning import (
+    LearningDiscovery,
+    LearningResource,
+    default_journal_directory,
+    run_register_learning,
+)
 from pcileechfwgenerator.host_collect.snapshot import (
     ensure_capture_destination,
     normalize_bdf,
     write_snapshot,
 )
+from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.string_utils import (
     log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
 )
+
+logger = get_logger(__name__)
 
 
 class HostDeviceCollector:
@@ -48,17 +60,17 @@ class HostDeviceCollector:
         logger: Optional[logging.Logger] = None,
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
-    ):
+    ) -> None:
         """Initialize the collector.
 
         Args:
             bdf: PCI Bus/Device/Function identifier
             logger: Optional logger instance
-            enable_mmio_learning: Enable MMIO trace capture for BAR models
-            force_recapture: Force recapture even if cached models exist
+            enable_mmio_learning: Observe the native driver with mmiotrace
+            force_recapture: Compatibility option; each collection is a new capture
         """
         self.bdf = normalize_bdf(bdf)
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or get_logger(__name__)
         self.enable_mmio_learning = enable_mmio_learning
         self.force_recapture = force_recapture
 
@@ -88,103 +100,141 @@ class HostDeviceCollector:
 
         ensure_capture_destination(output_dir)
 
-        # Use single VFIO binding session to collect all data.
-        # The VFIOBinder context manager handles bind/unbind and holds the
-        # IOMMU group lock. ConfigSpaceManager must NOT create its own
-        # VFIOBinder (strict_vfio=False) to avoid a double-bind deadlock
-        # on the group lock. Sysfs config space reads work fine while the
-        # device is bound to vfio-pci.
-        with VFIOBinder(self.bdf, attach=True) as _:
-            try:
-                # 1. Read config space via sysfs (device already bound by VFIOBinder above)
-                config_manager = ConfigSpaceManager(self.bdf, strict_vfio=False)
-                config_space_bytes = config_manager.read_vfio_config_space()
+        collected_data: Dict[str, Any] = {}
+        discovered: LearningDiscovery | None = None
 
-                log_info_safe(
-                    self.logger,
+        def discover() -> LearningDiscovery:
+            # Read-only identity discovery with the native binding intact.
+            # strict_vfio=False prevents ConfigSpaceManager acquiring a binder.
+            nonlocal discovered
+            manager = ConfigSpaceManager(self.bdf, strict_vfio=False)
+            config = manager.read_vfio_config_space()
+            info = self._serialize_device_info(manager.extract_device_info(config))
+            resources = tuple(
+                LearningResource(
+                    index=bar["index"],
+                    size=bar["size"],
+                    space="io_bar" if config[16 + bar["index"] * 4] & 1 else "mem_bar",
+                )
+                for bar in info.get("bar_config", {}).get("bars", info.get("bars", []))
+                if bar.get("size", 0) > 0
+            )
+            discovered = LearningDiscovery.from_config(config, resources=resources)
+            return discovered
+
+        def collect_baseline(epoch: int) -> None:
+            # This read is under the ONE binder owned by the learning service.
+            manager = ConfigSpaceManager(self.bdf, strict_vfio=False)
+            config = manager.read_vfio_config_space()
+            if discovered is None:
+                raise RuntimeError("baseline cannot precede donor discovery")
+            if LearningDiscovery.from_config(config).donor != discovered.donor:
+                raise ValueError("Donor identity changed during binding")
+            info = self._serialize_device_info(
+                DeviceInfoLookup(self.bdf).get_complete_device_info(
+                    manager.extract_device_info(config), from_config_manager=True
+                )
+            )
+            msix = self._collect_msix_data_vfio(
+                MSIXManager(self.bdf, self.logger), config
+            )
+            collected_data.update(
+                {
+                    "bdf": self.bdf,
+                    "config_space_hex": config.hex(),
+                    "device_info": info,
+                    "msix_data": self._serialize_msix_data(msix),
+                    "collection_metadata": {
+                        "collected_at": time.time(),
+                        "config_space_size": len(config),
+                        "config_space_hex_length": len(config) * 2,
+                        "has_msix": msix.preloaded,
+                        "collector_version": "1.0",
+                        "state_epoch": epoch,
+                    },
+                }
+            )
+
+        try:
+            learning = run_register_learning(
+                self.bdf,
+                discover=discover,
+                journal_directory=default_journal_directory(),
+                passive_observer=(
+                    native_probe_observer(self.bdf)
+                    if self.enable_mmio_learning
+                    else None
+                ),
+                ownership=self._learning_ownership,
+                collect_baseline=collect_baseline,
+            )
+            if not collected_data:
+                # Surface the underlying cause (e.g. a VFIO bind error such as
+                # IOMMU disabled or group busy) rather than a generic message.
+                details = [gap.detail for gap in learning.gaps if gap.detail]
+                causes = (
+                    "; ".join([d for d in details if "failed" in d] or details)
+                    or "no detail recorded"
+                )
+                raise BuildError(
                     safe_format(
-                        "Read {size} bytes of config space via VFIO",
-                        size=len(config_space_bytes),
-                    ),
-                    prefix="HOST",
+                        "Learning lifecycle could not collect the config "
+                        "baseline: {causes}",
+                        causes=causes,
+                    )
                 )
-
-                # 2. Extract device info using existing DeviceInfoLookup
-                device_lookup = DeviceInfoLookup(self.bdf)
-                extracted_info = config_manager.extract_device_info(config_space_bytes)
-                # Complete device information using the unified lookup API
-                # Pass from_config_manager=True to avoid redundant extraction loops
-                device_info = device_lookup.get_complete_device_info(
-                    extracted_info, from_config_manager=True
-                )
-
-                # 3. Use existing MSIXManager for MSI-X data collection
-                msix_manager = MSIXManager(self.bdf, self.logger)
-                msix_data = self._collect_msix_data_vfio(
-                    msix_manager, config_space_bytes
-                )
-
-                # 4. Collect BAR models via MMIO learning (optional)
-                bar_models = None
-                if self.enable_mmio_learning:
-                    bar_models = self._collect_bar_models(device_info, output_dir)
-
-                # 5. Save collected data for container consumption
-                # Note: Template context building is deferred to the container
-                # to avoid duplicating PCILeechContextBuilder instantiation
-                config_space_hex = config_space_bytes.hex()
-
-                # Validate that we have the full config space
-                if len(config_space_hex) != len(config_space_bytes) * 2:
+            for gap in learning.gaps:
+                if gap.reason == "restoration_failed":
+                    # The device may be left on vfio-pci or without a driver.
                     log_error_safe(
                         self.logger,
                         safe_format(
-                            "Config space hex length mismatch: {hex_len} chars "
-                            "vs {byte_len} bytes * 2",
-                            hex_len=len(config_space_hex),
-                            byte_len=len(config_space_bytes),
+                            "Donor driver binding was not restored: {detail}. "
+                            "Rebind the device manually before using it.",
+                            detail=gap.detail or "no detail recorded",
                         ),
                         prefix="HOST",
                     )
+            bar_models = self._collect_bar_models(
+                collected_data["device_info"], output_dir, learning=learning
+            )
+            collected_data["bar_models"] = bar_models
+            collected_data["collection_metadata"]["has_bar_models"] = bool(bar_models)
+            collected_data["collection_metadata"]["learning_status"] = learning.status
+            # Publish only after binding restoration has been attempted, so its
+            # failure is part of the immutable manifest.
+            return self._save_collected_data(
+                output_dir, collected_data, learning=learning
+            )
+        except (OSError, RuntimeError, ValueError, BuildError) as error:
+            log_error_safe(
+                self.logger,
+                safe_format(
+                    "Failed to collect device context: {error}", error=str(error)
+                ),
+                prefix="HOST",
+            )
+            raise BuildError(f"Host device collection failed: {error}") from error
 
-                collected_data = {
-                    "bdf": self.bdf,
-                    "config_space_hex": config_space_hex,
-                    "device_info": device_info,
-                    "msix_data": self._serialize_msix_data(msix_data),
-                    "bar_models": bar_models,
-                    "collection_metadata": {
-                        "collected_at": time.time(),
-                        "config_space_size": len(config_space_bytes),
-                        "config_space_hex_length": len(config_space_hex),
-                        "has_msix": msix_data.preloaded,
-                        "has_bar_models": bar_models is not None,
-                        "collector_version": "1.0",
-                    },
-                }
-                collected_data = self._save_collected_data(output_dir, collected_data)
+    @contextmanager
+    def _learning_ownership(self) -> Iterator[object]:
+        """Own the donor through the binder, with a binding journal.
 
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "Device context collected and saved to {output}",
-                        output=output_dir,
-                    ),
-                    prefix="HOST",
-                )
-
-                # Return the raw collected data for caller to process
-                return collected_data
-
-            except Exception as e:
-                log_error_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to collect device context: {error}", error=str(e)
-                    ),
-                    prefix="HOST",
-                )
-                raise BuildError(f"Host device collection failed: {e}") from e
+        The binder rolls back a partial bind itself and verifies the original
+        binding (driver and driver_override) on release, raising with the
+        actual final binding. Calling unbind() here, rather than leaving it to
+        __exit__ (which logs and suppresses), makes that failure part of the
+        learning manifest. A device already on vfio-pci stays there.
+        """
+        with VFIOBinder(
+            self.bdf,
+            attach=True,
+            journal_directory=default_journal_directory() / "bindings",
+        ) as binder:
+            try:
+                yield binder
+            finally:
+                binder.unbind()
 
     def _collect_msix_data_vfio(
         self, msix_manager: MSIXManager, config_space_bytes: bytes
@@ -242,100 +292,71 @@ class HostDeviceCollector:
             )
             return MSIXData(preloaded=False)
 
+    @staticmethod
+    def _serialize_device_info(info: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize the actual ConfigSpaceManager BAR dataclasses for JSON."""
+        result = dict(info)
+        if "bars" in result:
+            result["bars"] = [
+                asdict(cast(Any, bar)) if is_dataclass(bar) else bar
+                for bar in result["bars"]
+            ]
+        if "bar_config" in result:
+            result["bar_config"] = dict(result["bar_config"])
+            result["bar_config"]["bars"] = [
+                asdict(cast(Any, bar)) if is_dataclass(bar) else bar
+                for bar in result["bar_config"].get("bars", [])
+            ]
+        return result
+
     def _collect_bar_models(
-        self, device_info: Dict[str, Any], output_dir: Path
+        self,
+        device_info: Dict[str, Any],
+        output_dir: Path,
+        *,
+        learning: LearningManifest | None = None,
     ) -> Optional[Dict[int, Dict[str, Any]]]:
-        """Collect BAR register models via MMIO trace capture.
+        """Compile captured evidence only; never start tracing or use a BDF cache.
 
-        Args:
-            device_info: Device information dict with bar_config
-            output_dir: Output directory for cache
-
-        Returns:
-            Dict mapping BAR index to serialized BarModel, or None on failure
+        ``output_dir`` remains accepted for callers of the former helper.
+        Missing learning is a legacy capture, not a request to probe hardware.
         """
-        try:
-            from pcileechfwgenerator.device_clone.bar_model_synthesizer import (
-                synthesize_bar_models,
-            )
-
-            bar_config = device_info.get("bar_config", {})
-            bars = bar_config.get("bars", [])
-
-            if not bars:
-                log_info_safe(
-                    self.logger, "No BARs found, skipping MMIO learning", prefix="MMIO"
-                )
-                return None
-
-            cache_dir = output_dir / ".pcileech_cache"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-
-            log_info_safe(
-                self.logger,
-                safe_format(
-                    "Capturing MMIO traces for {bdf} (cache: {cache})",
-                    bdf=self.bdf,
-                    cache=cache_dir,
-                ),
-                prefix="MMIO",
-            )
-
-            bar_models = synthesize_bar_models(
-                self.bdf,
-                bars,
-                cache_dir=cache_dir,
-                force_recapture=self.force_recapture,
-                logger=self.logger,
-            )
-
-            if bar_models:
-                # Serialize models for JSON storage
-                from pcileechfwgenerator.device_clone.bar_model_loader import (
-                    serialize_bar_model,
-                )
-
-                serialized = {}
-                for bar_idx, model in bar_models.items():
-                    serialized[bar_idx] = serialize_bar_model(model)
-
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "Collected BAR models for {count} BARs",
-                        count=len(serialized),
-                    ),
-                    prefix="MMIO",
-                )
-                return serialized
-            else:
-                log_warning_safe(
-                    self.logger,
-                    "No BAR models captured (insufficient trace data)",
-                    prefix="MMIO",
-                )
-                return None
-
-        except PermissionError:
-            log_warning_safe(
-                self.logger,
-                "MMIO learning requires root (bpftrace) - skipping",
-                prefix="MMIO",
-            )
+        if learning is None:
             return None
-        except Exception as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "MMIO learning failed (non-fatal): {error}",
-                    error=str(e),
-                ),
-                prefix="MMIO",
-            )
-            return None
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            serialize_bar_model,
+        )
+        from pcileechfwgenerator.device_clone.register_policy import (
+            compile_manifest_bar_models,
+        )
+
+        device_info = self._serialize_device_info(device_info)
+        bars = device_info.get("bar_config", {}).get(
+            "bars", device_info.get("bars", [])
+        )
+        memory_bars = [
+            (bar["index"], bar["size"])
+            for bar in bars
+            if bar.get("is_memory") is not False
+            and bar.get("bar_type", "").lower() != "io"
+            and bar.get("size", 0) > 0
+        ]
+        # Same trust boundary as Stage 2. The published models are a
+        # diagnostic view; Stage 2 re-derives its own from the manifest.
+        serialized = {
+            index: serialize_bar_model(result.model)
+            for index, result in compile_manifest_bar_models(
+                learning, memory_bars, diagnostic=True
+            ).items()
+        }
+        return serialized or None
 
     def _save_collected_data(
-        self, output_dir: Path, data: Dict[str, Any]
+        self,
+        output_dir: Path,
+        data: Dict[str, Any],
+        *,
+        learning: LearningManifest | None = None,
     ) -> Dict[str, Any]:
         """Save a versioned, immutable context and matching MSI-X sidecar."""
         snapshot = write_snapshot(
@@ -344,6 +365,8 @@ class HostDeviceCollector:
             bytes.fromhex(data["config_space_hex"]),
             (data.get("msix_data") or {}).get("msix_info") or {},
             context=data,
+            learning=learning,
+            capture_id=learning.context.capture_id if learning is not None else None,
         )
         log_info_safe(
             self.logger,

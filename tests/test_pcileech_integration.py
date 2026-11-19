@@ -8,16 +8,25 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
-from pcileechfwgenerator.file_management.board_discovery import (BoardDiscovery,
-                                                 discover_all_boards)
+from pcileechfwgenerator.file_management.board_discovery import (
+    BoardDiscovery,
+    discover_all_boards,
+)
 from pcileechfwgenerator.file_management.repo_manager import RepoManager
 from pcileechfwgenerator.file_management.template_discovery import TemplateDiscovery
-from pcileechfwgenerator.vivado_handling.pcileech_build_integration import \
-    PCILeechBuildIntegration
+from pcileechfwgenerator.vivado_handling.build_evidence import verify_build_manifest
+from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
+    DONOR_IP_OVERRIDE_NAME,
+    BuildArtifactError,
+    PCILeechBuildIntegration,
+)
+
+from tests.test_msix_artifact_staging import _HAVE_BOARD
+from tests.test_msix_artifact_staging import BOARD as STAGED_BOARD
+from tests.test_msix_artifact_staging import _stage2
 
 
 @pytest.mark.hardware  # Requires external repo; skip in CI unit runs.
@@ -125,21 +134,6 @@ class TestPCILeechIntegration(unittest.TestCase):
                     file_path.exists(), f"Template file {file_path} should exist"
                 )
 
-    def test_build_script_discovery(self):
-        """Test Vivado build script discovery."""
-        boards = discover_all_boards()
-        self.assertGreater(len(boards), 0)
-
-        # Test with first board
-        test_board = list(boards.keys())[0]
-
-        # Try to find build script
-        build_script = TemplateDiscovery.get_vivado_build_script(test_board)
-        # Build script may or may not exist depending on board
-        if build_script:
-            self.assertTrue(build_script.exists())
-            self.assertTrue(build_script.name.endswith(".tcl"))
-
     def test_build_integration_initialization(self):
         """Test build integration initialization."""
         # Create build integration instance
@@ -155,62 +149,77 @@ class TestPCILeechIntegration(unittest.TestCase):
         self.assertIsInstance(boards, dict)
         self.assertGreater(len(boards), 0)
 
-    def test_build_environment_preparation(self):
-        """Test build environment preparation."""
+    def test_build_environment_requires_stage2_artifacts(self):
+        """Stage 3 refuses a board whose output tree Stage 2 never finalized.
+
+        Previously this copied stock board files into an empty output
+        directory; that fallback is gone by design.
+        """
         integration = PCILeechBuildIntegration(self.test_dir)
         boards = integration.get_available_boards()
-
-        # Skip if no boards available
         if not boards:
             self.skipTest("No boards available for testing")
 
-        # Test with first board
         test_board = list(boards.keys())[0]
+        with self.assertRaises(BuildArtifactError):
+            integration.prepare_build_environment(test_board)
+        self.assertFalse((self.test_dir / test_board).exists())
 
-        # Prepare build environment
-        build_env = integration.prepare_build_environment(test_board)
+    def test_build_environment_preparation(self):
+        """Prepare the build environment from a real finalized Stage 2 tree."""
+        if not _HAVE_BOARD:
+            self.skipTest("voltcyclone-fpga submodule not initialized")
+        _stage2(self.test_dir)
+        integration = PCILeechBuildIntegration(self.test_dir)
 
-        # Verify build environment structure
-        self.assertIn("board_name", build_env)
-        self.assertIn("board_config", build_env)
-        self.assertIn("output_dir", build_env)
-        self.assertIn("templates", build_env)
-        self.assertIn("xdc_files", build_env)
-        self.assertIn("src_files", build_env)
-        self.assertIn("build_scripts", build_env)
+        build_env = integration.prepare_build_environment(STAGED_BOARD)
 
-        # Verify output directory was created
+        for key in (
+            "board_name",
+            "board_config",
+            "output_dir",
+            "templates",
+            "xdc_files",
+            "src_files",
+            "ip_files",
+            "build_scripts",
+            "stage2_manifest",
+        ):
+            self.assertIn(key, build_env)
         self.assertTrue(build_env["output_dir"].exists())
 
-        # Verify at least some files were copied
-        total_files = len(build_env.get("xdc_files", [])) + len(
-            build_env.get("src_files", [])
+        manifest = build_env["stage2_manifest"]
+        self.assertEqual(
+            sorted(p.name for p in build_env["src_files"]),
+            sorted(manifest["sources"]),
         )
-        self.assertGreater(total_files, 0, "Should have copied some files")
+        self.assertEqual(
+            [p.name for p in build_env["xdc_files"]], manifest["constraints"]
+        )
+        for p in [*build_env["src_files"], *build_env["xdc_files"]]:
+            self.assertTrue(p.is_file())
+            self.assertTrue(p.is_relative_to(build_env["output_dir"]))
 
     def test_unified_build_script_creation(self):
-        """Test unified build script creation."""
+        """Create the unified build script from a real finalized Stage 2 tree."""
+        if not _HAVE_BOARD:
+            self.skipTest("voltcyclone-fpga submodule not initialized")
+        _stage2(self.test_dir)
         integration = PCILeechBuildIntegration(self.test_dir)
-        boards = integration.get_available_boards()
 
-        if not boards:
-            self.skipTest("No boards available for testing")
+        build_script = integration.create_unified_build_script(STAGED_BOARD)
 
-        test_board = list(boards.keys())[0]
-
-        # Create unified build script
-        build_script = integration.create_unified_build_script(test_board)
-
-        # Verify script was created
         self.assertTrue(build_script.exists())
         self.assertEqual(build_script.name, "build_all.tcl")
-
-        # Verify script content
         content = build_script.read_text()
         self.assertIn("PCILeech", content)
-        self.assertIn(test_board, content)
+        self.assertIn(STAGED_BOARD, content)
         self.assertIn("create_project", content)
         self.assertIn("add_files", content)
+        self.assertIn(f'source "{DONOR_IP_OVERRIDE_NAME}"', content)
+        self.assertNotIn("vivado_generate_project", content)
+        self.assertTrue((build_script.parent / "build_inputs.json").is_file())
+        verify_build_manifest(build_script)
 
     def test_board_compatibility_validation(self):
         """Test board compatibility validation."""
@@ -336,9 +345,11 @@ class TestBoardConfigIntegration(unittest.TestCase):
 
     def test_board_config_dynamic_loading(self):
         """Test that board configurations are loaded dynamically."""
-        from pcileechfwgenerator.device_clone.board_config import (get_fpga_part,
-                                                   list_supported_boards,
-                                                   validate_board)
+        from pcileechfwgenerator.device_clone.board_config import (
+            get_fpga_part,
+            list_supported_boards,
+            validate_board,
+        )
 
         # Get supported boards
         boards = list_supported_boards()
@@ -358,8 +369,9 @@ class TestBoardConfigIntegration(unittest.TestCase):
 
     def test_board_recommendations(self):
         """Test board recommendation system."""
-        from pcileechfwgenerator.device_clone.board_config import \
-            list_boards_with_recommendations
+        from pcileechfwgenerator.device_clone.board_config import (
+            list_boards_with_recommendations,
+        )
 
         recommendations = list_boards_with_recommendations()
         self.assertIsInstance(recommendations, list)

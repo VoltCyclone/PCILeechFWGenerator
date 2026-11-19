@@ -63,8 +63,7 @@ def populated_output_dir(temp_dir):
     (constraints_dir / "test.xdc").write_text("# Constraint file")
 
     # Create some output files
-    script_content = textwrap.dedent(
-        """
+    script_content = textwrap.dedent("""
         # Primary build script for PCILeech generator
         set_property CONFIG.Device_ID 0x1234 [current_design]
         set_property CONFIG.Vendor_ID 0x10EE [current_design]
@@ -73,9 +72,8 @@ def populated_output_dir(temp_dir):
         launch_runs impl_1
         write_bitstream -force test.bit
         write_cfgmem -format hex -size 32 -interface SPIx4 -loadbit "up 0x00000000 test.bit" test.hex
-        """
-    )
-    (temp_dir / "build_firmware.tcl").write_text(script_content * 20)
+        """)
+    (temp_dir / "build_all.tcl").write_text(script_content * 20)
     (temp_dir / "test.bit").write_bytes(b"0" * (1024 * 1024 + 512))  # ~1 MB
     (temp_dir / "test.mcs").write_bytes(b"1" * (512 * 1024))  # ~0.5 MB
     (temp_dir / "test.ltx").write_text("debug data")
@@ -235,8 +233,7 @@ def test_validate_final_outputs_tcl_only_build(temp_dir):
     manager = FileManager(output_dir=temp_dir)
 
     # Create only TCL file
-    tcl_content = textwrap.dedent(
-        """
+    tcl_content = textwrap.dedent("""
         # Build script with device config
         set_property CONFIG.Device_ID 0x1234 [current_design]
         set_property CONFIG.Vendor_ID 0x10EE [current_design]
@@ -244,10 +241,9 @@ def test_validate_final_outputs_tcl_only_build(temp_dir):
         launch_runs synth_1
         launch_runs impl_1
         write_cfgmem -format hex -size 32 -interface SPIx4 -loadbit "up 0x00000000 test.bit" test.hex
-        """
-    )
+        """)
     # Repeat script to ensure file size exceeds 1KB threshold
-    (temp_dir / "build_firmware.tcl").write_text(tcl_content * 15)
+    (temp_dir / "build_all.tcl").write_text(tcl_content * 15)
 
     results = manager.validate_final_outputs()
 
@@ -278,18 +274,13 @@ def test_validate_final_outputs_small_bitstream(temp_dir):
 
     # Create small bitstream file
     (temp_dir / "test.bit").write_text("small")
-    (temp_dir / "build_firmware.tcl").write_text(
-        textwrap.dedent(
-            """
+    (temp_dir / "build_all.tcl").write_text(textwrap.dedent("""
             set_property CONFIG.Device_ID 0x1234 [current_design]
             set_property CONFIG.Vendor_ID 0x10EE [current_design]
             launch_runs synth_1
             launch_runs impl_1
             write_cfgmem -format hex -size 32 -interface SPIx4 -loadbit "up 0x00000000 test.bit" test.hex
-            """
-        )
-        * 10
-    )
+            """) * 10)
 
     results = manager.validate_final_outputs()
 
@@ -301,9 +292,7 @@ def test_validate_final_outputs_incomplete_tcl(temp_dir):
     manager = FileManager(output_dir=temp_dir)
 
     # Create TCL file without device config
-    (temp_dir / "build_firmware.tcl").write_text(
-        "# Incomplete TCL\nlaunch_runs synth_1"
-    )
+    (temp_dir / "build_all.tcl").write_text("# Incomplete TCL\nlaunch_runs synth_1")
 
     results = manager.validate_final_outputs()
 
@@ -321,7 +310,7 @@ set vendor_id "10EE"
 launch_runs synth_1
 launch_runs impl_1
 """
-    (temp_dir / "build_firmware.tcl").write_text(tcl_content)
+    (temp_dir / "build_all.tcl").write_text(tcl_content)
 
     results = manager.validate_final_outputs()
 
@@ -448,7 +437,7 @@ def test_generate_file_manifest_complete(populated_output_dir):
     assert manifest["files"]["verilog"] == ["support.v"]
     assert manifest["files"]["constraints"] == ["constraints.xdc"]
     assert set(manifest["files"]["tcl_scripts"]) == {
-        "build_firmware.tcl",
+        "build_all.tcl",
         "build_script.tcl",
     }
 
@@ -506,17 +495,20 @@ def test_copy_pcileech_sources_success(temp_dir):
             return False
         return original_exists(self)
 
-    with mock.patch(
-        "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
-        return_value=repo_root,
-    ), mock.patch(
-        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
-        return_value=board_path,
-    ), mock.patch(
-        "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_xdc_files",
-        return_value=[xdc_file],
-    ), mock.patch(
-        "pathlib.Path.exists", new=fake_exists
+    with (
+        mock.patch(
+            "pcileechfwgenerator.file_management.repo_manager.RepoManager.ensure_repo",
+            return_value=repo_root,
+        ),
+        mock.patch(
+            "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_board_path",
+            return_value=board_path,
+        ),
+        mock.patch(
+            "pcileechfwgenerator.file_management.repo_manager.RepoManager.get_xdc_files",
+            return_value=[xdc_file],
+        ),
+        mock.patch("pathlib.Path.exists", new=fake_exists),
     ):
         result = manager.copy_pcileech_sources("vc707")
 
@@ -528,7 +520,7 @@ def test_copy_pcileech_sources_success(temp_dir):
         "pcileech_header.svh",
     ]
     assert sorted(Path(p).name for p in result["constraints"]) == ["board.xdc"]
-    
+
     # Verify header file exists in output
     output_header = temp_dir / "src" / "pcileech_header.svh"
     assert output_header.exists(), "Header file should be copied to output"
@@ -616,7 +608,7 @@ def test_print_final_output_info_tcl_only_build(temp_dir):
     manager = FileManager(output_dir=temp_dir)
 
     # Create TCL file
-    (temp_dir / "build_firmware.tcl").write_text("# TCL build script")
+    (temp_dir / "build_all.tcl").write_text("# TCL build script")
 
     validation_results = manager.validate_final_outputs()
 
@@ -697,7 +689,7 @@ def mock_voltcyclone_repo(temp_dir):
     board_path = repo_root / "CaptainDMA" / "75t484_x1"
     ip_dir = board_path / "ip"
     ip_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create template .coe files with DEFAULT device IDs (Xilinx default: 0x10ee:0x0666)
     template_cfgspace_coe = ip_dir / "pcileech_cfgspace.coe"
     template_cfgspace_coe.write_text(textwrap.dedent("""
@@ -708,7 +700,7 @@ def mock_voltcyclone_repo(temp_dir):
         00000000,
         00000000;
     """).strip())
-    
+
     template_writemask_coe = ip_dir / "pcileech_cfgspace_writemask.coe"
     template_writemask_coe.write_text(textwrap.dedent("""
         memory_initialization_radix=16;
@@ -716,7 +708,7 @@ def mock_voltcyclone_repo(temp_dir):
         FFFFFFFF,
         00000000;
     """).strip())
-    
+
     # Create a .xci file (IP core definition)
     xci_file = ip_dir / "bram_pcie_cfgspace.xci"
     xci_file.write_text(textwrap.dedent("""
@@ -733,7 +725,7 @@ def mock_voltcyclone_repo(temp_dir):
           </spirit:componentInstances>
         </spirit:design>
     """).strip())
-    
+
     return {
         "repo_root": repo_root,
         "board_path": board_path,
@@ -753,7 +745,7 @@ def mock_generated_coe_files(temp_dir):
     """
     src_dir = temp_dir / "output" / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Generated .coe with ACTUAL device IDs from donor device
     generated_cfgspace_coe = src_dir / "pcileech_cfgspace.coe"
     generated_cfgspace_coe.write_text(textwrap.dedent("""
@@ -764,7 +756,7 @@ def mock_generated_coe_files(temp_dir):
         00000000,
         00000000;
     """).strip())
-    
+
     generated_writemask_coe = src_dir / "pcileech_cfgspace_writemask.coe"
     generated_writemask_coe.write_text(textwrap.dedent("""
         memory_initialization_radix=16;
@@ -772,7 +764,7 @@ def mock_generated_coe_files(temp_dir):
         FFFFFFFF,
         00000000;
     """).strip())
-    
+
     return {
         "src_dir": src_dir,
         "generated_cfgspace": generated_cfgspace_coe,
@@ -785,37 +777,51 @@ def test_bug528_coe_files_overwrite_template_with_device_ids(
 ):
     """
     Regression test for bug #528: Verify generated .coe files overwrite template files.
-    
+
     This is the CRITICAL test that validates the fix. Without this behavior,
     Vivado would use template .coe files (with Xilinx default IDs) instead of
     the generated ones (with donor device IDs).
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
+
     # Mock RepoManager to return our mock repository
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         # Execute: Copy IP files (this should copy templates then overwrite with generated)
         copied_files = file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Verify: Files were copied
         assert len(copied_files) > 0
-        
+
         # CRITICAL ASSERTION: Verify output/ip/pcileech_cfgspace.coe contains DONOR device IDs
         output_cfgspace = output_dir / "ip" / "pcileech_cfgspace.coe"
-        assert output_cfgspace.exists(), "pcileech_cfgspace.coe should exist in output/ip/"
-        
+        assert (
+            output_cfgspace.exists()
+        ), "pcileech_cfgspace.coe should exist in output/ip/"
+
         content = output_cfgspace.read_text()
-        
+
         # The file should contain the DONOR device IDs (0x10ec:0x8161), not defaults (0x10ee:0x0666)
-        assert "8161" in content, "Output .coe should contain donor device ID 0x8161 (RTL8111)"
-        assert "10ec" in content, "Output .coe should contain donor vendor ID 0x10ec (Realtek)"
-        
+        assert (
+            "8161" in content
+        ), "Output .coe should contain donor device ID 0x8161 (RTL8111)"
+        assert (
+            "10ec" in content
+        ), "Output .coe should contain donor vendor ID 0x10ec (Realtek)"
+
         # Should NOT contain Xilinx default IDs
-        assert "0666" not in content, "Output .coe should NOT contain Xilinx default device ID"
-        assert "ee10" not in content, "Output .coe should NOT contain Xilinx vendor ID (reversed bytes)"
+        assert (
+            "0666" not in content
+        ), "Output .coe should NOT contain Xilinx default device ID"
+        assert (
+            "ee10" not in content
+        ), "Output .coe should NOT contain Xilinx vendor ID (reversed bytes)"
 
 
 def test_bug528_coe_files_copied_to_ip_directory_not_just_src(
@@ -823,22 +829,26 @@ def test_bug528_coe_files_copied_to_ip_directory_not_just_src(
 ):
     """
     Regression test: Ensure .coe files end up in output/ip/ where Vivado expects them.
-    
+
     Before the fix, generated .coe files stayed in output/src/ and Vivado used
     template files from lib/voltcyclone-fpga/, resulting in wrong device IDs.
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Verify generated files exist in BOTH locations
         assert (output_dir / "src" / "pcileech_cfgspace.coe").exists()
         assert (output_dir / "ip" / "pcileech_cfgspace.coe").exists()
-        
+
         # The IP directory version should have the device IDs (it's what Vivado uses)
         ip_coe_content = (output_dir / "ip" / "pcileech_cfgspace.coe").read_text()
         assert "8161" in ip_coe_content, "output/ip/ version must have donor device IDs"
@@ -849,22 +859,26 @@ def test_bug528_xci_files_copied_but_not_overwritten(
 ):
     """
     Verify that .xci files (IP core definitions) are copied but not overwritten.
-    
+
     Only .coe files should be overwritten with generated versions. XCI files
     are IP core definitions from the library and should not be modified.
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Verify .xci file was copied
         output_xci = output_dir / "ip" / "bram_pcie_cfgspace.xci"
         assert output_xci.exists()
-        
+
         # Verify it still references the .coe file
         xci_content = output_xci.read_text()
         assert "pcileech_cfgspace.coe" in xci_content
@@ -876,27 +890,31 @@ def test_bug528_behavior_when_no_generated_coe_files_exist(
 ):
     """
     Verify graceful behavior when no generated .coe files exist in output/src/.
-    
+
     This can happen during initial setup or if SystemVerilog generation hasn't
     run yet. In this case, template .coe files should still be copied.
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
+
     # Don't create generated .coe files - output/src/ is empty
-    
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         copied_files = file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Should still copy template files
         assert len(copied_files) > 0
-        
+
         # Should have template .coe files (with Xilinx default IDs)
         output_cfgspace = output_dir / "ip" / "pcileech_cfgspace.coe"
         assert output_cfgspace.exists()
-        
+
         content = output_cfgspace.read_text()
         # Should contain Xilinx defaults (since no generated files to overwrite with)
         assert "0666" in content or "ee10" in content
@@ -907,22 +925,26 @@ def test_bug528_multiple_coe_files_all_overwritten(
 ):
     """
     Verify that ALL .coe files are overwritten, not just pcileech_cfgspace.coe.
-    
+
     There are typically multiple .coe files:
     - pcileech_cfgspace.coe (configuration space)
     - pcileech_cfgspace_writemask.coe (write protection masks)
     - pcileech_bar_zero4k.coe (BAR0 initialization)
-    
+
     All should be overwritten if generated versions exist.
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Both .coe files should exist in output/ip/
         assert (output_dir / "ip" / "pcileech_cfgspace.coe").exists()
         assert (output_dir / "ip" / "pcileech_cfgspace_writemask.coe").exists()
@@ -933,24 +955,33 @@ def test_bug528_generated_coe_files_not_lost_after_ip_copy(
 ):
     """
     Verify that copying IP files doesn't delete generated .coe files from src/.
-    
+
     Generated .coe files in output/src/ should remain intact after being
     copied to output/ip/. They may be needed for validation or debugging.
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         # Store original content
-        original_src_content = mock_generated_coe_files["generated_cfgspace"].read_text()
-        
+        original_src_content = mock_generated_coe_files[
+            "generated_cfgspace"
+        ].read_text()
+
         file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Verify original files still exist in src/
         assert mock_generated_coe_files["generated_cfgspace"].exists()
-        assert mock_generated_coe_files["generated_cfgspace"].read_text() == original_src_content
+        assert (
+            mock_generated_coe_files["generated_cfgspace"].read_text()
+            == original_src_content
+        )
 
 
 def test_bug528_device_ids_byte_order_preserved(
@@ -958,21 +989,27 @@ def test_bug528_device_ids_byte_order_preserved(
 ):
     """
     Verify that device ID byte order is preserved during copy.
-    
+
     PCIe configuration space stores device/vendor IDs in little-endian format.
     The copy operation should preserve the exact byte order from generated files.
     """
     output_dir = temp_dir / "output"
     file_manager = FileManager(output_dir=output_dir)
-    
-    with mock.patch("pcileechfwgenerator.file_management.repo_manager.RepoManager") as mock_repo_manager:
-        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo["board_path"]
-        
+
+    with mock.patch(
+        "pcileechfwgenerator.file_management.repo_manager.RepoManager"
+    ) as mock_repo_manager:
+        mock_repo_manager.get_board_path.return_value = mock_voltcyclone_repo[
+            "board_path"
+        ]
+
         # Store original generated content
         original_content = mock_generated_coe_files["generated_cfgspace"].read_text()
-        
+
         file_manager.copy_ip_files(board="CaptainDMA_75t")
-        
+
         # Verify output/ip/ version has identical content
         output_content = (output_dir / "ip" / "pcileech_cfgspace.coe").read_text()
-        assert output_content == original_content, "Byte order must be preserved exactly"
+        assert (
+            output_content == original_content
+        ), "Byte order must be preserved exactly"

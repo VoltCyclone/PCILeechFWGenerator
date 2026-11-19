@@ -94,6 +94,14 @@ def build_command(bdf: str, config: BuildConfiguration) -> list[str]:
             str(config.profile_duration if config.behavior_profiling else 0),
         ]
     )
+    if not getattr(config, "mmio_learning", True):
+        command.append("--no-mmio-learning")
+    if not getattr(config, "mmio_exercise", True):
+        command.append("--no-mmio-exercise")
+    if getattr(config, "writable_bar_fallback", False):
+        command.append("--writable-bar-fallback")
+    if getattr(config, "ft601_legacy_phy", False):
+        command.append("--ft601-legacy-phy")
     for option, value in (
         ("--output", config.output_directory),
         ("--datastore", resolve_datastore_directory(config)),

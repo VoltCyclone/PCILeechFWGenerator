@@ -8,6 +8,7 @@ the served donor index N, and every other slot must be a non-responding stub
 that partner slot must be `none` — never `loopaddr` — to avoid double-driving
 the response mux.
 """
+
 import re
 import sys
 from pathlib import Path
@@ -32,7 +33,12 @@ def _ctx(served_index, *, is_64bit=False, aperture=65536, with_model=True):
         "bars": [{"size": aperture}],
     }
     if with_model:
-        bar_config["bar_models"] = {str(served_index): {"size": aperture}}
+        bar_config["bar_models"] = {
+            str(served_index): {
+                "size": aperture,
+                "regs": {"0x0": {"width": 4, "reset": 0, "rw_mask": 0}},
+            }
+        }
     return {
         "header": "// test",
         "device_signature": "1234:5678",

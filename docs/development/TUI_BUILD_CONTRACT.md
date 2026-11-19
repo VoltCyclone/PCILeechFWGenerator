@@ -4,8 +4,8 @@ The TUI's start button and command layer both call `BuildOrchestrator`, which
 runs `sys.executable -m pcileechfwgenerator.pcileech_main ... build ...`.
 Install this checkout in the active environment with `pip install -e '.[tui]'`.
 The unified CLI owns host collection, local/container templating and host Vivado.
-The TUI no longer runs simulated extraction/generation stages, a discarded
-standalone profiler, or a separate privileged VFIO container on this path.
+The TUI does not run simulated extraction/generation stages, a standalone
+profiler, or a separate privileged VFIO container on this path.
 
 ## Supported settings
 
@@ -30,7 +30,7 @@ profiling. If environment/VFIO policy changes the requested local profiling
 state, generation fails explicitly instead of silently changing that setting.
 The CLI's `--build-dir` is an alias for `--output`.
 The duration applies to each existing generator/profile-artifact capture, not
-the total build time. Both now receive the requested duration.
+the total build time. Both receive the requested duration.
 
 Paths are expanded and resolved, then passed as individual arguments without a
 shell. Container commands mount the selected output directory at `/artifacts`
@@ -58,7 +58,7 @@ Neutral legacy sentinels do **not** assert that a firmware feature is enabled,
 implemented or hardware-validated. Those fields have no configurable backend
 contract yet. No arbitrary custom flags are forwarded. Direct CLI requests for
 `--advanced-sv`, `--enable-variance` or non-generic `--device-type` also fail
-explicitly; they previously either did nothing or broke the container parser.
+explicitly.
 
 For an old profile, review the error list, set unsupported overrides to their
 neutral values, and save deliberately. New default and built-in profiles use
@@ -67,7 +67,7 @@ enable that unavailable path or implicitly change local/container selection.
 
 ## Progress, failure and cancellation
 
-The CLI return code controls success. TUI progress no longer advances through
+The CLI return code controls success. TUI progress follows the CLI process, not
 sleep-based mock stages. A nonzero exit remains a failure and trailing stderr is
 retained. Stop signals the POSIX process group, escalates when necessary, waits
 for process termination and reports cancellation rather than completion.
@@ -79,15 +79,3 @@ descendant that ignores SIGTERM. They do not prove cleanup of driver bindings,
 device state or containers managed by an external daemon. Those checks still require
 separate Linux/container and hardware acceptance testing.
 
-## Validation evidence
-
-The initial default-command parser test and unsupported-board-check test failed
-before the change. A further regression reproduced the generator ignoring the
-requested profiling duration. Commands now pass the actual unified and stage-two parsers.
-Local-builder and Vivado calls are mocked for forwarding checks; container
-runtime invocations are mocked for argument/mount checks. No live donor, Linux
-container, Vivado, RTL simulation or board test was run for this increment.
-
-Final software suite: **2,735 passed, 15 skipped, 99 deselected** on macOS arm64,
-Python 3.12.4. The contract module passes targeted Flake8 and mypy; added/changed
-lines pass Flake8. Full repository lint is not claimed.

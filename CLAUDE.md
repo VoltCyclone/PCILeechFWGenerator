@@ -3,10 +3,9 @@
 Guidance for Claude (and other AI assistants) working in the PCILeechFWGenerator
 repository. Loaded automatically into every Claude Code session at this root.
 
-Audience for the assistant: **installers/users** asking for help getting the
-tool running, and **developers** modifying the codebase. Sections below cover
-both. The user-facing README and the hosted docs are the human source of
-truth; this file tells the assistant where to point them.
+The assistant serves two audiences: **installers and users** who need the tool
+running, and **developers** modifying the codebase. The README and the hosted
+docs are the human source of truth, and this file says where to point people.
 
 ---
 
@@ -18,17 +17,22 @@ FPGA bitstream consumable by PCILeech-family boards (Squirrel, Enigma, etc.).
 
 Three-stage pipeline:
 
-1. **Host collect** — read donor device config (VID/PID, BARs, capability
-   chain, MSI-X) from a Linux host via VFIO. Requires root.
-2. **Templating** — render Jinja2 → SystemVerilog/TCL using collected data.
+1. **Host collect**: read donor device config (VID/PID, BARs, capability
+   chain, MSI-X) from a Linux host via VFIO, and learn register behavior by
+   tracing the native driver with `mmiotrace` (`--no-mmio-learning` skips it).
+   Requires root.
+2. **Templating**: render Jinja2 → SystemVerilog/TCL using collected data.
    Optional Podman container for isolation.
-3. **Vivado build** — synthesize the generated RTL into a bitstream. Requires
-   a working Xilinx Vivado install (free WebPACK is sufficient for 7-series
-   parts; UltraScale parts need a paid license).
+3. **Vivado build**: synthesize the generated RTL into a bitstream through
+   `build_all.tcl`, the only Stage 3 entry (board `vivado_*.tcl` project
+   scripts are not staged). Routed timing, clock coverage, DRC, and CDC gates
+   must pass before the bitstream is written. Requires a working Xilinx Vivado
+   install (free WebPACK is sufficient for 7-series parts; UltraScale parts
+   need a paid license).
 
 Real donor hardware is **required**. There is no synthetic-donor mode and
 placeholder values in templates are an explicit anti-pattern (the README
-calls this out — see the warning admonition).
+calls this out, see the warning admonition).
 
 ---
 
@@ -43,19 +47,21 @@ build":
 2. Confirm install path:
    - **pip (recommended for users):** `pip install pcileechfwgenerator[tui]`
      in a venv (`python3 -m venv ~/.pcileech-venv`). Do NOT install into the
-     system Python — modern distros refuse with `externally-managed-environment`.
+     system Python, modern distros refuse with `externally-managed-environment`.
    - **container:** Podman + the bundled `Containerfile`. Container only runs
      Stage 2; Stages 1 and 3 still happen on the host.
    - **dev from repo:** `git clone --recurse-submodules`, then
      `pip install -e .[dev]` in a venv. Forgetting `--recurse-submodules`
-     is the single most common "boards not found" cause.
+     is the single most common "boards not found" cause for source checkouts.
+     pip installs bundle the board files (installed under
+     `pcileechfwgenerator/voltcyclone_fpga`) and need no checkout.
 3. Confirm root-access pattern: all commands that touch VFIO must run as root
    via `sudo -E ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator ...` or
    via the `pcileech-sudo` alias the README sets up. Running `sudo pcileech`
    without preserving the venv path will hit the wrong Python.
 4. Confirm Vivado is installed for Stage 3. If the user only wants to inspect
-   generated RTL, they can stop after Stage 2 with `--dry-run` / templating
-   flags and skip Vivado.
+   generated RTL, they can stop after Stage 2 with `--templates-only` and skip
+   Vivado.
 
 ### Common installation/runtime symptoms
 
@@ -65,7 +71,7 @@ build":
 | `ModuleNotFoundError: textual` | installed without `[tui]` extra | `pip install pcileechfwgenerator[tui]` |
 | "no boards available" / `KeyError` on board | git submodule not initialized | `git submodule update --init --recursive` |
 | Permission denied on VFIO | not root, or vfio-pci not loaded | `sudo modprobe vfio vfio-pci`; run via `pcileech-sudo` |
-| "boards not found" in pip install | sdist bundles boards — confirm `pip show pcileechfwgenerator` finds `lib/voltcyclone-fpga` contents | reinstall, check `MANIFEST.in` |
+| "boards not found" in a pip install | board files are installed under `pcileechfwgenerator/voltcyclone_fpga`; check `pip show -f pcileechfwgenerator` lists them | reinstall in a clean venv |
 | Vivado errors (any) | invoke the `vivado-log-analyzer` skill rather than reading the log directly |  |
 
 When troubleshooting goes deep, point users at:
@@ -97,13 +103,13 @@ edited files.
 ### Running tests
 
 ```bash
-.venv/bin/python -m pytest -x -q              # full suite (~2,400 tests)
+.venv/bin/python -m pytest -x -q              # full suite (~4,400 tests)
 .venv/bin/python -m pytest tests/test_foo.py  # one file
 .venv/bin/python -m pytest -k "board" -x      # subset
 ```
 
-`pytest-xdist` is available — use `-n auto` for parallel runs locally.
-CI runs the full suite plus bandit + safety.
+`pytest-xdist` is available, use `-n auto` for parallel runs locally.
+CI runs the full suite plus bandit + pip-audit.
 
 ### Architectural map
 
@@ -111,24 +117,25 @@ CI runs the full suite plus bandit + safety.
 |---|---|
 | `src/cli/` | CLI entry points (subcommand dispatch). |
 | `src/tui/` | Textual-based TUI. Newer dialogs subclass `BaseDialog`. |
-| `src/host_collect/` | Stage 1: VFIO-driven donor extraction. |
+| `src/host_collect/` | Stage 1: VFIO-driven donor extraction, mmiotrace register learning, offline captures. |
 | `src/device_clone/` | Donor profile parsing, BAR sizing, capability chain. |
 | `src/pci_capability/` | PCIe capability list construction. |
 | `src/templating/` | Stage 2: Jinja2 + helpers. |
-| `src/templates/` | Jinja2 source: `sv/*.j2` (SystemVerilog), TCL, XDC. |
-| `src/vivado_handling/` | Stage 3: Vivado subprocess + error reporting. |
+| `src/templates/` | Jinja2 source: `sv/*.j2` (SystemVerilog), `python/*.j2`, `_helpers.j2`. |
+| `src/vivado_handling/` | Stage 3: Vivado subprocess, `build_all.tcl` generation, build gates, error reporting. |
 | `src/file_management/board_discovery.py` | Board registry. Auto-discovers from `lib/voltcyclone-fpga/`. |
 | `lib/voltcyclone-fpga/` | **Git submodule.** Board definitions / IP / constraints. |
 | `configs/fallbacks.yaml` | Last-resort defaults for donor fields. |
-| `tests/` | pytest suite (~158 files). |
+| `tests/` | pytest suite (226 files). |
+| `docs/development/` | Design notes. The MSI-X overview lives in `MSIX_STATUS.md`. |
 
 ### Files you must NOT hand-edit
 
 These are protected by a `PreToolUse` hook in `.claude/settings.json`:
 
-- `src/_version.py` — autogenerated by `setuptools-scm` at build time.
+- `src/_version.py`: autogenerated by `setuptools-scm` at build time.
   Change the version by tagging a git release, not by editing this file.
-- `lib/voltcyclone-fpga/` — git submodule. Changes there must land in the
+- `lib/voltcyclone-fpga/`: git submodule. Changes there must land in the
   upstream `VoltCyclone/voltcyclone-fpga` repo first, then the submodule
   pointer is bumped here.
 
@@ -138,7 +145,7 @@ These are protected by a `PreToolUse` hook in `.claude/settings.json`:
   `0x1234`, `0xFFFF` in `src/templates/` or template-rendering code is
   almost always a regression. Donor identity must propagate from the real
   collected profile.
-- **No `shell=True` in subprocess invocations.** Argv-list form only —
+- **No `shell=True` in subprocess invocations.** Argv-list form only. The
   hardening pass `8bf9464` removed the last instances. Bandit will flag
   regressions.
 - **Use the `log_*_safe` helpers** from `src/string_utils` for any log line
@@ -149,7 +156,7 @@ These are protected by a `PreToolUse` hook in `.claude/settings.json`:
 - **Jinja2 SystemVerilog templates:** mind quote/backslash escaping inside
   SV string literals; always end `case` blocks with a `default:`; declare
   `genvar` outside generate blocks.
-- **Pydantic models** for any structured donor data — search for existing
+- **Pydantic models** for any structured donor data, search for existing
   models in `src/device_clone/` before introducing a new dict-shaped value.
 
 ### Tests, then commits, then PRs
@@ -157,33 +164,33 @@ These are protected by a `PreToolUse` hook in `.claude/settings.json`:
 The user's preference (also encoded in feedback memory): **no Co-Authored-By
 trailer in commits**. Don't add the Claude attribution line.
 
-Commit style follows the existing log — short imperative summary, optional
+Commit style follows the existing log, short imperative summary, optional
 fixup body. `git-cliff` builds the changelog from these, so prefixes like
 `fix:`, `feat:`, `chore:` are useful but not strictly required.
 
 ### Project-specific Claude tooling
 
-These exist in this repo — invoke them when applicable rather than
+These exist in this repo, invoke them when applicable rather than
 reimplementing:
 
-- **`.claude/skills/vivado-log-analyzer/`** — invoke whenever you see a
+- **`.claude/skills/vivado-log-analyzer/`**: invoke whenever you see a
   failed Vivado run, instead of reading the log directly. Outputs ≤ 80
   lines categorized by failure type.
-- **`.claude/skills/new-board-target/`** — user-only skill walking through
+- **`.claude/skills/new-board-target/`**: user-only skill walking through
   adding an FPGA board. Don't auto-invoke; suggest it when the user asks to
   add a board.
-- **`.claude/agents/hardware-safety-reviewer.md`** — invoke proactively on
+- **`.claude/agents/hardware-safety-reviewer.md`**: invoke proactively on
   any change to `src/device_clone/`, `src/pci_capability/`,
   `src/templates/sv/`, or `src/vivado_handling/`. It complements the
   generic code reviewer with PCIe-domain checks.
-- **GitHub MCP server** (configured in `.mcp.json`) — prefer it over
+- **GitHub MCP server** (configured in `.mcp.json`), prefer it over
   shelling out to `gh` for PR / issue / Actions work.
 
 ---
 
 ## Out of scope for this assistant
 
-- Don't help users install the tool on macOS / Windows / WSL2 — it doesn't
+- Don't help users install the tool on macOS / Windows / WSL2, it doesn't
   work there. Redirect to a Linux VM or a real Linux host.
 - Don't generate "example" donor profiles with synthetic IDs. The tool
   refuses to work without real donor data by design.

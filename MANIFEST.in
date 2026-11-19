@@ -35,7 +35,8 @@ recursive-include src/tui/styles *.tcss
 recursive-include src/donor_dump *.c *.h Makefile*
 
 # Include templates
-recursive-include src/templates *.j2 *.md
+recursive-include src/templates *.j2 *.md *.v *.sv
+include src/templates/sv/vendor/verilog-pcie/LICENSE
 
 # Include scripts
 recursive-include src/scripts *.py
@@ -47,7 +48,7 @@ recursive-include configs *.yaml
 recursive-include pcileech *.sv *.svh
 
 # Include voltcyclone-fpga submodule contents
-recursive-include lib/voltcyclone-fpga *.xdc *.sv *.svh *.tcl *.py *.md *.txt *.v *.vh *.xci *.xco *.ucf *.coe *.yml
+recursive-include lib/voltcyclone-fpga *.xdc *.sv *.svh *.tcl *.py *.md *.txt *.v *.vh *.xci *.xco *.ucf *.coe *.yml *.yaml *.edn *.cgp *.cfi *.bat
 
 # Exclude build artifacts and cache
 global-exclude *.pyc
@@ -69,3 +70,5 @@ global-exclude htmlcov
 global-exclude .venv/**
 global-exclude .benchmarks/**
 global-exclude site/**
+# Local tool state inside the board checkout
+prune lib/voltcyclone-fpga/.remember

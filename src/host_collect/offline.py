@@ -21,7 +21,6 @@ from .snapshot import (
 if TYPE_CHECKING:
     from pcileechfwgenerator.device_clone.config_space_manager import BarInfo
 
-MAX_RENDER_BAR_BYTES = 16 * 1024 * 1024
 
 # The only sidecar MSI-X fields any build may consume. Everything else
 # (table contents, vector counts) is collector metadata and never trusted.
@@ -135,9 +134,20 @@ def captured_bars(snapshot: DonorSnapshot) -> list[BarInfo]:
         if is64 and (index == 5 or sizes[index + 1] != 0):
             raise SnapshotError(f"BAR{index} has an invalid 64-bit BAR pair")
         if not size and value:
-            raise SnapshotError(
-                f"BAR{index} advertises a BAR without a measured length"
+            upper = (
+                int.from_bytes(
+                    snapshot.config_space[20 + index * 4 : 24 + index * 4], "little"
+                )
+                if is64
+                else 0
             )
+            if value & (0xFFFFFFFC if io else 0xFFFFFFF0) or upper:
+                raise SnapshotError(
+                    f"BAR{index} advertises a BAR without a measured length"
+                )
+            # Only type bits and no address: the kernel left this BAR
+            # unassigned (e.g. a large 64-bit BAR without above-4G decoding).
+            # Like live builds, it is not implemented.
         if size:
             if size < (4 if io else 16) or size > (1 << (64 if is64 else 32)):
                 raise SnapshotError(f"BAR{index} length is outside its address width")
@@ -248,9 +258,7 @@ def load_offline_capture(
     return snapshot
 
 
-def import_capture(
-    source: Path, destination: Path, expected_bdf: str
-) -> DonorSnapshot:
+def import_capture(source: Path, destination: Path, expected_bdf: str) -> DonorSnapshot:
     """Publish a validated copy, retaining capture ID/time and preserving inputs."""
     snapshot = load_offline_capture(source, expected_bdf)
     publish_snapshot(destination, snapshot)
@@ -291,20 +299,16 @@ def validate_render_request(
         raise ConfigurationError(
             f"Offline rendering requires a memory BAR of at least {min_memory} bytes"
         )
-    if sum(bar.size for bar in bars) > MAX_RENDER_BAR_BYTES:
-        raise ConfigurationError(
-            "Offline rendering currently supports at most 16 MiB of total BAR "
-            "content; sparse aperture support is not yet available"
-        )
 
 
 def capture_provenance(
-    snapshot: DonorSnapshot, mode: Literal["offline", "container"] = "offline"
+    snapshot: DonorSnapshot,
+    mode: Literal["offline", "container", "local"] = "offline",
 ) -> dict[str, Any]:
     """Describe saved inputs without implying measured BAR or interrupt behavior.
 
-    ``offline`` renders are unverified; ``container`` renders use a capture the
-    host verified (or collected) in the same build.
+    ``offline`` renders are unverified; ``container`` and ``local`` renders use
+    a capture the host verified (or collected) in the same build.
     """
     return {
         **snapshot.identity.model_dump(mode="json"),

@@ -49,18 +49,22 @@ If the user hasn't given a path, look first in `output/`, then in
 1. Print the categorized summary the script produced.
 2. **Do not** re-read the raw log unless the summary is empty or the user asks
    for a specific line context. Re-reading defeats the purpose of the skill.
-3. If timing is the failure category, point the user at
-   `src/templating/timing_constraints/` and any board-specific `.xdc` files.
+3. If timing is the failure category, point the user at the board `.xdc`
+   files staged in the output directory (sourced from `lib/voltcyclone-fpga/`).
+   Stage 3 also fails on its own gates (routed timing, clock coverage, DRC,
+   CDC), so expect those messages from `build_all.tcl` runs.
 4. If resource exhaustion is the failure category, the fix is almost always in
    `src/templates/sv/` (template bloat) or in board selection
-   (`src/file_management/board_discovery.py` — wrong FPGA part).
-5. If IP licensing or "missing IP" errors appear, check the Containerfile and
-   confirm the build is using a licensed Vivado image.
+   (`src/file_management/board_discovery.py`: wrong FPGA part).
+5. If IP licensing or "missing IP" errors appear, confirm the host Vivado
+   install is licensed for the target part. Stage 3 runs on the host, not in
+   the container.
 
 ## Anti-patterns
 
 - Do not paste the raw Vivado log back to the user. They already have it.
-- Do not run this on logs smaller than ~500 lines — just read them directly.
+- Do not run this on logs smaller than ~500 lines, just read them directly.
 - Do not try to "fix" timing failures by widening constraints without
-  understanding the constraint origin (`src/templating/timing_constraints/`
-  generates them; constraints are tied to donor profile).
+  understanding the constraint origin. Board constraints come from
+  `lib/voltcyclone-fpga/`, and the Stage 2 TCL comes from
+  `src/templating/tcl_builder.py`.

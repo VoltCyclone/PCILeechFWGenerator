@@ -6,20 +6,20 @@ Tests the BehaviorProfiler class and related functionality.
 """
 
 import json
-import os
-import platform
 import queue
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
-from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
-                                                BehaviorProfiler,
-                                                RegisterAccess, TimingPattern,
-                                                check_linux_requirement,
-                                                is_linux)
+from pcileechfwgenerator.device_clone.behavior_profiler import (
+    BehaviorProfile,
+    BehaviorProfiler,
+    RegisterAccess,
+    TimingPattern,
+    check_linux_requirement,
+    is_linux,
+)
 
 
 class TestPlatformDetection:
@@ -189,7 +189,9 @@ class TestBehaviorProfilerInit:
         with pytest.raises(ValueError, match="Invalid BDF format"):
             BehaviorProfiler("0000:03:00.8")
 
-    @patch("pcileechfwgenerator.device_clone.behavior_profiler.ManufacturingVarianceSimulator")
+    @patch(
+        "pcileechfwgenerator.device_clone.behavior_profiler.ManufacturingVarianceSimulator"
+    )
     def test_init_with_variance_enabled(self, mock_simulator_class):
         """Test initialization with variance simulation enabled."""
         mock_simulator = MagicMock()
@@ -199,7 +201,9 @@ class TestBehaviorProfilerInit:
         assert profiler.enable_variance is True
         assert profiler.variance_simulator == mock_simulator
 
-    @patch("pcileechfwgenerator.device_clone.behavior_profiler.ManufacturingVarianceSimulator")
+    @patch(
+        "pcileechfwgenerator.device_clone.behavior_profiler.ManufacturingVarianceSimulator"
+    )
     def test_init_with_variance_disabled(self, mock_simulator_class):
         """Test initialization with variance simulation disabled."""
         profiler = BehaviorProfiler("0000:03:00.0", enable_variance=False)
@@ -699,3 +703,59 @@ class TestBehaviorProfilerAdvanced:
         )
 
         assert any("Irregular timing" in rec for rec in recommendations)
+
+
+class TestPassiveObservationRegressions:
+    """Function activity and collector polls must never become donor accesses."""
+
+    def test_review_function_record_does_not_create_config_write(self):
+        profiler = BehaviorProfiler("0000:03:00.0", enable_variance=False)
+        profiler._parse_ftrace_output(
+            "worker-123 [002] .... 1234.567890: pci_read_config_dword <-caller\n"
+        )
+        assert profiler.access_queue.empty()
+
+    def test_function_records_have_no_register_semantics_even_with_hex_caller(self):
+        profiler = BehaviorProfiler("0000:03:00.0", enable_variance=False)
+        profiler._parse_ftrace_output(
+            "worker-123 [002] .... 1234.567890: pci_write_config_word <-0x0040\n"
+            "unrelated-456 [003] .... 1234.567891: schedule <-worker\n"
+            "truncated pci_read_config\n"
+        )
+        assert profiler.access_queue.empty()
+
+    def test_sysfs_poll_is_excluded_without_touching_hardware(self):
+        profiler = BehaviorProfiler("0000:03:00.0", enable_variance=False)
+        with patch("builtins.open") as opened, patch.object(Path, "exists") as exists:
+            profiler._monitor_sysfs_accesses()
+        opened.assert_not_called()
+        exists.assert_not_called()
+        assert profiler.access_queue.empty()
+
+    @pytest.mark.parametrize("duration", [None, 0.0, 3.25])
+    def test_analysis_preserves_absent_and_measured_zero_durations(self, duration):
+        profiler = BehaviorProfiler("0000:03:00.0", enable_variance=False)
+        profile = BehaviorProfile(
+            device_bdf=profiler.bdf,
+            capture_duration=1.0,
+            total_accesses=1,
+            register_accesses=[
+                RegisterAccess(1.0, "STATUS", 0x10, "read", 85, duration)
+            ],
+            timing_patterns=[],
+            state_transitions={},
+            power_states=[],
+            interrupt_patterns={},
+        )
+        analysis = profiler.analyze_patterns(profile)
+        assert analysis["device_characteristics"]["avg_access_duration_us"] == duration
+        assert analysis["performance_metrics"] == {
+            "avg_access_duration_us": duration,
+            "max_access_duration_us": duration,
+            "min_access_duration_us": duration,
+        }
+        context = profiler._generate_enhanced_context(profile)
+        if duration is None:
+            assert context["performance_metrics"] == {}
+        else:
+            assert context["performance_metrics"]["avg_access_duration_us"] == duration

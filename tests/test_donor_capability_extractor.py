@@ -4,6 +4,7 @@ These tests use crafted config-space hex strings — no real donor capture
 needed. The strings are sized to PCI_CONFIG_SPACE_MIN_SIZE so ConfigSpace
 accepts them.
 """
+
 import sys
 from pathlib import Path
 
@@ -44,16 +45,12 @@ def _make_config_space(
 
 class TestExtractDsnValue:
     def test_returns_dsn_when_ext_cap_3_present(self):
-        hex_cs = _make_config_space(
-            ext_caps=[(0x0003, 0, [0x01001B21, 0xDEADBEEF])]
-        )
+        hex_cs = _make_config_space(ext_caps=[(0x0003, 0, [0x01001B21, 0xDEADBEEF])])
         result = extract_dsn_value(hex_cs)
         assert result == (0xDEADBEEF << 32) | 0x01001B21
 
     def test_returns_none_when_no_dsn_cap(self):
-        hex_cs = _make_config_space(
-            ext_caps=[(0x0001, 0, [0, 0])]
-        )
+        hex_cs = _make_config_space(ext_caps=[(0x0001, 0, [0, 0])])
         assert extract_dsn_value(hex_cs) is None
 
     def test_returns_none_when_ext_cap_chain_empty(self):
@@ -83,15 +80,11 @@ from pcileechfwgenerator.device_clone.donor_capability_extractor import (
 
 class TestExtractAerSupported:
     def test_returns_true_when_aer_ext_cap_present(self):
-        hex_cs = _make_config_space(
-            ext_caps=[(0x0001, 0, [0, 0, 0, 0, 0])]
-        )
+        hex_cs = _make_config_space(ext_caps=[(0x0001, 0, [0, 0, 0, 0, 0])])
         assert extract_aer_supported(hex_cs) is True
 
     def test_returns_false_when_aer_absent(self):
-        hex_cs = _make_config_space(
-            ext_caps=[(0x0003, 0, [0x01001B21, 0xDEADBEEF])]
-        )
+        hex_cs = _make_config_space(ext_caps=[(0x0003, 0, [0x01001B21, 0xDEADBEEF])])
         assert extract_aer_supported(hex_cs) is False
 
     def test_returns_false_on_empty_chain(self):
@@ -103,15 +96,11 @@ class TestExtractAerSupported:
 
 class TestExtractAriSupported:
     def test_returns_true_when_ari_ext_cap_present(self):
-        hex_cs = _make_config_space(
-            ext_caps=[(0x000E, 0, [0])]
-        )
+        hex_cs = _make_config_space(ext_caps=[(0x000E, 0, [0])])
         assert extract_ari_supported(hex_cs) is True
 
     def test_returns_false_when_ari_absent(self):
-        hex_cs = _make_config_space(
-            ext_caps=[(0x0001, 0, [0, 0])]
-        )
+        hex_cs = _make_config_space(ext_caps=[(0x0001, 0, [0, 0])])
         assert extract_ari_supported(hex_cs) is False
 
     def test_returns_none_on_malformed_hex(self):
@@ -141,17 +130,21 @@ def _make_cs_with_pcie_cap(
 
 
 class TestExtractCplTimeoutCaps:
-    @pytest.mark.parametrize("ctrs_bits,expected_ranges", [
-        (0b0000, "none"),
-        (0b0001, "A"),
-        (0b0010, "B"),
-        (0b0100, "C"),
-        (0b1000, "D"),
-        (0b0011, "AB"),
-        (0b0110, "BC"),
-        (0b1110, "BCD"),
-        (0b1111, "ABCD"),
-    ])
+    @pytest.mark.parametrize(
+        "ctrs_bits,expected_ranges",
+        [
+            (0b0000, "none"),
+            (0b0001, "A"),
+            (0b0010, "B"),
+            (0b0100, "C"),
+            (0b1000, "D"),
+            (0b0011, "AB"),
+            (0b0110, "BC"),
+            (0b0111, "ABC"),
+            (0b1110, "BCD"),
+            (0b1111, "ABCD"),
+        ],
+    )
     def test_decodes_ctrs_bits_to_xilinx_token(self, ctrs_bits, expected_ranges):
         hex_cs = _make_cs_with_pcie_cap(devcap2_value=ctrs_bits)
         result = extract_cpl_timeout_caps(hex_cs)
@@ -164,19 +157,21 @@ class TestExtractCplTimeoutCaps:
         assert result["cpl_timeout_disable_supported"] is True
         assert result["cpl_timeout_ranges"] == "none"
 
-    @pytest.mark.parametrize("unsupported_bits", [
-        0b0101,
-        0b1001,
-        0b1010,
-        0b1100,
-        0b0111,
-        0b1011,
-        0b1101,
-    ])
-    def test_returns_none_ranges_for_unsupported_combinations(self, unsupported_bits):
+    @pytest.mark.parametrize(
+        "unsupported_bits",
+        [
+            0b0101,
+            0b1001,
+            0b1010,
+            0b1100,
+            0b1011,
+            0b1101,
+        ],
+    )
+    def test_preserves_reserved_ranges_for_build_refusal(self, unsupported_bits):
         hex_cs = _make_cs_with_pcie_cap(devcap2_value=unsupported_bits)
         result = extract_cpl_timeout_caps(hex_cs)
-        assert result["cpl_timeout_ranges"] is None
+        assert result["cpl_timeout_ranges"] == f"reserved:{unsupported_bits:04b}"
 
     def test_returns_all_none_when_pcie_cap_absent(self):
         size = 4096
@@ -213,12 +208,12 @@ class TestExtractDonorCapabilities:
         data[0x34] = 0x40
         data[0x40] = 0x10
         devcap2 = 0b00011111
-        data[0x64 : 0x68] = devcap2.to_bytes(4, "little")
-        data[0x100 : 0x104] = ((0x140 << 20) | (1 << 16) | 0x0001).to_bytes(4, "little")
-        data[0x140 : 0x144] = ((0x180 << 20) | (1 << 16) | 0x0003).to_bytes(4, "little")
-        data[0x144 : 0x148] = (0x01001B21).to_bytes(4, "little")
-        data[0x148 : 0x14C] = (0xDEADBEEF).to_bytes(4, "little")
-        data[0x180 : 0x184] = ((0 << 20) | (1 << 16) | 0x000E).to_bytes(4, "little")
+        data[0x64:0x68] = devcap2.to_bytes(4, "little")
+        data[0x100:0x104] = ((0x140 << 20) | (1 << 16) | 0x0001).to_bytes(4, "little")
+        data[0x140:0x144] = ((0x180 << 20) | (1 << 16) | 0x0003).to_bytes(4, "little")
+        data[0x144:0x148] = (0x01001B21).to_bytes(4, "little")
+        data[0x148:0x14C] = (0xDEADBEEF).to_bytes(4, "little")
+        data[0x180:0x184] = ((0 << 20) | (1 << 16) | 0x000E).to_bytes(4, "little")
         hex_cs = data.hex()
 
         result = extract_donor_capabilities(hex_cs)

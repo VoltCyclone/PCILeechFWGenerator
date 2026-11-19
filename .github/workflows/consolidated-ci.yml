@@ -37,13 +37,13 @@ jobs:
       template-validation-passed: ${{ steps.template-validation-result.outputs.passed }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1  # Shallow checkout for faster validation
           submodules: recursive
 
       - name: Cache template validation
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: template_variables_report.json
           key: template-validation-${{ env.CACHE_VERSION }}-${{ hashFiles('scripts/validate_template_variables.py', 'templates/**') }}
@@ -72,7 +72,7 @@ jobs:
         run: python scripts/validate_template_syntax.py
 
       - name: Upload validation artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: template-validation-report
@@ -89,12 +89,12 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: python
           config: |
@@ -113,7 +113,7 @@ jobs:
           cache: 'true'
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: "python"
 
@@ -126,7 +126,7 @@ jobs:
         python-version: ['3.11', '3.12']
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
           submodules: recursive
@@ -141,7 +141,7 @@ jobs:
           skip-missing: 'true'
 
       - name: Cache pytest cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .pytest_cache
           key: pytest-cache-${{ env.CACHE_VERSION }}-${{ matrix.python-version }}-${{ hashFiles('tests/**/*.py') }}
@@ -161,10 +161,10 @@ jobs:
           if [[ "$SKIP_SLOW" == "--skip-slow" ]]; then
             MARKERS="$MARKERS and not slow"
           fi
-          
+
           # Set coverage file per Python version
           export COVERAGE_FILE=".coverage.${{ matrix.python-version }}"
-          
+
           pytest tests/ \
             --cov=src \
             --cov-report=term-missing:skip-covered \
@@ -188,7 +188,7 @@ jobs:
           if [ -d htmlcov ]; then tar -czf coverage_artifacts/htmlcov.tar.gz htmlcov; fi
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: coverage-py${{ matrix.python-version }}
@@ -206,17 +206,17 @@ jobs:
       actions: read
     steps:
       - name: Checkout repository (for coverage tools)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
       - name: Download coverage artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: coverage_dl
 
       - name: Setup Python for combining
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
 
@@ -255,7 +255,7 @@ jobs:
             github.event_name != 'pull_request' ||
             github.event.pull_request.head.repo.fork == false
           )
-        uses: codecov/codecov-action@v7.1.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: merged/coverage.xml
           name: codecov-umbrella
@@ -265,7 +265,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload merged coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: coverage-merged
@@ -285,7 +285,7 @@ jobs:
       package-version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0  # Need full history for version calculation
           submodules: recursive
@@ -325,7 +325,7 @@ jobs:
           python -m twine check dist/*
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-packages-${{ steps.version.outputs.version }}
           path: dist/
@@ -342,28 +342,28 @@ jobs:
         run: |
           echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           # Validation status
           if [[ "${{ needs.validation.result }}" == "success" ]]; then
             echo "✅ Template validation passed" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Template validation failed" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          # Security analysis status  
+
+          # Security analysis status
           if [[ "${{ needs.security-analysis.result }}" == "success" ]]; then
             echo "✅ Security analysis passed" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Security analysis failed" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Unit tests status
           if [[ "${{ needs.unit-tests.result }}" == "success" ]]; then
             echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Unit tests failed" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Coverage upload status
           if [[ "${{ needs.coverage-upload.result }}" == "success" ]]; then
             echo "✅ Coverage uploaded" >> $GITHUB_STEP_SUMMARY
@@ -372,7 +372,7 @@ jobs:
           else
             echo "⚠️ Coverage upload failed (non-blocking)" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Packaging status
           if [[ "${{ needs.packaging.result }}" == "success" ]]; then
             echo "✅ Packaging successful" >> $GITHUB_STEP_SUMMARY
@@ -382,7 +382,7 @@ jobs:
           else
             echo "❌ Packaging failed" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Workflow completed at $(date -u)" >> $GITHUB_STEP_SUMMARY
 
@@ -390,18 +390,18 @@ jobs:
         run: |
           # Fail the workflow if critical jobs failed
           CRITICAL_FAILURES=""
-          
+
           if [[ "${{ needs.unit-tests.result }}" != "success" ]]; then
             CRITICAL_FAILURES="$CRITICAL_FAILURES unit-tests"
           fi
-          
+
           if [[ "${{ needs.security-analysis.result }}" != "success" ]]; then
             CRITICAL_FAILURES="$CRITICAL_FAILURES security-analysis"
           fi
-          
+
           if [[ -n "$CRITICAL_FAILURES" ]]; then
             echo "Critical job failures: $CRITICAL_FAILURES"
             exit 1
           fi
-          
+
           echo "All critical jobs passed successfully!"

@@ -1,6 +1,6 @@
 [build-system]
 # AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5"]
+requires = ["setuptools>=78.1.1", "setuptools_scm[toml]>=5"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -24,9 +24,9 @@ classifiers = [
 ]
 dependencies = [
     "psutil>=5.9.0",
-    "pydantic>=2.0.0",
-    "aiofiles>=23.0.0",
-    "jinja2>=3.1.0",
+    "pydantic>=2.4.0",
+    "aiofiles>=23.1.0",
+    "jinja2>=3.1.6",
     "PyYAML>=6.0.0",
     "colorlog>=6.7.0",
     "typing_extensions>=4.0.0",
@@ -46,10 +46,10 @@ tui = [
 ]
 testing = [
     "setuptools",
-    "pytest>=7.0.0",
+    "pytest>=9.0.3",
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
-    "pytest-xdist>=3.0.0",
+    "pytest-xdist>=3.5.0",
     "pytest-asyncio>=0.21.0",
     "packaging>=23.0",
 ]
@@ -58,10 +58,10 @@ testing = [
 # that some resolver versions struggle with.
 test = [
     "setuptools",
-    "pytest>=7.0.0",
+    "pytest>=9.0.3",
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
-    "pytest-xdist>=3.0.0",
+    "pytest-xdist>=3.5.0",
     "pytest-asyncio>=0.21.0",
     "packaging>=23.0",
 ]
@@ -69,10 +69,10 @@ test = [
 dev = [
     # testing
     "setuptools",
-    "pytest>=7.0.0",
+    "pytest>=9.0.3",
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
-    "pytest-xdist>=3.0.0",
+    "pytest-xdist>=3.5.0",
     "pytest-asyncio>=0.21.0",
     "packaging>=23.0",
     # tui
@@ -80,7 +80,7 @@ dev = [
     "rich>=13.0.0",
     "watchdog>=3.0.0",
     # dev tooling
-    "black>=23.0.0",
+    "black>=26.10.1",
     "isort>=5.12.0",
     "flake8>=6.0.0",
     "flake8-docstrings>=1.7.0",
@@ -91,9 +91,9 @@ dev = [
     "pre-commit>=3.0.0",
     "build>=0.10.0",
     "twine>=4.0.0",
-    "wheel>=0.40.0",
+    "wheel>=0.46.2",
     "bandit>=1.7.0",
-    "safety>=2.3.0",
+    "pip-audit>=2.10.1",
 ]
 
 [project.scripts]
@@ -112,7 +112,7 @@ version_file = "src/_version.py"
 
 [tool.setuptools]
 py-modules = ["pcileech"]
-package-dir = {"pcileechfwgenerator" = "src"}
+package-dir = {"pcileechfwgenerator" = "src", "pcileechfwgenerator.voltcyclone_fpga" = "lib/voltcyclone-fpga"}
 packages = [
     "pcileechfwgenerator",
     "pcileechfwgenerator.behavioral",
@@ -133,7 +133,21 @@ packages = [
     "pcileechfwgenerator.tui.widgets",
     "pcileechfwgenerator.utils",
     "pcileechfwgenerator.vivado_handling",
+    # Board definitions from the voltcyclone-fpga submodule, bundled so a
+    # plain pip install finds them without a source checkout.
+    "pcileechfwgenerator.voltcyclone_fpga",
 ]
+
+[tool.setuptools.package-data]
+"pcileechfwgenerator.voltcyclone_fpga" = [
+    "**/*.xdc", "**/*.sv", "**/*.svh", "**/*.tcl", "**/*.py", "**/*.md",
+    "**/*.txt", "**/*.v", "**/*.vh", "**/*.xci", "**/*.xco", "**/*.ucf",
+    "**/*.coe", "**/*.yml", "**/*.yaml", "**/*.edn", "**/*.cgp", "**/*.cfi",
+    "**/*.bat",
+]
+
+[tool.setuptools.exclude-package-data]
+"pcileechfwgenerator.voltcyclone_fpga" = [".remember/*"]
 
 [tool.pylint.messages_control]
 # Disable the line-too-long check

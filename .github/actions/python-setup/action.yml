@@ -1,43 +1,43 @@
-name: 'python-setup'
-description: 'Setup Python with caching, install requirements, optional editable install with extras.'
-author: 'Project Automation'
+name: "python-setup"
+description: "Setup Python with caching, install requirements, optional editable install with extras."
+author: "Project Automation"
 inputs:
   python-version:
-    description: 'Python version to use.'
+    description: "Python version to use."
     required: true
   requirements-files:
-    description: 'Newline or comma separated list of requirements file paths to install.'
+    description: "Newline or comma separated list of requirements file paths to install."
     required: false
-    default: ''
+    default: ""
   extras:
-    description: 'Extras specification for editable install (e.g. test,dev).'
+    description: "Extras specification for editable install (e.g. test,dev)."
     required: false
-    default: ''
+    default: ""
   extra-packages:
-    description: 'Additional packages (space separated) to pip install after requirements.'
+    description: "Additional packages (space separated) to pip install after requirements."
     required: false
-    default: ''
+    default: ""
   editable:
-    description: 'Install the project in editable mode.'
+    description: "Install the project in editable mode."
     required: false
-    default: 'false'
+    default: "false"
   upgrade-pip:
-    description: 'Upgrade pip/setuptools/wheel first.'
+    description: "Upgrade pip/setuptools/wheel first."
     required: false
-    default: 'true'
+    default: "true"
   cache:
-    description: 'Enable pip caching via actions/setup-python.'
+    description: "Enable pip caching via actions/setup-python."
     required: false
-    default: 'true'
+    default: "true"
   skip-missing:
-    description: 'Silently skip missing requirement files (true) or fail (false).'
+    description: "Silently skip missing requirement files (true) or fail (false)."
     required: false
-    default: 'true'
+    default: "true"
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Setup Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
       with:
         python-version: ${{ inputs.python-version }}
         cache: ${{ inputs.cache == 'true' && 'pip' || '' }}

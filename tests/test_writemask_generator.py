@@ -10,13 +10,8 @@ Tests the improved writemask generation with:
 """
 
 import pytest
-from pathlib import Path
-from typing import Dict
-from unittest.mock import MagicMock, patch
-
 from pcileechfwgenerator.device_clone.writemask_generator import (
     WritemaskGenerator,
-    CFG_SPACE_DWORDS,
     visualize_writemask_terminal,
 )
 
@@ -49,55 +44,57 @@ memory_initialization_vector=
     # ========================================================================
 
     def test_get_msi_writemask_disabled(self, generator):
-        """Test MSI writemask when disabled."""
-        msi_config = {"enabled": False}
-        result = generator.get_msi_writemask(msi_config)
-        assert result is not None
+        """Disabled MSI still grants its full 32-bit layout."""
+        assert generator.get_msi_writemask({"enabled": False}) == (
+            "00710000",
+            "fffffffc",
+            "0000ffff",
+        )
 
     def test_get_msi_writemask_64bit(self, generator):
-        """Test MSI writemask for 64-bit capable."""
-        msi_config = {"enabled": True, "64bit_capable": True}
-        result = generator.get_msi_writemask(msi_config)
-        assert result is not None
+        """64-bit MSI grants both address halves, preserving attributes."""
+        assert generator.get_msi_writemask({"64bit_capable": True}) == (
+            "00710000",
+            "fffffffc",
+            "ffffffff",
+            "0000ffff",
+        )
 
     def test_get_msi_writemask_multiple_message_capable(self, generator):
-        """Test MSI writemask for multiple message capable."""
-        msi_config = {
-            "enabled": True,
-            "64bit_capable": False,
-            "multiple_message_capable": True,
-        }
-        result = generator.get_msi_writemask(msi_config)
-        assert result is not None
+        """Only supported vectors can be masked; Pending remains read-only."""
+        assert generator.get_msi_writemask(
+            {
+                "multiple_message_capable": 3,
+                "per_vector_masking": True,
+            }
+        ) == ("00710000", "fffffffc", "0000ffff", "000000ff", "00000000")
 
     def test_get_msi_writemask_multiple_message_enabled(self, generator):
-        """Test MSI writemask for multiple message enabled."""
-        msi_config = {
-            "enabled": True,
-            "64bit_capable": False,
-            "multiple_message_capable": False,
-            "multiple_message_enabled": True,
-        }
-        result = generator.get_msi_writemask(msi_config)
-        assert result is not None
+        """Runtime MME does not change layout or immutable fields."""
+        assert generator.get_msi_writemask(
+            {
+                "enabled": True,
+                "multiple_message_enabled": True,
+            }
+        ) == ("00710000", "fffffffc", "0000ffff")
 
     def test_get_msix_writemask_small_table(self, generator):
         """Test MSI-X writemask for small table (<=8 entries)."""
         msix_config = {"table_size": 4}
         result = generator.get_msix_writemask(msix_config)
-        assert result is not None
+        assert result == ("c0000000", "00000000", "00000000")
 
     def test_get_msix_writemask_medium_table(self, generator):
         """Test MSI-X writemask for medium table (16 entries)."""
         msix_config = {"table_size": 16}
         result = generator.get_msix_writemask(msix_config)
-        assert result is not None
+        assert result == ("c0000000", "00000000", "00000000")
 
     def test_get_msix_writemask_large_table(self, generator):
         """Test MSI-X writemask for large table (>128 entries)."""
         msix_config = {"table_size": 256}
         result = generator.get_msix_writemask(msix_config)
-        assert result is not None
+        assert result == ("c0000000", "00000000", "00000000")
 
     # ========================================================================
     # COE File Parsing Tests
@@ -106,9 +103,9 @@ memory_initialization_vector=
     def test_read_cfg_space_basic(self, generator, sample_config_space):
         """Test basic COE file parsing."""
         result = generator.read_cfg_space(sample_config_space)
-        assert isinstance(result, dict)
-        assert len(result) > 0
-        assert 0 in result
+        assert len(result) == 16
+        assert result[0] == 0x10DE1234
+        assert result[13] == 0x50
 
     def test_read_cfg_space_hex_prefix(self, generator, tmp_path):
         """Test COE parsing with 0x prefixes."""
@@ -156,7 +153,7 @@ memory_initialization_vector=
 """
         coe_file.write_text(content)
         result = generator.read_cfg_space(coe_file)
-        assert len(result) == 3
+        assert result == {0: 0x12345678, 1: 0xABCDEF00, 2: 0x11111111}
 
     def test_read_cfg_space_invalid_hex(self, generator, tmp_path):
         """Test COE parsing skips invalid hex values."""
@@ -168,7 +165,7 @@ memory_initialization_vector=
         coe_file.write_text(content)
         result = generator.read_cfg_space(coe_file)
         # Should have 2 valid values (skipping invalid)
-        assert len(result) == 2
+        assert result == {0: 0x12345678, 1: 0xABCDEF00}
 
     # ========================================================================
     # Capability Location Tests
@@ -196,7 +193,7 @@ memory_initialization_vector=
         """Test capability location with empty config space."""
         dwords = {i: 0 for i in range(64)}
         result = generator.locate_capabilities(dwords)
-        assert isinstance(result, dict)
+        assert result == {}
 
     def test_locate_capabilities_with_std_cap(self, generator):
         """Test capability location with standard capability."""
@@ -205,7 +202,7 @@ memory_initialization_vector=
         dwords[0x34 // 4] = 0x40  # Cap at 0x40
         # Set capability at 0x40 (MSI = 0x05)
         dwords[0x40 // 4] = 0x00000005  # Cap ID 0x05, next=0x00
-        
+
         result = generator.locate_capabilities(dwords)
         assert "0x05" in result
         assert result["0x05"] == 0x40
@@ -218,89 +215,25 @@ memory_initialization_vector=
         # Create cycle: 0x40 -> 0x50 -> 0x40
         dwords[0x40 // 4] = 0x00005001  # Cap ID 1, next=0x50
         dwords[0x50 // 4] = 0x00004002  # Cap ID 2, next=0x40 (cycle!)
-        
+
         result = generator.locate_capabilities(dwords)
-        # Should detect cycle and stop
-        assert isinstance(result, dict)
+        assert result == {"0x01": 0x40, "0x02": 0x50}
 
     def test_locate_capabilities_extended(self, generator):
-        """Test extended capability location."""
-        dwords = {i: 0 for i in range(1024)}
-        # Extended capability at 0x100
-        # Header format: [next_offset:12][version:4][cap_id:16]
-        # Cap ID 0x0001, version 1, next at 0x140 (DWORD 0x50 = byte 0x140)
-        dwords[0x100 // 4] = 0x00050001  # next_dword=0x05, ver=0, id=0x0001
-        
-        result = generator.locate_capabilities(dwords)
-        assert "0x0001" in result
-        assert result["0x0001"] == 0x100
+        """Extended next pointers encode byte offsets directly."""
+        dwords = {0x100 // 4: 0x14010001, 0x140 // 4: 0x00010003}
+        assert generator.locate_capabilities(dwords) == {
+            "0x0001": 0x100,
+            "0x0003": 0x140,
+        }
 
     def test_locate_capabilities_ext_cycle_detection(self, generator):
-        """Test cycle detection in extended capabilities."""
-        dwords = {i: 0 for i in range(1024)}
-        # Create cycle: 0x100 -> 0x140 -> 0x100
-        dwords[0x100 // 4] = 0x00050001  # next_dword=0x05 (byte 0x140)
-        dwords[0x140 // 4] = 0x00040002  # next_dword=0x04 (byte 0x100, cycle!)
-        
-        result = generator.locate_capabilities(dwords)
-        # Should detect cycle and stop
-        assert isinstance(result, dict)
-
-    # ========================================================================
-    # Writemask Creation and Update Tests
-    # ========================================================================
-
-    def test_create_writemask_size(self, generator):
-        """Test writemask creation has correct size."""
-        dwords = {i: 0 for i in range(100)}
-        result = generator.create_writemask(dwords)
-        assert len(result) == CFG_SPACE_DWORDS
-
-    def test_create_writemask_default_writable(self, generator):
-        """Test writemask defaults to all writable."""
-        dwords = {i: 0 for i in range(100)}
-        result = generator.create_writemask(dwords)
-        assert all(mask == "ffffffff" for mask in result)
-
-    def test_update_writemask_basic(self, generator):
-        """Test basic writemask update."""
-        wr_mask = ["ffffffff"] * 10
-        protected = ("ffffffff",)  # Protect all bits (make all read-only)
-        result = generator.update_writemask(wr_mask, protected, 0)
-        assert result[0] == "00000000"  # All bits now read-only
-        assert result[1] == "ffffffff"  # Unchanged
-
-    def test_update_writemask_partial(self, generator):
-        """Test partial bit protection."""
-        wr_mask = ["ffffffff"] * 10
-        protected = ("0000ffff",)  # Protect lower 16 bits
-        result = generator.update_writemask(wr_mask, protected, 0)
-        assert result[0] == "ffff0000"
-
-    def test_update_writemask_multiple_dwords(self, generator):
-        """Test protection across multiple DWORDs."""
-        wr_mask = ["ffffffff"] * 10
-        protected = ("00000001", "00000002", "00000004")
-        result = generator.update_writemask(wr_mask, protected, 2)
-        assert result[2] == "fffffffe"
-        assert result[3] == "fffffffd"
-        assert result[4] == "fffffffb"
-
-    def test_update_writemask_bounds_check(self, generator):
-        """Test writemask update with out-of-bounds index."""
-        wr_mask = ["ffffffff"] * 5
-        protected = ("00000000",) * 10  # More than available
-        # Should not crash, just stop at bounds
-        result = generator.update_writemask(wr_mask, protected, 0)
-        assert len(result) == 5
-
-    def test_update_writemask_invalid_hex(self, generator):
-        """Test writemask update with invalid hex (graceful handling)."""
-        wr_mask = ["ffffffff", "invalid", "ffffffff"]
-        protected = ("00000001",)
-        # Should handle invalid hex gracefully
-        result = generator.update_writemask(wr_mask, protected, 1)
-        assert len(result) == 3
+        """An extended cycle terminates after discovering both entries."""
+        dwords = {0x100 // 4: 0x14010001, 0x140 // 4: 0x10010002}
+        assert generator.locate_capabilities(dwords) == {
+            "0x0001": 0x100,
+            "0x0002": 0x140,
+        }
 
     # ========================================================================
     # COE File Writing Tests
@@ -309,105 +242,107 @@ memory_initialization_vector=
     def test_write_writemask_coe_format(self, generator, tmp_path):
         """Test writemask COE file format."""
         output_file = tmp_path / "writemask.coe"
-        wr_mask = ["ffffffff"] * 100
-        
+        wr_mask = [0xFFFFFFFF] * 100
+
         generator._write_writemask_coe(wr_mask, output_file)
-        
+
         content = output_file.read_text()
         assert "memory_initialization_radix=16" in content
         assert "memory_initialization_vector=" in content
         assert "PCILeech" in content
+        assert content.endswith("00000000,00000000,00000000,00000000;\n")
+        assert list(generator.read_cfg_space(output_file).values()) == (
+            [0xFFFFFFFF] * 100 + [0] * 924
+        )
 
     def test_write_writemask_coe_padding(self, generator, tmp_path):
-        """Test writemask COE pads to 1024 DWORDs."""
+        """Short masks pad with read-only words, never writable defaults."""
         output_file = tmp_path / "writemask.coe"
-        wr_mask = ["ffffffff"] * 50  # Less than 1024
-        
-        generator._write_writemask_coe(wr_mask, output_file)
-        
-        content = output_file.read_text()
-        # Count DWORDs in output
-        dwords = [line for line in content.splitlines() 
-                  if line and not line.startswith(";") 
-                  and "memory_initialization" not in line]
-        # Should have data for 1024 DWORDs
-        assert len(content) > 0
+        generator._write_writemask_coe([0x00000546] * 50, output_file)
+        words = list(generator.read_cfg_space(output_file).values())
+        assert words == [0x00000546] * 50 + [0] * 974
 
     def test_write_writemask_coe_truncation(self, generator, tmp_path):
-        """Test writemask COE truncates to 1024 DWORDs."""
+        """Output truncates at the last DWORD of 4KB configuration space."""
         output_file = tmp_path / "writemask.coe"
-        wr_mask = ["ffffffff"] * 2000  # More than 1024
-        
-        generator._write_writemask_coe(wr_mask, output_file)
-        
-        # Should complete without error
-        assert output_file.exists()
+        generator._write_writemask_coe([0x000000FF] * 2000, output_file)
+        assert list(generator.read_cfg_space(output_file).values()) == [0xFF] * 1024
 
     # ========================================================================
     # Integration Tests
     # ========================================================================
 
-    def test_generate_writemask_full_flow(self, generator, sample_config_space, tmp_path):
+    def test_generate_writemask_full_flow(
+        self, generator, sample_config_space, tmp_path
+    ):
         """Test full writemask generation flow."""
         output_file = tmp_path / "writemask_output.coe"
-        
-        generator.generate_writemask(
-            sample_config_space,
-            output_file,
-            device_config=None
-        )
-        
-        assert output_file.exists()
-        content = output_file.read_text()
-        assert len(content) > 0
 
-    def test_generate_writemask_with_msi_config(self, generator, sample_config_space, tmp_path):
+        generator.generate_writemask(
+            sample_config_space, output_file, device_config=None
+        )
+
+        words = generator.read_cfg_space(output_file)
+        assert len(words) == 1024
+        assert [words[i] for i in (0, 1, 2, 3, 11, 13, 15)] == [
+            0,
+            0x546,
+            0,
+            0xFF,
+            0,
+            0,
+            0xFF,
+        ]
+        assert all(words[i] == 0 for i in range(16, 1024))
+
+    def test_generate_writemask_with_msi_config(
+        self, generator, sample_config_space, tmp_path
+    ):
         """Test writemask generation with MSI configuration."""
         output_file = tmp_path / "writemask_msi.coe"
-        device_config = {
-            "msi_config": {
-                "enabled": True,
-                "64bit_capable": True
-            }
-        }
-        
-        generator.generate_writemask(
-            sample_config_space,
-            output_file,
-            device_config=device_config
-        )
-        
-        assert output_file.exists()
+        device_config = {"msi_config": {"enabled": True, "64bit_capable": True}}
 
-    def test_generate_writemask_with_msix_config(self, generator, sample_config_space, tmp_path):
+        generator.generate_writemask(
+            sample_config_space, output_file, device_config=device_config
+        )
+
+        words = generator.read_cfg_space(output_file)
+        assert words[0] == 0
+        assert words[1] == 0x546
+        assert words[15] == 0xFF
+        assert all(words[i] == 0 for i in range(16, 1024))
+
+    def test_generate_writemask_with_msix_config(
+        self, generator, sample_config_space, tmp_path
+    ):
         """Test writemask generation with MSI-X configuration."""
         output_file = tmp_path / "writemask_msix.coe"
-        device_config = {
-            "msix_config": {
-                "table_size": 64
-            }
-        }
-        
-        generator.generate_writemask(
-            sample_config_space,
-            output_file,
-            device_config=device_config
-        )
-        
-        assert output_file.exists()
+        device_config = {"msix_config": {"table_size": 64}}
 
-    def test_generate_writemask_visualization_disabled(self, generator, sample_config_space, tmp_path):
+        generator.generate_writemask(
+            sample_config_space, output_file, device_config=device_config
+        )
+
+        words = generator.read_cfg_space(output_file)
+        assert words[0] == 0
+        assert words[1] == 0x546
+        assert words[15] == 0xFF
+        assert all(words[i] == 0 for i in range(16, 1024))
+
+    def test_generate_writemask_visualization_disabled(
+        self, generator, sample_config_space, tmp_path
+    ):
         """Test writemask generation without visualization."""
         output_file = tmp_path / "writemask_no_viz.coe"
-        
+
         # Should not raise even if rich not available
-        generator.generate_writemask(
-            sample_config_space,
-            output_file,
-            visualize=False
-        )
-        
-        assert output_file.exists()
+        generator.generate_writemask(sample_config_space, output_file, visualize=False)
+
+        words = generator.read_cfg_space(output_file)
+        assert words[0] == 0
+        assert words[1] == 0x546
+        assert words[15] == 0xFF
+        assert all(words[i] == 0 for i in range(16, 1024))
 
 
 class TestVisualization:
@@ -417,7 +352,7 @@ class TestVisualization:
         """Test visualization falls back gracefully without rich."""
         wr_mask = ["ffffffff"] * 64
         caps = {"0x05": 0x40, "0x11": 0x50}
-        
+
         # Should not crash even if rich not available
         visualize_writemask_terminal(wr_mask, caps, rows=10)
 
@@ -430,7 +365,7 @@ class TestVisualization:
             "0x11": 0x50,  # MSI-X
             "0x0001": 0x100,  # Extended cap
         }
-        
+
         # Should handle mixed std and extended caps
         visualize_writemask_terminal(wr_mask, caps, rows=16)
 
@@ -438,7 +373,7 @@ class TestVisualization:
         """Test visualization with no capabilities."""
         wr_mask = ["ffffffff"] * 64
         caps = {}
-        
+
         visualize_writemask_terminal(wr_mask, caps, rows=10)
 
     def test_visualize_writemask_terminal_varied_masks(self):
@@ -450,7 +385,7 @@ class TestVisualization:
             "f0f0f0f0",  # Alternating
         ]
         caps = {}
-        
+
         visualize_writemask_terminal(wr_mask, caps, rows=4)
 
 
@@ -464,7 +399,7 @@ class TestEdgeCases:
     def test_read_cfg_space_nonexistent_file(self, generator, tmp_path):
         """Test reading nonexistent file raises error."""
         nonexistent = tmp_path / "nonexistent.coe"
-        
+
         with pytest.raises(Exception):
             generator.read_cfg_space(nonexistent)
 
@@ -472,37 +407,30 @@ class TestEdgeCases:
         """Test reading empty file."""
         empty_file = tmp_path / "empty.coe"
         empty_file.write_text("")
-        
+
         result = generator.read_cfg_space(empty_file)
-        assert isinstance(result, dict)
+        assert result == {}
 
     def test_read_cfg_space_malformed(self, generator, tmp_path):
         """Test reading malformed COE file."""
         malformed = tmp_path / "malformed.coe"
         malformed.write_text("not a valid coe file!")
-        
+
         result = generator.read_cfg_space(malformed)
         # Should return empty or minimal dict, not crash
-        assert isinstance(result, dict)
+        assert result == {}
 
     def test_locate_capabilities_all_zeros(self, generator):
         """Test capability location with all-zero config space."""
         dwords = {i: 0 for i in range(1024)}
         result = generator.locate_capabilities(dwords)
-        assert isinstance(result, dict)
+        assert result == {}
 
     def test_locate_capabilities_all_ones(self, generator):
         """Test capability location with all-ones config space."""
         dwords = {i: 0xFFFFFFFF for i in range(1024)}
         result = generator.locate_capabilities(dwords)
-        assert isinstance(result, dict)
-
-    def test_update_writemask_empty_protection(self, generator):
-        """Test writemask update with empty protection tuple."""
-        wr_mask = ["ffffffff"] * 10
-        protected = ()
-        result = generator.update_writemask(wr_mask, protected, 0)
-        assert all(mask == "ffffffff" for mask in result)
+        assert result == {}
 
     def test_generate_writemask_none_device_config(self, generator, tmp_path):
         """Test writemask generation with None device config."""
@@ -512,11 +440,11 @@ memory_initialization_vector=
 12345678;
 """)
         output_file = tmp_path / "output.coe"
-        
-        generator.generate_writemask(
-            coe_file,
-            output_file,
-            device_config=None
-        )
-        
-        assert output_file.exists()
+
+        generator.generate_writemask(coe_file, output_file, device_config=None)
+
+        words = generator.read_cfg_space(output_file)
+        assert words[0] == 0
+        assert words[1] == 0x546
+        assert words[15] == 0xFF
+        assert all(words[i] == 0 for i in range(16, 1024))

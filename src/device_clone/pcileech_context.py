@@ -9,7 +9,6 @@ import logging
 import os
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, TypedDict, Union, cast
 
 from pcileechfwgenerator.cli.vfio_constants import (
@@ -19,7 +18,6 @@ from pcileechfwgenerator.cli.vfio_constants import (
     VFIO_REGION_INFO_FLAG_WRITE,
     VfioRegionInfo,
 )
-from pcileechfwgenerator.device_clone.bar_content_generator import BarContentGenerator
 from pcileechfwgenerator.device_clone.bar_size_converter import extract_bar_size
 from pcileechfwgenerator.device_clone.behavior_profiler import BehaviorProfile
 from pcileechfwgenerator.device_clone.board_config import get_pcileech_board_config
@@ -39,7 +37,6 @@ from pcileechfwgenerator.device_clone.constants import (
     PCI_CLASS_DISPLAY,
     PCI_CLASS_NETWORK,
     PCI_CLASS_STORAGE,
-    POWER_STATE_D0,
     is_placeholder_donor_id,
 )
 from pcileechfwgenerator.device_clone.device_config import get_device_config
@@ -55,11 +52,13 @@ from pcileechfwgenerator.device_clone.fallback_manager import (
     get_global_fallback_manager,
 )
 from pcileechfwgenerator.device_clone.identifier_normalizer import IdentifierNormalizer
+from pcileechfwgenerator.device_clone.msix_layout import pba_size_bytes
 from pcileechfwgenerator.device_clone.overlay_mapper import OverlayMapper
 from pcileechfwgenerator.device_clone.overlay_utils import (
     compute_sparse_hash_table_size,
     normalize_overlay_entry_count,
 )
+from pcileechfwgenerator.device_clone.served_bar import select_served_bars
 from pcileechfwgenerator.device_clone.vfio_access import (
     VFIOAccess,
     get_default_vfio_access,
@@ -243,6 +242,19 @@ class ValidationLevel(Enum):
     STRICT = "strict"
     MODERATE = "moderate"
     PERMISSIVE = "permissive"
+
+
+# Keys only the learning manifest or build flags may supply; never taken from a
+# donor template.
+_EVIDENCE_ONLY_BAR_KEYS = frozenset(
+    {
+        "bar_models",
+        "bar_model_report",
+        "served_bar_fidelity",
+        "served_bar_fidelities",
+        "bar_fallback",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -680,6 +692,28 @@ class VFIODeviceManager:
                 self.close()
 
 
+def pcie_caps_from_device_context(dev_ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Donor PCIe capability fields the build reads from the template context.
+
+    ``dev_ctx`` is the capability processor's view of the donor config space.
+    Only values the donor actually reported are returned: link speed and width
+    when positive, and DevCap Extended Tag Field Supported (bit 5) when the
+    PCI Express capability was read. The requester plan and the IP override
+    bind ``Extended_Tag_Field`` from ``pcie_extended_tag_supported``.
+    """
+    caps: Dict[str, Any] = {}
+    max_speed = dev_ctx.get("pcie_max_link_speed")
+    max_width = dev_ctx.get("pcie_max_link_width")
+    if isinstance(max_speed, int) and max_speed > 0:
+        caps["pcie_max_link_speed"] = max_speed
+    if isinstance(max_width, int) and max_width > 0:
+        caps["pcie_max_link_width"] = max_width
+    extended_tag = dev_ctx.get("pcie_extended_tag_supported")
+    if isinstance(extended_tag, bool):
+        caps["pcie_extended_tag_supported"] = extended_tag
+    return caps
+
+
 class PCILeechContextBuilder:
     """Builds template context from device profiling data."""
 
@@ -821,6 +855,7 @@ class PCILeechContextBuilder:
                 behavior_profile,
                 enable_mmio_learning,
                 force_recapture,
+                msix_data=msix_data,
             ),
             "timing_config": self._build_timing_config(
                 behavior_profile, device_identifiers
@@ -881,13 +916,7 @@ class PCILeechContextBuilder:
                     dev_ctx = (
                         _cp._get_device_context()
                     )  # Internal, but stable within project
-                    max_speed = dev_ctx.get("pcie_max_link_speed")
-                    max_width = dev_ctx.get("pcie_max_link_width")
-
-                    if isinstance(max_speed, int) and max_speed > 0:
-                        context["pcie_max_link_speed"] = max_speed
-                    if isinstance(max_width, int) and max_width > 0:
-                        context["pcie_max_link_width"] = max_width
+                    context.update(pcie_caps_from_device_context(dev_ctx))
                 except Exception as e:
                     log_debug_safe(
                         self.logger,
@@ -1193,9 +1222,9 @@ class PCILeechContextBuilder:
     def _check_msix_data(self, msix_data, missing):
         if msix_data and msix_data.get("capability_info"):
             cap_info = msix_data["capability_info"]
-            for field in self.REQUIRED_MSIX_FIELDS:
-                if field not in cap_info:
-                    missing.append(safe_format("msix.{field}", field=field))
+            for name in self.REQUIRED_MSIX_FIELDS:
+                if name not in cap_info:
+                    missing.append(safe_format("msix.{field}", field=name))
 
     def _check_behavior_profile(self, behavior_profile, missing):
         if behavior_profile:
@@ -1428,7 +1457,7 @@ class PCILeechContextBuilder:
     def _build_msix_context(
         self, msix_data: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """Build MSI-X context."""
+        """Build capture metadata; missing PBA placement is unsupported."""
         if not msix_data or not msix_data.get("capability_info"):
             disabled_ctx = {
                 "num_vectors": 0,
@@ -1447,10 +1476,23 @@ class PCILeechContextBuilder:
             return disabled_ctx
 
         cap = msix_data["capability_info"]
+        missing = [name for name in ("pba_offset", "pba_bir") if cap.get(name) is None]
+        if missing:
+            context = self._build_msix_context(None)
+            # Preserve unknown placement as unknown, never as an invented window.
+            context.update(
+                pba_offset=cap.get("pba_offset"),
+                pba_bir=cap.get("pba_bir"),
+                validation_errors=[
+                    *msix_data.get("validation_errors", []),
+                    "Missing captured MSI-X " + ", ".join(missing),
+                ],
+            )
+            return context
         table_size = cap["table_size"]
         table_offset = cap["table_offset"]
-        pba_offset = cap.get("pba_offset", table_offset + (table_size * 16))
-        pba_size_dwords = (table_size + 31) // 32
+        pba_offset = cap["pba_offset"]
+        pba_size_dwords = pba_size_bytes(table_size) // 4
 
         alignment_warning = ""
         if table_offset % 8 != 0:
@@ -1463,7 +1505,7 @@ class PCILeechContextBuilder:
             "num_vectors": table_size,
             "table_bir": cap["table_bir"],
             "table_offset": table_offset,
-            "pba_bir": cap.get("pba_bir", cap["table_bir"]),
+            "pba_bir": cap["pba_bir"],
             "pba_offset": pba_offset,
             "enabled": cap.get("enabled", False),
             "is_supported": table_size > 0,
@@ -1479,7 +1521,7 @@ class PCILeechContextBuilder:
                 "32'h{offset:08X}",
                 offset=table_offset,
             ),
-            "MSIX_PBA_BIR": cap.get("pba_bir", cap["table_bir"]),
+            "MSIX_PBA_BIR": cap["pba_bir"],
             "MSIX_PBA_OFFSET": safe_format(
                 "32'h{offset:08X}",
                 offset=pba_offset,
@@ -1497,114 +1539,6 @@ class PCILeechContextBuilder:
             context["alignment_warning"] = alignment_warning
 
         return context
-
-    def _sample_bar_data_direct(
-        self, device_bdf: str, bar_configs: list
-    ) -> Dict[int, bytes]:
-        """Sample BAR reset values directly via sysfs."""
-        try:
-            from pcileechfwgenerator.device_clone.sysfs_bar_reader import SysfsBarReader
-        except ImportError:
-            log_warning_safe(
-                self.logger,
-                "sysfs_bar_reader not available; skipping direct BAR sampling",
-                prefix="SYSFS_BAR",
-            )
-            return {}
-
-        sampled_bars: Dict[int, bytes] = {}
-
-        try:
-            reader = SysfsBarReader(device_bdf)
-
-            for bar_info in bar_configs:
-                if not bar_info.is_memory or bar_info.size == 0:
-                    continue
-
-                bar_idx = bar_info.index
-
-                try:
-                    sample_size = min(8192, bar_info.size)
-                    data = reader.read_bar_bytes(bar_idx, offset=0, length=sample_size)
-
-                    if data:
-                        sampled_bars[bar_idx] = data
-                        log_info_safe(
-                            self.logger,
-                            safe_format(
-                                "Sampled {size} bytes from BAR{idx} "
-                                "(total size: 0x{total:X})",
-                                size=len(data),
-                                idx=bar_idx,
-                                total=bar_info.size,
-                            ),
-                            prefix="SYSFS_BAR",
-                        )
-                    else:
-                        # Sysfs read failed (likely VFIO-bound) — try VFIO
-                        vfio_data = self._read_bar_via_vfio(bar_idx, sample_size)
-                        if vfio_data:
-                            sampled_bars[bar_idx] = vfio_data
-                        else:
-                            log_warning_safe(
-                                self.logger,
-                                safe_format(
-                                    "Failed to sample BAR{idx} via " "sysfs and VFIO",
-                                    idx=bar_idx,
-                                ),
-                                prefix="BAR",
-                            )
-
-                except PermissionError:
-                    log_warning_safe(
-                        self.logger,
-                        "BAR sampling requires root privileges; "
-                        "skipping direct sampling",
-                        prefix="SYSFS_BAR",
-                    )
-                    return {}
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Failed to sample BAR{idx}: {err}",
-                            idx=bar_idx,
-                            err=extract_root_cause(e),
-                        ),
-                        prefix="SYSFS_BAR",
-                    )
-                    continue
-
-            if sampled_bars:
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "Successfully sampled {count} BAR(s) from donor device",
-                        count=len(sampled_bars),
-                    ),
-                    prefix="SYSFS_BAR",
-                )
-
-        except FileNotFoundError:
-            log_debug_safe(
-                self.logger,
-                safe_format(
-                    "Device {bdf} not found in sysfs; skipping direct BAR sampling",
-                    bdf=device_bdf,
-                ),
-                prefix="SYSFS_BAR",
-            )
-        except Exception as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Direct BAR sampling failed: {err}",
-                    err=extract_root_cause(e),
-                ),
-                prefix="SYSFS_BAR",
-            )
-
-        return sampled_bars
 
     def _read_bar_via_vfio(self, bar_index: int, size: int) -> Optional[bytes]:
         """Read BAR data via VFIO as fallback when sysfs is unavailable."""
@@ -1642,144 +1576,61 @@ class PCILeechContextBuilder:
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
     ) -> Dict[int, Any]:
-        """Capture MMIO traces or load cached models."""
-        if not enable_mmio_learning:
+        """Consume capture artifacts only; Stage 2 never observes live hardware.
+
+        Legacy switches are accepted but cannot disable evidence consumption or
+        request recapture. Recollection belongs to Stage 1. A cache keyed only
+        by BDF is not capture-bound evidence and is deliberately not consulted.
+        """
+        from pcileechfwgenerator.device_clone.register_policy import (
+            compilation_report,
+            compile_manifest_bar_models,
+            servable_models,
+        )
+        from pcileechfwgenerator.host_collect.snapshot import normalize_bdf
+
+        self._bar_model_report = {}
+
+        snapshot = getattr(self, "offline_capture", None)
+        if snapshot is None:
+            snapshot = load_configured_snapshot(device_bdf)
+        if snapshot is None:
             return {}
-
-        import os
-
-        device_context_path = os.getenv("DEVICE_CONTEXT_PATH")
-        snapshot = load_configured_snapshot(device_bdf) if device_context_path else None
-        if snapshot is not None:
-            try:
-                from pcileechfwgenerator.device_clone.bar_model_loader import (
-                    deserialize_bar_model,
-                )
-
-                device_context = snapshot.context
-                bar_models_data = device_context.get("bar_models")
-                if bar_models_data:
-                    models = {}
-                    for bar_idx_str, model_data in bar_models_data.items():
-                        bar_idx = int(bar_idx_str)
-                        models[bar_idx] = deserialize_bar_model(model_data)
-
-                    log_info_safe(
-                        self.logger,
-                        safe_format(
-                            "Loaded {count} prefilled BAR models from {path}",
-                            count=len(models),
-                            path=device_context_path,
-                        ),
-                        prefix="MMIO",
-                    )
-                    return models
-            except Exception as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to load prefilled BAR models: {err}",
-                        err=str(e),
-                    ),
-                    prefix="MMIO",
-                )
-
-        from pcileechfwgenerator.device_clone.bar_model_loader import (
-            load_bar_model,
-            save_bar_model,
-        )
-        from pcileechfwgenerator.device_clone.bar_model_synthesizer import (
-            synthesize_model,
-        )
-        from pcileechfwgenerator.device_clone.mmio_tracer import MmioTracer
-
-        models = {}
-        cache_dir = Path(".pcileech_cache") / device_bdf.replace(":", "_")
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
-        for bar_info in bar_configs:
-            if not bar_info.is_memory or bar_info.size == 0:
-                continue  # Skip I/O BARs and empty BARs
-
-            bar_idx = bar_info.index
-            cache_file = cache_dir / f"bar{bar_idx}_model.json"
-
-            if cache_file.exists() and not force_recapture:
-                try:
-                    models[bar_idx] = load_bar_model(cache_file)
-                    log_info_safe(
-                        self.logger,
-                        safe_format("Loaded cached model for BAR{idx}", idx=bar_idx),
-                        prefix="MMIO",
-                    )
-                    continue
-                except Exception as e:
-                    log_warning_safe(
-                        self.logger,
-                        safe_format(
-                            "Cache invalid for BAR{idx}: {err}",
-                            idx=bar_idx,
-                            err=str(e),
-                        ),
-                        prefix="MMIO",
-                    )
-
-            log_info_safe(
-                self.logger,
-                safe_format("Capturing MMIO trace for BAR{idx}...", idx=bar_idx),
-                prefix="MMIO",
+        if snapshot.identity.bdf != normalize_bdf(device_bdf):
+            raise SnapshotError("BAR model capture belongs to another donor BDF")
+        if snapshot.learning is not None:
+            # Trust boundary: models are re-derived from raw evidence and the
+            # supported-recipe registry, never from stored claims or hints.
+            results = compile_manifest_bar_models(
+                snapshot.learning,
+                [(b.index, b.size) for b in bar_configs if b.is_memory and b.size > 0],
+                include_empty=True,
             )
-
-            try:
-                tracer = MmioTracer(device_bdf)
-                trace = tracer.capture_probe_trace(
-                    bar_index=bar_idx, duration_sec=5.0, trigger_rebind=False
-                )
-
-                if len(trace.accesses) == 0:
+            self._bar_model_report = compilation_report(results)
+            for index, entry in self._bar_model_report.items():
+                if entry["unsupported"]:
                     log_warning_safe(
-                        self.logger,
+                        getattr(self, "logger", None) or logging.getLogger(__name__),
                         safe_format(
-                            "No MMIO traffic captured for BAR{idx}", idx=bar_idx
+                            "BAR{idx}: {count} learned register behaviors are "
+                            "not emulated (see bar_model_report)",
+                            idx=index,
+                            count=len(entry["unsupported"]),
                         ),
-                        prefix="MMIO",
+                        prefix="BAR",
                     )
-                    continue
-
-                model = synthesize_model(trace)
-                models[bar_idx] = model
-
-                save_bar_model(model, cache_file)
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "Learned BAR{idx} model: {nregs} registers, cached to {path}",
-                        idx=bar_idx,
-                        nregs=len(model.registers),
-                        path=cache_file,
-                    ),
-                    prefix="MMIO",
-                )
-
-            except PermissionError:
-                log_warning_safe(
-                    self.logger,
-                    "Skipping MMIO trace (requires root); using synthetic content",
-                    prefix="MMIO",
-                )
-                break  # Don't try other BARs if no perms
-            except Exception as e:
-                log_error_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to capture BAR{idx}: {err}",
-                        idx=bar_idx,
-                        err=extract_root_cause(e),
-                    ),
-                    prefix="MMIO",
-                )
-
-        return models
+            return servable_models(results)
+        # Without a validated learning manifest there is no evidence. Serialized
+        # models (old synthesizer output, or hints claiming provenance) are
+        # inspectable artifacts only and are never served.
+        if snapshot.context.get("bar_models"):
+            log_warning_safe(
+                getattr(self, "logger", None) or logging.getLogger(__name__),
+                "Ignoring serialized BAR models: capture has no learning "
+                "manifest; recollect the donor to learn BAR registers",
+                prefix="BAR",
+            )
+        return {}
 
     def _build_bar_config(
         self,
@@ -1787,12 +1638,14 @@ class PCILeechContextBuilder:
         behavior_profile: Optional[BehaviorProfile],
         enable_mmio_learning: bool = True,
         force_recapture: bool = False,
+        msix_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Build BAR configuration with optional MMIO learning."""
-        if not getattr(self, "offline_capture", None):
-            self._check_and_fix_power_state()
-        else:
-            enable_mmio_learning = False
+        """Build BAR configuration from capture artifacts only.
+
+        Stage 2 performs no BAR MMIO: live sampling bypassed the
+        register evidence contract and could hit read-side-effect registers.
+        BAR register behavior comes only from the learning manifest.
+        """
         bars = config_space_data["bars"]
         bar_configs = self._analyze_bars(bars)
         primary_bar = self._select_primary_bar(bar_configs)
@@ -1806,99 +1659,46 @@ class PCILeechContextBuilder:
             prefix="BAR",
         )
         config = self._build_bar_config_dict(primary_bar, bar_configs)
-
-        device_signature = config_space_data.get("device_signature")
-        if not device_signature:
-            device_signature = safe_format(
-                "{vendor}:{device}",
-                vendor=config_space_data.get("vendor_id", ""),
-                device=config_space_data.get("device_id", ""),
-            )
-
         device_bdf = config_space_data.get("device_bdf", self.device_bdf)
-        bar_samples = (
-            {}
-            if getattr(self, "offline_capture", None)
-            else self._sample_bar_data_direct(device_bdf, bar_configs)
+
+        # Artifact consumption is mandatory even when legacy learning flags are
+        # false (including offline builds). Invalid evidence must fail explicitly.
+        bar_models = self._capture_or_load_bar_models(
+            device_bdf=device_bdf,
+            bar_configs=bar_configs,
+            enable_mmio_learning=enable_mmio_learning,
+            force_recapture=force_recapture,
         )
 
-        bar_models = {}
-        if enable_mmio_learning:
-            try:
-                bar_models = self._capture_or_load_bar_models(
-                    device_bdf=config_space_data.get("device_bdf", self.device_bdf),
-                    bar_configs=bar_configs,
-                    enable_mmio_learning=enable_mmio_learning,
-                    force_recapture=force_recapture,
-                )
-            except SnapshotError:
-                # A rejected donor capture is never an optional learning failure.
-                raise
-            except Exception as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format("MMIO learning failed: {err}", err=str(e)),
-                    prefix="MMIO",
-                )
-
-        from pcileechfwgenerator.device_clone.bar_content_generator import (
-            BarContentType,
+        from pcileechfwgenerator.device_clone.msix_subsystem import (
+            msix_capability_from_capture,
         )
 
-        bar_sizes = {b.index: b.size for b in bar_configs if b.size > 0}
-        bar_content_gen = BarContentGenerator(device_signature=device_signature)
+        capability = msix_capability_from_capture(
+            {"config_space_data": config_space_data, "msix_data": msix_data}, {}
+        )
+        config["served_bars"] = [
+            bar.model_dump()
+            for bar in select_served_bars(
+                primary_bar,
+                bar_configs,
+                capability.table_bir if capability else None,
+                capability.pba_bir if capability else None,
+            )
+        ]
 
-        bar_contents = {}
-        for bar_idx, size in bar_sizes.items():
-            model = bar_models.get(bar_idx)
-            sampled_data = bar_samples.get(bar_idx)
-
-            if model:
-                content = bar_content_gen.generate_bar_content(
-                    size, bar_idx, BarContentType.LEARNED, model=model
-                )
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "BAR{idx}: Used LEARNED model with {nregs} registers",
-                        idx=bar_idx,
-                        nregs=len(model.registers),
-                    ),
-                    prefix="BAR",
-                )
-            elif sampled_data:
-                if len(sampled_data) < size:
-                    padding = bar_content_gen._get_seeded_bytes(
-                        size - len(sampled_data), f"pad_bar{bar_idx}"
-                    )
-                    content = sampled_data + padding
-                else:
-                    content = sampled_data[:size]
-
-                log_info_safe(
-                    self.logger,
-                    safe_format(
-                        "BAR{idx}: Used SAMPLED data ({sampled}B of {total}B)",
-                        idx=bar_idx,
-                        sampled=len(sampled_data),
-                        total=size,
-                    ),
-                    prefix="BAR",
-                )
-            else:
-                if size <= 4096:
-                    content_type = BarContentType.REGISTERS
-                else:
-                    content_type = BarContentType.MIXED
-                content = bar_content_gen.generate_bar_content(
-                    size, bar_idx, content_type
-                )
-
-            bar_contents[bar_idx] = content
-
-        config["bar_contents"] = bar_contents
-        if bar_samples:
-            config["bar_samples"] = bar_samples
+        # No dense BAR content is generated: nothing consumed it, and it scaled
+        # with BAR size. Served behavior is the learned model or the fallback.
+        for bar_idx, model in bar_models.items():
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "BAR{idx}: learned model with {nregs} registers",
+                    idx=bar_idx,
+                    nregs=len(model.registers),
+                ),
+                prefix="BAR",
+            )
 
         if bar_models:
             from pcileechfwgenerator.device_clone.bar_model_loader import (
@@ -1931,11 +1731,92 @@ class PCILeechContextBuilder:
                     prefix="BAR",
                 )
 
+        config["bar_model_report"] = getattr(self, "_bar_model_report", {})
+        config["bar_fallback"] = (
+            "generic_ram"
+            if getattr(getattr(self, "config", None), "writable_bar_fallback", False)
+            else "readonly_zero"
+        )
+        self._record_served_bar_fidelity(config)
+
         if behavior_profile:
             config.update(
                 self._adjust_bar_config_for_behavior(config, behavior_profile)
             )
         return config
+
+    def _record_served_bar_fidelity(self, config: Dict[str, Any]) -> None:
+        """Make the generic-BAR fallback an explicit, logged build property.
+
+        Without a learned model for the served BAR the controller instantiates
+        the board's generic implementation: byte-writable RAM decoded on
+        addr[11:2], so it aliases every 4 KiB of a larger aperture. That is
+        not the donor's register behavior and must never pass silently.
+        """
+        from pcileechfwgenerator.device_clone.register_policy import (
+            served_bar_fidelity,
+        )
+
+        served = config.get("served_bar_index", 0)
+        fidelity = served_bar_fidelity(config)
+        config["served_bar_fidelity"] = fidelity
+        from pcileechfwgenerator.device_clone.served_bar import served_bars_from_config
+
+        descriptors = served_bars_from_config(config)
+        config["served_bar_fidelities"] = {
+            str(bar.index): served_bar_fidelity(
+                {**config, "served_bar_index": bar.index}
+            )
+            for bar in descriptors or ()
+        }
+        logger = getattr(self, "logger", None) or logging.getLogger(__name__)
+        for bar in descriptors or ():
+            if bar.index != served and config["served_bar_fidelities"][
+                str(bar.index)
+            ] in ("readonly_zero", "generic_ram"):
+                log_warning_safe(
+                    logger,
+                    safe_format(
+                        "BAR{idx}: no learned register model; serving {mode} outside "
+                        "MSI-X windows. Donor register behavior there is unverified.",
+                        idx=bar.index,
+                        mode=config["served_bar_fidelities"][str(bar.index)],
+                    ),
+                    prefix="BAR",
+                )
+        if fidelity == "readonly_zero":
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "BAR{idx}: no learned register model; serving a read-only "
+                    "BAR (reads return zero, writes are ignored). Register "
+                    "behavior will not match the donor.",
+                    idx=served,
+                ),
+                prefix="BAR",
+            )
+            return
+        if fidelity != "generic_ram":
+            return
+        aperture = int(config.get("aperture_size") or 0)
+        log_warning_safe(
+            logger,
+            safe_format(
+                "BAR{idx}: no learned register model; --writable-bar-fallback "
+                "serves generic writable RAM{alias}. Register behavior will not "
+                "match the donor.",
+                idx=served,
+                alias=(
+                    safe_format(
+                        " that repeats every 4 KiB across the {size} byte aperture",
+                        size=aperture,
+                    )
+                    if aperture > 4096
+                    else ""
+                ),
+            ),
+            prefix="BAR",
+        )
 
     def _analyze_bars(self, bars):
         """Analyze BARs with detailed progress output."""
@@ -2223,35 +2104,6 @@ class PCILeechContextBuilder:
             )
 
         return None
-
-    def _check_and_fix_power_state(self):
-        """Check and fix device power state."""
-        try:
-            power_state_path = safe_format(
-                "/sys/bus/pci/devices/{device_bdf}/power_state",
-                device_bdf=self.device_bdf,
-            )
-            if Path(power_state_path).exists():
-                with open(power_state_path, "r") as f:
-                    state = f.read().strip()
-                    if state != POWER_STATE_D0:  # Power state D0 (fully on)
-                        log_info_safe(
-                            self.logger,
-                            safe_format("Waking device from {state}", state=state),
-                            prefix="PWR",
-                        )
-                        config_path = safe_format(
-                            "/sys/bus/pci/devices/{device_bdf}/config",
-                            device_bdf=self.device_bdf,
-                        )
-                        with open(config_path, "rb") as f:
-                            f.read(4)  # config read wakes the device
-        except Exception as e:
-            log_warning_safe(
-                self.logger,
-                safe_format("Power state check failed: {error}", error=e),
-                prefix="PWR",
-            )
 
     def _adjust_bar_config_for_behavior(
         self, config: Dict[str, Any], profile: BehaviorProfile
@@ -2682,8 +2534,21 @@ class PCILeechContextBuilder:
     def _merge_donor_template(
         self, context: Dict[str, Any], donor: Dict[str, Any]
     ) -> TemplateContext:
-        """Merge donor template with context."""
+        """Merge donor template with context.
+
+        A donor template is not evidence: BAR models and their fidelity report
+        come only from the capture's learning manifest, so the template's
+        copies are dropped before merging (they would otherwise fill gaps the
+        live context leaves when nothing was learned).
+        """
         merged = dict(donor)
+        merged.pop("bar_models", None)
+        if isinstance(merged.get("bar_config"), dict):
+            merged["bar_config"] = {
+                k: v
+                for k, v in merged["bar_config"].items()
+                if k not in _EVIDENCE_ONLY_BAR_KEYS
+            }
         for key, value in context.items():
             if key in merged and merged[key] is not None and merged[key] != {}:
                 if merged[key] != value:
@@ -2764,7 +2629,12 @@ class PCILeechContextBuilder:
             try:
                 from pcileechfwgenerator.file_management.repo_manager import RepoManager
 
-                board_xdc_content = RepoManager.read_combined_xdc(board_name)
+                legacy_ft601 = bool(
+                    getattr(getattr(self, "config", None), "ft601_legacy_phy", False)
+                )
+                board_xdc_content = RepoManager.read_combined_xdc(
+                    board_name, ft601_phy_mmcm=not legacy_ft601
+                )
                 board_config["board_xdc_content"] = board_xdc_content
 
                 log_info_safe(

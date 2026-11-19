@@ -88,7 +88,7 @@ def explicit_config_dir():
         return
 
     prev = getattr(dc, "_config_manager", None)
-    
+
     # Explicitly disable on-disk configs to enforce security principles
     dc._config_manager = None
 
@@ -133,15 +133,10 @@ def valid_board():
 @pytest.fixture
 def mock_subprocess():
     """Mock subprocess module for testing."""
-    import subprocess
     from unittest.mock import patch
-    
+
     with patch("subprocess.run", autospec=True) as mock_run:
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="",
-            stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         yield mock_run
 
 
@@ -149,7 +144,7 @@ def mock_subprocess():
 def mock_open_file():
     """Mock open() for file operations."""
     from unittest.mock import mock_open, patch
-    
+
     m = mock_open()
     with patch("builtins.open", m):
         yield m
@@ -179,7 +174,7 @@ def sample_device_info():
 def mock_path_exists():
     """Mock Path.exists for testing."""
     from unittest.mock import patch
-    
+
     with patch("pathlib.Path.exists") as mock_exists:
         mock_exists.return_value = True
         yield mock_exists
@@ -198,12 +193,41 @@ def mock_file_manager():
 
 
 @pytest.fixture(autouse=True)
+def _isolated_learning_journals(monkeypatch, tmp_path_factory):
+    """Never let tests write to the host-wide register-learning journal."""
+    monkeypatch.setenv(
+        "PCILEECH_LEARNING_JOURNAL_DIR", str(tmp_path_factory.mktemp("journals"))
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_live_mmiotrace(monkeypatch, tmp_path_factory):
+    """Never let tests drive the host's tracer or rebind a real driver."""
+    from pcileechfwgenerator.host_collect import mmiotrace
+
+    def unavailable(*args, **kwargs):
+        raise mmiotrace.ObserverUnavailable("disabled in tests")
+
+    # Tests that exercise capture pass an explicit fake tracefs directory and
+    # their own rebind; host interfaces point at paths that do not exist.
+    monkeypatch.setattr(mmiotrace, "find_tracefs", unavailable)
+    from pcileechfwgenerator.device_clone.mmio_tracer import MmioTracer
+
+    monkeypatch.setattr(MmioTracer, "rebinder", classmethod(unavailable))
+    missing = Path("/nonexistent-pcileech-test-host")
+    for name in ("CPU_ONLINE", "CPU_DIR", "LOCKDOWN", "KMSG"):
+        monkeypatch.setattr(mmiotrace, name, missing / name)
+    monkeypatch.setattr(mmiotrace, "BOOT_ID", missing / "boot_id")
+    monkeypatch.setattr(
+        mmiotrace, "HOST_LOCK", tmp_path_factory.mktemp("lock") / "capture.lock"
+    )
+
+
+@pytest.fixture(autouse=True)
 def _pinned_host_fingerprint(monkeypatch):
     """Make this test host look like the host that collected fixture captures."""
     from pcileechfwgenerator.host_collect import host_binding
 
     from tests.snapshot_helpers import TEST_HOST_FINGERPRINT
 
-    monkeypatch.setattr(
-        host_binding, "host_fingerprint", lambda: TEST_HOST_FINGERPRINT
-    )
+    monkeypatch.setattr(host_binding, "host_fingerprint", lambda: TEST_HOST_FINGERPRINT)

@@ -1,59 +1,55 @@
-# Known issue: extended configuration space is always zero
+# Extended configuration space cloning
 
-**Status:** open, affects every build (live, container and offline) on every
-board. Tracked in the issue linked from the pull request that added this page.
+The generated `pcileech_cfgspace.coe` initializes the config-space shadow BRAM
+(`bram_pcie_cfgspace`). Offsets `0x100`-`0xFFF` carry the donor's PCIe extended
+capabilities (AER, LTR, L1 PM Substates, ACS, ARI and so on), relocated behind
+the core's own Device Serial Number capability.
 
-## Symptom
+## Layout
 
-The generated `pcileech_cfgspace.coe`, which initialises the config-space shadow
-BRAM (`bram_pcie_cfgspace`), contains zeros for offsets `0x100`–`0xFFF`. The
-donor's PCIe extended capabilities (AER, LTR, L1 PM Substates, ACS, ARI, DSN,
-SR-IOV and so on) are never cloned, even when the capture contains them.
+All 14 board XCIs enable the core's DSN capability at `0x100` and set
+`EXT_PCI_CFG_Space_Addr = 0x043`. User extended space, and the shadow's
+responses, therefore start at `0x10C`. A donor chain copied verbatim to `0x100`
+would sit behind the hard DSN and be unreachable or misparsed.
 
-## Cause
+`build_relocated_extended_config` in `src/device_clone/extended_config.py`
+rebuilds the chain:
 
-Since the context consolidation in #281, `src/templating/sv_context_builder.py`
-replaces `context["config_space"]` with a six-field summary (vendor, device,
-class, revision, command, status). The template
-`src/templates/sv/pcileech_cfgspace.coe.j2` (lines ~333–368) emits donor
-extended space only when `config_space.raw_data` holds at least 4096 bytes, so
-it always falls through to its "no extended config space data" branch.
+- It writes a DSN header at `0x100` whose next pointer is `0x10C`.
+- It drops the donor's own DSN, because the core provides one.
+- It copies the remaining donor capabilities contiguously from `0x10C`, each
+  DWORD-aligned, and rewrites every next pointer. The last one gets 0.
+- It drops any capability that no longer fits in 4 KB instead of truncating it.
+- It clears the Next Function Number in an ARI capability, because the clone
+  is single-function.
+- It returns images of 256 bytes or fewer unchanged.
 
-`config_space_init.hex` does carry the full bytes, but no board build reads it:
-every board's Vivado flow initialises the shadow from the COE.
+`src/device_clone/pcileech_context.py` applies it when the captured config
+space is the full 4096 bytes. `src/templates/sv/pcileech_cfgspace.coe.j2` emits the relocated bytes
+from `config_space.raw_data` when at least 4096 bytes are present. Otherwise it
+writes a null header at `0x100` and zeros after it.
 
-## Impact
+## Omitted capabilities
 
-- **Enumeration is safe.** A zero header at `0x100` is a valid "no extended
-  capabilities" terminator.
-- **Fidelity is lost.** Drivers see no AER, LTR or ASPM L1SS, silently disable
-  those features and report fewer errors. The clone is easy to tell apart from
-  the donor by its empty extended space.
-- **Placement matters.** All 14 board XCIs enable the core's own DSN capability
-  at `0x100` and set `EXT_PCI_CFG_Space_Addr = 0x043`, so user extended space,
-  and the shadow's responses, start at `0x10C`. Bytes the COE places at
-  `0x100`–`0x10B` are shadowed by the hard DSN.
+The generated core cannot honor these, so the clone omits them instead of
+advertising behavior the FPGA lacks:
 
-## Fixing it
+| ID | Capability |
+| --- | --- |
+| `0x0008`, `0x0009` | Multi-Function VC (a single-function clone must not advertise multi-function topology) |
+| `0x0010` | SR-IOV |
+| `0x000F` | ATS |
+| `0x0013` | PRI |
+| `0x001B` | PASID |
+| `0x0015` | Resizable BAR |
+| `0x001D` | DPC |
 
-The fix is not a one-liner. Passing `raw_data` through would copy the donor
-chain verbatim to `0x100`, behind the core's DSN, leaving it unreachable or
-misparsed. A correct fix needs to:
+## Limits
 
-1. Keep the donor bytes in the template context (`raw_data`) instead of the
-   six-field summary.
-2. Relocate the donor's extended capability chain to start at `0x10C`, rewrite
-   every `next` pointer, and link the core DSN's `next` to it (or drop the donor
-   DSN, which the core already provides).
-3. Decide per capability whether a static clone is safe. Capabilities that
-   imply behaviour the FPGA does not implement (SR-IOV, ATS, PRI, PASID, Resizable
-   BAR, DPC) should be omitted or neutralised rather than advertised.
-4. Extend the writemask so cloned registers are read-only except where the spec
-   requires RW/RW1C bits (for example AER status) that the shadow can honour.
-5. Add rendering tests (COE bytes at `0x10C+` match the relocated chain, chain
-   walk terminates, no overlap with the core DSN) and a hardware check
-   (`lspci -vvv` shows the cloned capabilities; the device still enumerates and
-   its driver binds).
-
-Because this changes the firmware of every live build, it should land in its own
-pull request with hardware validation on at least one 7-series board.
+- A zero header at `0x100` is a valid "no extended capabilities" terminator, so
+  enumeration is safe even when a capture lacks extended space. The clone then
+  looks different from the donor, and drivers disable AER, LTR and ASPM L1SS.
+- Cloned registers are static. Only bits the writemask marks writable respond
+  to host writes.
+- Tests: `tests/test_extended_config.py`,
+  `tests/test_extended_config_coe.py` and `tests/test_ext_cfg_pointers.py`.

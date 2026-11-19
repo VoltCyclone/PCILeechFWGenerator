@@ -1,193 +1,59 @@
+"""Explicit writable masks for logical little-endian PCI DWORD values.
+
+Polarity: 1 = writable, 0 = read-only. Word order matches cfgspace COE.
+Reserved and unsupported bits are never granted writes by default.
 """
-Writemask and PCIe capability constants used by the writemask generator.
 
-This module centralizes all static tables and bitmask definitions so logic
-modules remain focused and DRY.
-"""
-
-# Write-protected bits for standard PCI configuration space
-WRITE_PROTECTED_BITS_PCIE = ( #pragma: no cover
-    "00000000",  # 0x00-0x03: Vendor ID, Device ID (read-only)
-    "00000000",  # 0x04-0x07: Command, Status
-    "ffff0000",  # 0x08-0x0B: Revision ID, Class Code (read-only upper)
-    "00000000",  # 0x0C-0x0F: Cache Line, Latency, Header, BIST
-    "ffff0000",  # 0x10-0x13: BAR0 (size bits read-only)
-    "00000000",  # 0x14-0x17: BAR1
-    "00000000",  # 0x18-0x1B: BAR2
-    "00000000",  # 0x1C-0x1F: BAR3
-    "00000000",  # 0x20-0x23: BAR4
-    "00000000",  # 0x24-0x27: BAR5
-    "ffff0000",  # 0x28-0x2B: Cardbus CIS (read-only upper)
-    "00000000",  # 0x2C-0x2F: Subsystem ID
-    "00000000",  # 0x30-0x33: Expansion ROM
+# Type-0 header; BAR and ROM grants are derived from the final image separately.
+HEADER_RW_MASK = (
+    0x00000000,  # Vendor / Device ID
+    0x00000546,  # Command; IO Space is added only for a served IO BAR
+    0x00000000,  # Revision / Class
+    0x000000FF,  # Cache Line Size only
+    0x00000000,  # BAR0
+    0x00000000,  # BAR1
+    0x00000000,  # BAR2
+    0x00000000,  # BAR3
+    0x00000000,  # BAR4
+    0x00000000,  # BAR5
+    0x00000000,  # Cardbus CIS
+    0x00000000,  # Subsystem IDs
+    0x00000000,  # Expansion ROM
+    0x00000000,  # Capability pointer
+    0x00000000,  # Reserved
+    0x000000FF,  # Interrupt Line only
 )
 
-# Write-protected bits for Power Management capability
-WRITE_PROTECTED_BITS_PM = ( #pragma: no cover
-    "00000000",  # PM Cap ID, Next Ptr, PM Capabilities
-    "031F0000",  # PMCSR, PMCSR_BSE
-)
+PM_RW_MASK = (0x00000000, 0x00000103)  # PowerState and PME_En; PME_Status RO
+MSI_CONTROL_RW_MASK = 0x00710000  # Enable and Multiple Message Enable
+MSI_ADDRESS_LOW_RW_MASK = 0xFFFFFFFC
+MSI_ADDRESS_HIGH_RW_MASK = 0xFFFFFFFF
+MSI_DATA_RW_MASK = 0x0000FFFF
+MSIX_RW_MASK = (0xC0000000, 0x00000000, 0x00000000)  # Enable / Function Mask
 
-# Write-protected bits for MSI capability variations
-WRITE_PROTECTED_BITS_MSI_ENABLED_0 = ("00007104",)  # MSI Control (enable bit writable)
-
-WRITE_PROTECTED_BITS_MSI_64_BIT_1 = ( #pragma: no cover
-    "00007104",  # MSI Control
-    "03000000",  # Message Address Low
-    "00000000",  # Message Address High
-    "ffff0000",  # Message Data
+PCIE_RW_MASK = (
+    0x00000000,  # Capability header
+    0x00000000,  # Device Capabilities
+    0x00007FFF,  # Device Control; FLR and Device Status RO
+    0x00000000,  # Link Capabilities
+    0x000000CB,  # ASPM, RCB, Common Clock, Extended Synch; Link Status RO
+    0x00000000,  # Slot Capabilities
+    0x00000000,  # Slot Control / Status
+    0x00000000,  # Root Control / Capabilities
+    0x00000000,  # Root Status
+    0x00000000,  # Device Capabilities 2
+    0x00000000,  # Device Control 2: image-derived grants below
+    0x00000000,  # Link Capabilities 2
+    0x00000000,  # Link Control / Status 2
+    0x00000000,  # Slot Capabilities 2
+    0x00000000,  # Slot Control / Status 2
 )
-
-WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1 = ( #pragma: no cover
-    "00007104",  # MSI Control
-    "03000000",  # Message Address Low
-    "00000000",  # Message Data
-)
-
-WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1 = ( #pragma: no cover
-    "00007104",  # MSI Control
-    "03000000",  # Message Address Low
-    "00000000",  # Message Data
-    "ffff0000",  # Reserved
-    "00000000",  # Reserved
-    "01000000",  # Reserved
-)
-
-# Write-protected bits for MSI-X capability variations
-WRITE_PROTECTED_BITS_MSIX_3 = ( #pragma: no cover
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-)
-
-WRITE_PROTECTED_BITS_MSIX_4 = ( #pragma: no cover
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-    "00000000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_MSIX_5 = ( #pragma: no cover
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_MSIX_6 = ( #pragma: no cover
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_MSIX_7 = ( #pragma: no cover
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_MSIX_8 = ( #pragma: no cover
-    "000000c0",  # MSI-X Control
-    "00000000",  # Table Offset/BIR
-    "00000000",  # PBA Offset/BIR
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-    "00000000",  # Reserved
-)
-
-# Write-protected bits for other capabilities
-WRITE_PROTECTED_BITS_VPD = ( #pragma: no cover
-    "0000ffff",  # VPD Address
-    "ffffffff",  # VPD Data
-)
-
-WRITE_PROTECTED_BITS_VSC = ( #pragma: no cover
-    "000000ff",  # Vendor Specific Cap ID
-    "ffffffff",  # Vendor Specific Data
-)
-
-WRITE_PROTECTED_BITS_TPH = ( #pragma: no cover
-    "00000000",  # TPH Requester Cap
-    "00000000",  # TPH Requester Control
-    "070c0000",  # ST Table
-)
-
-WRITE_PROTECTED_BITS_VSEC = ( #pragma: no cover
-    "00000000",  # VSEC Cap
-    "00000000",  # VSEC Header
-    "ffffffff",  # Vendor Specific
-    "ffffffff",  # Vendor Specific
-)
-
-# Root Complex Register Block (ext cap 0x000A): fully protected.
-WRITE_PROTECTED_BITS_RCRB = ( #pragma: no cover
-    "ffffffff",  # RCRB Header
-    "ffffffff",  # RCRB Vendor ID / Device ID
-    "ffffffff",  # RCRB Capabilities
-    "ffffffff",  # RCRB Control
-)
-
-WRITE_PROTECTED_BITS_AER = ( #pragma: no cover
-    "00000000",  # AER Cap
-    "00000000",  # Uncorrectable Error Status
-    "30F0FF07",  # Uncorrectable Error Mask
-    "30F0FF07",  # Uncorrectable Error Severity
-    "00000000",  # Correctable Error Status
-    "C1F10000",  # Correctable Error Mask
-    "40050000",  # AER Capabilities and Control
-    "00000000",  # Header Log 1
-    "00000000",  # Header Log 2
-    "00000000",  # Header Log 3
-    "00000000",  # Header Log 4
-)
-
-WRITE_PROTECTED_BITS_DSN = ( #pragma: no cover
-    "00000000",  # DSN Cap
-    "00000000",  # Serial Number Low
-    "00000000",  # Serial Number High
-)
-
-WRITE_PROTECTED_BITS_LTR = ( #pragma: no cover
-    "00000000",  # LTR Cap
-    "00000000",  # Max Snoop/No-Snoop Latency
-)
-
-WRITE_PROTECTED_BITS_L1PM = ( #pragma: no cover
-    "00000000",  # L1 PM Substates Cap
-    "00000000",  # L1 PM Substates Control 1
-    "3f00ffe3",  # L1 PM Substates Control 2
-    "fb000000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_PTM = ( #pragma: no cover
-    "00000000",  # PTM Cap
-    "00000000",  # PTM Control
-    "00000000",  # PTM Effective Granularity
-    "03ff0000",  # Reserved
-)
-
-WRITE_PROTECTED_BITS_VC = ( #pragma: no cover
-    "00000000",  # VC Cap
-    "00000000",  # Port VC Cap 1
-    "00000000",  # Port VC Cap 2
-    "0F000000",  # Port VC Control
-    "00000000",  # Port VC Status
-    "FF000F87",  # VC Resource Cap
-    "00000000",  # VC Resource Control
-)
+PCIE_DEVCTL2_TIMEOUT_RW_MASK = 0x0000000F
+PCIE_DEVCTL2_TIMEOUT_DISABLE_RW_MASK = 0x00000010
+PCIE_DEVCTL2_LTR_RW_MASK = 0x00000400
 
 # Capability ID mappings
-CAPABILITY_NAMES = { #pragma: no cover
+CAPABILITY_NAMES = {  # pragma: no cover
     0x01: "power management",
     0x02: "AGP",
     0x03: "VPD",
@@ -211,7 +77,7 @@ CAPABILITY_NAMES = { #pragma: no cover
     0x15: "flattening portal bridge",
 }
 
-EXTENDED_CAPABILITY_NAMES = { #pragma: no cover
+EXTENDED_CAPABILITY_NAMES = {  # pragma: no cover
     0x0001: "advanced error reporting",
     0x0002: "virtual channel",
     0x0003: "device serial number",
@@ -256,41 +122,4 @@ EXTENDED_CAPABILITY_NAMES = { #pragma: no cover
     0x002A: "physical layer 32.0 GT/s",
     0x002B: "alternate protocol",
     0x002C: "system firmware intermediary",
-}
-
-# Fixed configuration space protection section
-FIXED_SECTION = ( #pragma: no cover
-    "00000000",  # 0x00: Vendor/Device ID (read-only)
-    "470500f9",  # 0x04: Command/Status (partially writable)
-    "00000000",  # 0x08: Rev/Class (read-only)
-    "ffff0040",  # 0x0C: Cache/Latency/Header/BIST
-    "f0ffffff",  # 0x10: BAR0 (size bits protected)
-    "ffffffff",  # 0x14: BAR1
-    "f0ffffff",  # 0x18: BAR2
-    "ffffffff",  # 0x1C: BAR3
-    "f0ffffff",  # 0x20: BAR4
-    "f0ffffff",  # 0x24: BAR5
-    "00000000",  # 0x28: Cardbus CIS
-    "00000000",  # 0x2C: Subsystem ID
-    "01f8ffff",  # 0x30: Expansion ROM
-    "00000000",  # 0x34: Cap Pointer
-    "00000000",  # 0x38: Reserved
-    "ff000000",  # 0x3C: Int Line/Pin/Min/Max
-)
-
-# Writemask dictionary mapping capability IDs to their write-protected bits
-WRITEMASK_DICT = { #pragma: no cover
-    "0x10": WRITE_PROTECTED_BITS_PCIE,
-    "0x03": WRITE_PROTECTED_BITS_VPD,
-    "0x01": WRITE_PROTECTED_BITS_PM,
-    "0x09": WRITE_PROTECTED_BITS_VSC,
-    "0x000A": WRITE_PROTECTED_BITS_RCRB,
-    "0x000B": WRITE_PROTECTED_BITS_VSEC,
-    "0x0001": WRITE_PROTECTED_BITS_AER,
-    "0x0002": WRITE_PROTECTED_BITS_VC,
-    "0x0003": WRITE_PROTECTED_BITS_DSN,
-    "0x0018": WRITE_PROTECTED_BITS_LTR,
-    "0x001E": WRITE_PROTECTED_BITS_L1PM,
-    "0x001F": WRITE_PROTECTED_BITS_PTM,
-    "0x0017": WRITE_PROTECTED_BITS_TPH,
 }

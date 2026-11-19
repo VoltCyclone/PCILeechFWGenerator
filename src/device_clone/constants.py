@@ -193,16 +193,6 @@ VIVADO_PROJECT_NAME = "pcileech_firmware"
 VIVADO_PROJECT_DIR = "./vivado_project"
 VIVADO_OUTPUT_DIR = "."
 
-# PCILeech TCL script file names (2-script approach - current)
-PCILEECH_TCL_SCRIPT_FILES = [
-    "vivado_generate_project.tcl",
-    "vivado_build.tcl",
-]
-
-# PCILeech build scripts
-PCILEECH_PROJECT_SCRIPT = "vivado_generate_project.tcl"
-PCILEECH_BUILD_SCRIPT = "vivado_build.tcl"
-
 # Synthesis and implementation strategies
 SYNTHESIS_STRATEGY = "Vivado Synthesis Defaults"
 IMPLEMENTATION_STRATEGY = "Performance_Explore"
@@ -254,14 +244,6 @@ PCILEECH_CONTROL_BITS = {
     "ALLTLP_FILTER": 207,  # rw[207] - All TLP filter (moved from 206)
     "BAR_EN_START": 208,  # rw[223:208] - BAR enable bits
     "BAR_EN_END": 223,
-}
-
-# CFGTLP Configuration
-CFGTLP_CONFIG = {
-    "ZERO_DATA_ENABLED": 0,  # Value for rw[203] when custom config space enabled
-    "ZERO_DATA_DISABLED": 1,  # Value for rw[203] when standard config space
-    "PCIE_WRITE_ENABLED": 1,  # Value for rw[206] to enable PCIe writes
-    "PCIE_WRITE_DISABLED": 0,  # Value for rw[206] to disable PCIe writes
 }
 
 # BAR Size Constants according to PCIe specification
@@ -336,37 +318,8 @@ MPS_ENCODING_TO_VALUE = {v: k for k, v in MPS_VALUE_TO_ENCODING.items()}
 # Valid MPS values
 VALID_MPS_VALUES = list(MPS_VALUE_TO_ENCODING.keys())
 
-# Import writemask constants to avoid duplication
-from .writemask_constants import (  # noqa: F401
-    FIXED_SECTION,
-    WRITE_PROTECTED_BITS_AER,
-    WRITE_PROTECTED_BITS_DSN,
-    WRITE_PROTECTED_BITS_L1PM,
-    WRITE_PROTECTED_BITS_LTR,
-    WRITE_PROTECTED_BITS_MSI_64_BIT_1,
-    WRITE_PROTECTED_BITS_MSI_ENABLED_0,
-    WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1,
-    WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1,
-    WRITE_PROTECTED_BITS_MSIX_3,
-    WRITE_PROTECTED_BITS_MSIX_4,
-    WRITE_PROTECTED_BITS_MSIX_5,
-    WRITE_PROTECTED_BITS_MSIX_6,
-    WRITE_PROTECTED_BITS_MSIX_7,
-    WRITE_PROTECTED_BITS_MSIX_8,
-    WRITE_PROTECTED_BITS_PCIE,
-    WRITE_PROTECTED_BITS_PM,
-    WRITE_PROTECTED_BITS_PTM,
-    WRITE_PROTECTED_BITS_TPH,
-    WRITE_PROTECTED_BITS_VC,
-    WRITE_PROTECTED_BITS_VPD,
-    WRITE_PROTECTED_BITS_VSC,
-    WRITE_PROTECTED_BITS_VSEC,
-    WRITEMASK_DICT,
-)
-
 # TCL Script Files
 TCL_SCRIPT_FILES = {
-    "BUILD_TCL": "vivado_generate_project.tcl",
     "PCIe_BASE_TCL": "pcie_7x_0.tcl",
     "PCIe_GEN3_TCL": "pcie3_7x_0.tcl",
     "BOARD_CONSTRAINTS": "board_constraints.xdc",

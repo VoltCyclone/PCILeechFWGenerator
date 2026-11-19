@@ -22,9 +22,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
 )
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from concurrent.futures import (
-    as_completed,
-)
+from concurrent.futures import as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -124,6 +122,123 @@ def _optional_int(value: Optional[Union[int, str]]) -> Optional[int]:
         return None
 
 
+def _rederive_bar_models(
+    template_context: Dict[str, Any],
+    snapshot: Any,
+    *,
+    writable_bar_fallback: bool = False,
+) -> Dict[str, Any]:
+    """Never serve BAR models carried inside a stored template context.
+
+    Stored models are a file anyone can edit; only the capture's learning
+    manifest is evidence. Strip every stored model and re-derive them through
+    the same trust boundary Stage 2 uses (``compile_manifest_bar_models``).
+    """
+    from pcileechfwgenerator.device_clone.bar_model_loader import (
+        serialize_bar_model,
+    )
+    from pcileechfwgenerator.device_clone.register_policy import (
+        LearningBuildBlocked,
+        compilation_report,
+        compile_manifest_bar_models,
+        learning_build_blockers,
+        servable_models,
+        served_bar_fidelity,
+    )
+    from pcileechfwgenerator.device_clone.served_bar import (
+        register_bar_config,
+        served_bars_from_config,
+    )
+
+    def record_fidelity(config: Dict[str, Any]) -> None:
+        config["served_bar_fidelity"] = served_bar_fidelity(config)
+        descriptors = served_bars_from_config(config)
+        config["served_bar_fidelities"] = {
+            str(bar.index): served_bar_fidelity(
+                {**config, "served_bar_index": bar.index}
+            )
+            for bar in descriptors or ()
+        }
+
+    learning = getattr(snapshot, "learning", None)
+    if learning is not None:
+        blockers = learning_build_blockers(learning)
+        if blockers:
+            raise LearningBuildBlocked(blockers)
+    context = dict(template_context)
+    context.pop("bar_models", None)
+    bar_config = context.get("bar_config")
+    if not isinstance(bar_config, dict):
+        return context
+    bar_config = {
+        k: v
+        for k, v in bar_config.items()
+        if k
+        not in (
+            "bar_models",
+            "bar_model_report",
+            "served_bar_fidelity",
+            "served_bar_fidelities",
+            "bar_fallback",
+        )
+    }
+    bar_config = register_bar_config(bar_config)
+    bar_config["bar_fallback"] = (
+        "generic_ram" if writable_bar_fallback else "readonly_zero"
+    )
+    context["bar_config"] = bar_config
+    if learning is None:
+        bar_config["bar_model_report"] = {}
+        record_fidelity(bar_config)
+        return context
+
+    def field(bar: Any, name: str) -> Any:
+        return bar.get(name) if isinstance(bar, dict) else getattr(bar, name, None)
+
+    memory_bars = [
+        (field(bar, "index"), field(bar, "size"))
+        for bar in bar_config.get("bars") or []
+        if type(field(bar, "index")) is int
+        and type(field(bar, "size")) is int
+        and field(bar, "size") > 0
+        and field(bar, "is_memory") is not False
+    ]
+    results = compile_manifest_bar_models(learning, memory_bars, include_empty=True)
+    served = servable_models(results)
+    if served:
+        bar_config["bar_models"] = {
+            index: serialize_bar_model(model) for index, model in served.items()
+        }
+    bar_config["bar_model_report"] = compilation_report(results)
+    record_fidelity(bar_config)
+    for index, mode in bar_config["served_bar_fidelities"].items():
+        if int(index) != bar_config.get("served_bar_index", 0) and mode in (
+            "generic_ram",
+            "readonly_zero",
+        ):
+            log_warning_safe(
+                get_logger(__name__),
+                safe_format(
+                    "BAR{idx}: no learned model; serving {mode} outside MSI-X "
+                    "windows. Donor behavior there is unverified.",
+                    idx=index,
+                    mode=mode,
+                ),
+                prefix="BAR",
+            )
+    if bar_config["served_bar_fidelity"] in ("generic_ram", "readonly_zero"):
+        log_warning_safe(
+            get_logger(__name__),
+            safe_format(
+                "Served BAR has no learned register model; emulating {mode}, "
+                "not the donor's register behavior",
+                mode=bar_config["served_bar_fidelity"],
+            ),
+            prefix="BAR",
+        )
+    return context
+
+
 def _subsystem_fields(host_context: Dict[str, Any]) -> Dict[str, Any]:
     """Subsystem IDs for a fallback device_config, keeping 0 distinct from None.
 
@@ -161,10 +276,17 @@ class BuildConfiguration:
     vivado_jobs: int = 4
     vivado_timeout: int = 3600
     enable_error_injection: bool = False
+    # Opt-out: serve generic writable RAM when the served BAR has no model.
+    writable_bar_fallback: bool = False
+    # Legacy FT601 PHY (FT601_PHY_MMCM=0) on boards that default to the MMCM one.
+    ft601_legacy_phy: bool = False
     disable_vfio: bool = False
     enable_mmio_learning: bool = True
     force_recapture: bool = False
     from_capture: Optional[Path] = None
+    # Stage 1 capture of a donor that is present and verified: local builds
+    # render from it instead of re-reading the device.
+    capture_dir: Optional[Path] = None
     # True only for an explicit --from-capture build; such builds are
     # unverified and are the only ones that get the offline warnings and lock.
     offline_input: bool = False
@@ -307,9 +429,7 @@ class MSIXManager:
         if snapshot is not None:
             if not disable_vfio and verify_current_device(snapshot) == "absent":
                 # A live run needs the device; only offline builds may proceed.
-                raise SnapshotError(
-                    "the donor device is not present for a live build"
-                )
+                raise SnapshotError("the donor device is not present for a live build")
             raw = snapshot.msix["msix_info"]
             if raw and int(raw.get("table_size", 0)) > 0:
                 # load_snapshot verified these against the config bytes; extra
@@ -586,7 +706,7 @@ class FileOperationsManager:
         if any(name.endswith(ext) for ext in SPECIAL_FILE_EXTENSIONS):
             return base_dir / name, "special"
 
-        if name.endswith(SYSTEMVERILOG_EXTENSION):
+        if name.endswith((SYSTEMVERILOG_EXTENSION, ".v")):
             return base_dir / name, "sv"
         else:
             return base_dir / f"{name}{SYSTEMVERILOG_EXTENSION}", "sv"
@@ -723,10 +843,17 @@ class ConfigurationManager:
             vivado_jobs=getattr(args, "vivado_jobs", 4),
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
+            writable_bar_fallback=getattr(args, "writable_bar_fallback", False),
+            ft601_legacy_phy=getattr(args, "ft601_legacy_phy", False),
             disable_vfio=disable_vfio,
             enable_mmio_learning=enable_mmio_learning,
             force_recapture=force_recapture,
             from_capture=Path(from_capture).resolve() if from_capture else None,
+            capture_dir=(
+                Path(args.capture_dir).resolve()
+                if getattr(args, "capture_dir", None) and not from_capture
+                else None
+            ),
             offline_input=bool(from_capture),
             offline_risk_accepted=offline_risk_accepted,
         )
@@ -923,9 +1050,8 @@ class FirmwareBuilder:
                 )
             except ConfigurationError as error:
                 raise ConfigurationError(
-                    "Container builds render from the saved capture, which this "
-                    f"renderer cannot handle ({error}); rerun with "
-                    "--container-mode local"
+                    "Container builds render from the saved capture, which "
+                    f"cannot be rendered ({error})"
                 ) from None
             self.offline_capture = snapshot
             self.capture_mode = "container"
@@ -959,6 +1085,8 @@ class FirmwareBuilder:
             )
             config.disable_vfio = True
             config.enable_mmio_learning = False
+        if config.capture_dir and not config.from_capture and not config.disable_vfio:
+            self._load_local_capture(config)
         self.logger = logger or get_logger(self.__class__.__name__)
 
         self.build_logger = get_build_logger(self.logger)
@@ -979,6 +1107,53 @@ class FirmwareBuilder:
         self._init_components()
         self._device_config: Optional[DeviceConfiguration] = None
 
+    def _load_local_capture(self, config: BuildConfiguration) -> None:
+        """Render a local build from its Stage 1 capture.
+
+        Stage 2 does no device reads: config space, BARs, MSI-X and learned
+        register behavior all come from the capture the host just collected.
+        The only live access is a read-only identity check of the PCI header,
+        so a capture is never applied to a different device. Behavior
+        profiling observes the live donor and is the explicit exception: a
+        local build that requests it keeps the live path.
+        """
+        from .host_collect.offline import (
+            validate_offline_snapshot,
+            validate_render_request,
+        )
+
+        if config.enable_profiling and config.profile_duration > 0:
+            raise ConfigurationError(
+                "Behavior profiling observes the live donor; it cannot be "
+                "combined with rendering from the Stage 1 capture"
+            )
+        if config.capture_dir is None:
+            raise ConfigurationError("No Stage 1 capture directory was supplied")
+        directory = Path(config.capture_dir)
+        snapshot = load_snapshot(
+            directory / "device_context.json",
+            directory / "msix_data.json",
+            config.bdf,
+        )
+        if verify_current_device(snapshot) != "verified":
+            raise SnapshotError(
+                "the donor is not present; rebuild from the saved capture with "
+                "--from-capture"
+            )
+        try:
+            validate_offline_snapshot(snapshot)
+            validate_render_request(
+                snapshot, directory, config.output_dir, config.output_template
+            )
+        except (ConfigurationError, SnapshotError) as error:
+            raise ConfigurationError(
+                f"The Stage 1 capture cannot be rendered ({error})"
+            ) from None
+        self.offline_capture = snapshot
+        self.capture_mode = "local"
+        config.enable_profiling = False
+        config.enable_mmio_learning = False
+
     def _clean_stale_build_state(self) -> None:
         """Wipe Vivado project/scratch state left over from a prior build.
 
@@ -988,6 +1163,13 @@ class FirmwareBuilder:
         only Vivado-generated state is removed.
         """
         from pcileechfwgenerator.vivado_handling import clean_stale_build_state
+        from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
+            STAGE2_MANIFEST_NAME,
+        )
+
+        # A manifest from an earlier run must not outlive a failed Stage 2:
+        # Stage 3 only accepts the set this run finalizes.
+        (self.config.output_dir / STAGE2_MANIFEST_NAME).unlink(missing_ok=True)
 
         clean_stale_build_state(
             self.config.output_dir,
@@ -1164,6 +1346,14 @@ class FirmwareBuilder:
             self._write_xdc_files(generation_result)
             self.build_logger.pop_phase("constraint_writing")
 
+            # Last Stage 2 step that mutates src/ip/constraints: overlay the
+            # fresh generated memories onto the staged IP and record the
+            # artifact set Stage 3 must consume.
+            self.build_logger.push_phase("artifact_finalization")
+            self._phase("Finalizing build artifacts …")
+            self._finalize_stage2_artifacts(generation_result)
+            self.build_logger.pop_phase("artifact_finalization")
+
             self.build_logger.push_phase("device_info_saving")
             self._phase("Saving device information …")
             self._save_device_info(generation_result)
@@ -1287,6 +1477,7 @@ class FirmwareBuilder:
             device_config=(
                 self._device_config.__dict__ if self._device_config else None
             ),
+            vivado_jobs=self.config.vivado_jobs,
         )
 
         runner.run()
@@ -1347,6 +1538,8 @@ class FirmwareBuilder:
             enable_error_injection=getattr(
                 self.config, "enable_error_injection", False
             ),
+            writable_bar_fallback=getattr(self.config, "writable_bar_fallback", False),
+            ft601_legacy_phy=getattr(self.config, "ft601_legacy_phy", False),
             preloaded_config_space=preloaded_config_space,
             offline_capture=offline_capture,
             capture_mode=getattr(self, "capture_mode", "offline"),
@@ -1426,7 +1619,13 @@ class FirmwareBuilder:
         # generator; plain identity captures must be rendered.
         template_context = snapshot.context.get("template_context")
         if isinstance(template_context, dict) and template_context:
-            return template_context
+            return _rederive_bar_models(
+                template_context,
+                snapshot,
+                writable_bar_fallback=getattr(
+                    self.config, "writable_bar_fallback", False
+                ),
+            )
         return None
 
     def _preload_msix(self) -> MSIXData:
@@ -1505,6 +1704,21 @@ class FirmwareBuilder:
             audit_path = self.config.output_dir / "template_context_keys.json"
             with open(audit_path, "w") as f:
                 json.dump(audit, f, indent=2)
+            bar_config = ctx.get("bar_config")
+            if isinstance(bar_config, dict) and "served_bar_fidelity" in bar_config:
+                # What the served BAR actually emulates, and every learned
+                # behavior that was left out (never silent).
+                with open(self.config.output_dir / "bar_model_report.json", "w") as f:
+                    json.dump(
+                        {
+                            "served_bar_index": bar_config.get("served_bar_index"),
+                            "served_bar_fidelity": bar_config["served_bar_fidelity"],
+                            "bars": bar_config.get("bar_model_report", {}),
+                        },
+                        f,
+                        indent=2,
+                        default=str,
+                    )
             log_debug_safe(
                 self.logger,
                 safe_format(
@@ -1530,6 +1744,33 @@ class FirmwareBuilder:
     def _write_modules(self, result: Dict[str, Any]) -> None:
         """Write SystemVerilog modules to disk."""
         modules = result.get("systemverilog_modules", {})
+        # Remove stale device BAR files: the build TCL globs src/*.sv, so a
+        # leftover file from an earlier run would be compiled in.
+        generated_bar_names = ["pcileech_bar_impl_device.sv"] + [
+            f"pcileech_bar_impl_device_bar{index}.sv" for index in range(6)
+        ]
+        for name in generated_bar_names:
+            stale = self.config.output_dir / "src" / name
+            if name not in modules and stale.exists():
+                stale.unlink()
+        # Generated initialization memories are written here, fresh, so no
+        # later step can observe a COE left by an earlier run. They are
+        # overlaid onto the staged IP in _finalize_stage2_artifacts.
+        self._generated_memories = self._collect_generated_memories(result)
+        if self._generated_memories:
+            src_dir = self.config.output_dir / "src"
+            src_dir.mkdir(parents=True, exist_ok=True)
+            for name, content in self._generated_memories.items():
+                try:
+                    (src_dir / name).write_text(content, encoding="utf-8")
+                except OSError as e:
+                    raise FileOperationError(
+                        safe_format(
+                            "Failed to write generated memory {name}: {err}",
+                            name=name,
+                            err=e,
+                        )
+                    ) from e
         if not modules:
             log_warning_safe(
                 self.logger,
@@ -1539,6 +1780,8 @@ class FirmwareBuilder:
             return
 
         sv_files, special_files = self.file_manager.write_systemverilog_modules(modules)
+        # Board sources copied later must not overwrite these.
+        self._generated_sources = set(sv_files) | set(special_files)
 
         log_info_safe(
             self.logger,
@@ -1559,6 +1802,135 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD",
             )
+
+    @staticmethod
+    def _collect_generated_memories(result: Dict[str, Any]) -> Dict[str, str]:
+        """Return this run's generated ``.coe`` contents keyed by file name.
+
+        The overlay generator's modules are authoritative. The writemask
+        firmware component is used only when no writemask module was rendered.
+        """
+        from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
+            WRITEMASK_COE,
+        )
+
+        modules = result.get("systemverilog_modules") or {}
+        memories = {
+            name: content
+            for name, content in modules.items()
+            if name.endswith(".coe") and isinstance(content, str) and content.strip()
+        }
+        components = result.get("firmware_components") or {}
+        writemask = components.get("writemask_coe")
+        if WRITEMASK_COE not in memories and isinstance(writemask, str):
+            if writemask.strip():
+                memories[WRITEMASK_COE] = writemask
+        return memories
+
+    def _finalize_stage2_artifacts(self, result: Dict[str, Any]) -> None:
+        """Overlay generated memories onto staged IP and write the manifest.
+
+        Runs after every Stage 2 step that writes ``src/``, ``ip/``,
+        ``constraints/`` or the donor IP override, so Stage 3 receives one
+        complete, validated artifact set and never needs the board repository.
+        """
+        from pcileechfwgenerator.vivado_handling.pcileech_build_integration import (
+            HDL_SUFFIXES,
+            stage_generated_memories,
+            write_stage2_manifest,
+        )
+
+        output_dir = self.config.output_dir
+        memories = getattr(self, "_generated_memories", None)
+        if memories is None:
+            memories = self._collect_generated_memories(result)
+        hashes = stage_generated_memories(output_dir, memories)
+
+        board_files = getattr(self, "_staged_board_files", None) or {}
+        sources = {
+            name
+            for name in getattr(self, "_generated_sources", ())
+            if name.endswith(HDL_SUFFIXES)
+        }
+        for key in ("systemverilog", "verilog", "packages"):
+            sources.update(
+                Path(p).name
+                for p in board_files.get(key, ())
+                if Path(p).name.endswith(HDL_SUFFIXES)
+            )
+
+        from pcileechfwgenerator.file_management.repo_manager import FT601_MMCM_XDC
+        from pcileechfwgenerator.vivado_handling.requester_plan import (
+            FT601_MMCM_SOURCE,
+            REQUESTER_SOURCE,
+            stage_requester_plan,
+        )
+
+        legacy_ft601 = bool(getattr(self.config, "ft601_legacy_phy", False))
+        for needed in (FT601_MMCM_SOURCE, REQUESTER_SOURCE):
+            if legacy_ft601 and needed not in sources:
+                # The requester plan is what binds FT601_PHY_MMCM=0.
+                raise PCILeechBuildError(
+                    safe_format(
+                        "--ft601-legacy-phy needs a board with the MMCM FT601 "
+                        "PHY and requester RTL; {board} lacks {src}",
+                        src=needed,
+                        board=self.config.board,
+                    )
+                )
+        constraints = [Path(p).name for p in board_files.get("constraints", ())]
+        if legacy_ft601:
+            # The unified build imports only what is listed here. Drop the
+            # copy too, so output/constraints shows what the build uses.
+            constraints = [c for c in constraints if c != FT601_MMCM_XDC]
+            (output_dir / "constraints" / FT601_MMCM_XDC).unlink(missing_ok=True)
+        written = getattr(self, "_written_xdc", None)
+        if written and legacy_ft601:
+            combined = (output_dir / "constraints" / written).read_text("utf-8")
+            if f"{FT601_MMCM_XDC} ====" in combined:
+                raise PCILeechBuildError(
+                    "Legacy FT601 PHY build: the combined board XDC still "
+                    "includes the MMCM FT601 constraints"
+                )
+        if written:
+            # board_xdc_content is read_combined_xdc()'s complete board set,
+            # without the MMCM FT601 constraints for a legacy-PHY build.
+            # Importing it alongside the originals duplicates clock constraints.
+            constraints = [written]
+
+        stage_requester_plan(
+            output_dir,
+            result,
+            sources=sources,
+            board=self.config.board,
+            ft601_phy_mmcm=(
+                None if FT601_MMCM_SOURCE not in sources else not legacy_ft601
+            ),
+        )
+        manifest_path = write_stage2_manifest(
+            output_dir,
+            board=self.config.board,
+            sources=sources,
+            constraints=constraints,
+            generated_memories=hashes,
+            ip_definitions=[
+                name
+                for name in (result.get("tcl_scripts") or {})
+                if name.endswith(".xci")
+            ],
+            impl_hooks=[Path(p).name for p in board_files.get("impl_hooks", ())],
+            cdc_check=bool(board_files.get("cdc_check")),
+        )
+        log_info_safe(
+            self.logger,
+            safe_format(
+                "  • Finalized {sources} sources, {mems} generated memories → {path}",
+                sources=len(sources),
+                mems=len(hashes),
+                path=str(manifest_path),
+            ),
+            prefix="BUILD",
+        )
 
     def _generate_profile(self) -> None:
         """Generate behavior profile if configured."""
@@ -1581,7 +1953,12 @@ class FirmwareBuilder:
             )
 
     def _generate_tcl_scripts(self, result: Dict[str, Any]) -> None:
-        """Copy static Vivado TCL scripts from submodule to output directory."""
+        """Stage the board RTL and constraints for the unified build.
+
+        Board ``vivado_*.tcl`` project scripts are not staged.
+        ``build_all.tcl`` is the only Stage 3 entry and builds from the Stage 2
+        artifacts.
+        """
         board = self.config.board
         if not board or not board.strip():
             raise ConfigurationError(
@@ -1599,23 +1976,18 @@ class FirmwareBuilder:
 
             fm = _FM(self.config.output_dir)
             fm.create_pcileech_structure()
-            fm.copy_pcileech_sources(self.config.board)
-            tcl_scripts = fm.copy_vivado_tcl_scripts(self.config.board)
-
-            log_info_safe(
-                self.logger,
-                safe_format(
-                    "  • Copied {count} Vivado TCL scripts from submodule",
-                    count=len(tcl_scripts),
-                ),
-                prefix="BUILD",
+            # Record exactly what was staged so the Stage 2 manifest excludes
+            # anything left in src/ or constraints/ by an earlier run.
+            self._staged_board_files = fm.copy_pcileech_sources(
+                self.config.board,
+                generated=getattr(self, "_generated_sources", ()),
             )
 
         except Exception as e:
             log_error_safe(
                 self.logger,
                 safe_format(
-                    "Failed to copy TCL scripts: {err}",
+                    "Failed to stage board sources: {err}",
                     err=str(e),
                 ),
                 prefix="BUILD",
@@ -1623,7 +1995,7 @@ class FirmwareBuilder:
             raise
 
         # Patch staged sources with donor IDs. Kept outside the copy try/except
-        # so a FifoPatchError doesn't get logged as "Failed to copy TCL scripts".
+        # so a FifoPatchError doesn't get logged as "Failed to stage board sources".
         self._patch_fifo_with_donor_ids(result)
 
     def _patch_fifo_with_donor_ids(self, result: Dict[str, Any]) -> None:
@@ -1646,6 +2018,7 @@ class FirmwareBuilder:
             PcieIpOverrideError,
             apply_pcie_ip_donor_override,
             donor_pcie_ip_config_from_result,
+            validate_donor_ip_build_config,
         )
 
         donor = donor_ids_from_template_context(result.get("template_context", {}))
@@ -1699,6 +2072,12 @@ class FirmwareBuilder:
                 ),
                 prefix="BUILD",
             )
+            log_info_safe(
+                self.logger,
+                "  • Enabled shadow config space (rw[203]=0 serve cloned "
+                "0xA8-0xFF/0x10C+, rw[206]=1 masked host writes)",
+                prefix="BUILD",
+            )
             if summary.get("cfg_assigns_commented"):
                 log_warning_safe(
                     self.logger,
@@ -1719,29 +2098,51 @@ class FirmwareBuilder:
         extra_ip_cfg = None
         try:
             extra_ip_cfg = donor_pcie_ip_config_from_result(result)
+            validate_donor_ip_build_config(extra_ip_cfg)
+            from pcileechfwgenerator.vivado_handling.requester_plan import (
+                requester_policy_from_result,
+            )
+
+            board_files = getattr(self, "_staged_board_files", None) or {}
+            requester_sources = set(getattr(self, "_generated_sources", ()))
+            for category in ("systemverilog", "verilog", "packages"):
+                requester_sources.update(
+                    Path(p).name for p in board_files.get(category, ())
+                )
+            requester_policy = requester_policy_from_result(
+                self.config.output_dir,
+                result,
+                sources=requester_sources,
+                board=self.config.board,
+            )
+            override_options: Dict[str, Any] = {"extra": extra_ip_cfg}
+            if requester_policy is not None:
+                override_options["requester_policy"] = requester_policy
             ip_summary = apply_pcie_ip_donor_override(
-                self.config.output_dir, donor, extra=extra_ip_cfg
+                self.config.output_dir, donor, **override_options
             )
             log_info_safe(
                 self.logger,
                 safe_format(
-                    "  • Wired PCIe IP CONFIG override into {count} "
-                    "generate-project script(s)",
-                    count=len(ip_summary["wired_scripts"]),
+                    "  • Wrote PCIe IP CONFIG override {name}",
+                    name=Path(ip_summary["override_path"]).name,
                 ),
                 prefix="BUILD",
             )
         except (PcieIpOverrideError, ValueError) as e:
-            log_warning_safe(
+            # The override is the only path by which donor identity and the
+            # MSI-X layout reach the hard PCIe IP. Continuing without it would
+            # build stock identity (and a stale override from an earlier run
+            # could otherwise be mistaken for this run's).
+            log_error_safe(
                 self.logger,
                 safe_format(
-                    "PCIe IP donor override skipped: {err}",
+                    "PCIe IP donor override failed: {err}",
                     err=str(e),
                 ),
                 prefix="BUILD",
             )
-            # Do not return here — fall through so the XCI baseline patch
-            # still runs as an independent line of defence (issue #622).
+            raise
 
         # Patch the XCI baseline so Vivado's IP starting point matches the
         # donor before the TCL override runs. Without this, Vivado may read
@@ -1801,6 +2202,7 @@ class FirmwareBuilder:
         xdc_path = constraints_dir / xdc_filename
 
         xdc_path.write_text(board_xdc_content, encoding="utf-8")
+        self._written_xdc = xdc_filename
 
         log_info_safe(
             self.logger,
@@ -1828,9 +2230,16 @@ class FirmwareBuilder:
 
             device_info = {
                 **device_info,
-                "input_capture": capture_provenance(
-                    self.offline_capture, getattr(self, "capture_mode", "offline")
-                ),
+                "input_capture": {
+                    **capture_provenance(
+                        self.offline_capture, getattr(self, "capture_mode", "offline")
+                    ),
+                    # A donor template is merged over the capture; say so, so
+                    # IDs or BARs are not attributed to the capture alone.
+                    "donor_template_applied": bool(
+                        getattr(self.config, "donor_template", None)
+                    ),
+                },
             }
         self.file_manager.write_json("device_info.json", device_info)
 
@@ -2034,6 +2443,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
             "When disabled, uses synthetic BAR content generation."
         ),
     )
+    parser.add_argument(
+        "--no-mmio-exercise",
+        action="store_true",
+        help="Trace only the driver probe; do not exercise the device",
+    )
 
     parser.add_argument(
         "--force-recapture",
@@ -2041,6 +2455,27 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help=(
             "Force recapture of MMIO traces even if cached models exist. "
             "Useful when driver or device behavior has changed."
+        ),
+    )
+
+    parser.add_argument(
+        "--writable-bar-fallback",
+        action="store_true",
+        help=(
+            "Opt out of the read-only fallback for a served BAR with no learned "
+            "register model: emulate generic writable RAM (zerowrite4k, aliases "
+            "every 4 KiB) instead. Not donor behavior; use only for drivers that "
+            "need scratch-register readback."
+        ),
+    )
+
+    parser.add_argument(
+        "--ft601-legacy-phy",
+        action="store_true",
+        help=(
+            "Build the legacy FT601 PHY (FT601_PHY_MMCM=0) instead of the "
+            "MMCM-compensated one, and leave its constraints out. Only for "
+            "boards with the MMCM FT601 PHY (CaptainDMA 100T)."
         ),
     )
 
@@ -2102,6 +2537,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         module_checker.check_all()
 
         args = parse_args(argv)
+        if getattr(args, "no_mmio_exercise", False):
+            os.environ["PCILEECH_MMIO_EXERCISE"] = "0"
 
         config_manager = ConfigurationManager(logger)
         config = config_manager.create_from_args(args)
@@ -2367,6 +2804,10 @@ def _build_reproduction_command(args: argparse.Namespace) -> str:
         parts.append("--no-preload-msix")
     if getattr(args, "enable_error_injection", False):
         parts.append("--enable-error-injection")
+    if getattr(args, "writable_bar_fallback", False):
+        parts.append("--writable-bar-fallback")
+    if getattr(args, "ft601_legacy_phy", False):
+        parts.append("--ft601-legacy-phy")
     return " ".join(parts)
 
 

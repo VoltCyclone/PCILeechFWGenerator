@@ -22,7 +22,7 @@ repos:
 
   # Python code formatting
   - repo: https://github.com/psf/black
-    rev: 23.12.1
+    rev: 26.10.1
     hooks:
       - id: black
         language_version: python3
@@ -30,14 +30,14 @@ repos:
 
   # Import sorting
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+    rev: 9.0.2
     hooks:
       - id: isort
         args: ['--profile=black', '--line-length=88']
 
   # Linting
   - repo: https://github.com/pycqa/flake8
-    rev: 7.0.0
+    rev: 7.5.0
     hooks:
       - id: flake8
         args: ['--max-line-length=88', '--extend-ignore=E203,W503']

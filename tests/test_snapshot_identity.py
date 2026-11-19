@@ -239,7 +239,9 @@ def test_builder_consumers_reject_wrong_capture(tmp_path, monkeypatch, method):
         getattr(builder, method)()
 
 
-@pytest.mark.parametrize("existing", ["device_context.json", "msix_data.json"])
+@pytest.mark.parametrize(
+    "existing", ["device_context.json", "msix_data.json", "register_learning.json"]
+)
 def test_collection_never_overwrites_or_probes_occupied_destination(
     tmp_path, monkeypatch, existing
 ):
@@ -309,11 +311,9 @@ def test_bar_context_does_not_swallow_rejected_capture(tmp_path, monkeypatch):
     builder.logger = Mock()
     bar = SimpleNamespace(index=0, size=4096, size_mb=4096 / 1024**2)
     for method, result in [
-        ("_check_and_fix_power_state", None),
         ("_analyze_bars", [bar]),
         ("_select_primary_bar", bar),
         ("_build_bar_config_dict", {}),
-        ("_sample_bar_data_direct", {}),
     ]:
         monkeypatch.setattr(builder, method, Mock(return_value=result))
     with pytest.raises(SnapshotError, match="requested donor"):
@@ -467,7 +467,9 @@ def test_msix_preload_with_vfio_requires_present_device(tmp_path, monkeypatch, m
         MSIXManager(BDF).preload_data()
 
 
-@pytest.mark.parametrize("svid, ssid", [(0xFFFF, 0xFFFF), (0xFFFF, 0xA01F), (0x8086, 0xFFFF)])
+@pytest.mark.parametrize(
+    "svid, ssid", [(0xFFFF, 0xFFFF), (0xFFFF, 0xA01F), (0x8086, 0xFFFF)]
+)
 def test_live_subsystem_extraction_matches_capture_identity(svid, ssid):
     """Live and offline builds use one rule: raw donor subsystem IDs (#682)."""
     from pcileechfwgenerator.device_clone.config_space_manager import (
@@ -578,7 +580,8 @@ def test_live_bridge_has_no_subsystem_ids():
 
 
 @pytest.mark.parametrize(
-    "value, expected", [(None, "1912"), ("", "1912"), ("0000", "0000"), ("ffff", "ffff")]
+    "value, expected",
+    [(None, "1912"), ("", "1912"), ("0000", "0000"), ("ffff", "ffff")],
 )
 def test_normalize_subsystem_keeps_raw_zero(value, expected):
     from pcileechfwgenerator.device_clone.identifier_normalizer import (
@@ -635,7 +638,10 @@ def test_fifo_missing_subsystem_device_falls_back_like_coe_helper():
     "ctx, expected",
     [
         ({"subsystem_vendor_id": 0, "subsystem_device_id": 0}, ("0000", "0000")),
-        ({"subsystem_vendor_id": "1028", "subsystem_device_id": 0x1100}, ("1028", "1100")),
+        (
+            {"subsystem_vendor_id": "1028", "subsystem_device_id": 0x1100},
+            ("1028", "1100"),
+        ),
         ({}, (None, None)),  # type-1 / not collected: templates use main IDs
     ],
 )

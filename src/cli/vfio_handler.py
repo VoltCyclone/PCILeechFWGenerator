@@ -18,6 +18,7 @@ from pcileechfwgenerator.exceptions import (
 )
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
+    log_error_safe,
     log_info_safe,
     log_warning_safe,
     safe_format,
@@ -35,10 +36,13 @@ class BindingState(Enum):
 
 # Try to import privilege manager if available
 HAS_PRIVILEGE_MANAGER = False
-PrivilegeManager = None
+PrivilegeManager: Any = None
 try:
-    from pcileechfwgenerator.utils.privilege_manager import PrivilegeManager
+    from pcileechfwgenerator.utils.privilege_manager import (
+        PrivilegeManager as _PrivilegeManagerImpl,
+    )
 
+    PrivilegeManager = _PrivilegeManagerImpl
     HAS_PRIVILEGE_MANAGER = True
 except ImportError:
     pass
@@ -305,15 +309,94 @@ class VFIOPathManager:
         return Path(safe_format("/dev/vfio/{group_id}", group_id=group_id))
 
 
+# --- per-device binding journal (shared by every driver-changing path) ------
+
+
+def binding_journal_path(directory: Path, bdf: str) -> Path:
+    return Path(directory) / f"binding-{bdf.replace(':', '_')}.json"
+
+
+def begin_binding_journal(directory: Path, bdf: str, record: Dict[str, Any]) -> Path:
+    """Durably record a device's original binding before changing it.
+
+    Raises VFIOBindError if a journal for the device already exists: a previous
+    session did not confirm restoration, or another session holds the device.
+    ``os.link`` makes creation exclusive across processes.
+    """
+    import json
+    import tempfile
+    from datetime import datetime, timezone
+
+    path = binding_journal_path(directory, bdf)
+    if path.exists():
+        raise VFIOBindError(
+            safe_format(
+                "A previous VFIO session for {bdf} did not confirm it "
+                "restored the original driver binding (journal {path}). "
+                "Verify the device's driver, then remove the journal.",
+                bdf=bdf,
+                path=str(path),
+            )
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps(
+        {
+            "bdf": bdf,
+            **record,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).encode()
+    with tempfile.NamedTemporaryFile(
+        dir=path.parent, prefix=".binding-", delete=False
+    ) as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        os.link(stream.name, path)
+    except FileExistsError:
+        raise VFIOBindError(
+            safe_format(
+                "Another session for {bdf} holds journal {path}",
+                bdf=bdf,
+                path=str(path),
+            )
+        ) from None
+    finally:
+        os.unlink(stream.name)
+    handle = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+    return path
+
+
+def clear_binding_journal(directory: Path, bdf: str) -> None:
+    binding_journal_path(directory, bdf).unlink(missing_ok=True)
+
+
 class VFIOBinder:
     """Handles binding PCI devices to vfio-pci driver."""
 
-    def __init__(self, bdf: str, *, attach: bool = True) -> None:
+    def __init__(
+        self,
+        bdf: str,
+        *,
+        attach: bool = True,
+        journal_directory: Any = "default",
+    ) -> None:
         """Initialize VFIO binder for the specified BDF.
 
         Args:
             bdf: PCI Bus:Device.Function identifier
             attach: Whether to attach the group (open device and set IOMMU)
+            journal_directory: Where the binding journal is written before
+                any driver change; it is cleared only after the original
+                binding is verified, so a crash mid-session blocks the next
+                bind of this device until an operator checks it. Defaults to
+                the host-wide register-learning journal directory, shared by
+                every binder user; None disables journaling (tests only).
 
         Raises:
             ValueError: If BDF format is invalid
@@ -324,6 +407,20 @@ class VFIOBinder:
 
         self.bdf = bdf
         self.original_driver: Optional[str] = None
+        self.original_override: str = ""
+        self.final_driver: Optional[str] = None
+        # The device was already owned by vfio-pci before this session; it is
+        # used in place and left there.
+        self._preexisting_vfio = False
+        if journal_directory == "default":
+            from pcileechfwgenerator.host_collect.register_learning import (
+                default_journal_directory,
+            )
+
+            journal_directory = default_journal_directory() / "bindings"
+        self._journal_directory = (
+            Path(journal_directory) if journal_directory is not None else None
+        )
         self.group_id: Optional[str] = None
         self._bound = False
         self._attach = attach
@@ -582,53 +679,47 @@ class VFIOBinder:
             finally:
                 self._group_lock = None
 
-    def _cleanup_device_ids(self) -> None:
-        """Aggressively remove device IDs added to vfio-pci.
+    def _cleanup_device_ids(self) -> List[str]:
+        """Remove device IDs added to vfio-pci; return failures.
 
-        Ensures clean state on exit - prevents ID pollution in vfio-pci
-        that could affect subsequent binds.
+        A dynamic ID left behind makes vfio-pci claim this device (and any
+        identical one) on the next probe, so failed removals are kept for a
+        retry and reported rather than forgotten.
         """
         if not self._added_device_ids:
-            return
+            return []
 
         remove_id_path = self._path_manager.remove_id_path
         if not remove_id_path.exists():
-            log_debug_safe(
-                logger,
-                "remove_id sysfs entry not available",
-                prefix="VFIO",
-            )
-            return
+            return [
+                safe_format(
+                    "remove_id unavailable; vfio-pci still matches {ids}",
+                    ids=", ".join(f"{v}:{d}" for v, d in self._added_device_ids),
+                )
+            ]
 
+        failures = []
+        remaining = []
         for vendor_id, device_id in self._added_device_ids:
             try:
                 remove_id_path.write_text(f"{vendor_id} {device_id}\n")
-                log_debug_safe(
-                    logger,
-                    safe_format(
-                        "Removed device ID from vfio-pci: {vid}:{did}",
-                        vid=vendor_id,
-                        did=device_id,
-                    ),
-                    prefix="VFIO",
-                )
             except (OSError, IOError) as e:
-                # Non-fatal but log it
-                log_debug_safe(
-                    logger,
+                remaining.append((vendor_id, device_id))
+                failures.append(
                     safe_format(
-                        "Failed to remove device ID {vid}:{did}: {err}",
+                        "remove_id {vid}:{did} failed: {err}",
                         vid=vendor_id,
                         did=device_id,
                         err=e,
-                    ),
-                    prefix="VFIO",
+                    )
                 )
-
-        self._added_device_ids.clear()
+                log_warning_safe(logger, failures[-1], prefix="VFIO")
+        self._added_device_ids[:] = remaining
+        return failures
 
     def _save_original_driver(self) -> None:
         """Save the current driver for restoration."""
+        self.original_driver = None
         if self._path_manager.driver_path.exists():
             self.original_driver = self._path_manager.driver_path.resolve().name
             log_debug_safe(
@@ -699,22 +790,10 @@ class VFIOBinder:
     def _bind_to_vfio(self) -> None:
         """Bind device to vfio-pci driver."""
         try:
-            # First, ensure vfio-pci knows about this device
-            vendor_id, device_id = self._path_manager.get_vendor_device_id()
-
-            # Try to add device ID to vfio-pci
-            if self._path_manager.new_id_path.exists():
-                try:
-                    self._check_privilege("add device ID to vfio-pci")
-                    self._path_manager.new_id_path.write_text(
-                        f"{vendor_id} {device_id}\n"
-                    )
-                    # Track added IDs for cleanup
-                    self._added_device_ids.append((vendor_id, device_id))
-                except (OSError, IOError):
-                    # This might fail if ID is already added, which is fine
-                    pass
-
+            # driver_override (set just before) is sufficient for vfio-pci to
+            # bind this one device. new_id is not used: it makes vfio-pci claim
+            # every unbound device with the same VID:DID, and it can attach
+            # the target before the explicit bind below (which then EBUSYs).
             # Small delay to let kernel finish processing unbind/override
             time.sleep(0.2)
 
@@ -731,6 +810,8 @@ class VFIOBinder:
                     )
                     break
                 except OSError as e:
+                    if e.errno == errno.EBUSY and self._current_driver() == "vfio-pci":
+                        break  # already attached to vfio-pci: success
                     if e.errno == errno.EBUSY and attempt < max_retries - 1:
                         delay = 0.5 * (attempt + 1)
                         log_debug_safe(
@@ -822,6 +903,155 @@ class VFIOBinder:
         except Exception as e:
             raise VFIOGroupError(f"Failed to attach IOMMU group: {e}")
 
+    # --- sysfs primitives (one place for state reads/writes; faked in tests) --
+
+    def _current_driver(self) -> Optional[str]:
+        driver_path = self._path_manager.driver_path
+        if not driver_path.is_symlink() and not driver_path.exists():
+            return None
+        return driver_path.resolve().name
+
+    def _read_override(self) -> str:
+        try:
+            value = self._path_manager.override_path.read_text().strip()
+        except (OSError, IOError):
+            return ""
+        return "" if value == "(null)" else value
+
+    def _write_override(self, value: str) -> None:
+        self._check_privilege("set driver override")
+        self._path_manager.override_path.write_text(f"{value}\n")
+
+    def _unbind_driver(self) -> None:
+        self._check_privilege("unbind driver")
+        (self._path_manager.driver_path / "unbind").write_text(f"{self.bdf}\n")
+
+    def _bind_driver(self, driver: str) -> None:
+        self._check_privilege(f"bind {driver} driver")
+        Path(f"/sys/bus/pci/drivers/{driver}/bind").write_text(f"{self.bdf}\n")
+
+    def _probe_driver(self) -> None:
+        self._check_privilege("probe for driver")
+        Path("/sys/bus/pci/drivers_probe").write_text(f"{self.bdf}\n")
+
+    # --- binding journal -----------------------------------------------------
+
+    def _journal_path(self) -> Optional[Path]:
+        if self._journal_directory is None:
+            return None
+        return binding_journal_path(self._journal_directory, self.bdf)
+
+    def _journal_begin(self) -> None:
+        """Durably record the original binding before changing anything."""
+        if self._journal_directory is None:
+            return
+        begin_binding_journal(
+            self._journal_directory,
+            self.bdf,
+            {
+                "original_driver": self.original_driver,
+                "original_override": self.original_override,
+            },
+        )
+
+    def _journal_clear(self) -> None:
+        if self._journal_directory is not None:
+            clear_binding_journal(self._journal_directory, self.bdf)
+
+    # --- transactional restore ----------------------------------------------
+
+    def _restore_original(self) -> None:
+        """Return the device to the binding it had before bind() and verify it.
+
+        Safe to call from any partial state of bind(). Raises VFIOBindError
+        naming the actual final binding when it cannot be verified.
+        """
+        target = self.original_driver
+        current = self._current_driver()
+        if current not in (None, "vfio-pci", target):
+            # Someone else bound another driver meanwhile; do not touch it.
+            self.final_driver = current
+            raise VFIOBindError(
+                safe_format(
+                    "{bdf} is bound to {cur}, not vfio-pci or its original "
+                    "driver {orig}; left untouched",
+                    bdf=self.bdf,
+                    cur=current,
+                    orig=target or "none",
+                )
+            )
+        # Attempt every step; failures are collected, and the outcome is
+        # always verified and reported from the actual final state.
+        step_errors: List[str] = []
+
+        def attempt(label: str, action: Any) -> None:
+            try:
+                action()
+            except (OSError, IOError, VFIOPermissionError, VFIOBindError) as exc:
+                step_errors.append(f"{label}: {exc}")
+
+        if self._preexisting_vfio:
+            if current != "vfio-pci":
+                if self.original_override:
+                    attempt(
+                        "override",
+                        lambda: self._write_override(self.original_override),
+                    )
+                attempt("bind vfio-pci", lambda: self._bind_driver("vfio-pci"))
+        else:
+            if current == "vfio-pci":
+                attempt("unbind vfio-pci", self._unbind_driver)
+            # Bind the original driver with no override in the way (an
+            # override naming another driver makes the kernel refuse it), then
+            # put the original override back.
+            if self._read_override():
+                attempt("clear override", lambda: self._write_override(""))
+            # Stop vfio-pci from claiming the device again by ID.
+            step_errors.extend(self._cleanup_device_ids() or [])
+            if target and self._current_driver() is None:
+                attempt("bind " + target, lambda: self._bind_driver(target))
+                if self._current_driver() is None:
+                    attempt("probe", self._probe_driver)
+            if self._read_override() != self.original_override:
+                attempt(
+                    "restore override",
+                    lambda: self._write_override(self.original_override),
+                )
+        self.final_driver = self._current_driver()
+        problems = []
+        if self.final_driver != target:
+            problems.append(
+                safe_format(
+                    "driver is {cur} (expected {orig})",
+                    cur=self.final_driver or "none",
+                    orig=target or "none",
+                )
+            )
+        if self._read_override() != self.original_override:
+            problems.append("driver_override was not restored")
+        if step_errors and not problems:
+            # Binding verified, but something was left behind (e.g. a dynamic
+            # vfio-pci ID): not fatal, never silent.
+            log_warning_safe(
+                logger,
+                safe_format(
+                    "Restored {bdf} with leftovers: {errs}",
+                    bdf=self.bdf,
+                    errs="; ".join(step_errors),
+                ),
+                prefix="VFIO",
+            )
+        if problems:
+            problems.extend(step_errors)
+            raise VFIOBindError(
+                safe_format(
+                    "Original binding of {bdf} not restored: {problems}. "
+                    "Rebind the device manually before using it.",
+                    bdf=self.bdf,
+                    problems="; ".join(problems),
+                )
+            )
+
     def bind(self) -> None:
         """Bind the PCI device to vfio-pci driver.
 
@@ -844,18 +1074,27 @@ class VFIOBinder:
         # Acquire inter-process lock to prevent concurrent binding
         self._acquire_group_lock(group_id)
 
+        changed = False
         try:
-            # Save original driver for cleanup
+            # Save original binding for cleanup; record it before any change.
             self._save_original_driver()
+            self.original_override = self._read_override()
+            self._preexisting_vfio = self.original_driver == "vfio-pci"
+            self._journal_begin()
+            changed = True
 
-            # Unbind from current driver
-            self._unbind_current_driver()
+            if self._preexisting_vfio:
+                # Already ours: use it in place, never unbind it.
+                self._bound = True
+            else:
+                # Unbind from current driver
+                self._unbind_current_driver()
 
-            # Set driver override
-            self._set_driver_override()
+                # Set driver override
+                self._set_driver_override()
 
-            # Bind to vfio-pci
-            self._bind_to_vfio()
+                # Bind to vfio-pci
+                self._bind_to_vfio()
 
             # Wait for /dev/vfio/{group} to appear (udev race in containers)
             self._wait_for_group_node(group_id)
@@ -881,115 +1120,62 @@ class VFIOBinder:
                 safe_format("Successfully bound {bdf} to vfio-pci", bdf=self.bdf),
                 prefix="VFIO",
             )
-        except Exception:
-            # Release lock on any failure
-            self._release_group_lock()
+        except Exception as error:
+            # Partial entry: roll back while still holding the group lock.
+            # __exit__ will not run because __enter__ failed.
+            try:
+                if changed:
+                    self._restore_original()
+                    self._journal_clear()
+            except Exception as rollback_error:
+                log_error_safe(
+                    logger,
+                    safe_format(
+                        "Rollback after failed bind of {bdf} failed: {err}",
+                        bdf=self.bdf,
+                        err=rollback_error,
+                    ),
+                    prefix="VFIO",
+                )
+                raise VFIOBindError(
+                    safe_format(
+                        "Binding {bdf} failed ({err}) and rollback failed: "
+                        "{rollback}",
+                        bdf=self.bdf,
+                        err=error,
+                        rollback=rollback_error,
+                    )
+                ) from error
+            finally:
+                self._bound = False
+                self._release_group_lock()
             raise
 
     def unbind(self) -> None:
-        """Unbind device from vfio-pci and restore original driver.
+        """Restore the device's original binding and verify it.
 
-        Raises:
-            VFIOBindError: If unbinding fails
+        A device that was already on vfio-pci stays there. Raises
+        VFIOBindError, naming the actual binding, when restoration cannot be
+        verified; the binding journal is then kept so the next session stops.
         """
         log_info_safe(
             logger,
-            safe_format("Unbinding {bdf} from vfio-pci", bdf=self.bdf),
+            safe_format("Restoring original binding of {bdf}", bdf=self.bdf),
             prefix="VFIO",
         )
-
-        # Check if actually bound to vfio-pci
-        if (
-            self._path_manager.driver_path.exists()
-            and self._path_manager.driver_path.resolve().name != "vfio-pci"
-        ):
-            log_warning_safe(
-                logger,
-                safe_format(
-                    "Device {bdf} not bound to vfio-pci, current driver: {driver}",
-                    bdf=self.bdf,
-                    driver=self._path_manager.driver_path.resolve().name,
-                ),
-                prefix="VFIO",
-            )
-            return
-
-        # Unbind from vfio-pci
-        if self._path_manager.driver_path.exists():
-            try:
-                self._check_privilege("unbind from vfio-pci")
-                unbind_path = self._path_manager.driver_path / "unbind"
-                unbind_path.write_text(f"{self.bdf}\n")
-                log_debug_safe(
-                    logger,
-                    safe_format("Unbound {bdf} from vfio-pci", bdf=self.bdf),
-                    prefix="VFIO",
-                )
-            except (OSError, IOError) as e:
-                raise VFIOBindError(f"Failed to unbind from vfio-pci: {e}")
-
-        # Clear driver override
         try:
-            self._check_privilege("clear driver override")
-            self._path_manager.override_path.write_text("\n")
-            log_debug_safe(
-                logger,
-                safe_format("Cleared driver override"),
-                prefix="VFIO",
-            )
-        except (OSError, IOError) as e:
-            log_warning_safe(
-                logger,
-                safe_format("Failed to clear driver override: {err}", err=e),
-                prefix="VFIO",
-            )
-
-        # Aggressively clean up device IDs
-        self._cleanup_device_ids()
-
-        # Probe for original driver
-        if self.original_driver and self.original_driver != "vfio-pci":
-            driver_bind_path = Path(
-                safe_format(
-                    "/sys/bus/pci/drivers/{driver}/bind", driver=self.original_driver
-                )
-            )
-            if driver_bind_path.exists():
-                try:
-                    self._check_privilege(f"restore {self.original_driver} driver")
-                    driver_bind_path.write_text(f"{self.bdf}\n")
-                    log_info_safe(
-                        logger,
-                        safe_format(
-                            "Restored {bdf} to {driver}",
-                            bdf=self.bdf,
-                            driver=self.original_driver,
-                        ),
-                        prefix="VFIO",
-                    )
-                except (OSError, IOError) as e:
-                    log_warning_safe(
-                        logger,
-                        safe_format("Failed to restore original driver: {err}", err=e),
-                        prefix="VFIO",
-                    )
-            else:
-                # Try generic probe
-                probe_path = Path("/sys/bus/pci/drivers_probe")
-                if probe_path.exists():
-                    try:
-                        self._check_privilege("probe for driver")
-                        probe_path.write_text(f"{self.bdf}\n")
-                    except (OSError, IOError):
-                        pass
-
-        # Release group lock
-        self._release_group_lock()
-
-        self._bound = False
+            self._restore_original()
+            self._journal_clear()
+        finally:
+            self._bound = False
+            self._release_group_lock()
         log_info_safe(
             logger,
-            safe_format("Successfully unbound {bdf}", bdf=self.bdf),
+            safe_format(
+                "Restored {bdf} to {driver}",
+                bdf=self.bdf,
+                driver=self.final_driver or "no driver",
+            ),
             prefix="VFIO",
         )
 

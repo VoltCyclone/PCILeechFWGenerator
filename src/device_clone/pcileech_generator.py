@@ -25,6 +25,14 @@ from pcileechfwgenerator.device_clone.msix_capability import (
     parse_msix_capability,
     validate_msix_configuration,
 )
+from pcileechfwgenerator.device_clone.msix_subsystem import (
+    CONTEXT_KEY as MSIX_SUBSYSTEM_KEY,
+)
+from pcileechfwgenerator.device_clone.msix_subsystem import (
+    MsixSubsystemPlan,
+    board_msix_support_error,
+    plan_msix_subsystem,
+)
 from pcileechfwgenerator.device_clone.pcileech_context import (
     PCILeechContextBuilder,
     VFIODeviceManager,
@@ -38,7 +46,6 @@ from pcileechfwgenerator.exceptions import (
 from pcileechfwgenerator.pci_capability.msix_bar_validator import (
     validate_msix_bar_configuration,
 )
-
 from pcileechfwgenerator.string_utils import (
     log_debug_safe,
     log_error_safe,
@@ -94,6 +101,9 @@ class PCILeechGenerationConfig:
     donor_template: Optional[Dict[str, Any]] = None
     preloaded_config_space: Optional[bytes] = None
     enable_error_injection: bool = False
+    writable_bar_fallback: bool = False
+    # Legacy FT601 PHY: leave the MMCM PHY constraints out of the board XDC.
+    ft601_legacy_phy: bool = False
     offline_capture: Optional[DonorSnapshot] = None
     # "offline" (unverified --from-capture) or "container" (host-verified).
     capture_mode: str = "offline"
@@ -190,21 +200,21 @@ class PCILeechGenerator:
         self._preloaded_config_space = getattr(
             self.config, "preloaded_config_space", None
         )
-        
+
         if self._preloaded_config_space:
             log_info_safe(
                 self.logger,
                 safe_format(
                     "Generator received preloaded config space: {size} bytes",
-                    size=len(self._preloaded_config_space)
+                    size=len(self._preloaded_config_space),
                 ),
-                prefix="PCIL"
+                prefix="PCIL",
             )
         else:
             log_info_safe(
                 self.logger,
                 "Generator has no preloaded config space - will use VFIO",
-                prefix="PCIL"
+                prefix="PCIL",
             )
 
         self.template_renderer = TemplateRenderer(self.config.template_dir)
@@ -253,14 +263,13 @@ class PCILeechGenerator:
                 interrupt_strategy,
                 interrupt_vectors,
             )
+            self._decide_msix_subsystem(template_context, config_space_data, msix_data)
 
             systemverilog_modules = self._generate_systemverilog_modules(
                 template_context
             )
 
-            firmware_components = self._generate_firmware_components(
-                template_context
-            )
+            firmware_components = self._generate_firmware_components(template_context)
 
             self._validate_generated_firmware(
                 systemverilog_modules, firmware_components
@@ -287,6 +296,70 @@ class PCILeechGenerator:
             raise
         except Exception as e:
             raise self._handle_generation_exception(e)
+
+    def _board_msix_support_error(
+        self, template_context: Dict[str, Any]
+    ) -> Optional[str]:
+        board = (
+            getattr(self.config, "board", None)
+            or template_context.get("board_name")
+            or template_context.get("board")
+        )
+        if not board:
+            return "the target board is not known"
+        try:
+            from pcileechfwgenerator.file_management.repo_manager import RepoManager
+
+            board_dir = RepoManager.get_board_path(str(board))
+        except Exception:  # unknown board or missing submodule
+            board_dir = None
+        return board_msix_support_error(board_dir)
+
+    def _decide_msix_subsystem(
+        self,
+        template_context: Dict[str, Any],
+        config_space_data: Dict[str, Any],
+        msix_data: Optional[Dict[str, Any]],
+    ) -> MsixSubsystemPlan:
+        """Decide once whether MSI-X is generated; record it in the context.
+
+        The BAR controller template and the hard IP override both read this
+        record (see device_clone.msix_subsystem), so they cannot disagree.
+        """
+        plan = plan_msix_subsystem(
+            {
+                "template_context": template_context,
+                "config_space_data": config_space_data or {},
+                "msix_data": msix_data,
+            },
+            board_error=self._board_msix_support_error(template_context),
+        )
+        template_context[MSIX_SUBSYSTEM_KEY] = plan.to_context()
+        support = plan.support()
+        interrupt_config = dict(template_context.get("interrupt_config") or {})
+        interrupt_config["strategy"] = "msix" if plan.generated else "none"
+        interrupt_config["msix_support"] = support
+        template_context["interrupt_config"] = interrupt_config
+        if plan.generated:
+            log_info_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X subsystem generated: {vectors} vectors, table and PBA "
+                    "served, interrupt transport present, no event producer",
+                    vectors=plan.layout.vectors,
+                ),
+                prefix="MSIX",
+            )
+        elif plan.present:
+            log_warning_safe(
+                self.logger,
+                safe_format(
+                    "MSI-X subsystem not generated because {reason}",
+                    reason=plan.reason,
+                ),
+                prefix="MSIX",
+            )
+        return plan
 
     def _assemble_generation_result(
         self,
@@ -334,9 +407,7 @@ class PCILeechGenerator:
             yield
             log_info_safe(self.logger, "Completed {step}", step=step, prefix="PCIL")
         except Exception as e:  # pragma: no cover (control flow wrapper)
-            if allow_fallback and self.fallback_manager.confirm_fallback(
-                step, str(e)
-            ):
+            if allow_fallback and self.fallback_manager.confirm_fallback(step, str(e)):
                 log_warning_safe(
                     self.logger,
                     safe_format(
@@ -373,9 +444,7 @@ class PCILeechGenerator:
                 duration=self.config.behavior_capture_duration
             )
 
-            pattern_analysis = self.behavior_profiler.analyze_patterns(
-                behavior_profile
-            )
+            pattern_analysis = self.behavior_profiler.analyze_patterns(behavior_profile)
 
             behavior_profile.pattern_analysis = pattern_analysis
 
@@ -429,8 +498,10 @@ class PCILeechGenerator:
 
         try:
             # Avoids redundant VFIO binding when host already collected data
-            if (hasattr(self, '_preloaded_config_space') and
-                self._preloaded_config_space):
+            if (
+                hasattr(self, "_preloaded_config_space")
+                and self._preloaded_config_space
+            ):
                 log_info_safe(
                     self.logger,
                     "Using pre-collected configuration space data from host",
@@ -438,9 +509,7 @@ class PCILeechGenerator:
                 )
                 config_space_bytes = self._preloaded_config_space
             else:
-                config_space_bytes = (
-                    self.config_space_manager.read_vfio_config_space()
-                )
+                config_space_bytes = self.config_space_manager.read_vfio_config_space()
             return self._process_config_space_bytes(config_space_bytes)
         except (OSError, IOError) as e:
             log_error_safe(
@@ -489,10 +558,8 @@ class PCILeechGenerator:
     def _process_config_space_bytes(self, config_space_bytes: bytes) -> Dict[str, Any]:
         """Process raw config space bytes into the structured dict used downstream."""
         if not config_space_bytes or len(config_space_bytes) == 0:
-            raise PCILeechGenerationError(
-                "Configuration space is empty"
-            )
-        
+            raise PCILeechGenerationError("Configuration space is empty")
+
         cfg_len = len(config_space_bytes)
         if cfg_len not in (256, 4096):
             is_power_of_two = (cfg_len & (cfg_len - 1)) == 0 and cfg_len > 0
@@ -508,7 +575,7 @@ class PCILeechGenerator:
                 prefix="CFG",
             )
             # Don't fail, but warn - some devices might have unusual sizes
-        
+
         if getattr(self, "offline_capture", None) is not None:
             from pcileechfwgenerator.host_collect.offline import captured_bars
             from pcileechfwgenerator.host_collect.snapshot import device_identity
@@ -554,12 +621,8 @@ class PCILeechGenerator:
             "class_code": format(device_info.get("class_code", 0), "06x"),
             "revision_id": format(device_info.get("revision_id", 0), "02x"),
             # None = no subsystem registers (type-1 header); 0 is donor data.
-            "subsystem_vendor_id": _hex_or_none(
-                device_info.get("subsystem_vendor_id")
-            ),
-            "subsystem_device_id": _hex_or_none(
-                device_info.get("subsystem_device_id")
-            ),
+            "subsystem_vendor_id": _hex_or_none(device_info.get("subsystem_vendor_id")),
+            "subsystem_device_id": _hex_or_none(device_info.get("subsystem_device_id")),
             "bars": device_info.get("bars", []),
             "config_space_size": len(config_space_bytes),
         }
@@ -677,9 +740,7 @@ class PCILeechGenerator:
                 interrupt_strategy=interrupt_strategy,
                 interrupt_vectors=interrupt_vectors,
                 donor_template=self.config.donor_template,
-                enable_mmio_learning=getattr(
-                    self.config, "enable_mmio_learning", True
-                ),
+                enable_mmio_learning=getattr(self.config, "enable_mmio_learning", True),
                 force_recapture=getattr(self.config, "force_recapture", False),
             )
 
@@ -825,14 +886,12 @@ class PCILeechGenerator:
         try:
             from pcileechfwgenerator.file_management.repo_manager import RepoManager
 
-            board = template_context.get(
-                "board_name"
-            ) or template_context.get("board")
+            board = template_context.get("board_name") or template_context.get("board")
             if not board:
                 raise PCILeechGenerationError(
                     "Cannot copy constraint files: board name not specified"
                 )
-            
+
             output_dir = Path(
                 template_context.get("output_dir", self.config.output_dir)
             )
@@ -841,23 +900,23 @@ class PCILeechGenerator:
                 self.logger,
                 safe_format(
                     "Copying XDC constraint files for board {board} from submodule",
-                    board=board
+                    board=board,
                 ),
-                prefix="PCIL"
+                prefix="PCIL",
             )
-            
+
             repo_path = RepoManager.ensure_repo()
             xdc_files = RepoManager.get_xdc_files(board, repo_root=repo_path)
-            
+
             if not output_dir.exists():
                 log_warning_safe(
                     self.logger,
                     safe_format(
                         "Output directory does not exist: {path}, "
                         "attempting to create",
-                        path=output_dir
+                        path=output_dir,
                     ),
-                    prefix="PCIL"
+                    prefix="PCIL",
                 )
                 try:
                     output_dir.mkdir(parents=True, exist_ok=True)
@@ -871,10 +930,10 @@ class PCILeechGenerator:
                             "or: sudo mkdir -p {path} && "
                             "sudo chown $(id -u):$(id -g) {path}",
                             path=output_dir,
-                            parent=output_dir.parent
+                            parent=output_dir.parent,
                         )
                     ) from e
-            
+
             # os.access() can give false negatives with sudo/root, test directly
             test_file = output_dir / ".write_test"
             try:
@@ -886,13 +945,13 @@ class PCILeechGenerator:
                 try:
                     stat_info = output_dir.stat()
                     current_uid = os.getuid()
-                    
+
                     in_container = (
-                        os.path.exists("/.dockerenv") or
-                        os.path.exists("/run/.containerenv") or
-                        os.getenv("container") is not None
+                        os.path.exists("/.dockerenv")
+                        or os.path.exists("/run/.containerenv")
+                        or os.getenv("container") is not None
                     )
-                    
+
                     if current_uid == 0 and in_container:
                         # Running as root in container - likely mount issue
                         error_msg = safe_format(
@@ -902,7 +961,7 @@ class PCILeechGenerator:
                             "or ensure volume is mounted with write permissions. "
                             "Directory mode: {mode}",
                             path=output_dir,
-                            mode=oct(stat_info.st_mode)
+                            mode=oct(stat_info.st_mode),
                         )
                     elif current_uid == 0:
                         # Running as root - permission issue is unexpected
@@ -911,7 +970,7 @@ class PCILeechGenerator:
                             "Directory mode: {mode}. "
                             "Check for read-only mount or filesystem issue.",
                             path=output_dir,
-                            mode=oct(stat_info.st_mode)
+                            mode=oct(stat_info.st_mode),
                         )
                     else:
                         # Not running as root - suggest ownership fix
@@ -919,24 +978,24 @@ class PCILeechGenerator:
                             "uid={uid} gid={gid} mode={mode}",
                             uid=stat_info.st_uid,
                             gid=stat_info.st_gid,
-                            mode=oct(stat_info.st_mode)
+                            mode=oct(stat_info.st_mode),
                         )
                         error_msg = safe_format(
                             "Output directory {path} is not writable. "
                             "Current ownership: {owner}. "
                             "Fix with: sudo chown -R $(id -u):$(id -g) {path}",
                             path=output_dir,
-                            owner=owner_info
+                            owner=owner_info,
                         )
                 except Exception:
                     error_msg = safe_format(
                         "Output directory {path} is not writable: {error}",
                         path=output_dir,
-                        error=e
+                        error=e,
                     )
-                
+
                 raise PCILeechGenerationError(error_msg) from e
-            
+
             constraints_dir = output_dir / "constraints"
             try:
                 constraints_dir.mkdir(parents=True, exist_ok=True)
@@ -953,14 +1012,15 @@ class PCILeechGenerator:
                         owner=(
                             f"uid={output_dir.stat().st_uid} "
                             f"gid={output_dir.stat().st_gid}"
-                        )
+                        ),
                     )
                 ) from e
-            
+
             result = {}
             for xdc_file in xdc_files:
                 dest_file = constraints_dir / xdc_file.name
                 import shutil
+
                 try:
                     shutil.copy2(xdc_file, dest_file)
                 except PermissionError as e:
@@ -970,115 +1030,95 @@ class PCILeechGenerator:
                             "Permission denied. "
                             "Directory permissions: {perms}",
                             dest=dest_file,
-                            perms=oct(constraints_dir.stat().st_mode)
+                            perms=oct(constraints_dir.stat().st_mode),
                         )
                     ) from e
                 result[xdc_file.name] = str(dest_file)
-                
+
                 log_info_safe(
                     self.logger,
-                    safe_format(
-                        "Copied constraint file: {name}",
-                        name=xdc_file.name
-                    ),
-                    prefix="PCIL"
+                    safe_format("Copied constraint file: {name}", name=xdc_file.name),
+                    prefix="PCIL",
                 )
-            
+
             log_info_safe(
                 self.logger,
                 safe_format(
                     "Copied {count} XDC constraint files from submodule",
-                    count=len(result)
+                    count=len(result),
                 ),
-                prefix="PCIL"
+                prefix="PCIL",
             )
-            
+
             return result
-            
+
         except ImportError as e:
             raise PCILeechGenerationError(
                 safe_format(
-                    "FileManager/RepoManager unavailable for XDC copying: {err}",
-                    err=e
+                    "FileManager/RepoManager unavailable for XDC copying: {err}", err=e
                 )
             ) from e
         except Exception as e:
             raise PCILeechGenerationError(
                 safe_format(
-                    "Failed to copy XDC constraint files from submodule: {err}",
-                    err=e
+                    "Failed to copy XDC constraint files from submodule: {err}", err=e
                 )
             ) from e
 
     def _copy_tcl_scripts(self, template_context: Dict[str, Any]) -> Dict[str, str]:
-        """Copy static TCL build scripts from voltcyclone-fpga submodule."""
+        """Copy the board IP definitions from the voltcyclone-fpga submodule.
+
+        Board ``vivado_*.tcl`` scripts are not staged: ``build_all.tcl`` is the
+        only Stage 3 entry. The ``tcl_scripts`` key is kept in the components
+        dict for compatibility.
+        """
         try:
             from pcileechfwgenerator.file_management.file_manager import FileManager
 
             board = template_context.get("board_name") or template_context.get("board")
             if not board:
                 raise PCILeechGenerationError(
-                    "Cannot copy TCL scripts: board name not specified in context"
+                    "Cannot copy IP files: board name not specified in context"
                 )
 
-            output_dir = Path(template_context.get("output_dir", self.config.output_dir))
+            output_dir = Path(
+                template_context.get("output_dir", self.config.output_dir)
+            )
             fm = FileManager(output_dir=output_dir)
 
             log_info_safe(
                 self.logger,
                 safe_format(
-                    "Copying static TCL scripts for board {board} from voltcyclone-fpga submodule",
-                    board=board
-                ),
-                prefix="PCIL"
-            )
-            
-            tcl_paths = fm.copy_vivado_tcl_scripts(board=board)
-
-            log_info_safe(
-                self.logger,
-                safe_format(
                     "Copying IP files for board {board} from voltcyclone-fpga",
-                    board=board
+                    board=board,
                 ),
-                prefix="PCIL"
+                prefix="PCIL",
             )
-            
+
             ip_paths = fm.copy_ip_files(board=board)
 
             result = {}
-            for path in tcl_paths:
-                script_name = path.name
-                result[script_name] = str(path)
-
             for path in ip_paths:
                 ip_name = path.name
                 result[ip_name] = str(path)
-            
+
             log_info_safe(
                 self.logger,
                 safe_format(
-                    "Copied {count} files from submodule (TCL + IP)",
-                    count=len(result)
+                    "Copied {count} IP files from submodule", count=len(result)
                 ),
-                prefix="PCIL"
+                prefix="PCIL",
             )
-            
+
             return result
-            
+
         except ImportError as e:
             raise PCILeechGenerationError(
-                safe_format(
-                    "FileManager unavailable for TCL copying: {err}",
-                    err=e
-                )
+                safe_format("FileManager unavailable for IP copying: {err}", err=e)
             ) from e
         except Exception as e:
             raise PCILeechGenerationError(
-                safe_format(
-                    "Failed to copy TCL scripts from submodule: {err}",
-                    err=e
-                )
+                safe_format("Failed to copy IP files from submodule: {err}", err=e)
             ) from e
 
     def _generate_writemask_coe(
@@ -1381,7 +1421,7 @@ class PCILeechGenerator:
             missing_overlays = [
                 name for name in expected_overlays if name not in systemverilog_modules
             ]
-            
+
             if missing_overlays:
                 log_warning_safe(
                     self.logger,
@@ -1677,6 +1717,7 @@ class PCILeechGenerator:
 
         except Exception as e:
             from pcileechfwgenerator.error_utils import extract_root_cause
+
             root_cause = extract_root_cause(e)
             log_warning_safe(
                 self.logger,
@@ -1734,6 +1775,7 @@ class PCILeechGenerator:
             table_offset = int(msix_data.get("table_offset", 0))
         except Exception as e:
             from pcileechfwgenerator.error_utils import extract_root_cause
+
             root_cause = extract_root_cause(e)
             log_warning_safe(
                 self.logger,

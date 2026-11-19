@@ -6,13 +6,66 @@ Unit tests for MSI-X Capability Parser with enhanced 64-bit BAR support and exte
 from unittest.mock import patch
 
 import pytest
-
 from pcileechfwgenerator.device_clone.msix_capability import (
     find_cap,
-    generate_msix_capability_registers, generate_msix_table_sv, hex_to_bytes,
-    is_valid_offset, msix_size, parse_bar_info_from_config_space,
-    parse_msix_capability, read_u8, read_u16_le, read_u32_le,
-    validate_msix_configuration, validate_msix_configuration_enhanced)
+    generate_msix_capability_registers,
+    generate_msix_table_sv,
+    hex_to_bytes,
+    is_valid_offset,
+    msix_size,
+    parse_bar_info_from_config_space,
+    parse_msix_capability,
+    read_u8,
+    read_u16_le,
+    read_u32_le,
+    validate_msix_configuration,
+    validate_msix_configuration_enhanced,
+)
+
+
+@pytest.mark.parametrize("vectors,pba_bytes", [(1, 8), (64, 8), (65, 16), (2048, 256)])
+@pytest.mark.parametrize("mode", ["legacy", "enhanced_fallback", "enhanced_bar"])
+def test_validation_uses_qword_pba_extent(vectors, pba_bytes, mode):
+    info = dict(
+        table_size=vectors, table_bir=0, table_offset=pba_bytes, pba_bir=0, pba_offset=0
+    )
+    bars = (
+        [{"index": 0, "size": 0x10000, "is_64bit": False}]
+        if mode == "enhanced_bar"
+        else []
+    )
+    with patch(
+        "pcileechfwgenerator.device_clone.msix_capability.parse_bar_info_from_config_space",
+        return_value=bars,
+    ):
+
+        def validate():
+            if mode == "legacy":
+                return validate_msix_configuration(info)
+            return validate_msix_configuration_enhanced(info, bytes(256).hex())
+
+        # A table immediately after the QWORD-rounded PBA is disjoint.
+        assert validate() == (True, [])
+        # The last DWORD is still owned by the PBA, even for just one vector.
+        info["table_offset"] = pba_bytes - 4
+        valid, errors = validate()
+        assert not valid
+        assert any("overlap" in error for error in errors)
+
+
+@pytest.mark.parametrize("vectors,pba_bytes", [(1, 8), (64, 8), (65, 16), (2048, 256)])
+def test_enhanced_validation_checks_full_pba_bar_extent(vectors, pba_bytes):
+    info = dict(
+        table_size=vectors, table_bir=0, table_offset=0, pba_bir=0, pba_offset=0x10000
+    )
+    bars = [{"index": 0, "size": 0x10000 + pba_bytes - 4, "is_64bit": False}]
+    with patch(
+        "pcileechfwgenerator.device_clone.msix_capability.parse_bar_info_from_config_space",
+        return_value=bars,
+    ):
+        valid, errors = validate_msix_configuration_enhanced(info, bytes(256).hex())
+    assert not valid
+    assert any("PBA extends beyond BAR" in error for error in errors)
 
 
 class TestUtilityFunctions:
@@ -153,8 +206,13 @@ class TestCapabilityFinding:
     def test_find_cap_pci_infrastructure_unavailable(self):
         """Test behavior when PCI infrastructure is not available."""
         # Mock the module-level variables to simulate unavailable infrastructure
-        with patch("pcileechfwgenerator.device_clone.msix_capability.pci_find_cap", None), patch(
-            "pcileechfwgenerator.device_clone.msix_capability.find_ext_cap", None
+        with (
+            patch(
+                "pcileechfwgenerator.device_clone.msix_capability.pci_find_cap", None
+            ),
+            patch(
+                "pcileechfwgenerator.device_clone.msix_capability.find_ext_cap", None
+            ),
         ):
 
             # Create a minimal valid config space with MSI-X capability
@@ -675,7 +733,7 @@ class TestEnhancedMsixValidation:
 
     def test_enhanced_validation_valid_config(self):
         """Test enhanced validation with valid configuration.
-        
+
         Note: Since BAR size cannot be determined from config space alone
         (requires sysfs or write-back testing), this test validates that
         the basic validation passes and no errors are raised due to
@@ -694,7 +752,7 @@ class TestEnhancedMsixValidation:
         msix_info = parse_msix_capability(config_space)
 
         is_valid, errors = validate_msix_configuration_enhanced(msix_info, config_space)
-        
+
         # Should be valid - basic validation passes (alignment, BIR range, etc.)
         # Enhanced BAR-based validation is skipped when size=0 (unknown)
         assert is_valid is True, f"Validation failed with errors: {errors}"
@@ -702,7 +760,7 @@ class TestEnhancedMsixValidation:
 
     def test_enhanced_validation_table_beyond_bar(self):
         """Test enhanced validation when table extends beyond BAR.
-        
+
         Note: BAR size cannot be determined from config space alone,
         so this validation requires actual sysfs data or explicit size.
         Without known BAR size, validation passes (size=0 case).
@@ -727,7 +785,7 @@ class TestEnhancedMsixValidation:
 
     def test_enhanced_validation_64bit_bar(self):
         """Test enhanced validation with 64-bit BAR.
-        
+
         Note: Enhanced validation properly detects 64-bit BARs even though
         size cannot be determined from config space alone.
         """
@@ -747,7 +805,7 @@ class TestEnhancedMsixValidation:
         msix_info = parse_msix_capability(config_space)
 
         is_valid, errors = validate_msix_configuration_enhanced(msix_info, config_space)
-        
+
         # Should be valid - enhanced validation handles 64-bit BARs
         # Size-based validation is skipped when size is unknown
         assert is_valid is True, f"Validation failed with errors: {errors}"
@@ -823,7 +881,7 @@ class TestIntegration:
 
     def test_full_pipeline_32bit_bar(self):
         """Test full pipeline with 32-bit BAR.
-        
+
         This integration test verifies:
         1. MSI-X capability parsing
         2. BAR information extraction
