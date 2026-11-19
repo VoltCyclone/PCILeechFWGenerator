@@ -1261,17 +1261,20 @@ class TestIntegrationScenarios:
 
         builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
 
-        # Mock expensive operations - return valid BAR to avoid "No valid MMIO BARs" error
-        mock_bar = BarConfiguration(
-            index=0,
-            base_address=0xF7000000,
-            size=65536,
-            bar_type=0,
-            prefetchable=False,
-            is_memory=True,
-            is_io=False,
-        )
-        with patch.object(builder, "_get_vfio_bar_info", return_value=mock_bar):
+        # Mock the VFIO lookup. Like the real one, it answers for the BAR it
+        # was asked about, so the served-BAR check sees one record per index.
+        def vfio_bar(index, bar_data):
+            return BarConfiguration(
+                index=index,
+                base_address=bar_data["address"],
+                size=bar_data["size"],
+                bar_type=0,
+                prefetchable=bar_data["prefetchable"],
+                is_memory=bar_data["type"] == "memory",
+                is_io=bar_data["type"] == "io",
+            )
+
+        with patch.object(builder, "_get_vfio_bar_info", side_effect=vfio_bar):
             start_time = time.time()
 
             # This should use cached results where possible
