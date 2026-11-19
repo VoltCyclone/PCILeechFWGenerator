@@ -18,6 +18,7 @@ VALID_BOARD_TYPES = [
     "pcileech_75t484_x1",
     "pcileech_35t484_x1",
     "pcileech_100t484_x1",
+    "pcileech_100t484_m2",
     "pcileech_100t484_x4",
     "pcileech_35t325_x4",
     "pcileech_35t325_x1",

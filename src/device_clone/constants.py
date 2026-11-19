@@ -152,6 +152,10 @@ BOARD_PARTS = {
     "pcileech_35t325_x1": "xc7a35tcsg324-2",
     # CaptainDMA 100T x1 board: Artix-7 100T, FFG484 package, -1 speed grade.
     "pcileech_100t484_x1": "xc7a100tfgg484-1",
+    # CaptainDMA M2 100T: M.2 key-M variant of the 100T. Firmware is fully
+    # compatible with the full-size CaptainDMA 100T, so it shares the same
+    # part and project (CaptainDMA/100t484-1).
+    "pcileech_100t484_m2": "xc7a100tfgg484-1",
     # Artix-7 100T x4 board (ZDMA-style): PCIe Gen2 x4 for 1000 MB/s transfer speeds
     "pcileech_100t484_x4": "xc7a100tfgg484-1",
     # Other boards
@@ -174,6 +178,7 @@ BOARD_FALLBACKS: Final[List[str]] = [
     "pcileech_35t484_x1",
     "pcileech_75t484_x1",
     "pcileech_100t484_x1",
+    "pcileech_100t484_m2",
     "pcileech_100t484_x4",
     "pcileech_enigma_x1",
     "pcileech_squirrel",
