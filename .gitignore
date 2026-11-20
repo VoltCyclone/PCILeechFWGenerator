@@ -96,3 +96,15 @@ docs/plans/
 # Stray npm lockfile (no JS package in this repo)
 /package-lock.json
 /node_modules/
+
+# Personal editor / agent environment (keep local, never commit)
+.mcp.json
+.vscode/
+.agents/
+.codex/
+.remember/
+.superpowers/
+.claude/scheduled_tasks.lock
+.env
+.env.*
+.envrc
