@@ -6,19 +6,23 @@ This test suite validates that we generate ONLY overlay configuration files
 (.coe files) and NOT full SystemVerilog modules.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 
+import pytest
+from pcileechfwgenerator.device_clone.coe_word_order import logical_coe_to_bram
+from pcileechfwgenerator.exceptions import PCILeechGenerationError
 from pcileechfwgenerator.templating.sv_overlay_generator import SVOverlayGenerator
 from pcileechfwgenerator.templating.template_renderer import TemplateRenderError
-from pcileechfwgenerator.exceptions import PCILeechGenerationError
+
+from tests.test_extended_config import _i350_donor_hex
+from tests.test_extended_config_coe import _render
 
 
 @pytest.fixture
 def mock_renderer():
     """Create a mock template renderer."""
     renderer = Mock()
-    renderer.render_template = Mock(return_value="mock coe content")
+    renderer.render_template = Mock(return_value=_render(_i350_donor_hex()))
     return renderer
 
 
@@ -47,6 +51,7 @@ def valid_context():
             "device_id": "0x1234",
         },
         "config_space": {
+            "raw_data": _i350_donor_hex(),
             "vendor_id": "8086",
             "device_id": "1234",
             "class_code": "020000",
@@ -75,11 +80,11 @@ class TestSVOverlayGenerator:
 
         assert isinstance(result, dict)
         assert "pcileech_cfgspace.coe" in result
-        assert result["pcileech_cfgspace.coe"] == "mock coe content"
+        assert result["pcileech_cfgspace.coe"] == logical_coe_to_bram(
+            overlay_generator.renderer.render_template.return_value
+        )
 
-    def test_generate_config_space_overlay_missing_vid(
-        self, overlay_generator
-    ):
+    def test_generate_config_space_overlay_missing_vid(self, overlay_generator):
         """Test that missing vendor_id causes validation error."""
         context = {
             "device_config": {"device_id": "0x1234"},
@@ -91,9 +96,7 @@ class TestSVOverlayGenerator:
 
         assert "vendor_id" in str(exc_info.value).lower()
 
-    def test_generate_config_space_overlay_missing_did(
-        self, overlay_generator
-    ):
+    def test_generate_config_space_overlay_missing_did(self, overlay_generator):
         """Test that missing device_id causes validation error."""
         context = {
             "device_config": {"vendor_id": "0x8086"},
@@ -128,9 +131,7 @@ class TestSVOverlayGenerator:
         context_with_writemask = valid_context.copy()
         context_with_writemask["writemask_data"] = {"0x00": 0x00000000}
 
-        result = overlay_generator.generate_config_space_overlay(
-            context_with_writemask
-        )
+        result = overlay_generator.generate_config_space_overlay(context_with_writemask)
 
         assert "pcileech_cfgspace.coe" in result
         assert "pcileech_cfgspace_writemask.coe" in result
@@ -140,9 +141,7 @@ class TestSVOverlayGenerator:
         # Should not raise
         overlay_generator._validate_context(valid_context)
 
-    def test_validate_context_with_device_object(
-        self, overlay_generator
-    ):
+    def test_validate_context_with_device_object(self, overlay_generator):
         """Test context validation with device object in nested dict format."""
         context = {
             "device": {
@@ -155,9 +154,7 @@ class TestSVOverlayGenerator:
         # Should not raise - device object format supported
         overlay_generator._validate_context(context)
 
-    def test_prepare_context_adds_header(
-        self, overlay_generator, valid_context
-    ):
+    def test_prepare_context_adds_header(self, overlay_generator, valid_context):
         """Test that prepare_context adds a header."""
         prepared = overlay_generator._prepare_context(valid_context)
 
@@ -175,22 +172,23 @@ class TestSVOverlayGenerator:
 
         assert prepared["header"] == "Existing Header"
 
-    def test_generate_config_space_coe(
-        self, overlay_generator, valid_context
-    ):
+    def test_generate_config_space_coe(self, overlay_generator, valid_context):
         """Test config space .coe file generation."""
         prepared = overlay_generator._prepare_context(valid_context)
         result = overlay_generator._generate_config_space_coe(prepared)
 
-        assert result == "mock coe content"
+        # Rendered logical DWORDs are emitted in shadow-BRAM word order.
+        assert result == logical_coe_to_bram(
+            overlay_generator.renderer.render_template.return_value
+        )
         overlay_generator.renderer.render_template.assert_called_once()
 
     def test_generate_config_space_coe_template_error(
         self, overlay_generator, valid_context
     ):
         """Test handling of template rendering errors."""
-        overlay_generator.renderer.render_template.side_effect = (
-            TemplateRenderError("Template error")
+        overlay_generator.renderer.render_template.side_effect = TemplateRenderError(
+            "Template error"
         )
 
         prepared = overlay_generator._prepare_context(valid_context)
@@ -198,33 +196,25 @@ class TestSVOverlayGenerator:
         with pytest.raises(TemplateRenderError):
             overlay_generator._generate_config_space_coe(prepared)
 
-    def test_should_generate_writemask_true(
-        self, overlay_generator
-    ):
+    def test_should_generate_writemask_true(self, overlay_generator):
         """Test writemask generation decision when config_space present."""
         context = {"config_space": b"\x00" * 256}
 
         assert overlay_generator._should_generate_writemask(context) is True
 
-    def test_should_generate_writemask_false(
-        self, overlay_generator
-    ):
+    def test_should_generate_writemask_false(self, overlay_generator):
         """Test writemask generation decision when no config_space."""
         context = {}
 
         assert overlay_generator._should_generate_writemask(context) is False
 
-    def test_should_generate_writemask_empty_data(
-        self, overlay_generator
-    ):
+    def test_should_generate_writemask_empty_data(self, overlay_generator):
         """Test writemask generation decision with empty data."""
         context = {"writemask_data": {}}
 
         assert overlay_generator._should_generate_writemask(context) is False
 
-    def test_generate_writemask_coe(
-        self, overlay_generator, valid_context
-    ):
+    def test_generate_writemask_coe(self, overlay_generator, valid_context):
         """Test write mask .coe file generation."""
         result = overlay_generator._generate_writemask_coe(valid_context)
 
@@ -232,9 +222,7 @@ class TestSVOverlayGenerator:
         assert "memory_initialization_radix=16" in result
         assert "memory_initialization_vector=" in result
 
-    def test_generate_writemask_coe_format(
-        self, overlay_generator, valid_context
-    ):
+    def test_generate_writemask_coe_format(self, overlay_generator, valid_context):
         """Test write mask .coe file has correct format."""
         result = overlay_generator._generate_writemask_coe(valid_context)
 
@@ -268,9 +256,7 @@ class TestSVOverlayGenerator:
         assert isinstance(result, dict)
         assert "pcileech_cfgspace.coe" in result
 
-    def test_exception_handling_wraps_errors(
-        self, overlay_generator, valid_context
-    ):
+    def test_exception_handling_wraps_errors(self, overlay_generator, valid_context):
         """Test that template errors are wrapped in PCILeechGenerationError."""
         overlay_generator.renderer.render_template.side_effect = Exception(
             "Unexpected error"
@@ -281,9 +267,7 @@ class TestSVOverlayGenerator:
 
         assert "Overlay generation failed" in str(exc_info.value)
 
-    def test_logging_on_success(
-        self, overlay_generator, valid_context, mock_logger
-    ):
+    def test_logging_on_success(self, overlay_generator, valid_context, mock_logger):
         """Test that successful generation logs appropriately."""
         result = overlay_generator.generate_config_space_overlay(valid_context)
 
@@ -291,15 +275,13 @@ class TestSVOverlayGenerator:
         assert isinstance(result, dict)
         assert "pcileech_cfgspace.coe" in result
 
-    def test_logging_on_error(
-        self, overlay_generator, mock_logger
-    ):
+    def test_logging_on_error(self, overlay_generator, mock_logger):
         """Test that errors are logged and exception raised."""
         context = {"device_config": {}}  # Invalid context
 
         with pytest.raises(PCILeechGenerationError) as exc_info:
             overlay_generator.generate_config_space_overlay(context)
-        
+
         # Verify error message contains expected content
         assert "Missing required device identifiers" in str(exc_info.value)
 

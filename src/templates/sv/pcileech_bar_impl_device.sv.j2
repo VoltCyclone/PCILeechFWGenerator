@@ -1,425 +1,173 @@
-{{ header }}
-//
-// Device-Specific PCILeech BAR Implementation
-//
-// Auto-generated module implementing the {{ device_signature }} BAR register map.
-// This module provides device-authentic register behavior learned from the donor device.
-//
-// Register Map Summary:
-{% if bar_model and bar_model.registers %}
-{%- for offset, reg in bar_model.registers.items() | sort %}
-{%- set offset = offset | int %}
-//   0x{{ '%04X' % offset }}: {{ 'DWORD' if reg.width == 4 else ('WORD' if reg.width == 2 else 'BYTE') }} {{ 'RW' if reg.rw_mask else 'RO' }} (reset=0x{{ '%0*X' % (reg.width * 2, reg.reset) }})
-{% endfor -%}
-{% else %}
-//   (No learned register map - using fallback behavior)
+{# Validate before formatting any value or emitting storage. #}
+{% set readonly_fallback = bar_model_readonly_fallback | default(false) %}
+{% if not bar_model %}
+{{ throw_error('Device BAR implementation requires a nonempty learned register model or the read-only fallback') }}
 {% endif %}
+{% if not bar_model.registers and not readonly_fallback %}
+{{ throw_error('Device BAR implementation requires a nonempty learned register model or the read-only fallback') }}
+{% endif %}
+{# Context compatibility may stringify integer dictionary keys. #}
+{% set registers = {} %}
+{% for offset, reg in bar_model.registers.items() %}
+{% if int(offset) in registers %}{{ throw_error('Duplicate BAR register offset') }}{% endif %}
+{% set ignored = registers.update({int(offset): reg}) %}
+{% endfor %}
+{% set layout = namespace(end=0, dwords={}) %}
+{% for offset, reg in registers.items() | sort %}
+{% if reg.reset is none %}
+{{ throw_error('BAR register 0x%X has no initial value: %s' % (offset, reg.hints.get('initial_value_absent_reason', 'reason missing'))) }}
+{% endif %}
+{% if reg.width not in [1, 2, 4] or offset < 0 or offset % reg.width or offset < layout.end or offset + reg.width > bar_model.size %}
+{{ throw_error('Invalid or overlapping BAR register layout at 0x%X' % offset) }}
+{% endif %}
+{% set full_mask = 2 ** (reg.width * 8) - 1 %}
+{% if reg.reset < 0 or reg.reset > full_mask or reg.rw_mask < 0 or reg.rw_mask > full_mask %}
+{{ throw_error('BAR register value or mask exceeds width at 0x%X' % offset) }}
+{% endif %}
+{% set layout.end = offset + reg.width %}
+{% set ignored = layout.dwords.setdefault((offset // 4) * 4, []).append((offset, reg)) %}
+{% endfor %}
+{{ header | default('') }}
 //
-// Integration: Replace pcileech_bar_impl_zerowrite4k or pcileech_bar_impl_none
-//              in pcileech_tlps128_bar_controller.sv
-//
+// Device-Specific PCILeech BAR Storage Implementation
+// Auto-generated for {{ device_signature }}.
+{% if readonly_fallback %}
+// READ-ONLY FALLBACK: no learned register model exists for this BAR. Every read
+// returns zero and every write is ignored across the whole aperture. This is
+// not donor behavior; it claims nothing the evidence does not show.
+{% endif %}
+// Plain RW masks grant storage updates only. Other semantics are unsupported.
+// Unmapped read lanes return zero as an approximation, not a donor measurement.
+// Register Map Summary:
+{% for offset, reg in registers.items() | sort %}
+{% set evidence = reg.hints.get('evidence') or {} %}
+{% set source = evidence.get('initial_value_source') or 'legacy_unverified' %}
+{% set provenance = 'legacy_unverified' if 'maybe_rw1c' in reg.hints or not evidence.get('classifications') else 'evidence_backed' %}
+//   0x{{ '%04X' % offset }}: {{ 'DWORD' if reg.width == 4 else ('WORD' if reg.width == 2 else 'BYTE') }} {{ 'RW' if reg.rw_mask else 'RO storage' }} (initial=0x{{ '%0*X' % (reg.width * 2, reg.reset) }}, source={{ source | replace('\n', ' ') | replace('\r', ' ') | replace('\\', '/') }}, unknown_mask=0x{{ '%0*X' % (reg.width * 2, reg.hints.get('unknown_mask', 2 ** (reg.width * 8) - 1)) }}, provenance={{ provenance }})
+{% endfor %}
+// FPGA reset initializes storage from the recorded initial value; it does not
+// establish the donor's reset behavior. Unsupported actions are not emulated.
 
 `timescale 1ns / 1ps
 
-module pcileech_bar_impl_device #(
-    parameter BAR_SIZE = {{ bar_model.size if bar_model else 4096 }}  // BAR size in bytes
+module {{ device_bar_impl_module | default('pcileech_bar_impl_device') }} #(
+    parameter BAR_SIZE = {{ bar_model.size }}
 )(
     input               rst,
     input               clk,
-    
-    // BAR read/write interface (provided by PCILeech)
     input [31:0]        wr_addr,
     input [31:0]        wr_data,
     input [3:0]         wr_be,
     input               wr_valid,
-    
     input [87:0]        rd_req_ctx,
     input [31:0]        rd_req_addr,
     input               rd_req_valid,
-    
     output reg [87:0]   rd_rsp_ctx,
     output reg [31:0]   rd_rsp_data,
     output reg          rd_rsp_valid
-    
-    {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
-    // Interrupt control (connect to cfg registers if needed)
-    , output reg        interrupt_assert
-    , output reg [7:0]  interrupt_data
+    {% if interrupt_config and interrupt_config.strategy in ['msi', 'msix'] %}
+    , output wire       interrupt_assert
+    , output wire [7:0] interrupt_data
     {% endif %}
 );
+    // The controller passes host addresses (TLP address / upper request bits),
+    // not BAR offsets. Decode only the offset within this power-of-two BAR.
+    {% set bar_size = bar_model.size | int %}
+    {% set pow2 = namespace(ok=false) %}
+    {% for bit in range(2, 33) %}{% if 2 ** bit == bar_size %}{% set pow2.ok = true %}{% endif %}{% endfor %}
+    {% if not pow2.ok %}{{ throw_error('BAR size 0x%X is not a power of two between 4 bytes and 4 GiB' % bar_size) }}{% endif %}
+    localparam [31:0] OFFSET_MASK = 32'h{{ '%08X' % (((bar_size - 1) // 4) * 4) }};
+    wire [31:0] wr_offset = wr_addr & OFFSET_MASK;
+    wire [31:0] rd_offset = rd_req_addr & OFFSET_MASK;
 
-{% if bar_model and bar_model.registers %}
-    // ========================================================================
-    // Register Storage
-    // ========================================================================
-    
-    {% for offset, reg in bar_model.registers.items() | sort %}
-    {%- set offset = offset | int %}
-    {%- set reg_name = 'reg_0x%04X' % offset %}
-    {%- set reg_width_bits = reg.width * 8 %}
-    reg [{{ reg_width_bits - 1 }}:0] {{ reg_name }};  // Offset 0x{{ '%04X' % offset }}
+    {% for offset, reg in registers.items() | sort %}
+    reg [{{ reg.width * 8 - 1 }}:0] reg_0x{{ '%04X' % offset }};
     {% endfor %}
-    
-    // ========================================================================
-    // Reset Logic
-    // ========================================================================
-    
-    // ========================================================================
-    // Reset and Write Logic (single always block to avoid multiple drivers)
-    // ========================================================================
 
+    // Reset and plain storage writes have one owner. Each DWORD is decoded once.
     always @(posedge clk) begin
         if (rst) begin
-            {% for offset, reg in bar_model.registers.items() | sort %}
-            {%- set offset = offset | int %}
-            {%- set reg_name = 'reg_0x%04X' % offset %}
-            {{ reg_name }} <= {{ reg.width * 8 }}'h{{ '%0*X' % (reg.width * 2, reg.reset) }};
+            {% for offset, reg in registers.items() | sort %}
+            reg_0x{{ '%04X' % offset }} <= {{ reg.width * 8 }}'h{{ '%0*X' % (reg.width * 2, reg.reset) }};
             {% endfor %}
-            {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
-            interrupt_assert <= 1'b0;
-            interrupt_data <= 8'h00;
-            {% endif %}
         end
         else if (wr_valid) begin
-            case (wr_addr[31:0] & 32'hFFFFFFFC)  // Align to DWORD boundary
-                {% for offset, reg in bar_model.registers.items() | sort %}
-                {%- set offset = offset | int %}
-                {%- if reg.rw_mask != 0 %}
-                {%- set reg_name = 'reg_0x%04X' % offset %}
-                {%- set aligned_offset = (offset // 4) * 4 %}
-                {%- set mask_b0 = (reg.rw_mask % 256) %}
-                {%- set mask_b1 = ((reg.rw_mask // 256) % 256) %}
-                {%- set mask_b2 = ((reg.rw_mask // 65536) % 256) %}
-                {%- set mask_b3 = ((reg.rw_mask // 16777216) % 256) %}
+            case (wr_offset)
+                {% for aligned_offset, regs in layout.dwords.items() | sort %}
+                {% set writable = namespace(any=false) %}
+                {% for offset, reg in regs %}
+                {% if reg.rw_mask %}{% set writable.any = true %}{% endif %}
+                {% endfor %}
+                {% if writable.any %}
                 32'h{{ '%08X' % aligned_offset }}: begin
-                    {%- if reg.width == 4 %}
-                    // DWORD write with byte enables
-                    if (wr_be[0]) {{ reg_name }}[7:0]   <= ({{ reg_name }}[7:0]   & ~32'h{{ '%02X' % mask_b0 }}) | (wr_data[7:0]   & 32'h{{ '%02X' % mask_b0 }});
-                    if (wr_be[1]) {{ reg_name }}[15:8]  <= ({{ reg_name }}[15:8]  & ~32'h{{ '%02X' % mask_b1 }}) | (wr_data[15:8]  & 32'h{{ '%02X' % mask_b1 }});
-                    if (wr_be[2]) {{ reg_name }}[23:16] <= ({{ reg_name }}[23:16] & ~32'h{{ '%02X' % mask_b2 }}) | (wr_data[23:16] & 32'h{{ '%02X' % mask_b2 }});
-                    if (wr_be[3]) {{ reg_name }}[31:24] <= ({{ reg_name }}[31:24] & ~32'h{{ '%02X' % mask_b3 }}) | (wr_data[31:24] & 32'h{{ '%02X' % mask_b3 }});
-                    {%- elif reg.width == 2 %}
-                    // WORD write
-                    {%- set byte_offset = offset % 4 %}
-                    {%- set mask_w0 = (reg.rw_mask % 256) %}
-                    {%- set mask_w1 = ((reg.rw_mask // 256) % 256) %}
-                    {%- if byte_offset == 0 %}
-                    if (wr_be[0]) {{ reg_name }}[7:0]  <= ({{ reg_name }}[7:0]  & ~16'h{{ '%02X' % mask_w0 }}) | (wr_data[7:0]  & 16'h{{ '%02X' % mask_w0 }});
-                    if (wr_be[1]) {{ reg_name }}[15:8] <= ({{ reg_name }}[15:8] & ~16'h{{ '%02X' % mask_w1 }}) | (wr_data[15:8] & 16'h{{ '%02X' % mask_w1 }});
-                    {%- elif byte_offset == 2 %}
-                    if (wr_be[2]) {{ reg_name }}[7:0]  <= ({{ reg_name }}[7:0]  & ~16'h{{ '%02X' % mask_w0 }}) | (wr_data[23:16] & 16'h{{ '%02X' % mask_w0 }});
-                    if (wr_be[3]) {{ reg_name }}[15:8] <= ({{ reg_name }}[15:8] & ~16'h{{ '%02X' % mask_w1 }}) | (wr_data[31:24] & 16'h{{ '%02X' % mask_w1 }});
-                    {%- endif %}
-                    {%- elif reg.width == 1 %}
-                    // BYTE write
-                    {%- set byte_offset = offset % 4 %}
-                    {%- set mask_byte = (reg.rw_mask % 256) %}
-                    if (wr_be[{{ byte_offset }}]) {{ reg_name }} <= ({{ reg_name }} & ~8'h{{ '%02X' % mask_byte }}) | (wr_data[{{ byte_offset * 8 + 7 }}:{{ byte_offset * 8 }}] & 8'h{{ '%02X' % mask_byte }});
-                    {%- endif %}
+                    {% for offset, reg in regs %}
+                    {% set reg_name = 'reg_0x%04X' % offset %}
+                    {% for byte in range(reg.width) %}
+                    {% set mask = (reg.rw_mask // (2 ** (8 * byte))) % 256 %}
+                    {% set lane = offset % 4 + byte %}
+                    {% if mask %}
+                    if (wr_be[{{ lane }}]) {{ reg_name }}[{{ byte * 8 + 7 }}:{{ byte * 8 }}] <= ({{ reg_name }}[{{ byte * 8 + 7 }}:{{ byte * 8 }}] & ~8'h{{ '%02X' % mask }}) | (wr_data[{{ lane * 8 + 7 }}:{{ lane * 8 }}] & 8'h{{ '%02X' % mask }});
+                    {% endif %}
+                    {% endfor %}
+                    {% endfor %}
                 end
-                {%- endif %}
+                {% endif %}
                 {% endfor %}
                 default: begin
-                    // Unregistered writes - no action
+                    // Unregistered writes have no effect.
                 end
             endcase
         end
     end
-    
-    // ========================================================================
-    // Read Logic (2-cycle latency to match pcileech_bar_impl_zerowrite4k)
-    // ========================================================================
-    
+
+    // Two-cycle read response, composing all registers sharing a DWORD.
     reg [87:0] rd_req_ctx_d1;
     reg        rd_req_valid_d1;
     reg [31:0] rd_data_d1;
-    
-    // Cycle 1: Decode address and fetch register
-    always @(posedge clk) begin
-        rd_req_ctx_d1 <= rd_req_ctx;
-        rd_req_valid_d1 <= rd_req_valid;
-        
-        if (rd_req_valid) begin
-            case (rd_req_addr[31:0] & 32'hFFFFFFFC)  // Align to DWORD
-                {% for offset, reg in bar_model.registers.items() | sort %}
-                {%- set offset = offset | int %}
-                {%- set reg_name = 'reg_0x%04X' % offset %}
-                {%- set aligned_offset = (offset // 4) * 4 %}
-                32'h{{ '%08X' % aligned_offset }}: begin
-                    {%- if reg.width == 4 %}
-                    rd_data_d1 <= {{ reg_name }};
-                    {%- elif reg.width == 2 %}
-                    {%- set byte_offset = offset % 4 %}
-                    {%- if byte_offset == 0 %}
-                    rd_data_d1 <= { 16'h0000, {{ reg_name }} };
-                    {%- elif byte_offset == 2 %}
-                    rd_data_d1 <= { {{ reg_name }}, 16'h0000 };
-                    {%- endif %}
-                    {%- elif reg.width == 1 %}
-                    {%- set byte_offset = offset % 4 %}
-                    {%- set upper_pad = 32 - (byte_offset + 1) * 8 %}
-                    {%- set lower_pad = byte_offset * 8 %}
-                    {%- if byte_offset == 0 %}
-                    rd_data_d1 <= { 24'h0, {{ reg_name }} };
-                    {%- elif byte_offset == 3 %}
-                    rd_data_d1 <= { {{ reg_name }}, 24'h0 };
-                    {%- else %}
-                    rd_data_d1 <= { {{ upper_pad }}'h0, {{ reg_name }}, {{ lower_pad }}'h0 };
-                    {%- endif %}
-                    {%- endif %}
-                end
-                {% endfor %}
-                default: begin
-                    // Unregistered read - return 0 (safe fallback)
-                    rd_data_d1 <= 32'h00000000;
-                end
-            endcase
-        end
-        else begin
-            rd_data_d1 <= 32'h00000000;
-        end
-    end
-    
-    // Cycle 2: Output registered response
-    always @(posedge clk) begin
-        rd_rsp_ctx   <= rd_req_ctx_d1;
-        rd_rsp_valid <= rd_req_valid_d1;
-        rd_rsp_data  <= rd_data_d1;
-    end
-    
-    {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
-    // ========================================================================
-    // Interrupt Logic - Device-Authentic MSI/MSI-X Trigger Implementation
-    // ========================================================================
-    //
-    // This module implements realistic interrupt behavior based on register access
-    // patterns observed in the donor device. Interrupts are triggered on:
-    //   1. Write-1-to-Set (W1S) register writes to interrupt cause registers
-    //   2. Specific command register writes that would generate interrupts
-    //   3. Completion of operations (simulated via timer)
-    //
-    // Anti-fingerprinting: Interrupt timing includes jitter derived from
-    // device identifiers to prevent detection of emulated behavior.
-    
-    // -------------------------------------------------------------------------
-    // Interrupt State Machine
-    // -------------------------------------------------------------------------
-    localparam INT_IDLE     = 2'b00;
-    localparam INT_PENDING  = 2'b01;
-    localparam INT_ASSERT   = 2'b10;
-    localparam INT_COOLDOWN = 2'b11;
-    
-    reg [1:0]  int_state;
-    reg [1:0]  int_state_next;
-    reg [15:0] int_timer;
-    reg [7:0]  int_vector;
-    reg        int_trigger;
-    
-    // Interrupt mask register shadow (if present in bar_model)
-    reg [31:0] int_mask_shadow;
-    reg [31:0] int_status_shadow;
-    
-    // Device-specific timing seed for jitter
-    // Uses vendor_id XOR device_id for deterministic but unique timing
-    localparam [15:0] INT_TIMING_SEED = {{ "16'h%04X" % ((vendor_id|bitor(0x8086))|bitxor(device_id|bitor(0x1234))) }};
-    
-    // LFSR for interrupt timing jitter (matches tlp_latency_emulator approach)
-    reg [15:0] int_lfsr;
-    wire [15:0] int_lfsr_next = {int_lfsr[14:0], int_lfsr[15] ^ int_lfsr[13] ^ int_lfsr[12] ^ int_lfsr[10]};
-    
-    // Cooldown period after interrupt to prevent spam (16-63 cycles with jitter)
-    wire [5:0] cooldown_cycles = 6'd16 + int_lfsr[5:0];
-    
-    // -------------------------------------------------------------------------
-    // Interrupt Trigger Detection
-    // -------------------------------------------------------------------------
-    // Detect writes that should trigger interrupts based on register semantics
-    
+
     always @(posedge clk) begin
         if (rst) begin
-            int_trigger <= 1'b0;
-            int_vector <= 8'h00;
-            int_mask_shadow <= 32'hFFFFFFFF;  // Default: all interrupts masked
-            int_status_shadow <= 32'h00000000;
+            rd_req_ctx_d1 <= 88'd0;
+            rd_req_valid_d1 <= 1'b0;
+            rd_data_d1 <= 32'd0;
         end
         else begin
-            int_trigger <= 1'b0;  // Default: no trigger
-            
-            if (wr_valid) begin
-                case (wr_addr[31:0] & 32'hFFFFFFFC)
-                    {% for offset, reg in bar_model.registers.items() | sort %}
-                    {%- if reg.hints and reg.hints.get('maybe_rw1c', False) %}
-                    // RW1C register at 0x{{ '%04X' % offset }} - Write-1-to-Clear interrupt status
-                    32'h{{ '%08X' % ((offset // 4) * 4) }}: begin
-                        // Writing 1 to any bit clears that interrupt source
-                        // This updates status shadow and may trigger if enabled
-                        int_status_shadow <= int_status_shadow & ~wr_data;
+            rd_req_ctx_d1 <= rd_req_ctx;
+            rd_req_valid_d1 <= rd_req_valid;
+            rd_data_d1 <= 32'd0;
+            if (rd_req_valid) begin
+                case (rd_offset)
+                    {% for aligned_offset, regs in layout.dwords.items() | sort %}
+                    32'h{{ '%08X' % aligned_offset }}: begin
+                        {% for offset, reg in regs %}
+                        rd_data_d1[{{ (offset % 4 + reg.width) * 8 - 1 }}:{{ (offset % 4) * 8 }}] <= reg_0x{{ '%04X' % offset }};
+                        {% endfor %}
                     end
-                    {%- endif %}
                     {% endfor %}
-                    
-                    // Command/doorbell register detection
-                    // Many devices trigger interrupts on specific register writes
-                    {% for offset, reg in bar_model.registers.items() | sort %}
-                    {%- if reg.rw_mask != 0 and offset in [0x14, 0x18, 0x1C, 0x20, 0x24, 0x28, 0x2C, 0x100, 0x104, 0x108, 0x1000] %}
-                    // Potential command/doorbell register at 0x{{ '%04X' % offset }}
-                    32'h{{ '%08X' % ((offset // 4) * 4) }}: begin
-                        // Check if any interrupt is enabled (not masked)
-                        if (|(~int_mask_shadow & 32'h0000000F)) begin
-                            int_trigger <= 1'b1;
-                            int_vector <= wr_data[7:0];  // Use write data for vector selection
-                        end
-                    end
-                    {%- endif %}
-                    {% endfor %}
-                    
-                    // Interrupt mask register updates
-                    // Common offsets: 0x00D0, 0x00D4, 0x00E0, 0x002C, etc.
-                    {% for offset, reg in bar_model.registers.items() | sort %}
-                    {%- if offset in [0x00D0, 0x00D4, 0x00D8, 0x00E0, 0x002C, 0x00C0] and reg.rw_mask != 0 %}
-                    32'h{{ '%08X' % ((offset // 4) * 4) }}: begin
-                        int_mask_shadow <= wr_data;
-                    end
-                    {%- endif %}
-                    {% endfor %}
-                    
                     default: begin
-                        // No interrupt action for other registers
+                        // Unmapped reads return zero; no semantics are inferred.
                     end
                 endcase
             end
         end
     end
-    
-    // -------------------------------------------------------------------------
-    // Interrupt State Machine
-    // -------------------------------------------------------------------------
-    
+
     always @(posedge clk) begin
         if (rst) begin
-            int_state <= INT_IDLE;
-            int_timer <= 16'd0;
-            int_lfsr <= INT_TIMING_SEED;
-            interrupt_assert <= 1'b0;
-            interrupt_data <= 8'h00;
+            rd_rsp_ctx <= 88'd0;
+            rd_rsp_valid <= 1'b0;
+            rd_rsp_data <= 32'd0;
         end
         else begin
-            // Advance LFSR for timing jitter
-            int_lfsr <= int_lfsr_next;
-            
-            case (int_state)
-                INT_IDLE: begin
-                    interrupt_assert <= 1'b0;
-                    if (int_trigger) begin
-                        // Add small delay before assertion (4-19 cycles)
-                        int_timer <= {12'd0, 4'd4 + int_lfsr[3:0]};
-                        int_state <= INT_PENDING;
-                    end
-                end
-                
-                INT_PENDING: begin
-                    if (int_timer == 16'd0) begin
-                        interrupt_assert <= 1'b1;
-                        interrupt_data <= int_vector;
-                        // Keep asserted for 1-4 cycles (realistic pulse width)
-                        int_timer <= {14'd0, 2'd1 + int_lfsr[1:0]};
-                        int_state <= INT_ASSERT;
-                    end
-                    else begin
-                        int_timer <= int_timer - 16'd1;
-                    end
-                end
-                
-                INT_ASSERT: begin
-                    if (int_timer == 16'd0) begin
-                        interrupt_assert <= 1'b0;
-                        interrupt_data <= 8'h00;
-                        // Enter cooldown to prevent interrupt storm
-                        int_timer <= {10'd0, cooldown_cycles};
-                        int_state <= INT_COOLDOWN;
-                    end
-                    else begin
-                        int_timer <= int_timer - 16'd1;
-                    end
-                end
-                
-                INT_COOLDOWN: begin
-                    if (int_timer == 16'd0) begin
-                        int_state <= INT_IDLE;
-                    end
-                    else begin
-                        int_timer <= int_timer - 16'd1;
-                    end
-                end
-                
-                default: begin
-                    int_state <= INT_IDLE;
-                end
-            endcase
+            rd_rsp_ctx <= rd_req_ctx_d1;
+            rd_rsp_valid <= rd_req_valid_d1;
+            rd_rsp_data <= rd_data_d1;
         end
     end
-    {% endif %}
 
-{% else %}
-    // ========================================================================
-    // Fallback: No learned register map available
-    // Implement simple read/write memory behavior
-    // ========================================================================
-    
-    reg [87:0] rd_req_ctx_d1;
-    reg        rd_req_valid_d1;
-    wire [31:0] doutb;
-    
-    always @(posedge clk) begin
-        rd_req_ctx_d1   <= rd_req_ctx;
-        rd_req_valid_d1 <= rd_req_valid;
-        rd_rsp_ctx      <= rd_req_ctx_d1;
-        rd_rsp_valid    <= rd_req_valid_d1;
-        rd_rsp_data     <= doutb;
-    end
-    
-    // Use block RAM for fallback storage
-    bram_bar_zero4k i_bram_bar_fallback(
-        .addra  ( wr_addr[11:2]     ),
-        .clka   ( clk               ),
-        .dina   ( wr_data           ),
-        .ena    ( wr_valid          ),
-        .wea    ( wr_be             ),
-        .addrb  ( rd_req_addr[11:2] ),
-        .clkb   ( clk               ),
-        .doutb  ( doutb             ),
-        .enb    ( rd_req_valid      )
-    );
-    
-    {% if interrupt_config and (interrupt_config.strategy == 'msi' or interrupt_config.strategy == 'msix') %}
-    // Fallback interrupt logic - basic operation for devices without learned register map
-    // Triggers interrupt on writes to common command register offsets
-    reg [7:0] fallback_int_cooldown;
-    
-    always @(posedge clk) begin
-        if (rst) begin
-            interrupt_assert <= 1'b0;
-            interrupt_data <= 8'h00;
-            fallback_int_cooldown <= 8'd0;
-        end
-        else begin
-            if (fallback_int_cooldown > 8'd0) begin
-                fallback_int_cooldown <= fallback_int_cooldown - 8'd1;
-                interrupt_assert <= 1'b0;
-            end
-            else if (wr_valid && (wr_addr[11:2] == 10'h004 || wr_addr[11:2] == 10'h008)) begin
-                // Trigger on writes to common command/doorbell offsets (0x10, 0x20)
-                interrupt_assert <= 1'b1;
-                interrupt_data <= wr_data[7:0];
-                fallback_int_cooldown <= 8'd32;
-            end
-            else begin
-                interrupt_assert <= 1'b0;
-                interrupt_data <= 8'h00;
-            end
-        end
-    end
+    {% if interrupt_config and interrupt_config.strategy in ['msi', 'msix'] %}
+    // No supported device interrupt contract: keep the optional outputs inactive.
+    assign interrupt_assert = 1'b0;
+    assign interrupt_data = 8'h00;
     {% endif %}
-{% endif %}
-
 endmodule

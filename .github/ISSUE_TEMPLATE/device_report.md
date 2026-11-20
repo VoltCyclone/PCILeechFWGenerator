@@ -8,7 +8,7 @@ assignees: ''
 
 *Please no sensitive device identifiers in this*
 
-## 📱 Device Information
+## Device Information
 
 **Device Name/Model:**
 e.g., ACME USB3380 PCIe Adapter
@@ -22,7 +22,7 @@ e.g., USB3380, FT601, FT2232H, etc.
 **Form Factor:**
 e.g., PCIe card, USB dongle, embedded device, etc.
 
-## 💾 Firmware Information
+## Firmware Information
 
 **Firmware Version Tested:**
 e.g., v2.1.0
@@ -35,7 +35,7 @@ e.g., PCILeechFWGenerator v1.2.3
 # Paste the exact command you used to generate the firmware
 ```
 
-## ⚡ Performance Metrics
+## Performance Metrics
 
 **Read Speed (approx.):**
 e.g., 150 MB/s
@@ -46,7 +46,7 @@ e.g., 120 MB/s
 **Max Tested DMA Size:**
 e.g., 16 MB
 
-## 🔄 Compatibility
+## Compatibility
 
 **Works with PCILeech/MemProcFS:** Yes/No/Partial
 
@@ -56,16 +56,16 @@ e.g., Windows 10 21H2, Ubuntu 22.04, macOS 13.1
 **Target OS Tested:**
 e.g., Windows 11, Linux kernel 6.1, etc.
 
-## ⚠️ Issues or Limitations
+## Issues or Limitations
 
 Describe any issues, limitations, or special considerations for this device
 
-## 📎 Attachments (optional)
+## Attachments (optional)
 
 Performance test results
 Configuration details
 Screenshots of device in action
 
-## 📝 Additional Notes
+## Additional Notes
 
 Any other relevant information about this device

@@ -6,14 +6,14 @@
 -r requirements-tui.txt
 
 # Testing framework
-pytest>=7.0.0
+pytest>=9.0.3
 pytest-cov>=4.0.0
 pytest-mock>=3.10.0
-pytest-xdist>=3.0.0  # Parallel test execution
+pytest-xdist>=3.5.0  # Parallel test execution
 pytest-asyncio>=0.21.0  # Asyncio support for tests
 
 # Code formatting and linting
-black>=23.0.0
+black>=26.10.1
 isort>=5.12.0
 flake8>=6.0.0
 flake8-docstrings>=1.7.0
@@ -30,7 +30,7 @@ pre-commit>=3.0.0
 # Build and distribution
 build>=0.10.0
 twine>=4.0.0
-wheel>=0.40.0
+wheel>=0.46.2
 
 # Documentation
 sphinx>=6.0.0
@@ -38,4 +38,4 @@ sphinx-rtd-theme>=3.1.0
 
 # Security scanning
 bandit>=1.7.0
-safety>=2.3.0
+pip-audit>=2.10.1

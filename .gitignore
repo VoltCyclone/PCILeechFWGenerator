@@ -92,3 +92,7 @@ src/_version.py
 # AI-generated planning/spec docs (local working notes, not shipped)
 docs/superpowers/
 docs/plans/
+
+# Stray npm lockfile (no JS package in this repo)
+/package-lock.json
+/node_modules/

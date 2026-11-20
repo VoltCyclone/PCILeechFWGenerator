@@ -22,9 +22,8 @@ except ImportError:
     render_tcl_template = None
 
 try:
-    from .tcl_builder import BuildContext, TCLBuilder, TCLScriptBuilder, TCLScriptType
+    from .tcl_builder import BuildContext, TCLScriptBuilder, TCLScriptType
 except ImportError:
-    TCLBuilder = None
     TCLScriptBuilder = None
     TCLScriptType = None
     BuildContext = None
@@ -68,7 +67,6 @@ __all__ = [
     "TemplateRenderError",
     "render_tcl_template",
     # TCL building
-    "TCLBuilder",
     "TCLScriptBuilder",
     "TCLScriptType",
     "BuildContext",

@@ -20,21 +20,30 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import Mock, patch
 
 import pytest
-
-from pcileechfwgenerator.cli.vfio_constants import (VFIO_DEVICE_GET_REGION_INFO,
-                                    VFIO_REGION_INFO_FLAG_MMAP,
-                                    VFIO_REGION_INFO_FLAG_READ,
-                                    VFIO_REGION_INFO_FLAG_WRITE)
-from pcileechfwgenerator.device_clone.behavior_profiler import (BehaviorProfile,
-                                                RegisterAccess, TimingPattern)
-from pcileechfwgenerator.device_clone.fallback_manager import (FallbackManager,
-                                               get_global_fallback_manager)
-from pcileechfwgenerator.device_clone.pcileech_context import (BarConfiguration, ContextError,
-                                               DeviceIdentifiers,
-                                               PCILeechContextBuilder,
-                                               TemplateContext,
-                                               TimingParameters,
-                                               ValidationLevel)
+from pcileechfwgenerator.cli.vfio_constants import (
+    VFIO_DEVICE_GET_REGION_INFO,
+    VFIO_REGION_INFO_FLAG_MMAP,
+    VFIO_REGION_INFO_FLAG_READ,
+    VFIO_REGION_INFO_FLAG_WRITE,
+)
+from pcileechfwgenerator.device_clone.behavior_profiler import (
+    BehaviorProfile,
+    RegisterAccess,
+    TimingPattern,
+)
+from pcileechfwgenerator.device_clone.fallback_manager import (
+    FallbackManager,
+    get_global_fallback_manager,
+)
+from pcileechfwgenerator.device_clone.pcileech_context import (
+    BarConfiguration,
+    ContextError,
+    DeviceIdentifiers,
+    PCILeechContextBuilder,
+    TemplateContext,
+    TimingParameters,
+    ValidationLevel,
+)
 
 # ============================================================================
 # Test Data Factories
@@ -201,9 +210,11 @@ class MockBuilder:
 @contextmanager
 def mock_vfio_operations(device_fd: int = 10, container_fd: int = 11):
     """Context manager for mocking VFIO operations."""
-    with patch("pcileechfwgenerator.cli.vfio_helpers.get_device_fd") as mock_get_fd, patch(
-        "os.close"
-    ) as mock_close, patch("fcntl.ioctl") as mock_ioctl:
+    with (
+        patch("pcileechfwgenerator.cli.vfio_helpers.get_device_fd") as mock_get_fd,
+        patch("os.close") as mock_close,
+        patch("fcntl.ioctl") as mock_ioctl,
+    ):
 
         mock_get_fd.return_value = (device_fd, container_fd)
         yield mock_get_fd, mock_close, mock_ioctl
@@ -212,7 +223,9 @@ def mock_vfio_operations(device_fd: int = 10, container_fd: int = 11):
 @contextmanager
 def mock_overlay_mapper(overlay_entries: int = 2):
     """Context manager for mocking OverlayMapper."""
-    with patch("pcileechfwgenerator.device_clone.pcileech_context.OverlayMapper") as mock_overlay:
+    with patch(
+        "pcileechfwgenerator.device_clone.pcileech_context.OverlayMapper"
+    ) as mock_overlay:
         mock_instance = Mock()
         mock_instance.generate_overlay_map.return_value = {
             "OVERLAY_MAP": [(i * 4, 0xFFFFFFFF >> i) for i in range(overlay_entries)],
@@ -827,7 +840,10 @@ class TestTimingConfiguration:
         builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
 
         # Mock get_device_config to return None so we fall through to class-specific logic
-        with patch("pcileechfwgenerator.device_clone.pcileech_context.get_device_config", return_value=None):
+        with patch(
+            "pcileechfwgenerator.device_clone.pcileech_context.get_device_config",
+            return_value=None,
+        ):
             # _build_timing_config is the new method that handles timing
             timing = builder._build_timing_config(None, identifiers)
 
@@ -836,6 +852,38 @@ class TestTimingConfiguration:
 
 class TestMSIXConfiguration:
     """Tests for MSI-X configuration handling."""
+
+    @pytest.mark.parametrize("field", ["pba_offset", "pba_bir"])
+    @pytest.mark.parametrize("explicit_none", [False, True])
+    def test_missing_pba_placement_is_invalid(
+        self, mock_config, msix_data, field, explicit_none
+    ):
+        cap = msix_data["capability_info"]
+        if explicit_none:
+            cap[field] = None
+        else:
+            del cap[field]
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        context = builder._build_msix_context(msix_data)
+        assert context["is_valid"] is False
+        assert context["is_supported"] is False
+        assert context["enabled"] is False
+        assert context[field] is None
+        assert field in "; ".join(context["validation_errors"])
+        assert "MSIX_PBA_OFFSET" not in context
+
+    @pytest.mark.parametrize(
+        "vectors,expected_bytes", [(1, 8), (64, 8), (65, 16), (2048, 256)]
+    )
+    def test_pba_allocates_whole_qwords(
+        self, mock_config, msix_data, vectors, expected_bytes
+    ):
+        msix_data["capability_info"].update(table_size=vectors, pba_offset=0x10000)
+        builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
+        context = builder._build_msix_context(msix_data)
+        assert context["is_valid"] is True
+        assert context["pba_size_bytes"] == expected_bytes
+        assert context["pba_size_dwords"] == expected_bytes // 4
 
     def test_build_msix_context_enabled(self, mock_config, msix_data):
         """Test MSI-X context building with MSI-X enabled."""
@@ -1213,17 +1261,20 @@ class TestIntegrationScenarios:
 
         builder = PCILeechContextBuilder(device_bdf="0000:03:00.0", config=mock_config)
 
-        # Mock expensive operations - return valid BAR to avoid "No valid MMIO BARs" error
-        mock_bar = BarConfiguration(
-            index=0,
-            base_address=0xF7000000,
-            size=65536,
-            bar_type=0,
-            prefetchable=False,
-            is_memory=True,
-            is_io=False,
-        )
-        with patch.object(builder, "_get_vfio_bar_info", return_value=mock_bar):
+        # Mock the VFIO lookup. Like the real one, it answers for the BAR it
+        # was asked about, so the served-BAR check sees one record per index.
+        def vfio_bar(index, bar_data):
+            return BarConfiguration(
+                index=index,
+                base_address=bar_data["address"],
+                size=bar_data["size"],
+                bar_type=0,
+                prefetchable=bar_data["prefetchable"],
+                is_memory=bar_data["type"] == "memory",
+                is_io=bar_data["type"] == "io",
+            )
+
+        with patch.object(builder, "_get_vfio_bar_info", side_effect=vfio_bar):
             start_time = time.time()
 
             # This should use cached results where possible
@@ -1441,9 +1492,7 @@ def test_add_numeric_id_aliases_parses_bare_hex():
 
     from pcileechfwgenerator.device_clone import pcileech_context as ctx_mod
 
-    builder = ctx_mod.PCILeechContextBuilder.__new__(
-        ctx_mod.PCILeechContextBuilder
-    )
+    builder = ctx_mod.PCILeechContextBuilder.__new__(ctx_mod.PCILeechContextBuilder)
 
     class _Cfg:
         test_mode = False
@@ -1465,9 +1514,7 @@ def test_build_device_config_writes_subsystem_int_aliases():
 
     from pcileechfwgenerator.device_clone import pcileech_context as ctx_mod
 
-    builder = ctx_mod.PCILeechContextBuilder.__new__(
-        ctx_mod.PCILeechContextBuilder
-    )
+    builder = ctx_mod.PCILeechContextBuilder.__new__(ctx_mod.PCILeechContextBuilder)
 
     class _Cfg:
         test_mode = False

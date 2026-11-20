@@ -4,6 +4,7 @@ The patcher rewrites donor vendor/device/subsys/rev IDs into the upstream
 ``pcileech_fifo.sv`` reset block and ``_pcie_core_config`` initializer so the
 host-visible IDs reflect the donor instead of Xilinx defaults.
 """
+
 import re
 import sys
 import textwrap
@@ -21,9 +22,9 @@ from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
     _coerce_hex_id,
     apply_fifo_donor_patch,
     donor_ids_from_template_context,
+    enable_shadow_cfgspace,
     patch_pcileech_fifo,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixture FIFO content
@@ -32,8 +33,7 @@ from pcileechfwgenerator.vivado_handling.fifo_donor_patcher import (
 # Minimal upstream-shaped FIFO block carrying every anchor the patcher targets.
 # Includes the EnigmaX1-style assigns (only rst_*) so the assign-comment branch
 # is exercised separately by the captain-style fixture below.
-ENIGMAX1_FIFO = textwrap.dedent(
-    """\
+ENIGMAX1_FIFO = textwrap.dedent("""\
     module pcileech_fifo;
         reg     [79:0]      _pcie_core_config = { 4'hf, 1'b1, 1'b1, 1'b0, 1'b0, 8'h02, 16'h0666, 16'h10EE, 16'h0007, 16'h10EE };
 
@@ -46,28 +46,27 @@ ENIGMAX1_FIFO = textwrap.dedent(
                 rw[191:176] <= 16'h0666;                    // +016: CFG_DEV_ID         (NOT IMPLEMENTED)
                 rw[199:192] <= 8'h02;                       // +018: CFG_REV_ID         (NOT IMPLEMENTED)
                 rw[200]     <= 1'b1;
+                rw[203]     <= 1'b1;                        //       CFGTLP ZERO DATA
+                rw[206]     <= 1'b0;                        //       CFGTLP PCIE WRITE ENABLE
             end
 
         assign dpcie.pcie_rst_core    = _pcie_core_config[72];
         assign dpcie.pcie_rst_subsys  = _pcie_core_config[73];
     endmodule
-    """
-)
+    """)
 
 # CaptainDMA/75t484_x1 shape: same reset block + extra cfg-id assigns that the
 # upstream IfPCIeFifoCore doesn't declare. The patcher must comment those out
 # when given a header that lacks the fields.
 CAPTAIN_75T_FIFO = ENIGMAX1_FIFO.replace(
     "    assign dpcie.pcie_rst_core    = _pcie_core_config[72];",
-    textwrap.dedent(
-        """\
+    textwrap.dedent("""\
             assign dpcie.pcie_cfg_subsys_vend_id = _pcie_core_config[0+:16];
             assign dpcie.pcie_cfg_subsys_id      = _pcie_core_config[16+:16];
             assign dpcie.pcie_cfg_vend_id        = _pcie_core_config[32+:16];
             assign dpcie.pcie_cfg_dev_id         = _pcie_core_config[48+:16];
             assign dpcie.pcie_cfg_rev_id         = _pcie_core_config[64+:8];
-            assign dpcie.pcie_rst_core    = _pcie_core_config[72];"""
-    ),
+            assign dpcie.pcie_rst_core    = _pcie_core_config[72];"""),
 )
 
 # 78-bit packed initializer used by NeTV2/pciescreamer/acorn_ft2232h.
@@ -77,8 +76,7 @@ NETV2_FIFO = ENIGMAX1_FIFO.replace(
 )
 
 # Header content used to gate the cfg-id assign-comment branch.
-HEADER_WITH_CFG_FIELDS = textwrap.dedent(
-    """\
+HEADER_WITH_CFG_FIELDS = textwrap.dedent("""\
     interface IfPCIeFifoCore;
         wire        pcie_rst_core;
         wire        pcie_rst_subsys;
@@ -88,18 +86,15 @@ HEADER_WITH_CFG_FIELDS = textwrap.dedent(
         wire [15:0] pcie_cfg_dev_id;
         wire [7:0]  pcie_cfg_rev_id;
     endinterface
-    """
-)
+    """)
 
-HEADER_WITHOUT_CFG_FIELDS = textwrap.dedent(
-    """\
+HEADER_WITHOUT_CFG_FIELDS = textwrap.dedent("""\
     interface IfPCIeFifoCore;
         wire        pcie_rst_core;
         wire        pcie_rst_subsys;
         wire [15:0] drp_di;
     endinterface
-    """
-)
+    """)
 
 
 def _intel_donor() -> DonorIDs:
@@ -128,7 +123,7 @@ class TestPatchPcileechFifo:
         assert "rw[159:144] <= 16'h0001;" in out  # subsys_id
         assert "rw[175:160] <= 16'h8086;" in out  # vend
         assert "rw[191:176] <= 16'h1533;" in out  # dev
-        assert "rw[199:192] <= 8'h03;" in out     # rev
+        assert "rw[199:192] <= 8'h03;" in out  # rev
 
     def test_preserves_anchor_comments(self):
         out = patch_pcileech_fifo(ENIGMAX1_FIFO, _intel_donor())
@@ -180,13 +175,12 @@ class TestPatchPcileechFifo:
             revision_id=0x02,
         )
         out = patch_pcileech_fifo(ENIGMAX1_FIFO, same)
-        assert out == ENIGMAX1_FIFO
+        # IDs round-trip; the only rewrite is the mandatory shadow enable.
+        assert out == enable_shadow_cfgspace(ENIGMAX1_FIFO)
 
     def test_missing_anchor_raises(self):
         # Strip the +014: CFG_VEND_ID line entirely — patcher must raise.
-        broken = re.sub(
-            r".*\+014: CFG_VEND_ID.*\n", "", ENIGMAX1_FIFO
-        )
+        broken = re.sub(r".*\+014: CFG_VEND_ID.*\n", "", ENIGMAX1_FIFO)
         with pytest.raises(FifoPatchError) as exc:
             patch_pcileech_fifo(broken, _intel_donor())
         assert "+014" in str(exc.value) or "CFG_VEND_ID" in str(exc.value)
@@ -241,9 +235,9 @@ class TestCfgIdAssignsCommentBranch:
             assert assigns, f"missing line referencing {field}"
             for line in assigns:
                 stripped = line.lstrip()
-                assert stripped.startswith("//"), (
-                    f"expected line to be commented out, got: {line!r}"
-                )
+                assert stripped.startswith(
+                    "//"
+                ), f"expected line to be commented out, got: {line!r}"
 
         # Reset assigns must NOT be commented out.
         rst_lines = [
@@ -272,9 +266,9 @@ class TestCfgIdAssignsCommentBranch:
             ]
             assert assigns
             for line in assigns:
-                assert not line.lstrip().startswith("//"), (
-                    f"line should be left active, got: {line!r}"
-                )
+                assert not line.lstrip().startswith(
+                    "//"
+                ), f"line should be left active, got: {line!r}"
 
     def test_no_header_keeps_assigns(self):
         # Backward-compatible default: no header passed → no commenting.
@@ -352,11 +346,9 @@ class TestApplyFifoDonorPatch:
         # before Vivado does.
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        rogue_fifo = CAPTAIN_75T_FIFO + textwrap.dedent(
-            """
+        rogue_fifo = CAPTAIN_75T_FIFO + textwrap.dedent("""
             assign dpcie.totally_made_up_field = 1'b0;
-            """
-        )
+            """)
         (src_dir / "pcileech_fifo.sv").write_text(rogue_fifo)
         (src_dir / "pcileech_header.svh").write_text(HEADER_WITHOUT_CFG_FIELDS)
 
@@ -368,11 +360,9 @@ class TestApplyFifoDonorPatch:
         # Same rogue field, but the header declares it — no error.
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        rogue_fifo = CAPTAIN_75T_FIFO + textwrap.dedent(
-            """
+        rogue_fifo = CAPTAIN_75T_FIFO + textwrap.dedent("""
             assign dpcie.totally_made_up_field = 1'b0;
-            """
-        )
+            """)
         (src_dir / "pcileech_fifo.sv").write_text(rogue_fifo)
         (src_dir / "pcileech_header.svh").write_text(
             HEADER_WITH_CFG_FIELDS.replace(
@@ -390,7 +380,8 @@ class TestApplyFifoDonorPatch:
         # changed=False (file untouched on disk).
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
+        # Already shadow-enabled, so the Xilinx-default IDs leave nothing to do.
+        (src_dir / "pcileech_fifo.sv").write_text(enable_shadow_cfgspace(ENIGMAX1_FIFO))
         same = DonorIDs(
             vendor_id=0x10EE,
             device_id=0x0666,
@@ -558,9 +549,12 @@ class TestBuildWiring:
         # invalidate other tests' patches against it.
         import importlib
         import sys as _sys
+
         cached = _sys.modules.get("pcileechfwgenerator.build")
         builder_cls = getattr(cached, "FirmwareBuilder", None)
-        if builder_cls is None or not hasattr(builder_cls, "_patch_fifo_with_donor_ids"):
+        if builder_cls is None or not hasattr(
+            builder_cls, "_patch_fifo_with_donor_ids"
+        ):
             _sys.modules.pop("pcileechfwgenerator.build", None)
             build_module = importlib.import_module("pcileechfwgenerator.build")
         else:
@@ -584,13 +578,15 @@ class TestBuildWiring:
         # 0x8086:0x10D3 (Intel 82574L) is a real, non-placeholder donor pair.
         result = {
             "template_context": {
+                "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
                 "device_config": {
+                    "class_code": 0x020000,
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
-                }
+                },
             }
         }
 
@@ -604,6 +600,12 @@ class TestBuildWiring:
         for line in patched.splitlines():
             if "dpcie.pcie_cfg_subsys_vend_id" in line and "assign" in line:
                 assert line.lstrip().startswith("//")
+
+        # The hard-IP override carries the same donor identity. build_all.tcl
+        # sources it; no board project script is staged or edited.
+        override = (tmp_path / "pcileech_donor_ip_overrides.tcl").read_text()
+        assert "8086" in override and "10D3" in override.upper()
+        assert not list(tmp_path.glob("vivado_*.tcl"))
 
     def test_raises_without_donor_data(self, tmp_path):
         """Missing donor IDs must fail the build, not silently continue.
@@ -637,13 +639,15 @@ class TestBuildWiring:
         builder = self._make_builder(tmp_path)
         result = {
             "template_context": {
+                "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
                 "device_config": {
+                    "class_code": 0x020000,
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
-                }
+                },
             }
         }
         with pytest.raises(FifoPatchError):
@@ -658,18 +662,18 @@ class TestBuildWiring:
 @pytest.mark.parametrize(
     "value,expected",
     [
-        ("8086", 0x8086),   # bare all-digit hex must be hex, not decimal
-        ("0264", 0x0264),   # leading zero, all digits
-        ("1060", 0x1060),   # the #621 subsystem case
-        ("aaaa", 0xAAAA),   # bare hex with letters
+        ("8086", 0x8086),  # bare all-digit hex must be hex, not decimal
+        ("0264", 0x0264),  # leading zero, all digits
+        ("1060", 0x1060),  # the #621 subsystem case
+        ("aaaa", 0xAAAA),  # bare hex with letters
         ("10ec", 0x10EC),
         ("0x8086", 0x8086),  # prefixed unchanged
         ("0X1B21", 0x1B21),  # uppercase prefix
-        (0x8086, 0x8086),    # int passthrough
+        (0x8086, 0x8086),  # int passthrough
         ("", None),
         (None, None),
-        (True, None),        # bool rejected
-        ("zzzz", None),      # invalid
+        (True, None),  # bool rejected
+        ("zzzz", None),  # invalid
     ],
 )
 def test_coerce_hex_id_parses_bare_strings_as_hex(value, expected):
@@ -681,6 +685,7 @@ def test_donor_ids_subsystem_bare_hex_resolves():
     not decimal-misparsed 0x0424 (#621)."""
     ctx = {
         "device_config": {
+            "class_code": 0x020000,
             "vendor_id": "1b21",
             "device_id": "1060",
             "subsystem_vendor_id": "1043",

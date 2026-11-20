@@ -11,9 +11,9 @@ import importlib
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -234,18 +234,18 @@ def install_requirements(requirements_file):
             print(
                 "Warning: Installing to system Python (consider using a virtual environment)\n"
                 "Note: Python 3.12+/Debian 12+ may show 'externally-managed-environment' errors.\n"
-                "See docs/installation-python312.md for details."
+                "See site/docs/installation-python312.md for details."
             )
 
             # Ask for confirmation for system-wide install
             if os.getenv("PCILEECH_AUTO_INSTALL") != "1":
                 if not _is_interactive_stdin():
-                    print("Non-interactive shell; refusing to install to system Python.")
+                    print(
+                        "Non-interactive shell; refusing to install to system Python."
+                    )
                     return False
                 confirm = (
-                    input("\nInstall to system Python anyway? [y/N]: ")
-                    .strip()
-                    .lower()
+                    input("\nInstall to system Python anyway? [y/N]: ").strip().lower()
                 )
                 if confirm not in ("y", "yes"):
                     print(
@@ -289,7 +289,9 @@ def install_requirements(requirements_file):
                     "See: site/docs/installation-python312.md for detailed instructions"
                 )
             else:
-                print(f"\nTry installing manually:\n  pip install -r {requirements_file}")
+                print(
+                    f"\nTry installing manually:\n  pip install -r {requirements_file}"
+                )
 
             return False
 
@@ -309,19 +311,21 @@ def install_requirements(requirements_file):
 
 def check_critical_imports():
     """Check for imports that are absolutely required for basic functionality.
-    
+
     Only checks TUI dependencies if the 'tui' command is being used.
     """
     # Check if user is trying to run TUI command
     is_tui_command = len(sys.argv) > 1 and sys.argv[1] == "tui"
-    
+
     critical_packages = {
         "psutil": "System information (install with: pip install psutil)",
     }
-    
+
     # Only require textual/rich for TUI command
     if is_tui_command:
-        critical_packages["textual"] = "TUI functionality (install with: pip install textual)"
+        critical_packages["textual"] = (
+            "TUI functionality (install with: pip install textual)"
+        )
         critical_packages["rich"] = "Rich text display (install with: pip install rich)"
 
     missing_critical = []
@@ -345,9 +349,7 @@ def safe_import_with_fallback(module_name, fallback_msg=None):
                 f"Error: Required module '{module_name}' not available\n"
                 f"  Install with: pip install {module_name}"
             )
-        raise RequirementsError(
-            f"Missing required module: {module_name}"
-        ) from e
+        raise RequirementsError(f"Missing required module: {module_name}") from e
 
 
 # Early requirements check before any other imports
@@ -422,7 +424,7 @@ def check_vfio_requirements():
                 log_warning_safe(
                     logger,
                     "VFIO modules not loaded. Run: sudo modprobe vfio vfio-pci",
-                    prefix="VFIO"
+                    prefix="VFIO",
                 )
                 return False
     except (FileNotFoundError, PermissionError, OSError):
@@ -447,23 +449,25 @@ def rebuild_vfio_constants():
     """Rebuild VFIO constants using the build script."""
     logger = get_logger(__name__)
     script = project_root / "build_vfio_constants.sh"
-    
+
     if not script.exists():
         log_warning_safe(
-            logger, 
-            safe_format("VFIO constants script missing: {script}", script=script), 
-            prefix="VFIO"
+            logger,
+            safe_format("VFIO constants script missing: {script}", script=script),
+            prefix="VFIO",
         )
         return False
-    
+
     if not os.access(script, os.X_OK):
         log_warning_safe(
             logger,
-            safe_format("VFIO constants script not executable: {script}", script=script),
-            prefix="VFIO"
+            safe_format(
+                "VFIO constants script not executable: {script}", script=script
+            ),
+            prefix="VFIO",
         )
         return False
-    
+
     try:
         result = subprocess.run(
             [str(script)],
@@ -506,12 +510,21 @@ def rebuild_vfio_constants():
     except (OSError, PermissionError) as e:
         log_warning_safe(
             logger,
-            safe_format(
-                "VFIO constants script execution error: {error}", error=str(e)
-            ),
+            safe_format("VFIO constants script execution error: {error}", error=str(e)),
             prefix="VFIO",
         )
         return False
+
+
+def vivado_job_count(value: str) -> int:
+    """Parse a positive Vivado launch_runs job count."""
+    try:
+        jobs = int(value)
+    except ValueError:
+        jobs = 0
+    if jobs < 1:
+        raise argparse.ArgumentTypeError("vivado-jobs must be a positive integer")
+    return jobs
 
 
 def profile_seconds(value: str) -> float:
@@ -636,6 +649,19 @@ Environment Variables:
     )
     collect_parser.add_argument("--bdf", required=True)
     collect_parser.add_argument("--output", required=True)
+    collect_parser.add_argument(
+        "--no-mmio-learning",
+        action="store_true",
+        help="Skip tracing the native driver (no rebind, no CPU offlining)",
+    )
+    collect_parser.add_argument(
+        "--no-mmio-exercise",
+        action="store_true",
+        help=(
+            "Trace only the driver probe; do not exercise the device "
+            "(link up/down, block reads, runtime suspend) during capture"
+        ),
+    )
     for action in ("validate", "import"):
         action_parser = capture_actions.add_parser(action)
         action_parser.add_argument("--input", required=True)
@@ -682,6 +708,24 @@ Environment Variables:
         help="Legacy override (unsupported; omit this option)",
     )
     build_parser.add_argument(
+        "--writable-bar-fallback",
+        action="store_true",
+        help=(
+            "Opt out of the read-only fallback for a served BAR with no learned "
+            "register model: emulate generic writable RAM (zerowrite4k, aliases "
+            "every 4 KiB) instead. Not donor behavior."
+        ),
+    )
+    build_parser.add_argument(
+        "--ft601-legacy-phy",
+        action="store_true",
+        help=(
+            "Build the legacy FT601 PHY (FT601_PHY_MMCM=0) instead of the "
+            "MMCM-compensated one, and leave its constraints out. Only for "
+            "boards with the MMCM FT601 PHY (CaptainDMA 100T)."
+        ),
+    )
+    build_parser.add_argument(
         "--enable-error-injection",
         action="store_true",
         help=(
@@ -722,7 +766,7 @@ Environment Variables:
     )
     build_parser.add_argument(
         "--vivado-jobs",
-        type=int,
+        type=vivado_job_count,
         default=4,
         help="Number of parallel jobs for Vivado builds (default: 4)",
     )
@@ -751,6 +795,14 @@ Environment Variables:
         "--no-mmio-learning",
         action="store_true",
         help="Disable MMIO trace capture for BAR register learning",
+    )
+    build_parser.add_argument(
+        "--no-mmio-exercise",
+        action="store_true",
+        help=(
+            "Trace only the driver probe; do not exercise the device "
+            "(link up/down, block reads, runtime suspend) during capture"
+        ),
     )
     build_parser.add_argument(
         "--force-recapture",
@@ -834,6 +886,9 @@ def main():
     # Parse args early to check for skip flag
     parser = create_parser()
     args = parser.parse_args()
+    if getattr(args, "no_mmio_exercise", False):
+        # Read by the host-collection observer, in-process or in children.
+        os.environ["PCILEECH_MMIO_EXERCISE"] = "0"
 
     # Skip requirements check if requested
     offline_request = bool(getattr(args, "from_capture", None)) or (
@@ -948,16 +1003,21 @@ def main():
 
 def handle_capture(args: argparse.Namespace) -> int:
     """Execute explicit collection or pure capture validation/import."""
+    from pcileechfwgenerator.host_collect.collector import HostCollector
     from pcileechfwgenerator.host_collect.offline import (
         import_capture,
         load_offline_capture,
     )
-    from pcileechfwgenerator.host_collect.collector import HostCollector
 
     try:
         if args.capture_action == "collect":
             directory = Path(args.output).expanduser().resolve()
-            rc = HostCollector(args.bdf, directory, complete_capture=True).run()
+            rc = HostCollector(
+                args.bdf,
+                directory,
+                complete_capture=True,
+                enable_mmio_learning=not args.no_mmio_learning,
+            ).run()
             if rc:
                 return rc
             load_offline_capture(directory, args.bdf)
@@ -1102,6 +1162,7 @@ def handle_build(args):
         return 1
     except Exception as e:
         from pcileechfwgenerator.error_utils import log_error_with_root_cause
+
         log_error_with_root_cause(logger, "Build failed", e)
         return 1
 
@@ -1109,6 +1170,7 @@ def handle_build(args):
 # ──────────────────────────────────────────────────────────────────────────────
 # Orchestration helpers: host collect → templating (container/local) → Vivado
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def run_host_collect(args):
     """Stage 1: probe device and write datastore on the host."""
@@ -1147,7 +1209,9 @@ def run_host_collect(args):
         enable_mmio_learning=enable_mmio_learning,
         force_recapture=force_recapture,
         complete_capture=True,
-        strict_offline_resources=False,
+        # Every Stage 2 render (local, container, offline) reads BAR lengths
+        # from the capture, so a capture without them is a Stage 1 failure.
+        strict_offline_resources=True,
     )
     rc = collector.run()
     if rc == 0:
@@ -1164,7 +1228,10 @@ def _ensure_container_image(runtime: str, logger, tag: str = "pcileech-fwgen") -
     try:
         log_info_safe(
             logger,
-            safe_format("Building container image: {tag} (always rebuilds for consistency)", tag=tag),
+            safe_format(
+                "Building container image: {tag} (always rebuilds for consistency)",
+                tag=tag,
+            ),
             prefix="BUILD",
         )
         build = subprocess.run(
@@ -1206,7 +1273,7 @@ def run_container_templating(args):
     log_info_safe(
         logger,
         "Stage 2: Template generation from collected device data",
-        prefix="BUILD"
+        prefix="BUILD",
     )
 
     # Resolve mode (logging happens in helper functions)
@@ -1215,7 +1282,7 @@ def run_container_templating(args):
             log_error_safe(
                 logger,
                 "Container mode requested but no podman/docker available",
-                prefix="BUILD"
+                prefix="BUILD",
             )
             return 1
         use_container = True
@@ -1234,17 +1301,13 @@ def run_container_templating(args):
             logger,
             safe_format(
                 "Using container mode with {rt} (VFIO not needed - using host data)",
-                rt=runtime
+                rt=runtime,
             ),
-            prefix="BUILD"
+            prefix="BUILD",
         )
         return _run_in_container(args, runtime, datastore, output_dir, logger)
     else:
-        log_info_safe(
-            logger,
-            "Using local mode (direct execution)",
-            prefix="BUILD"
-        )
+        log_info_safe(logger, "Using local mode (direct execution)", prefix="BUILD")
         return run_local_templating(args)
 
 
@@ -1261,14 +1324,14 @@ def _choose_container_mode(runtime: str, logger) -> bool:
     """
     Choose between container and local mode in auto mode.
     Only called when both options are available.
-    
+
     Returns True for container mode, False for local mode.
     """
     # Check for non-interactive environment variables
     auto_container = os.environ.get("PCILEECH_AUTO_CONTAINER")
     no_interactive = os.environ.get("NO_INTERACTIVE")
     ci_mode = os.environ.get("CI")
-    
+
     if auto_container or no_interactive or ci_mode:
         # Log which env var triggered auto-selection
         env_vars = []
@@ -1278,17 +1341,17 @@ def _choose_container_mode(runtime: str, logger) -> bool:
             env_vars.append("NO_INTERACTIVE=1")
         if ci_mode:
             env_vars.append("CI=1")
-        
+
         log_debug_safe(
             logger,
             safe_format(
                 "Auto mode: non-interactive ({vars}), defaulting to container",
-                vars=", ".join(env_vars)
+                vars=", ".join(env_vars),
             ),
-            prefix="BUILD"
+            prefix="BUILD",
         )
         return True
-    
+
     # Interactive prompt
     print("\n" + "=" * 70)
     print("  Template Generation Mode Selection")
@@ -1305,7 +1368,7 @@ def _choose_container_mode(runtime: str, logger) -> bool:
     print("      • May have dependency conflicts")
     print("      • Less reproducible")
     print("\n" + "=" * 70)
-    
+
     while True:
         try:
             prompt = "\nSelect mode [C/L] (default: Container): "
@@ -1313,20 +1376,12 @@ def _choose_container_mode(runtime: str, logger) -> bool:
         except (EOFError, KeyboardInterrupt, OSError):
             print("\nDefaulting to container mode")
             return True
-        
+
         if choice in ("", "C", "CONTAINER"):
-            log_debug_safe(
-                logger,
-                "Auto mode: user selected container",
-                prefix="BUILD"
-            )
+            log_debug_safe(logger, "Auto mode: user selected container", prefix="BUILD")
             return True
         elif choice in ("L", "LOCAL"):
-            log_debug_safe(
-                logger,
-                "Auto mode: user selected local",
-                prefix="BUILD"
-            )
+            log_debug_safe(logger, "Auto mode: user selected local", prefix="BUILD")
             return False
         else:
             print("Invalid choice. Please enter 'C' for Container or 'L' for Local.")
@@ -1342,19 +1397,17 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     # These env vars tell the build system to use preloaded device data
     # instead of attempting VFIO operations inside the container
     log_info_safe(
-        logger,
-        "Container will use preloaded device context from host",
-        prefix="BUILD"
+        logger, "Container will use preloaded device context from host", prefix="BUILD"
     )
     log_debug_safe(
         logger,
         "Container env: PCILEECH_HOST_CONTEXT_ONLY=1 (use host data)",
-        prefix="BUILD"
+        prefix="BUILD",
     )
     log_debug_safe(
         logger,
         "Container env: PCILEECH_DISABLE_VFIO=1 (no VFIO in container)",
-        prefix="BUILD"
+        prefix="BUILD",
     )
 
     # Build command with container-specific env vars
@@ -1428,8 +1481,14 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     # Forward optional CLI flags to container so behavior matches local mode
     if getattr(args, "enable_error_injection", False):
         cmd.append("--enable-error-injection")
+    if getattr(args, "writable_bar_fallback", False):
+        cmd.append("--writable-bar-fallback")
+    if getattr(args, "ft601_legacy_phy", False):
+        cmd.append("--ft601-legacy-phy")
     if getattr(args, "no_mmio_learning", False):
         cmd.append("--no-mmio-learning")
+    if getattr(args, "no_mmio_exercise", False):
+        cmd.append("--no-mmio-exercise")
     if getattr(args, "force_recapture", False):
         cmd.append("--force-recapture")
     if getattr(args, "donor_template", None):
@@ -1469,12 +1528,17 @@ def _run_in_container(args, runtime: str, datastore: Path, output_dir: Path, log
     # Generate COE visualization report after container build completes successfully
     if result == 0:
         try:
-            from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
+            from pcileechfwgenerator.utils.coe_report import (
+                generate_coe_report_if_enabled,
+            )
+
             generate_coe_report_if_enabled(output_dir, logger=logger)
         except Exception as e:
             log_debug_safe(
                 logger,
-                safe_format("COE report generation failed (non-fatal): {err}", err=str(e)),
+                safe_format(
+                    "COE report generation failed (non-fatal): {err}", err=str(e)
+                ),
                 prefix="BUILD",
             )
 
@@ -1485,7 +1549,7 @@ def run_local_templating(args):
     """Stage 2b: run templating locally (no container)."""
     logger = get_logger(__name__)
     try:
-        from pcileechfwgenerator.build import FirmwareBuilder, ConfigurationManager
+        from pcileechfwgenerator.build import ConfigurationManager, FirmwareBuilder
     except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
@@ -1498,10 +1562,10 @@ def run_local_templating(args):
     output_dir = build_output_directory(args)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # In local mode the process has direct access to the PCI device, so
-    # do NOT set DEVICE_CONTEXT_PATH or PCILEECH_HOST_CONTEXT_ONLY which
-    # would disable VFIO operations.  Only set MSIX_DATA_PATH to allow
-    # preloading MSI-X data collected by run_host_collect.
+    # Local Stage 2 renders from the Stage 1 capture in the datastore and does
+    # not re-read the device (review F-07). Only an explicit --profile request
+    # keeps the live path, because profiling observes the running donor.
+    # DEVICE_CONTEXT_PATH / PCILEECH_HOST_CONTEXT_ONLY stay container-only.
     _env_keys = ["MSIX_DATA_PATH"]
     _saved_env = {k: os.environ.get(k) for k in _env_keys}
     os.environ["MSIX_DATA_PATH"] = str(datastore / "msix_data.json")
@@ -1514,6 +1578,12 @@ def run_local_templating(args):
             output=str(output_dir),
             profile=getattr(args, "profile", 0),
             from_capture=getattr(args, "from_capture", None),
+            capture_dir=(
+                None
+                if getattr(args, "from_capture", None)
+                or (getattr(args, "profile", 0) or 0) > 0
+                else str(datastore)
+            ),
             accept_offline_risk=getattr(args, "accept_offline_risk", False),
             preload_msix=True,
             output_template=getattr(args, "generate_donor_template", None),
@@ -1522,6 +1592,8 @@ def run_local_templating(args):
             vivado_jobs=getattr(args, "vivado_jobs", 4),
             vivado_timeout=getattr(args, "vivado_timeout", 3600),
             enable_error_injection=getattr(args, "enable_error_injection", False),
+            writable_bar_fallback=getattr(args, "writable_bar_fallback", False),
+            ft601_legacy_phy=getattr(args, "ft601_legacy_phy", False),
             no_mmio_learning=getattr(args, "no_mmio_learning", False),
             force_recapture=getattr(args, "force_recapture", False),
         )
@@ -1550,6 +1622,7 @@ def run_local_templating(args):
     # Generate COE visualization report
     try:
         from pcileechfwgenerator.utils.coe_report import generate_coe_report_if_enabled
+
         generate_coe_report_if_enabled(output_dir, logger=logger)
     except Exception as e:
         log_debug_safe(
@@ -1565,7 +1638,10 @@ def run_host_vivado(args):
     """Stage 3: host-side Vivado batch run using generated artifacts."""
     logger = get_logger(__name__)
     try:
-        from pcileechfwgenerator.vivado_handling import VivadoRunner, find_vivado_installation
+        from pcileechfwgenerator.vivado_handling import (
+            VivadoRunner,
+            find_vivado_installation,
+        )
     except (ImportError, ModuleNotFoundError) as e:
         log_error_safe(
             logger,
@@ -1601,6 +1677,7 @@ def run_host_vivado(args):
         vivado_path=vivado_path,
         logger=logger,
         device_config=None,
+        vivado_jobs=getattr(args, "vivado_jobs", 4),
     )
     runner.run()
     return 0
@@ -1779,6 +1856,7 @@ def handle_check(args):
 
             # Generate remediation script using secure temp file
             import tempfile
+
             script_text = remediation_script(report)
             fd, temp_path = tempfile.mkstemp(suffix="_vfio_fix.sh", prefix="pcileech_")
             temp = Path(temp_path)
@@ -1855,9 +1933,9 @@ def handle_check(args):
                 "VFIO diagnostics module not found. "
                 "Ensure you're running from the PCILeech project directory. "
                 "Details: {error}",
-                error=str(e)
+                error=str(e),
             ),
-            prefix="CHECK"
+            prefix="CHECK",
         )
         return 1
     except KeyboardInterrupt:
@@ -1869,6 +1947,7 @@ def handle_check(args):
         log_error_with_root_cause(logger, "VFIO check failed", e)
         if logger.isEnabledFor(logging.DEBUG):
             import traceback
+
             traceback.print_exc()
         return 1
 
@@ -1936,7 +2015,9 @@ def handle_donor_template(args):
     """Handle donor template generation."""
     logger = get_logger(__name__)
     try:
-        from pcileechfwgenerator.device_clone.donor_info_template import DonorInfoTemplateGenerator
+        from pcileechfwgenerator.device_clone.donor_info_template import (
+            DonorInfoTemplateGenerator,
+        )
 
         # If validate flag is set, validate the file instead
         if args.validate:
@@ -1946,21 +2027,26 @@ def handle_donor_template(args):
                 if is_valid:
                     log_info_safe(
                         logger,
-                        safe_format("Template file '{file}' is valid", file=args.validate),
+                        safe_format(
+                            "Template file '{file}' is valid", file=args.validate
+                        ),
                         prefix="DONOR",
                     )
                     return 0
                 else:
                     log_error_safe(
                         logger,
-                        safe_format("Template file '{file}' has validation errors:", file=args.validate),
+                        safe_format(
+                            "Template file '{file}' has validation errors:",
+                            file=args.validate,
+                        ),
                         prefix="DONOR",
                     )
                     for error in errors:
                         log_error_safe(
                             logger,
                             safe_format("  • {error}", error=error),
-                            prefix="DONOR"
+                            prefix="DONOR",
                         )
                     return 1
             except (OSError, IOError) as e:
@@ -1983,7 +2069,9 @@ def handle_donor_template(args):
         if args.bdf:
             log_info_safe(
                 logger,
-                safe_format("Generating template with device info from {bdf}", bdf=args.bdf),
+                safe_format(
+                    "Generating template with device info from {bdf}", bdf=args.bdf
+                ),
                 prefix="DONOR",
             )
             try:
@@ -1994,7 +2082,7 @@ def handle_donor_template(args):
                         logger,
                         safe_format(
                             "Failed to read device information from {bdf}. Possible causes: device does not exist, insufficient permissions (try sudo), or lspci unavailable",
-                            bdf=args.bdf
+                            bdf=args.bdf,
                         ),
                         prefix="DONOR",
                     )
@@ -2002,9 +2090,7 @@ def handle_donor_template(args):
             except subprocess.SubprocessError as e:
                 log_error_safe(
                     logger,
-                    safe_format(
-                        "Device query command failed: {error}", error=str(e)
-                    ),
+                    safe_format("Device query command failed: {error}", error=str(e)),
                     prefix="DONOR",
                 )
                 return 1
@@ -2044,7 +2130,9 @@ def handle_donor_template(args):
 
         if args.bdf:
             log_info_safe(
-                logger, "Template pre-filled with device information. Review and complete missing fields.", prefix="DONOR"
+                logger,
+                "Template pre-filled with device information. Review and complete missing fields.",
+                prefix="DONOR",
             )
         else:
             log_info_safe(
@@ -2072,8 +2160,6 @@ def handle_donor_template(args):
 
         log_error_with_root_cause(logger, "Failed to generate donor template", e)
         return 1
-
-
 
 
 if __name__ == "__main__":

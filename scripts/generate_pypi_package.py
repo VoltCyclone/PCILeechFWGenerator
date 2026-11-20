@@ -145,7 +145,7 @@ class PackageValidator:
             ("twine", "PyPI upload tool"),
             ("build", "Python build tool"),
             ("bandit", "Security scanner"),
-            ("safety", "Dependency vulnerability scanner"),
+            ("pip-audit", "Dependency vulnerability scanner"),
         ]
 
         missing_required = []
@@ -255,7 +255,7 @@ class SecurityScanner:
     @staticmethod
     def install_security_tools() -> None:
         """Install security scanning tools if not available."""
-        tools = ["bandit", "safety"]
+        tools = ["bandit", "pip-audit"]
 
         for tool in tools:
             if not shutil.which(tool):
@@ -264,31 +264,40 @@ class SecurityScanner:
 
     @staticmethod
     def run_safety_check() -> None:
-        """Check dependencies for known vulnerabilities."""
+        """Check the requirements for known vulnerabilities with pip-audit."""
         Logger.info("Checking dependencies for vulnerabilities...")
 
         try:
-            result = CommandRunner.run(["safety", "check", "--json"], check=False)
-
-            if result.returncode == 0:
+            result = CommandRunner.run(
+                [
+                    "pip-audit",
+                    "-r",
+                    "requirements.txt",
+                    "-r",
+                    "requirements-tui.txt",
+                    "-f",
+                    "json",
+                ],
+                check=False,
+            )
+            try:
+                report = json.loads(result.stdout or "{}")
+            except json.JSONDecodeError:
+                Logger.warning("Could not parse pip-audit results")
+                return
+            found = [
+                (dep.get("name", "unknown"), vuln.get("id", "unknown"))
+                for dep in report.get("dependencies", [])
+                for vuln in dep.get("vulns", [])
+            ]
+            if not found:
                 Logger.success("No known vulnerabilities found in dependencies")
-            else:
-                # Parse safety output
-                try:
-                    vulnerabilities = json.loads(result.stdout)
-                    if vulnerabilities:
-                        Logger.error(
-                            f"Found {
-                                len(vulnerabilities)} vulnerabilities:"
-                        )
-                        for vuln in vulnerabilities[:5]:  # Show first 5
-                            Logger.error(
-                                f"  - {vuln.get('package', 'Unknown')}: {vuln.get('vulnerability', 'Unknown')}"
-                            )
-                        Logger.error("Run 'safety check' for full details")
-                        sys.exit(1)
-                except json.JSONDecodeError:
-                    Logger.warning("Could not parse safety check results")
+                return
+            Logger.error(f"Found {len(found)} vulnerabilities:")
+            for name, vuln_id in found[:5]:
+                Logger.error(f"  - {name}: {vuln_id}")
+            Logger.error("Run 'pip-audit -r requirements.txt' for full details")
+            sys.exit(1)
 
         except Exception as e:
             Logger.warning(f"Vulnerability check failed: {e}")
@@ -608,10 +617,8 @@ class PackageGenerator:
         """Run the complete package generation process."""
         start_time = time.time()
 
-        Logger.info(
-            f"Starting PyPI package generation for version {
-                self.version}"
-        )
+        Logger.info(f"Starting PyPI package generation for version {
+                self.version}")
         Logger.info(f"Project root: {PROJECT_ROOT}")
 
         try:
@@ -646,10 +653,8 @@ class PackageGenerator:
 
             # Summary
             elapsed_time = time.time() - start_time
-            Logger.success(
-                f"Package generation completed successfully in {
-                    elapsed_time:.1f}s"
-            )
+            Logger.success(f"Package generation completed successfully in {
+                    elapsed_time:.1f}s")
 
             self._print_summary(distributions)
 

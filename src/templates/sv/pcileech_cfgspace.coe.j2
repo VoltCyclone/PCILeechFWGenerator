@@ -1,4 +1,4 @@
-{{ header | safe }}
+; Generated PCILeech configuration memory
 
 {# ========== Constants and Configuration ========== #}
 {% set CAP_OFFSET_PM = 0x40 %}
@@ -37,6 +37,11 @@ True
   {% if (bar.size is defined and bar.size > 0) and hasattr(bar, 'get_size_encoding') %}
 ; {{ bar_name }}: {{ bar.bar_type | default('mem') }} BAR, Size: 0x{{ "%X" % (bar.size | safe_int(0)) }} bytes
 {{ "%08X" % (bar.get_size_encoding() | safe_int(0)) }},
+  {% elif bar_config.served_bars is defined and bar.size is defined and bar.is_memory is defined %}
+{% set mask = (0xFFFFFFFF - (bar.size - 1)) | bitand(0xFFFFFFFF) %}
+{% set flags = (4 if bar.is_64bit | default(false) else 0) + (8 if bar.prefetchable | default(false) else 0) if bar.is_memory else 1 %}
+; {{ bar_name }}: served BAR, Size: 0x{{ '%X' % bar.size }} bytes
+{{ '%08X' % (mask | bitor(flags)) }},
   {% elif bar.base_address is defined %}
 ; {{ bar_name }}: Using base address
 {{ "%08X" % (bar.base_address | safe_int(0)) }},
@@ -130,6 +135,29 @@ memory_initialization_vector=
 {% set _served_idx = (bar_config.served_bar_index | default(0)) if bar_config is defined else 0 %}
 {% set _served_bar = bars[_served_pos] if (bars | length) > _served_pos else None %}
 {% set _served_64 = (bar_config.served_is_64bit | default(false)) if bar_config is defined else false %}
+{% if bar_config.served_bars is defined and (bar_config.served_bars | length > 1 or bar_config.primary_bar is not defined or bar_config.served_bar_index is not defined) %}
+{% set _served_map = {} %}
+{% set _upper_map = {} %}
+{% for bar in bar_config.served_bars %}
+{% set ignored = _served_map.update({bar.index: bar}) %}
+{% if bar.is_64bit %}{% set ignored = _upper_map.update({bar.index + 1: bar.index}) %}{% endif %}
+{% endfor %}
+{% for slot in range(6) %}
+{% if slot in _served_map %}
+{% set bar = _served_map[slot] %}
+{% set mask = (0xFFFFFFFF - (bar.size - 1)) | bitand(0xFFFFFFFF) %}
+{% set flags = (4 if bar.is_64bit else 0) + (8 if bar.prefetchable else 0) if bar.is_memory else 1 %}
+; BAR{{ slot }}: {{ bar.role }}, Size: 0x{{ '%X' % bar.size }} bytes
+{{ '%08X' % (mask | bitor(flags)) }},
+{% elif slot in _upper_map %}
+; BAR{{ slot }}: Upper 32 bits of 64-bit BAR{{ _upper_map[slot] }}
+FFFFFFFF,
+{% else %}
+; BAR{{ slot }}: Disabled
+00000000,
+{% endif %}
+{% endfor %}
+{% else %}
 {% for slot in range(6) %}
 {% if _served_bar is not none and slot == _served_idx %}
 {{ render_bar(slot, _served_bar) }}
@@ -141,6 +169,7 @@ FFFFFFFF,
 00000000,
 {% endif %}
 {% endfor %}
+{% endif %}
 
 ; Cardbus CIS Pointer (0x28-0x2B) - Unused
 00000000,

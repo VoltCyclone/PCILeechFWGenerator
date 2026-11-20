@@ -4,24 +4,16 @@ Unit tests for device-specific BAR implementation generation.
 
 Tests the complete flow from BAR model learning to SystemVerilog generation.
 
-Current Status: 11/19 tests passing
-- Core functionality is working correctly
-- Template syntax is valid
-- Serialization/deserialization pipeline functional
-- Conditional BAR controller generation working
-
-Remaining test failures are due to test fixture issues:
-- Some tests need updated context structures to match actual data flow
-- Edge case tests need adjustment for serialized format handling
 """
 
-import pytest
 from pathlib import Path  # noqa: F401
-from unittest.mock import Mock, patch, MagicMock  # noqa: F401
+from unittest.mock import MagicMock, Mock, patch  # noqa: F401
 
+import pytest
+from pcileechfwgenerator.device_clone.bar_model_loader import BarModel, RegisterSpec
+from pcileechfwgenerator.exceptions import PCILeechGenerationError, TemplateRenderError
 from pcileechfwgenerator.templating.sv_overlay_generator import SVOverlayGenerator
 from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
-from pcileechfwgenerator.device_clone.bar_model_loader import BarModel, RegisterSpec
 
 
 class TestBarImplementationGeneration:
@@ -41,9 +33,7 @@ class TestBarImplementationGeneration:
     def overlay_generator(self, template_renderer, mock_logger):
         """Provide overlay generator instance."""
         return SVOverlayGenerator(
-            renderer=template_renderer,
-            logger=mock_logger,
-            prefix="TEST"
+            renderer=template_renderer, logger=mock_logger, prefix="TEST"
         )
 
     @pytest.fixture
@@ -57,29 +47,32 @@ class TestBarImplementationGeneration:
                     width=4,
                     reset=0x12345678,
                     rw_mask=0xFFFFFFFF,
-                    hints={"name": "CONTROL"}
+                    hints={"name": "CONTROL"},
                 ),
                 0x0004: RegisterSpec(
                     offset=0x0004,
                     width=4,
                     reset=0xABCDEF00,
                     rw_mask=0xFFFF0000,
-                    hints={"name": "STATUS"}
+                    hints={"name": "STATUS"},
                 ),
                 0x0008: RegisterSpec(
                     offset=0x0008,
                     width=2,
                     reset=0x1234,
                     rw_mask=0x0000,
-                    hints={"name": "READONLY"}
+                    hints={"name": "READONLY"},
                 ),
-            }
+            },
         )
 
     @pytest.fixture
     def serialized_bar_model(self, sample_bar_model):
         """Provide serialized BAR model."""
-        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            serialize_bar_model,
+        )
+
         return serialize_bar_model(sample_bar_model)
 
     @pytest.fixture
@@ -100,14 +93,9 @@ class TestBarImplementationGeneration:
             "bar_config": {
                 "primary_bar": 0,
                 "bars": [{"size": 4096, "index": 0}],
-                "bar_models": {
-                    0: serialized_bar_model
-                }
+                "bar_models": {0: serialized_bar_model},
             },
-            "interrupt_config": {
-                "strategy": "msi",
-                "vectors": 1
-            }
+            "interrupt_config": {"strategy": "msi", "vectors": 1},
         }
 
     @pytest.fixture
@@ -119,20 +107,15 @@ class TestBarImplementationGeneration:
             "vendor_id": "0x1234",
             "device_id": "0x5678",
             "config_space": {"raw_data": "00" * 256, "size": 256},
-            "bar_config": {
-                "primary_bar": 0,
-                "bars": [{"size": 4096, "index": 0}]
-            }
+            "bar_config": {"primary_bar": 0, "bars": [{"size": 4096, "index": 0}]},
         }
 
     def test_generate_bar_implementation_with_models(
         self, overlay_generator, context_with_bar_models
     ):
         """Test BAR implementation generation with learned models."""
-        result = overlay_generator._generate_bar_implementation(
-            context_with_bar_models
-        )
-        
+        result = overlay_generator._generate_bar_implementation(context_with_bar_models)
+
         assert result is not None
         assert "module pcileech_bar_impl_device" in result
         assert "reg_0x0000" in result  # Control register
@@ -148,18 +131,16 @@ class TestBarImplementationGeneration:
         result = overlay_generator._generate_bar_implementation(
             context_without_bar_models
         )
-        
-        # Should return None when no models available
-        assert result is None
+
+        # No learned model: the read-only fallback, not "nothing".
+        assert "READ-ONLY FALLBACK" in result
 
     def test_generate_bar_implementation_with_interrupt_config(
         self, overlay_generator, context_with_bar_models
     ):
         """Test BAR implementation includes interrupt logic when configured."""
-        result = overlay_generator._generate_bar_implementation(
-            context_with_bar_models
-        )
-        
+        result = overlay_generator._generate_bar_implementation(context_with_bar_models)
+
         assert result is not None
         assert "interrupt_assert" in result
         assert "interrupt_data" in result
@@ -168,10 +149,8 @@ class TestBarImplementationGeneration:
         self, overlay_generator, context_with_bar_models
     ):
         """Test that different register widths are handled correctly."""
-        result = overlay_generator._generate_bar_implementation(
-            context_with_bar_models
-        )
-        
+        result = overlay_generator._generate_bar_implementation(context_with_bar_models)
+
         assert result is not None
         # DWORD register (32-bit)
         assert "reg [31:0] reg_0x0000" in result
@@ -182,10 +161,8 @@ class TestBarImplementationGeneration:
         self, overlay_generator, context_with_bar_models
     ):
         """Test that RW masks are properly applied."""
-        result = overlay_generator._generate_bar_implementation(
-            context_with_bar_models
-        )
-        
+        result = overlay_generator._generate_bar_implementation(context_with_bar_models)
+
         assert result is not None
         # Fully writable register (CONTROL)
         assert "32'h00001000:" in result or "case" in result
@@ -196,10 +173,8 @@ class TestBarImplementationGeneration:
         self, overlay_generator, context_with_bar_models
     ):
         """Test BAR controller generation with device-specific impl."""
-        result = overlay_generator._generate_bar_controller(
-            context_with_bar_models
-        )
-        
+        result = overlay_generator._generate_bar_controller(context_with_bar_models)
+
         assert result is not None
         assert "module pcileech_tlps128_bar_controller" in result
         assert "pcileech_bar_impl_device" in result
@@ -209,14 +184,26 @@ class TestBarImplementationGeneration:
         self, overlay_generator, context_without_bar_models
     ):
         """Test BAR controller generation without device-specific impl."""
-        result = overlay_generator._generate_bar_controller(
-            context_without_bar_models
-        )
-        
+        result = overlay_generator._generate_bar_controller(context_without_bar_models)
+
         assert result is not None
         assert "module pcileech_tlps128_bar_controller" in result
-        assert "pcileech_bar_impl_zerowrite4k" in result
+        # Default: the read-only device fallback, never writable RAM.
+        assert "pcileech_bar_impl_device" in result
+        assert "pcileech_bar_impl_zerowrite4k" not in result
         assert "served register window" in result
+
+    def test_generate_bar_controller_writable_opt_out(
+        self, overlay_generator, context_without_bar_models
+    ):
+        context = dict(context_without_bar_models)
+        context["bar_config"] = {
+            **dict(context.get("bar_config") or {}),
+            "bar_fallback": "generic_ram",
+        }
+        result = overlay_generator._generate_bar_controller(context)
+        assert "pcileech_bar_impl_zerowrite4k" in result
+        assert overlay_generator._generate_bar_implementation(context) is None
 
     @pytest.mark.skip(
         reason="Full generate_config_space_overlay() needs the complete "
@@ -230,23 +217,25 @@ class TestBarImplementationGeneration:
         overlays = overlay_generator.generate_config_space_overlay(
             context_with_bar_models
         )
-        
+
         assert "pcileech_cfgspace.coe" in overlays
         assert "pcileech_bar_impl_device.sv" in overlays
         assert "pcileech_tlps128_bar_controller.sv" in overlays
 
     def test_bar_model_serialization_in_context(self, sample_bar_model):
         """Test that BAR models are properly serialized in context."""
-        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
-        
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            serialize_bar_model,
+        )
+
         serialized = serialize_bar_model(sample_bar_model)
-        
+
         assert "size" in serialized
         assert serialized["size"] == 4096
         assert "regs" in serialized
         # Serialization uses hex without 0x prefix (e.g., "0x0" not "0x0000")
         assert any("0" in str(k) for k in serialized["regs"].keys())
-        
+
         # Check a register exists (format is "0x0", "0x4", etc.)
         assert len(serialized["regs"]) == 3
         first_reg = list(serialized["regs"].values())[0]
@@ -270,40 +259,44 @@ class TestBarModelContextIntegration:
                         width=4,
                         reset=0x00000000,
                         rw_mask=0xFFFFFFFF,
-                        hints={}
+                        hints={},
                     )
-                }
+                },
             )
         }
 
     def test_bar_models_stored_in_bar_config(self, mock_bar_models):
         """Test that BAR models are stored in bar_config during build."""
-        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
-        
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            serialize_bar_model,
+        )
+
         # Simulate the context building process
         config = {"bars": [{"size": 4096, "index": 0}]}
         bar_models = mock_bar_models
-        
+
         # Serialize models as done in _build_bar_config
         serialized_models = {}
         for bar_idx, model in bar_models.items():
             serialized_models[bar_idx] = serialize_bar_model(model)
-        
+
         config["bar_models"] = serialized_models
-        
+
         assert "bar_models" in config
         assert 0 in config["bar_models"]
         assert config["bar_models"][0]["size"] == 4096
 
-    @patch('pcileechfwgenerator.device_clone.pcileech_context.log_info_safe')
+    @patch("pcileechfwgenerator.device_clone.pcileech_context.log_info_safe")
     def test_bar_model_logging(self, mock_log, mock_bar_models):
         """Test that BAR model storage is properly logged."""
-        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
-        
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            serialize_bar_model,
+        )
+
         serialized_models = {}
         for bar_idx, model in mock_bar_models.items():
             serialized_models[bar_idx] = serialize_bar_model(model)
-        
+
         # Verify we have serialized data to log
         assert len(serialized_models) == 1
         assert serialized_models[0]["size"] == 4096
@@ -323,16 +316,16 @@ class TestBarImplementationTemplate:
             "header": "// Test",
             "device_signature": "test:device",
             "bar_model": None,
-            "interrupt_config": None
+            "interrupt_config": None,
         }
-        
-        result = template_renderer.render_template(
-            "sv/pcileech_bar_impl_device.sv.j2",
-            minimal_context
-        )
-        
-        assert "module pcileech_bar_impl_device" in result
-        assert "Fallback" in result
+
+        # Empty device models must not silently create writable fallback RAM.
+        with pytest.raises(
+            TemplateRenderError, match="nonempty learned register model"
+        ):
+            template_renderer.render_template(
+                "sv/pcileech_bar_impl_device.sv.j2", minimal_context
+            )
 
     def test_template_renders_with_full_context(self, template_renderer):
         """Test that template renders with complete BAR model."""
@@ -350,21 +343,17 @@ class TestBarImplementationTemplate:
                         "width": 4,
                         "reset": 0x12345678,
                         "rw_mask": 0xFFFFFFFF,
-                        "hints": {}
+                        "hints": {},
                     }
-                }
+                },
             },
-            "interrupt_config": {
-                "strategy": "msi",
-                "vectors": 1
-            }
+            "interrupt_config": {"strategy": "msi", "vectors": 1},
         }
-        
+
         result = template_renderer.render_template(
-            "sv/pcileech_bar_impl_device.sv.j2",
-            full_context
+            "sv/pcileech_bar_impl_device.sv.j2", full_context
         )
-        
+
         assert "module pcileech_bar_impl_device" in result
         assert "reg_0x0000" in result
         assert "32'h12345678" in result
@@ -379,33 +368,31 @@ class TestBarImplementationTemplate:
             "bar_config": {
                 "bar_models": {0: {"size": 4096, "registers": []}},
                 "bars": [{"size": 4096}],
-                "primary_bar": 0
-            }
+                "primary_bar": 0,
+            },
         }
-        
+
         result = template_renderer.render_template(
-            "sv/pcileech_tlps128_bar_controller.sv.j2",
-            context_with_models
+            "sv/pcileech_tlps128_bar_controller.sv.j2", context_with_models
         )
-        
+
         assert "pcileech_bar_impl_device" in result
-        
+
         # Without models
         context_without_models = {
             "header": "// Test",
             "device_signature": "test:device",
             "bar_config": {
                 "bars": [{"size": 4096}],
-                "primary_bar": 0
+                "primary_bar": 0,
                 # No bar_models key
-            }
+            },
         }
-        
+
         result = template_renderer.render_template(
-            "sv/pcileech_tlps128_bar_controller.sv.j2",
-            context_without_models
+            "sv/pcileech_tlps128_bar_controller.sv.j2", context_without_models
         )
-        
+
         assert "pcileech_bar_impl_zerowrite4k" in result
 
 
@@ -424,11 +411,11 @@ class TestBarImplementationEdgeCases:
         context = {
             "header": "// Test",
             "device_signature": "test:device",
-            "config_space": {"raw_data": "00" * 256}
+            "config_space": {"raw_data": "00" * 256},
         }
-        
+
         result = overlay_generator._generate_bar_implementation(context)
-        assert result is None
+        assert "READ-ONLY FALLBACK" in result
 
     def test_empty_bar_models(self, overlay_generator):
         """Test handling of empty bar_models dict."""
@@ -436,11 +423,11 @@ class TestBarImplementationEdgeCases:
             "header": "// Test",
             "device_signature": "test:device",
             "bar_config": {"bar_models": {}},
-            "config_space": {"raw_data": "00" * 256}
+            "config_space": {"raw_data": "00" * 256},
         }
-        
+
         result = overlay_generator._generate_bar_implementation(context)
-        assert result is None
+        assert "READ-ONLY FALLBACK" in result
 
     def test_malformed_bar_model(self, overlay_generator):
         """Test handling of malformed BAR model data."""
@@ -448,23 +435,21 @@ class TestBarImplementationEdgeCases:
             "header": "// Test",
             "device_signature": "test:device",
             "bar_config": {
-                "bar_models": {
-                    0: {"invalid": "data"}  # Missing required fields
-                },
-                "primary_bar": 0
+                "bar_models": {0: {"invalid": "data"}},  # Missing required fields
+                "primary_bar": 0,
             },
-            "config_space": {"raw_data": "00" * 256}
+            "config_space": {"raw_data": "00" * 256},
         }
-        
-        # Should handle gracefully and return None or fallback
-        result = overlay_generator._generate_bar_implementation(context)
-        # Non-fatal error - may return None or fallback implementation
-        assert result is None or "module pcileech_bar_impl_device" in result
+
+        with pytest.raises(PCILeechGenerationError, match="Missing required key"):
+            overlay_generator._generate_bar_implementation(context)
 
     def test_multiple_bar_models_selects_primary(self, overlay_generator):
         """Test that primary BAR is selected from multiple models."""
-        from pcileechfwgenerator.device_clone.bar_model_loader import serialize_bar_model
-        
+        from pcileechfwgenerator.device_clone.bar_model_loader import (
+            serialize_bar_model,
+        )
+
         model = BarModel(
             size=4096,
             registers={
@@ -473,11 +458,11 @@ class TestBarImplementationEdgeCases:
                     width=4,
                     reset=0xDEADBEEF,
                     rw_mask=0xFFFFFFFF,
-                    hints={}
+                    hints={},
                 )
-            }
+            },
         )
-        
+
         context = {
             "header": "// Test",
             "device_signature": "test:device",
@@ -488,11 +473,11 @@ class TestBarImplementationEdgeCases:
                     2: serialize_bar_model(model),
                 },
                 "primary_bar": 1,  # Select BAR1
-                "bars": [{"size": 4096, "index": 1}]
+                "bars": [{"size": 4096, "index": 1}],
             },
-            "config_space": {"raw_data": "00" * 256}
+            "config_space": {"raw_data": "00" * 256},
         }
-        
+
         result = overlay_generator._generate_bar_implementation(context)
         assert result is not None
         # Verify it used the model (contains register definition)

@@ -1,7 +1,8 @@
 import pytest
-
-from pcileechfwgenerator.templating.template_renderer import (TemplateRenderer,
-                                              TemplateRenderError)
+from pcileechfwgenerator.templating.template_renderer import (
+    TemplateRenderer,
+    TemplateRenderError,
+)
 from pcileechfwgenerator.utils.unified_context import UnifiedContextBuilder
 
 
@@ -31,6 +32,13 @@ def test_render_all_templates_with_baseline_context():
 
     # Iterate over .j2 templates discoverable by the renderer to avoid binary files
     for template_name in renderer.list_templates(pattern="*.j2"):
+        if template_name == "sv/pcileech_bar_impl_device.sv.j2":
+            # Unlike generic templates, device storage requires actual learning.
+            with pytest.raises(
+                TemplateRenderError, match="nonempty learned register model"
+            ):
+                renderer.render_template(template_name, baseline)
+            continue
         try:
             renderer.render_template(template_name, baseline)
         except TemplateRenderError as e:

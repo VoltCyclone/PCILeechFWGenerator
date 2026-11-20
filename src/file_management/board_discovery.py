@@ -95,6 +95,8 @@ class BoardDiscovery:
             "dir": "CaptainDMA/100t484-1",
             "fpga_part": "xc7a100tfgg484-1",
             "max_lanes": 1,
+            # PG054: Artix-7 -1 supports Gen1; Gen2 requires -2 or -3.
+            "pcie_link_speed": "2.5_GT/s",
         },
         # CaptainDMA M2 100T: M.2 key-M variant, firmware-compatible with the
         # full-size CaptainDMA 100T (shares the 100t484-1 project).
@@ -186,17 +188,15 @@ class BoardDiscovery:
         for board_name, config in cls.BOARD_CONFIGS.items():
             board_path = repo_root / config["dir"]
             if board_path.exists() and board_path.is_dir():
-                boards[board_name] = cls._analyze_board(
-                    board_name, board_path, config
-                )
+                boards[board_name] = cls._analyze_board(board_name, board_path, config)
                 log_debug_safe(
                     logger,
                     safe_format(
                         "Discovered board: {name} at {path}",
                         name=board_name,
-                        path=board_path
+                        path=board_path,
                     ),
-                    prefix="BOARDS"
+                    prefix="BOARDS",
                 )
             else:
                 log_warning_safe(
@@ -204,18 +204,15 @@ class BoardDiscovery:
                     safe_format(
                         "Board '{name}' directory not found at {path}",
                         name=board_name,
-                        path=board_path
+                        path=board_path,
                     ),
-                    prefix="BOARDS"
+                    prefix="BOARDS",
                 )
 
         log_info_safe(
             logger,
-            safe_format(
-                "Discovered {count} boards from submodule",
-                count=len(boards)
-            ),
-            prefix="BOARDS"
+            safe_format("Discovered {count} boards from submodule", count=len(boards)),
+            prefix="BOARDS",
         )
 
         return boards
@@ -270,9 +267,9 @@ class BoardDiscovery:
                 safe_format(
                     "No PCIe refclk LOC mapping for '{board}', "
                     "using default: IBUFDS_GTE2_X0Y0",
-                    board=board_name
+                    board=board_name,
                 ),
-                prefix="BOARDS"
+                prefix="BOARDS",
             )
 
         return config
@@ -610,7 +607,7 @@ def get_board_config(board_name: str, repo_root: Optional[Path] = None) -> Dict:
             safe_format(
                 "Board '{name}' not found. Available boards: {avail}",
                 name=board_name,
-                avail=available
+                avail=available,
             )
         )
     return boards[board_name]

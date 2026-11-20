@@ -13,7 +13,7 @@ from pcileechfwgenerator.device_clone.config_space_manager import (
     VFIOError,
     SysfsError,
 )
-from pcileechfwgenerator.exceptions import ConfigSpaceError, VFIOConfigSpaceError, SysfsConfigSpaceError
+from pcileechfwgenerator.exceptions import ConfigSpaceError
 
 
 class TestBarInfo:
@@ -125,10 +125,25 @@ class TestConfigSpaceManager:
         assert len(config_data) == 256
         assert config_data == b"\x00" * 256
 
+    @patch("os.path.exists", return_value=True)
     @patch("builtins.open", side_effect=PermissionError("Permission denied"))
-    def test_read_sysfs_config_space_permission_error(self, mock_file, manager):
-        """Test sysfs config space reading with permission error."""
-        with pytest.raises(SysfsError):
+    def test_read_sysfs_config_space_permission_error(
+        self, mock_file, mock_exists, manager
+    ):
+        """A permission error on the direct read falls back to sudo hexdump.
+
+        os.path.exists is patched so the result never depends on whether the
+        host running the tests has a device at this BDF.
+        """
+        with patch.object(
+            manager, "_read_config_file_with_sudo", return_value=b"\x00" * 256
+        ) as sudo_read:
+            assert manager._read_sysfs_config_space() == b"\x00" * 256
+        sudo_read.assert_called_once()
+
+    @patch("os.path.exists", return_value=False)
+    def test_read_sysfs_config_space_missing_file(self, mock_exists, manager):
+        with pytest.raises(SysfsError, match="not found"):
             manager._read_sysfs_config_space()
 
     def test_validate_and_extend_config_data_short_data(self, manager):

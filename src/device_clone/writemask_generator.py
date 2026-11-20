@@ -15,26 +15,30 @@ Improvements:
 Thanks @Simonrak
 """
 
-import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from pcileechfwgenerator.device_clone.constants import (
-    FIXED_SECTION,
-    WRITE_PROTECTED_BITS_MSI_64_BIT_1,
-    WRITE_PROTECTED_BITS_MSI_ENABLED_0,
-    WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1,
-    WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1,
-    WRITE_PROTECTED_BITS_MSIX_3,
-    WRITE_PROTECTED_BITS_MSIX_4,
-    WRITE_PROTECTED_BITS_MSIX_5,
-    WRITE_PROTECTED_BITS_MSIX_6,
-    WRITE_PROTECTED_BITS_MSIX_7,
-    WRITE_PROTECTED_BITS_MSIX_8,
-    WRITEMASK_DICT,
+from pcileechfwgenerator.device_clone.coe_word_order import (
+    BRAM_ORDER_MARKER,
+    bswap32,
+    is_bram_order,
+)
+from pcileechfwgenerator.device_clone.writemask_constants import (
+    HEADER_RW_MASK,
+    MSI_ADDRESS_HIGH_RW_MASK,
+    MSI_ADDRESS_LOW_RW_MASK,
+    MSI_CONTROL_RW_MASK,
+    MSI_DATA_RW_MASK,
+    MSIX_RW_MASK,
+    PCIE_DEVCTL2_LTR_RW_MASK,
+    PCIE_DEVCTL2_TIMEOUT_DISABLE_RW_MASK,
+    PCIE_DEVCTL2_TIMEOUT_RW_MASK,
+    PCIE_RW_MASK,
+    PM_RW_MASK,
 )
 from pcileechfwgenerator.exceptions import FileOperationError
+from pcileechfwgenerator.log_config import get_logger
 from pcileechfwgenerator.pci_capability.constants import (
     EXTENDED_CAPABILITY_NAMES,
 )
@@ -49,7 +53,7 @@ from pcileechfwgenerator.string_utils import (
     safe_format,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Optional rich terminal visualization
 _HAVE_RICH = False
@@ -67,62 +71,50 @@ except ImportError:
 CFG_SPACE_DWORDS = 1024
 
 
+def _to_coe_word(value: int) -> str:
+    """Format a logical PCI DWORD value (config byte +0 in bits [7:0])."""
+    return f"{value & 0xFFFFFFFF:08x}"
+
+
+def _to_bram_word(value: int) -> str:
+    """Format a logical DWORD in shadow-BRAM order (byte +0 in bits [31:24]).
+
+    See :mod:`pcileechfwgenerator.device_clone.coe_word_order` for the RTL
+    evidence. The cfgspace COE is converted the same way, so both files index
+    identical bytes.
+    """
+    return f"{bswap32(value):08x}"
+
+
 class WritemaskGenerator:
     """Generator for PCILeech configuration space writemask."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the writemask generator."""
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
-    def get_msi_writemask(self, msi_config: Dict) -> Optional[Tuple[str, ...]]:
-        """
-        Get appropriate MSI writemask based on configuration.
-
-        Args:
-            msi_config: MSI configuration dictionary
-
-        Returns:
-            Tuple of writemask strings or None
-        """
-        if not msi_config.get("enabled", False):
-            return WRITE_PROTECTED_BITS_MSI_ENABLED_0
-
+    def _msi_rw_words(self, msi_config: Dict) -> Tuple[int, ...]:
+        """Derive MSI grants from layout flags, independently of Enable state."""
+        words = [MSI_CONTROL_RW_MASK, MSI_ADDRESS_LOW_RW_MASK]
         if msi_config.get("64bit_capable", False):
-            return WRITE_PROTECTED_BITS_MSI_64_BIT_1
+            words.append(MSI_ADDRESS_HIGH_RW_MASK)
+        words.append(MSI_DATA_RW_MASK)
+        if msi_config.get("per_vector_masking", False):
+            mmc = min(max(int(msi_config.get("multiple_message_capable", 0)), 0), 5)
+            words.extend(((1 << (1 << mmc)) - 1, 0))
+        return tuple(words)
 
-        if msi_config.get("multiple_message_capable", False):
-            return WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_CAPABLE_1
+    def get_msi_writemask(self, msi_config: Dict) -> Tuple[str, ...]:
+        """Return writable-polarity words for MSI layout flags; ignore enabled.
 
-        if msi_config.get("multiple_message_enabled", False):
-            return WRITE_PROTECTED_BITS_MSI_MULTIPLE_MESSAGE_ENABLED_1
-
-        return WRITE_PROTECTED_BITS_MSI_ENABLED_0
-
-    def get_msix_writemask(self, msix_config: Dict) -> Optional[Tuple[str, ...]]:
+        Flags are 64bit_capable, per_vector_masking, and the integer
+        multiple_message_capable encoding (not a message count).
         """
-        Get appropriate MSI-X writemask based on configuration.
+        return tuple(_to_coe_word(word) for word in self._msi_rw_words(msi_config))
 
-        Args:
-            msix_config: MSI-X configuration dictionary
-
-        Returns:
-            Tuple of writemask strings or None
-        """
-        table_size = msix_config.get("table_size", 0)
-
-        # Map table size to capability length
-        if table_size <= 8:
-            return WRITE_PROTECTED_BITS_MSIX_3
-        elif table_size <= 16:
-            return WRITE_PROTECTED_BITS_MSIX_4
-        elif table_size <= 32:
-            return WRITE_PROTECTED_BITS_MSIX_5
-        elif table_size <= 64:
-            return WRITE_PROTECTED_BITS_MSIX_6
-        elif table_size <= 128:
-            return WRITE_PROTECTED_BITS_MSIX_7
-        else:
-            return WRITE_PROTECTED_BITS_MSIX_8
+    def get_msix_writemask(self, msix_config: Dict) -> Tuple[str, ...]:
+        """Return the three writable-polarity MSI-X words, regardless of size."""
+        return tuple(_to_coe_word(word) for word in MSIX_RW_MASK)
 
     def read_cfg_space(self, file_path: Path) -> Dict[int, int]:
         """
@@ -146,6 +138,7 @@ class WritemaskGenerator:
 
         try:
             content = file_path.read_text()
+            swap = is_bram_order(content)
             for raw_line in content.splitlines():
                 line = raw_line.strip()
 
@@ -183,7 +176,8 @@ class WritemaskGenerator:
                     if index >= CFG_SPACE_DWORDS:
                         break
 
-                    dword_map[index] = int(token, 16)
+                    value = int(token, 16)
+                    dword_map[index] = bswap32(value) if swap else value
                     index += 1
 
                 if index >= CFG_SPACE_DWORDS:
@@ -201,8 +195,11 @@ class WritemaskGenerator:
 
         log_debug_safe(
             self.logger,
-            safe_format("Read {count} dwords from {path}", 
-                       count=len(dword_map), path=file_path.name),
+            safe_format(
+                "Read {count} dwords from {path}",
+                count=len(dword_map),
+                path=file_path.name,
+            ),
             prefix="WRITEMASK",
         )
 
@@ -241,7 +238,7 @@ class WritemaskGenerator:
         capabilities: Dict[str, int] = {}
 
         # ---- Standard capabilities (byte-linked list) ----
-        cap_ptr = dword_map.get(0x34 // 4, 0) & 0xFF
+        cap_ptr = dword_map.get(0x34 // 4, 0) & 0xFC  # low 2 bits reserved
         seen_std: Set[int] = set()
 
         while cap_ptr and 0x40 <= cap_ptr < 0x100:
@@ -277,7 +274,9 @@ class WritemaskGenerator:
             dword = self._get_dword(dword_map, cap_ptr)
             byte_shift = (cap_ptr & 0x3) * 8
             cap_id = (dword >> byte_shift) & 0xFF
-            next_ptr = (dword >> (byte_shift + 8)) & 0xFF
+            next_ptr = (dword >> (byte_shift + 8)) & 0xFC
+            if cap_id == 0xFF:  # all-ones / absent function (matches Linux)
+                break
 
             cap_name = CAPABILITY_NAMES.get(cap_id, f"Unknown (0x{cap_id:02X})")
             log_debug_safe(
@@ -333,7 +332,7 @@ class WritemaskGenerator:
                 break
 
             ext_ver = (dword0 >> 16) & 0xF
-            next_dword_offset = (dword0 >> 20) & 0xFFF
+            next_dword_offset = (dword0 >> 20) & 0xFFC
 
             cap_name = EXTENDED_CAPABILITY_NAMES.get(
                 ext_id, f"Unknown (0x{ext_id:04X})"
@@ -369,63 +368,88 @@ class WritemaskGenerator:
 
         return capabilities
 
-    def create_writemask(self, dwords: Dict[int, int]) -> List[str]:
+    def build_writemask(self, dword_map: Dict[int, int]) -> List[int]:
+        """Build 1024 logical DWORD masks without file IO or mutating the image.
+
+        Start read-only and explicitly grant supported Type-0 header and
+        standard-capability writes. Layout comes only from the final cfg image.
+        Extended space remains read-only because shadow RAM lacks RW1C support.
         """
-        Create initial writemask with all bits writable.
+        mask = [0] * CFG_SPACE_DWORDS
+        mask[: len(HEADER_RW_MASK)] = HEADER_RW_MASK
 
-        Always creates full 1024 DWORD writemask for complete 4KB config space.
+        slot = 0
+        while slot < 6:
+            index = 4 + slot
+            word = dword_map.get(index, 0)
+            if word & 1:
+                mask[index] = word & 0xFFFFFFFC
+                mask[1] |= 1  # IO Space Enable only for a served IO BAR
+            elif (word >> 1) & 3 == 2:
+                if slot == 5:
+                    log_warning_safe(
+                        self.logger,
+                        "64-bit BAR in slot 5 has no upper slot; leaving read-only",
+                        prefix="WRITEMASK",
+                    )
+                else:
+                    mask[index] = word & 0xFFFFFFF0
+                    mask[index + 1] = dword_map.get(index + 1, 0) & 0xFFFFFFFF
+                    slot += 1
+            elif (word >> 1) & 3 == 0:
+                mask[index] = word & 0xFFFFFFF0
+            # Reserved memory BAR types remain read-only.
+            slot += 1
 
-        Args:
-            dwords: Configuration space dword map (unused, kept for compatibility)
+        rom = dword_map.get(0x30 // 4, 0)
+        mask[0x30 // 4] = (rom & 0xFFFFF800) | 1 if rom else 0
 
-        Returns:
-            List of 1024 writemask strings (all "ffffffff")
-        """
-        return ["ffffffff"] * CFG_SPACE_DWORDS
-
-    def update_writemask(
-        self, wr_mask: List[str], protected_bits: Tuple[str, ...], start_index: int
-    ) -> List[str]:
-        """
-        Update writemask by marking bits as read-only.
-
-        Protected bits are cleared (0 = read-only, 1 = writable).
-        Handles invalid indices and hex conversion gracefully.
-
-        Args:
-            wr_mask: Current writemask list
-            protected_bits: Tuple of protected bit masks (hex strings)
-            start_index: Starting dword index in writemask
-
-        Returns:
-            Updated writemask list
-        """
-        end_index = min(start_index + len(protected_bits), len(wr_mask))
-
-        for i, mask in enumerate(protected_bits):
-            idx = start_index + i
-            if idx >= end_index:
-                break
-
-            try:
-                current = int(wr_mask[idx], 16)
-                protected = int(mask, 16)
-                # Clear protected bits (bitwise AND with complement)
-                new_mask = current & ~protected
-                wr_mask[idx] = f"{new_mask:08x}"
-            except (ValueError, IndexError) as e:
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Failed to update writemask at index {idx}: {err}",
-                        idx=idx,
-                        err=e,
-                    ),
-                    prefix="WRITEMASK",
-                )
+        capabilities = self.locate_capabilities(dword_map)
+        std_offsets = sorted(o for o in capabilities.values() if o < 0x100)
+        for cap_id, offset in capabilities.items():
+            if offset >= 0x100:
                 continue
+            start = offset // 4
+            # A capability's grants never spill into the next structure.
+            limit = next((o // 4 for o in std_offsets if o > offset), 0x100 // 4)
+            words: Tuple[int, ...] = ()
+            if cap_id == "0x01":
+                words = PM_RW_MASK
+            elif cap_id == "0x05":
+                control = dword_map.get(start, 0) >> 16
+                words = self._msi_rw_words(
+                    {
+                        "64bit_capable": bool(control & 0x80),
+                        "per_vector_masking": bool(control & 0x100),
+                        "multiple_message_capable": (control >> 1) & 7,
+                    }
+                )
+            elif cap_id == "0x11":
+                words = MSIX_RW_MASK
+            elif cap_id == "0x10":
+                pcie_words = list(PCIE_RW_MASK)
+                version = (dword_map.get(start, 0) >> 16) & 0xF
+                devcap2_index = start + 9
+                devcap2 = dword_map.get(devcap2_index, 0) if devcap2_index < 64 else 0
+                if version < 2:
+                    # v1 ends at Root Status (+0x20); no *2 registers exist.
+                    pcie_words = pcie_words[:9]
+                    devcap2 = 0
+                if devcap2 & 0xF:
+                    pcie_words[10] |= PCIE_DEVCTL2_TIMEOUT_RW_MASK
+                if devcap2 & 0x10:
+                    pcie_words[10] |= PCIE_DEVCTL2_TIMEOUT_DISABLE_RW_MASK
+                if devcap2 & 0x800:
+                    pcie_words[10] |= PCIE_DEVCTL2_LTR_RW_MASK
+                words = tuple(pcie_words)
+            end = min(start + len(words), limit)
+            mask[start:end] = words[: end - start]
 
-        return wr_mask
+        return mask
+
+    def render_writemask_coe(self, dword_map: Dict[int, int]) -> str:
+        """Render the final-image policy as COE text without temporary files."""
+        return self._format_writemask_coe(self.build_writemask(dword_map))
 
     def generate_writemask(
         self,
@@ -435,140 +459,56 @@ class WritemaskGenerator:
         visualize: bool = False,
         visualize_rows: int = 64,
     ) -> None:
-        """
-        Generate writemask COE file from configuration space.
+        """Generate the mask from the final configuration COE image.
 
-        Args:
-            cfg_space_path: Path to configuration space COE file
-            output_path: Path for output writemask COE file
-            device_config: Optional device configuration for MSI/MSI-X
-            visualize: If True, display terminal visualization (requires rich)
-            visualize_rows: Number of rows to display in visualization
+        device_config is accepted for compatibility but never determines layout.
         """
         log_info_safe(
             self.logger,
             safe_format("Generating writemask from {path}", path=cfg_space_path),
             prefix="WRITEMASK",
         )
-
-        # Read configuration space
         cfg_space = self.read_cfg_space(cfg_space_path)
-
-        # Locate capabilities
-        capabilities = self.locate_capabilities(cfg_space)
-
-        # Create initial writemask (all writable)
-        wr_mask = self.create_writemask(cfg_space)
-
-        # Apply fixed section protection (vendor ID, device ID, etc.)
-        wr_mask = self.update_writemask(wr_mask, FIXED_SECTION, 0)
-
-        # Apply capability-specific protections
-        for cap_id, cap_offset in capabilities.items():
-            cap_start_index = cap_offset // 4
-
-            if cap_start_index >= len(wr_mask):
-                log_warning_safe(
-                    self.logger,
-                    safe_format(
-                        "Capability {cap_id} at offset 0x{offset:x} exceeds writemask bounds, skipping",
-                        cap_id=cap_id,
-                        offset=cap_offset,
-                    ),
-                    prefix="WRITEMASK",
-                )
-                continue
-
-            # Handle MSI capability (0x05)
-            if cap_id == "0x05":
-                msi_config = (
-                    device_config.get("msi_config", {}) if device_config else {}
-                )
-                protected_bits = self.get_msi_writemask(msi_config)
-                if protected_bits:
-                    wr_mask = self.update_writemask(
-                        wr_mask, protected_bits, cap_start_index
-                    )
-
-            # Handle MSI-X capability (0x11)
-            elif cap_id == "0x11":
-                msix_config = (
-                    device_config.get("msix_config", {}) if device_config else {}
-                )
-                protected_bits = self.get_msix_writemask(msix_config)
-                if protected_bits:
-                    wr_mask = self.update_writemask(
-                        wr_mask, protected_bits, cap_start_index
-                    )
-
-            # Handle other capabilities from WRITEMASK_DICT
-            else:
-                protected_bits = WRITEMASK_DICT.get(cap_id)
-                if protected_bits:
-                    wr_mask = self.update_writemask(
-                        wr_mask, protected_bits, cap_start_index
-                    )
-
-        # The cloned extended region (0x100-0xFFF) is strictly read-only: the
-        # shadow BRAM has no RW1C hardware, so a writable extended bit would
-        # latch a driver's write-1-to-clear instead of clearing it.
-        for idx in range(0x100 // 4, len(wr_mask)):
-            wr_mask[idx] = "00000000"
-
-        # Write output COE file (always regenerated; never reuses a stale file)
+        wr_mask = self.build_writemask(cfg_space)
         self._write_writemask_coe(wr_mask, output_path)
-
         log_info_safe(
             self.logger,
-            safe_format(
-                "Writemask generated: {path}", path=output_path.name
-            ),
+            safe_format("Writemask generated: {path}", path=output_path.name),
             prefix="WRITEMASK",
         )
-
-        # Optional visualization
         if visualize:
             visualize_writemask_terminal(
-                wr_mask, capabilities, rows=visualize_rows
+                [_to_coe_word(word) for word in wr_mask],
+                self.locate_capabilities(cfg_space),
+                rows=visualize_rows,
             )
 
-    def _write_writemask_coe(self, wr_mask: List[str], output_path: Path) -> None:
-        """
-        Write writemask to COE file with exactly 1024 DWORDs.
+    def _format_writemask_coe(self, wr_mask: List[int]) -> str:
+        """Format exactly 1024 words, padding read-only or truncating as needed."""
+        words = wr_mask[:CFG_SPACE_DWORDS]
+        words = words + [0] * (CFG_SPACE_DWORDS - len(words))
+        lines = [
+            "; PCILeech Configuration Space Writemask",
+            "; Generated by PCILeech Firmware Generator",
+            ";",
+            "; Controls which configuration space bits are writable",
+            "; 1 = writable, 0 = read-only; words are in shadow-BRAM order",
+            "; (config byte +0 in bits [31:24]), same as the cfgspace COE",
+            ";",
+            BRAM_ORDER_MARKER,
+            "memory_initialization_radix=16;",
+            "memory_initialization_vector=",
+        ]
+        for i in range(0, CFG_SPACE_DWORDS, 4):
+            suffix = "," if i + 4 < CFG_SPACE_DWORDS else ";"
+            lines.append(
+                ",".join(_to_bram_word(word) for word in words[i : i + 4]) + suffix
+            )
+        return "\n".join(lines) + "\n"
 
-        Pads or truncates to ensure consistent 4KB config space size.
-
-        Args:
-            wr_mask: Writemask data
-            output_path: Output file path
-        """
-        # Ensure exactly 1024 DWORDs
-        if len(wr_mask) < CFG_SPACE_DWORDS:
-            wr_mask = wr_mask + ["ffffffff"] * (CFG_SPACE_DWORDS - len(wr_mask))
-        elif len(wr_mask) > CFG_SPACE_DWORDS:
-            wr_mask = wr_mask[:CFG_SPACE_DWORDS]
-
-        with output_path.open("w") as f:
-            # Write header
-            f.write("; PCILeech Configuration Space Writemask\n")
-            f.write("; Generated by PCILeech Firmware Generator\n")
-            f.write(";\n")
-            f.write("; Controls which configuration space bits are writable\n")
-            f.write("; 0 = read-only, 1 = writable\n")
-            f.write(";\n")
-            f.write("memory_initialization_radix=16;\n")
-            f.write("memory_initialization_vector=\n")
-
-            # Write data in groups of 4 dwords per line
-            for i in range(0, CFG_SPACE_DWORDS, 4):
-                line_data = wr_mask[i : i + 4]
-                f.write(",".join(line_data))
-
-                # Add comma except for last line
-                if i + 4 < CFG_SPACE_DWORDS:
-                    f.write(",\n")
-                else:
-                    f.write(";\n")
+    def _write_writemask_coe(self, wr_mask: List[int], output_path: Path) -> None:
+        """Write integer masks with the shared logical DWORD serializer."""
+        output_path.write_text(self._format_writemask_coe(wr_mask), encoding="utf-8")
 
 
 # ============================================================================

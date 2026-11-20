@@ -6,6 +6,7 @@ the host sees donor vendor/device/subsys/rev during enumeration. The upstream
 Xilinx defaults (``Vendor_ID=10EE``, ``Device_ID=0666``, etc.). These helpers
 emit a TCL fragment that runs after the IP is imported and patches its CONFIG.
 """
+
 import re
 import sys
 import textwrap
@@ -47,11 +48,11 @@ class TestGeneratePcieIpOverrideTcl:
         tcl = generate_pcie_ip_override_tcl(_intel_donor())
 
         # Vivado property names are case-sensitive; assert exact spellings.
-        assert "CONFIG.Vendor_ID 0x8086" in tcl
-        assert "CONFIG.Device_ID 0x1533" in tcl
-        assert "CONFIG.Subsystem_Vendor_ID 0x8086" in tcl
-        assert "CONFIG.Subsystem_ID 0x0001" in tcl
-        assert "CONFIG.Revision_ID 0x03" in tcl
+        assert "CONFIG.Vendor_ID 8086" in tcl
+        assert "CONFIG.Device_ID 1533" in tcl
+        assert "CONFIG.Subsystem_Vendor_ID 8086" in tcl
+        assert "CONFIG.Subsystem_ID 0001" in tcl
+        assert "CONFIG.Revision_ID 03" in tcl
 
     def test_targets_pcie_7x_0_by_default(self):
         tcl = generate_pcie_ip_override_tcl(_intel_donor())
@@ -77,12 +78,12 @@ class TestGeneratePcieIpOverrideTcl:
         tcl = generate_pcie_ip_override_tcl(_intel_donor())
         assert "generate_target -force" in tcl
 
-    def test_skips_silently_when_ip_absent(self):
-        # If the IP can't be found (e.g. running on a board variant that
-        # ships a different PCIe IP), the script must not abort the build.
+    def test_aborts_when_ip_absent_or_ambiguous(self):
+        # A missing or ambiguous IP would ship stock Xilinx IDs, so the script
+        # must abort (behavior covered in test_msix_ip_contract.py).
         tcl = generate_pcie_ip_override_tcl(_intel_donor())
-        assert "if {" in tcl  # guarded by an existence check
-        assert "[llength" in tcl or "[get_ips -quiet" in tcl
+        assert "[llength $_pcileech_ips] != 1" in tcl
+        assert "[get_ips -quiet pcie_7x_0]" in tcl
 
     def test_balanced_braces(self):
         tcl = generate_pcie_ip_override_tcl(_intel_donor())
@@ -102,8 +103,7 @@ class TestGeneratePcieIpOverrideTcl:
 # ---------------------------------------------------------------------------
 
 
-_FAKE_GENERATE_PROJECT = textwrap.dedent(
-    """\
+_FAKE_GENERATE_PROJECT = textwrap.dedent("""\
     # Upstream vivado_generate_project_captaindma_75t.tcl (truncated)
     create_project pcileech ./vivado_project -part xc7a75tfgg484-2
 
@@ -112,64 +112,33 @@ _FAKE_GENERATE_PROJECT = textwrap.dedent(
      [file normalize "${origin_dir}/ip/pcie_7x_0.xci"]\\
     ]
     import_files -fileset sources_1 $files
-    """
-)
+    """)
 
 
 class TestApplyPcieIpDonorOverride:
-    """apply_pcie_ip_donor_override writes the override and wires it in."""
+    """apply_pcie_ip_donor_override writes the override file only.
 
-    def test_writes_override_file_and_appends_source(self, tmp_path):
-        (tmp_path / "vivado_generate_project_captaindma_75t.tcl").write_text(
-            _FAKE_GENERATE_PROJECT
-        )
+    The unified build (build_all.tcl) sources it after a manifest hash check;
+    the board's own project scripts are not staged, so nothing is wired.
+    """
 
+    def test_writes_override_file(self, tmp_path):
         result = apply_pcie_ip_donor_override(tmp_path, _intel_donor())
 
-        assert result["override_path"].name == "pcileech_donor_ip_overrides.tcl"
-        assert result["override_path"].is_file()
-
-        override = result["override_path"].read_text()
-        assert "CONFIG.Vendor_ID 0x8086" in override
-
-        # The upstream generate-project script must source our override.
-        gp = (tmp_path / "vivado_generate_project_captaindma_75t.tcl").read_text()
-        assert "source" in gp
-        assert "pcileech_donor_ip_overrides.tcl" in gp
+        assert result == {"override_path": tmp_path / "pcileech_donor_ip_overrides.tcl"}
+        assert "CONFIG.Vendor_ID 8086" in result["override_path"].read_text()
 
     def test_idempotent(self, tmp_path):
-        (tmp_path / "vivado_generate_project.tcl").write_text(_FAKE_GENERATE_PROJECT)
-
+        first = apply_pcie_ip_donor_override(tmp_path, _intel_donor())
+        before = first["override_path"].read_text()
         apply_pcie_ip_donor_override(tmp_path, _intel_donor())
-        before = (tmp_path / "vivado_generate_project.tcl").read_text()
+        assert first["override_path"].read_text() == before
 
+    def test_leaves_board_project_scripts_alone(self, tmp_path):
+        script = tmp_path / "vivado_generate_project.tcl"
+        script.write_text(_FAKE_GENERATE_PROJECT)
         apply_pcie_ip_donor_override(tmp_path, _intel_donor())
-        after = (tmp_path / "vivado_generate_project.tcl").read_text()
-
-        # Source line appended exactly once even on a second application.
-        assert before == after
-        assert after.count("pcileech_donor_ip_overrides.tcl") == 1
-
-    def test_raises_when_no_generate_project_script(self, tmp_path):
-        # No vivado_generate_project*.tcl staged — caller's mistake, fail loud.
-        with pytest.raises(PcieIpOverrideError) as exc:
-            apply_pcie_ip_donor_override(tmp_path, _intel_donor())
-        assert "vivado_generate_project" in str(exc.value)
-
-    def test_wires_into_all_matching_scripts(self, tmp_path):
-        # Some boards ship multiple variants (e.g. _35t and _100t). We can't
-        # know which one vivado_build.tcl will actually source, so wire the
-        # override into every match instead of guessing.
-        (tmp_path / "vivado_generate_project_35t.tcl").write_text(_FAKE_GENERATE_PROJECT)
-        (tmp_path / "vivado_generate_project_100t.tcl").write_text(_FAKE_GENERATE_PROJECT)
-
-        result = apply_pcie_ip_donor_override(tmp_path, _intel_donor())
-
-        for name in ("vivado_generate_project_35t.tcl", "vivado_generate_project_100t.tcl"):
-            assert "pcileech_donor_ip_overrides.tcl" in (tmp_path / name).read_text()
-
-        assert result["override_path"].is_file()
-        assert len(result["wired_scripts"]) == 2
+        assert script.read_text() == _FAKE_GENERATE_PROJECT
 
 
 # ---------------------------------------------------------------------------
@@ -198,9 +167,12 @@ class TestBuildWiringIpOverride:
         # invalidate other tests' patches against it.
         import importlib
         import sys as _sys
+
         cached = _sys.modules.get("pcileechfwgenerator.build")
         builder_cls = getattr(cached, "FirmwareBuilder", None)
-        if builder_cls is None or not hasattr(builder_cls, "_patch_fifo_with_donor_ids"):
+        if builder_cls is None or not hasattr(
+            builder_cls, "_patch_fifo_with_donor_ids"
+        ):
             _sys.modules.pop("pcileechfwgenerator.build", None)
             build_module = importlib.import_module("pcileechfwgenerator.build")
         else:
@@ -214,67 +186,76 @@ class TestBuildWiringIpOverride:
         builder.logger = __import__("logging").getLogger("test")
         return builder
 
-    def test_writes_override_and_wires_source(self, tmp_path):
+    def test_writes_override(self, tmp_path):
         # FIFO present so the existing patch step doesn't return early.
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
             ENIGMAX1_FIFO,
         )
+
         (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
-        (tmp_path / "vivado_generate_project.tcl").write_text(
-            _FAKE_GENERATE_PROJECT
-        )
 
         builder = self._make_builder(tmp_path)
         result = {
             "template_context": {
+                "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
                 "device_config": {
+                    "class_code": 0x020000,
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
-                }
+                },
             }
         }
         builder._patch_fifo_with_donor_ids(result)
 
         override = tmp_path / "pcileech_donor_ip_overrides.tcl"
         assert override.is_file()
-        assert "CONFIG.Vendor_ID 0x8086" in override.read_text()
+        assert "CONFIG.Vendor_ID 8086" in override.read_text()
+        assert not list(tmp_path.glob("vivado_*.tcl"))
 
-        gp = (tmp_path / "vivado_generate_project.tcl").read_text()
-        assert "pcileech_donor_ip_overrides.tcl" in gp
+    def test_aborts_when_override_cannot_be_written(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        # An incomplete donor override must not silently produce stock identity.
+        from pcileechfwgenerator.vivado_handling import pcie_ip_donor_override
 
-    def test_warns_when_no_generate_project_script(self, tmp_path, caplog):
-        # FIFO patch can run, but the IP override step must not break the
-        # build when the generate-project script hasn't been staged yet.
+        def _fail(*_a, **_k):
+            raise PcieIpOverrideError("cannot write override")
+
+        monkeypatch.setattr(
+            pcie_ip_donor_override, "apply_pcie_ip_donor_override", _fail
+        )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
             ENIGMAX1_FIFO,
         )
+
         (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
 
         builder = self._make_builder(tmp_path)
         result = {
             "template_context": {
+                "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
                 "device_config": {
+                    "class_code": 0x020000,
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
-                }
+                },
             }
         }
-        with caplog.at_level("WARNING"):
+        with pytest.raises(PcieIpOverrideError):
             builder._patch_fifo_with_donor_ids(result)
 
         assert any(
-            "PCIe IP donor override skipped" in rec.message
-            for rec in caplog.records
+            "PCIe IP donor override failed" in rec.message for rec in caplog.records
         )
 
     def test_forwards_donor_pcie_ip_config_to_override_file(self, tmp_path):
@@ -290,24 +271,24 @@ class TestBuildWiringIpOverride:
         from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
             ENIGMAX1_FIFO,
         )
+
         (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
-        (tmp_path / "vivado_generate_project.tcl").write_text(
-            _FAKE_GENERATE_PROJECT
-        )
+        (tmp_path / "vivado_generate_project.tcl").write_text(_FAKE_GENERATE_PROJECT)
 
         builder = self._make_builder(tmp_path)
         result = {
             "template_context": {
+                "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
                 "pcie_max_link_speed": 3,  # Gen3 (LinkCap encoding == generation)
                 "pcie_max_link_width": 8,
                 "pcileech_config": {"max_payload_size": 512},
                 "device_config": {
+                    "class_code": 0x020000,
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
                     "subsystem_device_id_int": 0x0001,
                     "revision_id_int": 0x03,
-                    "class_code": 0x020000,
                     "supports_aer": True,
                     "ari_capable": True,
                     "cpl_timeout_ranges": "ABCD",
@@ -328,10 +309,11 @@ class TestBuildWiringIpOverride:
         builder._patch_fifo_with_donor_ids(result)
 
         override_text = (tmp_path / "pcileech_donor_ip_overrides.tcl").read_text()
-        assert "CONFIG.Vendor_ID 0x8086" in override_text
+        assert "CONFIG.Vendor_ID 8086" in override_text
         assert "CONFIG.Class_Code_Base 02" in override_text  # A4
-        assert "CONFIG.MSIx_Enabled true" in override_text  # A6
-        assert "CONFIG.MSIx_Table_Size 16" in override_text
+        # A6: capture-time Enable cannot advertise an ungenerated subsystem.
+        assert "CONFIG.MSIx_Enabled false" in override_text
+        assert "CONFIG.MSIx_Table_Size" not in override_text
         # Gen3 (3) → Xilinx-encoded 4 via _LINK_SPEED_ENCODING.
         assert "CONFIG.LINK_CAP_MAX_LINK_SPEED 4" in override_text  # A7
         assert "CONFIG.LINK_CAP_MAX_LINK_WIDTH 8" in override_text
@@ -340,27 +322,30 @@ class TestBuildWiringIpOverride:
         assert "CONFIG.DSN_HEX1 01001B21" in override_text  # C2
         assert "CONFIG.DSN_HEX2 DEADBEEF" in override_text
         assert "CONFIG.ARI_Forwarding_Supported true" in override_text  # C3
-        assert "CONFIG.Cpl_Timeout_Range Range_ABCD" in override_text  # D2
+        # D2: the spelling Vivado 2026.1 accepts (it rejects "Range_ABCD").
+        assert "CONFIG.Cpl_Timeout_Range Ranges_A,_B,_C_&_D" in override_text
+        assert "Range_ABCD" not in override_text
         assert "CONFIG.Cpl_Timeout_Disable_Sup true" in override_text
 
-    def test_valueerror_from_emitter_does_not_crash_build(self, tmp_path, caplog):
-        """A bad donor field must warn-and-skip the override, not kill the build."""
+    def test_valueerror_from_emitter_aborts_build(self, tmp_path, caplog):
+        """A bad donor field cannot bypass the required override."""
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         from tests.test_fifo_donor_patcher import (  # noqa: PLC0415
             ENIGMAX1_FIFO,
         )
+
         (src_dir / "pcileech_fifo.sv").write_text(ENIGMAX1_FIFO)
-        (tmp_path / "vivado_generate_project.tcl").write_text(
-            _FAKE_GENERATE_PROJECT
-        )
+        (tmp_path / "vivado_generate_project.tcl").write_text(_FAKE_GENERATE_PROJECT)
 
         builder = self._make_builder(tmp_path)
         # cpl_timeout_ranges="ZZ" is invalid per the IP's accepted set; the
-        # emitter raises ValueError. The build must absorb it.
+        # emitter raises ValueError. The build must propagate it.
         result = {
             "template_context": {
+                "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
                 "device_config": {
+                    "class_code": 0x020000,
                     "vendor_id_int": 0x8086,
                     "device_id_int": 0x10D3,
                     "subsystem_vendor_id_int": 0x8086,
@@ -379,18 +364,17 @@ class TestBuildWiringIpOverride:
             DonorPCIeIPConfig,
             generate_pcie_ip_override_tcl,
         )
+
         with pytest.raises(ValueError):
             generate_pcie_ip_override_tcl(
                 DonorIDs(1, 2, 3, 4, 5),
                 extra=DonorPCIeIPConfig(cpl_timeout_ranges="ZZ"),
             )
 
-        # Now the build path: must NOT raise.
-        with caplog.at_level("WARNING"):
+        # The caller must propagate the configuration failure.
+        with pytest.raises(ValueError):
             builder._patch_fifo_with_donor_ids(result)
 
         assert any(
-            "donor override skipped" in rec.message.lower()
-            or "valueerror" in rec.message.lower()
-            for rec in caplog.records
-        ), f"expected warn-and-skip; logs were: {[rec.message for rec in caplog.records]}"
+            "donor override failed" in rec.message.lower() for rec in caplog.records
+        ), f"expected failure; logs were: {[rec.message for rec in caplog.records]}"

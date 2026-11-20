@@ -47,7 +47,13 @@ def make_config(
 
 
 def make_snapshot(
-    directory, config=None, bdf="0000:03:00.0", msix_info=None, context=None
+    directory,
+    config=None,
+    bdf="0000:03:00.0",
+    msix_info=None,
+    context=None,
+    *,
+    capture_id=None,
 ):
     """Write schema-v1 fixture files independently of the production writer."""
     config = config_bytes() if config is None else config
@@ -62,7 +68,7 @@ def make_snapshot(
         ids["subsystem_device_id"] = int.from_bytes(config[46:48], "little")
     capture = {
         "schema_version": 1,
-        "capture_id": str(uuid4()),
+        "capture_id": str(uuid4() if capture_id is None else capture_id),
         "collected_at": "2026-10-24T00:00:00+00:00",
         "bdf": bdf,
         **ids,

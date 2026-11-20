@@ -189,6 +189,37 @@ def _comment_out_cfg_id_assigns(text: str) -> tuple[str, bool]:
     return "".join(out_lines), changed
 
 
+# Shadow config-space serving. The hard IP forwards config accesses to
+# 0xA8-0xFF and 0x10C-0xFFF to the user shadow BRAM; upstream resets
+# rw[203] (CFGTLP ZERO DATA) to 1, which makes those reads return zero, and
+# rw[206] (CFGTLP PCIE WRITE ENABLE) to 0, which drops host writes before the
+# writemask applies. The cloned extended capabilities and the writemask are
+# only effective with rw[203]=0 and rw[206]=1 (ufrisk's build.md documents
+# the rw[203] change for custom config spaces).
+_SHADOW_RESET_BITS = (
+    ("rw[203] CFGTLP ZERO DATA", r"(rw\[203\]\s*<=\s*)1'b[01]", "1'b0"),
+    ("rw[206] CFGTLP PCIE WRITE ENABLE", r"(rw\[206\]\s*<=\s*)1'b[01]", "1'b1"),
+)
+
+
+def enable_shadow_cfgspace(fifo_text: str) -> str:
+    """Make the RW reset block serve the shadow config space (idempotent).
+
+    Raises FifoPatchError unless each reset assignment occurs exactly once.
+    """
+    out = fifo_text
+    for label, pattern, value in _SHADOW_RESET_BITS:
+        regex = re.compile(pattern)
+        hits = len(regex.findall(out))
+        if hits != 1:
+            raise FifoPatchError(
+                f"pcileech_fifo.sv: expected exactly one {label} reset "
+                f"assignment, found {hits}"
+            )
+        out = regex.sub(lambda m: m.group(1) + value, out)
+    return out
+
+
 def patch_pcileech_fifo(
     fifo_text: str,
     donor: DonorIDs,
@@ -205,6 +236,7 @@ def patch_pcileech_fifo(
     """
     out = _patch_rw_reset_block(fifo_text, donor)
     out = _patch_pcie_core_config_initializer(out, donor)
+    out = enable_shadow_cfgspace(out)
 
     if header_text is not None and not _header_declares_cfg_fields(header_text):
         out, _ = _comment_out_cfg_id_assigns(out)

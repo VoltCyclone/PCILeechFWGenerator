@@ -1,25 +1,22 @@
 import json
-import os
 from types import SimpleNamespace
 
 import pytest
-
-from pcileechfwgenerator.exceptions import ConfigurationError
-from tests.snapshot_helpers import make_snapshot, msix_config
-from tests.snapshot_helpers import offline_fixture
-
 from pcileechfwgenerator.build import (
     BuildConfiguration,
     ConfigurationManager,
     FirmwareBuilder,
     MSIXManager,
 )
+from pcileechfwgenerator.exceptions import ConfigurationError
+
+from tests.snapshot_helpers import make_snapshot, msix_config, offline_fixture
 
 
 def _make_args(tmp_path, profile=0):
     return SimpleNamespace(
-        bdf='0000:03:00.0',
-        board='pcileech_100t484_x1',
+        bdf="0000:03:00.0",
+        board="pcileech_100t484_x1",
         output=str(tmp_path),
         profile=profile,
         preload_msix=True,
@@ -44,42 +41,40 @@ class TestDisableVFIOConfig:
         assert cfg.profile_duration == 10
 
         # explicit disable via PCILEECH_DISABLE_VFIO
-        monkeypatch.setenv('PCILEECH_DISABLE_VFIO', '1')
+        monkeypatch.setenv("PCILEECH_DISABLE_VFIO", "1")
         args = _make_args(tmp_path, profile=10)
         cfg = cm.create_from_args(args)
         assert cfg.disable_vfio is True
         assert cfg.enable_profiling is False
         assert cfg.profile_duration == 0
-        monkeypatch.delenv('PCILEECH_DISABLE_VFIO', raising=False)
+        monkeypatch.delenv("PCILEECH_DISABLE_VFIO", raising=False)
 
         # host-context-only flag
-        monkeypatch.setenv('PCILEECH_HOST_CONTEXT_ONLY', 'true')
+        monkeypatch.setenv("PCILEECH_HOST_CONTEXT_ONLY", "true")
         args = _make_args(tmp_path, profile=10)
         cfg = cm.create_from_args(args)
         assert cfg.disable_vfio is True
         assert cfg.enable_profiling is False
         assert cfg.profile_duration == 0
-        monkeypatch.delenv('PCILEECH_HOST_CONTEXT_ONLY', raising=False)
+        monkeypatch.delenv("PCILEECH_HOST_CONTEXT_ONLY", raising=False)
 
         # presence of DEVICE_CONTEXT_PATH also implies disable
-        monkeypatch.setenv(
-            'DEVICE_CONTEXT_PATH', str(tmp_path / 'device_context.json')
-        )
+        monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(tmp_path / "device_context.json"))
         args = _make_args(tmp_path, profile=10)
         cfg = cm.create_from_args(args)
         assert cfg.disable_vfio is True
         assert cfg.enable_profiling is False
         assert cfg.profile_duration == 0
-        monkeypatch.delenv('DEVICE_CONTEXT_PATH', raising=False)
+        monkeypatch.delenv("DEVICE_CONTEXT_PATH", raising=False)
 
     def test_init_components_fail_without_host_data(self, monkeypatch, tmp_path):
         # Force disable and point to missing context file
-        monkeypatch.setenv('PCILEECH_DISABLE_VFIO', '1')
-        monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(tmp_path / 'missing.json'))
+        monkeypatch.setenv("PCILEECH_DISABLE_VFIO", "1")
+        monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(tmp_path / "missing.json"))
 
         cfg = BuildConfiguration(
-            bdf='0000:03:00.0',
-            board='pcileech_100t484_x1',
+            bdf="0000:03:00.0",
+            board="pcileech_100t484_x1",
             output_dir=tmp_path,
             enable_profiling=False,
             preload_msix=True,
@@ -105,17 +100,17 @@ class TestPreloadedConfigSpace:
     def test_legacy_nested_context_is_rejected(self, monkeypatch, tmp_path):
         # Prepare minimal device_context.json with nested
         # template_context.config_space_hex
-        hex_str = '00' * 128  # 128 bytes
-        ctx_path = tmp_path / 'device_context.json'
+        hex_str = "00" * 128  # 128 bytes
+        ctx_path = tmp_path / "device_context.json"
         ctx_path.write_text(
-            json.dumps({'template_context': {'config_space_hex': hex_str}})
+            json.dumps({"template_context": {"config_space_hex": hex_str}})
         )
-        monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx_path))
+        monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(ctx_path))
 
         # Build a FirmwareBuilder with VFIO allowed (so it doesn't fail early)
         cfg = BuildConfiguration(
-            bdf='0000:03:00.0',
-            board='pcileech_100t484_x1',
+            bdf="0000:03:00.0",
+            board="pcileech_100t484_x1",
             output_dir=tmp_path,
             enable_profiling=False,
             preload_msix=False,
@@ -137,39 +132,39 @@ class TestPreloadedConfigSpace:
 class TestMSIXManagerDisable:
     def test_msix_preload_reads_file_only_when_disabled(self, monkeypatch, tmp_path):
         # Disable VFIO
-        monkeypatch.setenv('PCILEECH_DISABLE_VFIO', '1')
+        monkeypatch.setenv("PCILEECH_DISABLE_VFIO", "1")
         # Create msix_data.json with msix_info
         msix_info = {
-            'table_size': 8,
-            'table_bir': 0,
-            'table_offset': 0x1000,
-            'pba_bir': 0,
-            'pba_offset': 0x1080,
-            'enabled': True,
-            'function_mask': False,
+            "table_size": 8,
+            "table_bir": 0,
+            "table_offset": 0x1000,
+            "pba_bir": 0,
+            "pba_offset": 0x1080,
+            "enabled": True,
+            "function_mask": False,
         }
-        msix_path = tmp_path / 'msix_data.json'
+        msix_path = tmp_path / "msix_data.json"
         make_snapshot(tmp_path, msix_config(msix_info), msix_info=msix_info)
-        monkeypatch.setenv('MSIX_DATA_PATH', str(msix_path))
-        m = MSIXManager(bdf='0000:03:00.0')
+        monkeypatch.setenv("MSIX_DATA_PATH", str(msix_path))
+        m = MSIXManager(bdf="0000:03:00.0")
 
         # Ensure sysfs path isn't accidentally used by making
         # _read_config_space fail if called
         def boom(_):
             raise AssertionError(
-                '_read_config_space should not be called in disable_vfio mode'
+                "_read_config_space should not be called in disable_vfio mode"
             )
 
         m._read_config_space = boom  # type: ignore
         data = m.preload_data()
         assert data.preloaded is True
         assert data.msix_info is not None
-        assert data.msix_info.get('table_size') == 8
+        assert data.msix_info.get("table_size") == 8
 
     def test_msix_preload_returns_empty_when_disabled_and_no_file(self, monkeypatch):
-        monkeypatch.setenv('PCILEECH_DISABLE_VFIO', '1')
-        monkeypatch.delenv('MSIX_DATA_PATH', raising=False)
-        m = MSIXManager(bdf='0000:03:00.0')
+        monkeypatch.setenv("PCILEECH_DISABLE_VFIO", "1")
+        monkeypatch.delenv("MSIX_DATA_PATH", raising=False)
+        m = MSIXManager(bdf="0000:03:00.0")
         data = m.preload_data()
         assert data.preloaded is False
 
@@ -196,7 +191,7 @@ class TestProfilingSkip:
         # Create a builder; _init_components will fail if it can't find host data.
         # Avoid that by providing a minimal device_context.json with config_space_hex
         ctx = offline_fixture(tmp_path / "capture")
-        monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
+        monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(ctx))
         # The env-var capture path models the Stage 2 container.
         import pcileechfwgenerator.build as build
 
@@ -205,23 +200,23 @@ class TestProfilingSkip:
         fb = FirmwareBuilder(cfg)
 
         # Ensure capture is not called
-        called = {'hit': False}
+        called = {"hit": False}
 
         def fake_capture(**_):
-            called['hit'] = True
-            raise AssertionError('should not be called')
+            called["hit"] = True
+            raise AssertionError("should not be called")
 
         fb.profiler.capture_behavior_profile = fake_capture  # type: ignore
         # The disable guard also wins if a caller later flips this flag.
         cfg.enable_profiling = True
         fb._generate_profile()
-        assert called['hit'] is False
+        assert called["hit"] is False
 
 
 class TestGeneratorConfig:
     def test_generator_strict_vfio_false_when_disabled(self, monkeypatch, tmp_path):
         ctx = offline_fixture(tmp_path / "capture")
-        monkeypatch.setenv('DEVICE_CONTEXT_PATH', str(ctx))
+        monkeypatch.setenv("DEVICE_CONTEXT_PATH", str(ctx))
         # The env-var capture path models the Stage 2 container.
         import pcileechfwgenerator.build as build
 
@@ -245,8 +240,8 @@ class TestGeneratorConfig:
             disable_vfio=True,
         )
         fb = FirmwareBuilder(cfg)
-        assert hasattr(fb.gen.config, 'strict_vfio')
-        assert getattr(fb.gen.config, 'strict_vfio') is False
+        assert hasattr(fb.gen.config, "strict_vfio")
+        assert getattr(fb.gen.config, "strict_vfio") is False
 
 
 def _legacy_capture(tmp_path, monkeypatch, *, in_container, bar_size=64 << 20):
@@ -284,9 +279,14 @@ def test_container_path_renders_from_capture_without_offline_safeguards(
     assert fb.capture_mode == "container"
 
 
-def test_container_path_large_bar_points_to_local_mode(tmp_path, monkeypatch):
+def test_container_path_renders_large_bars(tmp_path, monkeypatch):
     _legacy_capture(tmp_path, monkeypatch, in_container=True)  # 64 MiB BAR
-    with pytest.raises(ConfigurationError, match="--container-mode local"):
+    assert FirmwareBuilder(_cfg(tmp_path)).capture_mode == "container"
+
+
+def test_container_path_reports_unrenderable_capture(tmp_path, monkeypatch):
+    _legacy_capture(tmp_path, monkeypatch, in_container=True, bar_size=64)
+    with pytest.raises(ConfigurationError, match="cannot be rendered"):
         FirmwareBuilder(_cfg(tmp_path))
 
 
@@ -303,13 +303,14 @@ def test_legacy_env_path_refused_outside_container(tmp_path, monkeypatch):
         FirmwareBuilder(_cfg(tmp_path))
 
 
-def test_explicit_from_capture_sets_offline_input_and_limits(tmp_path):
+def test_explicit_from_capture_accepts_large_bars(tmp_path):
+    """No dense BAR content is rendered, so BAR size is no longer capped."""
     capture = tmp_path / "capture"
     offline_fixture(capture, size=64 << 20)
-    with pytest.raises(ConfigurationError, match="16 MiB"):
-        FirmwareBuilder(
-            _cfg(tmp_path, from_capture=capture, offline_risk_accepted=True)
-        )
+    fb = FirmwareBuilder(
+        _cfg(tmp_path, from_capture=capture, offline_risk_accepted=True)
+    )
+    assert fb.config.offline_input
 
 
 def test_from_capture_always_marks_offline_input(tmp_path):

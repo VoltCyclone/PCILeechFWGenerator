@@ -1,217 +1,131 @@
 # Development Guide
 
-This guide covers development setup, testing, and contributing to the PCILeech Firmware Generator.
+This guide covers development setup, testing, and template work for the PCILeech Firmware Generator. Contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Development Setup
+## Setup
 
-### 1. Clone and Setup
+### Local Development
 
-**For Local Development** (requires voltcyclone-fpga submodule):
+Local development needs the `voltcyclone-fpga` submodule at `lib/voltcyclone-fpga`.
 
 ```bash
 git clone --recurse-submodules https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
-pip install -e .
+pip install -e ".[dev]"
+pre-commit install
+pre-commit install --hook-type commit-msg
 ```
 
-**For Container Development** (no submodule needed):
-
-```bash
-# Clone without submodules
-git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
-cd PCILeechFWGenerator
-
-# Build container (automatically clones voltcyclone-fpga)
-podman build -t pcileechfwgenerator:latest .
-```
-
-**Note for local development:** The `--recurse-submodules` flag is required to initialize the `voltcyclone-fpga` submodule at `lib/voltcyclone-fpga`.
-
-If you already cloned without submodules, initialize them with:
+If you cloned without submodules, run:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-**Note for container builds:** The container automatically clones the `voltcyclone-fpga` repository during the build process, eliminating the need for git submodule management. See [Container Builds](site/docs/container-builds.md) for details.
+### Container Development
 
-### 2. Install Pre-commit Hooks
-
-```bash
-pip install pre-commit
-pre-commit install
-pre-commit install --hook-type commit-msg
-```
-
-## Development Workflow
-
-### Running Tests
+The container clones `voltcyclone-fpga` during the image build, so no submodule is needed.
 
 ```bash
-# Run all tests
-make test
-
-# Run unit tests only (fast)
-make test-unit
-
-# Run TUI tests
-make test-tui
-
-# Run fast tests only
-make test-fast
+git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
+cd PCILeechFWGenerator
+podman build -t pcileechfwgenerator:latest .
 ```
 
-### Template Validation
+See [Container Builds](site/docs/container-builds.md) for details.
 
-The project includes comprehensive template validation to ensure all Jinja2 templates have proper variable definitions.
+## Workflow
+
+### Tests
 
 ```bash
-# Validate templates (non-blocking)
-make check-templates
-
-# Validate with strict mode (fails on issues)
-make check-templates-strict
-
-# Generate suggested fixes
-make check-templates-fix
+make test        # full suite with coverage
+make test-unit   # unit tests only
+make test-tui    # TUI tests
+make test-fast   # fast tests only
 ```
 
-### Manual Template Validation
-
-```bash
-# Basic validation
-python scripts/validate_template_variables.py
-
-# Strict mode for CI
-python scripts/validate_template_variables.py --strict --format json
-
-# Generate detailed fixes
-python scripts/validate_template_variables.py --generate-fixes --verbose
-
-# Summary format for quick checks
-python scripts/validate_template_variables.py --format summary
-```
+The suite holds about 4,400 tests. The `hardware` marker is skipped in CI.
 
 ### Code Quality
 
 ```bash
-# Lint code
-make lint
-
-# Format code
-make format
-
-# Security scan
-make security
+make lint        # flake8 + mypy
+make format      # black + isort
+make security    # bandit + dependency scan
+make sv-lint     # SystemVerilog declaration-order lint
 ```
 
 ### Building
 
 ```bash
-# Build package
-make build
-
-# Full PyPI package build
-make build-pypi
-
-# Quick build for testing
-make build-quick
+make build        # sdist + wheel
+make build-pypi   # full PyPI package build
+make build-quick  # skip quality checks
 ```
 
-## Template Development
+Run `make help` for every target.
 
-### Template Variable Requirements
+## Templates
 
-All Jinja2 templates must have properly defined variables. The template validation system:
+Every Jinja2 template variable must be defined. Variable requirements live in `TemplateContextValidator` (`src/templating/template_context_validator.py`).
 
-1. **Analyzes templates** for undefined variables
-2. **Checks conditional statements** like `{% if var is defined %}`
-3. **Validates against requirements** defined in `TemplateContextValidator`
-4. **Suggests fixes** for missing variables
+### Validation
 
-### Adding New Templates
+```bash
+make check-templates          # non-blocking
+make check-templates-strict   # fail on issues
+make check-templates-fix      # suggest fixes
 
-When adding new templates:
+python scripts/validate_template_variables.py --strict --format json
+python scripts/validate_template_variables.py --generate-fixes --verbose
+python scripts/validate_template_variables.py --format summary
+```
 
-1. **Define variable requirements** in `src/templating/template_context_validator.py`
-2. **Test template rendering** with proper context
-3. **Run template validation** before committing:
-   ```bash
-   make check-templates-strict
-   ```
+### Adding a Template
 
-### Template Patterns
+1. Define its variable requirements in `src/templating/template_context_validator.py`.
+2. Render it with a real context.
+3. Run `make check-templates-strict` before committing.
+
+### Patterns
 
 ```jinja2
-{# Good: Use variables with proper defaults #}
+{# Good: use variables with proper defaults #}
 {% if enable_feature %}
     // Feature enabled
 {% endif %}
 
-{# Avoid: Conditional existence checks #}
+{# Avoid: conditional existence checks #}
 {% if enable_feature is defined %}
     // This pattern should be avoided
 {% endif %}
 ```
 
-## CI/CD Pipeline
+## CI
 
-### GitHub Actions Workflows
+- `.github/workflows/consolidated-ci.yml`: template validation, CodeQL, unit tests (Python 3.11 and 3.12), coverage, packaging.
+- `.github/workflows/security.yml`: dependency review, Bandit, pip-audit, Semgrep.
+- `.github/workflows/e2e-testing.yml`: fast, build-isolation, and container-build end-to-end tests.
+- `.github/workflows/release.yml`: builds and publishes on `v*` tags.
 
-1. **Template Validation** (`.github/workflows/template-validation.yml`)
-   - Validates all template variables
-   - Checks template syntax
-   - Generates reports for PRs
+Pre-commit runs Black, isort, flake8, mypy, Bandit, pydocstyle, Prettier, the conventional-commit check, and the custom template-validation, safe-logging, and test-import hooks.
 
-2. **Main CI** (`.github/workflows/ci.yml`)
-   - Includes template validation step
-   - Non-blocking to avoid build failures
+## Pull Requests
 
-### Pre-commit Hooks
+1. Branch from `main`.
+2. Follow the code style and use conventional commits.
+3. Run `make check-templates-strict` and `make test`.
+4. Push and open a pull request.
 
-The pre-commit configuration includes:
-- Code formatting (Black, isort)
-- Linting (flake8, mypy)
-- Security scanning (bandit)
-- **Template validation** (custom hook)
-
-## Contributing
-
-### Pull Request Process
-
-1. **Create feature branch** from `main`
-2. **Make changes** following code style
-3. **Run validation** with `make check-templates-strict`
-4. **Run tests** with `make test`
-5. **Commit** with conventional commit format
-6. **Push** and create pull request
-
-### Template Changes
-
-For template-related changes:
-1. **Update variable requirements** if needed
-2. **Test rendering** with real data
-3. **Validate templates** pass strict checks
-4. **Document** any new variables
-
-### Code Style
-
-- **Python**: Black formatting, PEP 8 compliance
-- **Templates**: Consistent indentation, clear variable usage
-- **Commits**: Conventional commits format
-- **Documentation**: Clear, comprehensive
+For template changes, update variable requirements, test rendering with real data, and document new variables.
 
 ## Debugging
 
-### Template Issues
+Check the syntax of a single template:
 
 ```bash
-# Analyze specific template
-python scripts/validate_template_variables.py --verbose
-
-# Check template syntax only
 python -c "
 from jinja2 import Environment, FileSystemLoader
 env = Environment(loader=FileSystemLoader('src/templates'))
@@ -220,48 +134,22 @@ print('Template syntax is valid')
 "
 ```
 
-### Development Environment
+Other helpers:
 
 ```bash
-# Check environment setup
-make check-deps
-
-# Install development dependencies
-make install-dev
-
-# Clean build artifacts
-make clean
+make check-deps     # check system dependencies
+make install-dev    # install development dependencies
+make clean          # remove build artifacts
 ```
 
-## Tools and Scripts
+## Scripts
 
-### Available Scripts
+- `scripts/validate_template_variables.py`: template validation
+- `scripts/check_templates.sh`: wrapper for template checks
+- `scripts/analyze_imports.py`: import analysis
+- `scripts/generate_api_docs.py`: API documentation
+- `scripts/iommu_viewer.py`: IOMMU group viewer for VFIO debugging
+- `scripts/lint_sv_block_decls.py`: SystemVerilog declaration-order linter
+- `scripts/barviz.py`: BAR visualization
 
-- `scripts/validate_template_variables.py` - Template validation
-- `scripts/check_templates.sh` - Convenient template checking
-- `scripts/analyze_imports.py` - Import analysis
-- `scripts/generate_api_docs.py` - Documentation generation
-- `scripts/iommu_viewer.py` - Lightweight IOMMU group and device viewer (useful for VFIO debugging)
-
-### Make Targets
-
-Run `make help` for all available targets:
-
-```bash
-make help
-```
-
-Key development targets:
-- `check-templates` - Template validation
-- `test` - Run test suite
-- `lint` - Code linting
-- `format` - Code formatting
-- `clean` - Clean artifacts
-
-## Tips
-
-1. **Always validate templates** before committing
-2. **Use strict mode** in CI to catch issues early
-3. **Document new variables** in context validator
-4. **Test with real data** when possible
-5. **Follow conventional commits** for clear history
+MSI-X and requester tracking are described in [docs/development/MSIX_STATUS.md](docs/development/MSIX_STATUS.md).

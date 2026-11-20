@@ -4,7 +4,6 @@
 from pathlib import Path
 
 import pytest
-
 from pcileechfwgenerator.file_management import repo_manager
 
 
@@ -16,18 +15,24 @@ def _seed_minimal_submodule(root: Path) -> None:
         (root / board).mkdir(parents=True, exist_ok=True)
 
 
-def test_ensure_repo_valid_submodule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ensure_repo_valid_submodule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """ensure_repo returns path when submodule structure is valid."""
     assets = tmp_path / "voltcyclone-fpga"
     _seed_minimal_submodule(assets)
     monkeypatch.setattr(repo_manager, "SUBMODULE_PATH", assets)
     # Force repo validation to pass (empty .git won't satisfy git normally)
-    monkeypatch.setattr(repo_manager.RepoManager, "_is_valid_repo", classmethod(lambda cls, p: True))
+    monkeypatch.setattr(
+        repo_manager.RepoManager, "_is_valid_repo", classmethod(lambda cls, p: True)
+    )
     resolved = repo_manager.RepoManager.ensure_repo()
     assert resolved == assets
 
 
-def test_ensure_repo_missing_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ensure_repo_missing_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Missing .git directory should raise RuntimeError."""
     pytest.skip("Git validation is platform-dependent and may detect container mode")
     assets = tmp_path / "voltcyclone-fpga"
@@ -39,7 +44,9 @@ def test_ensure_repo_missing_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         repo_manager.RepoManager.ensure_repo()
 
 
-def test_ensure_repo_incomplete_boards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ensure_repo_incomplete_boards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Missing one of required board directories triggers failure."""
     assets = tmp_path / "voltcyclone-fpga"
     (assets / ".git").mkdir(parents=True, exist_ok=True)
@@ -47,7 +54,9 @@ def test_ensure_repo_incomplete_boards(tmp_path: Path, monkeypatch: pytest.Monke
     for board in ("CaptainDMA", "EnigmaX1"):
         (assets / board).mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(repo_manager, "SUBMODULE_PATH", assets)
-    monkeypatch.setattr(repo_manager.RepoManager, "_is_valid_repo", classmethod(lambda cls, p: True))
+    monkeypatch.setattr(
+        repo_manager.RepoManager, "_is_valid_repo", classmethod(lambda cls, p: True)
+    )
     with pytest.raises(RuntimeError):
         repo_manager.RepoManager.ensure_repo()
 
@@ -73,9 +82,7 @@ def test_is_repository_accessible_unknown_board_chains_cause(
     monkeypatch.setattr(repo_manager.RepoManager, "get_board_path", _boom)
 
     with pytest.raises(RuntimeError) as excinfo:
-        repo_manager.is_repository_accessible(
-            "Nonexistent_Board", repo_root=assets
-        )
+        repo_manager.is_repository_accessible("Nonexistent_Board", repo_root=assets)
 
     msg = str(excinfo.value)
     # The board name and underlying cause must both survive the
@@ -106,7 +113,31 @@ def test_is_repository_accessible_success(
         "get_board_path",
         classmethod(lambda cls, board, repo_root=None: assets / board),
     )
-    assert (
-        repo_manager.is_repository_accessible("CaptainDMA", repo_root=assets)
-        is True
-    )
+    assert repo_manager.is_repository_accessible("CaptainDMA", repo_root=assets) is True
+
+
+def test_wheel_bundle_used_without_checkout(tmp_path: Path, monkeypatch) -> None:
+    """A pip install has no lib/ checkout; the bundled boards are used."""
+    bundled = tmp_path / "voltcyclone_fpga"
+    for board in ("CaptainDMA", "EnigmaX1", "PCIeSquirrel"):
+        (bundled / board).mkdir(parents=True)
+    monkeypatch.setattr(repo_manager, "_BUNDLED_PATH", bundled.resolve())
+    monkeypatch.setattr(repo_manager, "_REPO_ROOT", tmp_path / "site-packages")
+    path = repo_manager._get_voltcyclone_fpga_path()
+    assert path == bundled
+    # No .git in a wheel: content validation must accept it.
+    assert repo_manager.RepoManager._is_valid_repo(path)
+    monkeypatch.setattr(repo_manager, "SUBMODULE_PATH", path)
+    assert repo_manager.RepoManager.ensure_repo() == path
+    with pytest.raises(RuntimeError, match="bundled"):
+        repo_manager.RepoManager.update_submodule()
+
+
+def test_checkout_preferred_over_bundle(tmp_path: Path, monkeypatch) -> None:
+    bundled = tmp_path / "voltcyclone_fpga"
+    (bundled / "CaptainDMA").mkdir(parents=True)
+    checkout = tmp_path / "repo" / "lib" / "voltcyclone-fpga"
+    checkout.mkdir(parents=True)
+    monkeypatch.setattr(repo_manager, "_BUNDLED_PATH", bundled.resolve())
+    monkeypatch.setattr(repo_manager, "_REPO_ROOT", tmp_path / "repo")
+    assert repo_manager._get_voltcyclone_fpga_path() == checkout

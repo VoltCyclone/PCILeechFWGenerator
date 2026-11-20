@@ -1,4 +1,3 @@
-
 import json
 
 
@@ -36,7 +35,7 @@ def test_host_collector_writes_datastore(tmp_path, monkeypatch):
     assert "device_id" in ctx, "device_context.json should include device_id"
     assert "class_code" in ctx, "device_context.json should include class_code"
     assert "revision_id" in ctx, "device_context.json should include revision_id"
-    
+
     # Verify the extracted values match the config space
     # cfg_bytes = bytes(range(256)), so bytes 0-1 are 0x0100 (little endian)
     assert ctx["vendor_id"] == 0x0100, "vendor_id should be extracted from config space"
@@ -89,3 +88,31 @@ def test_host_collector_extracts_msix_info(tmp_path, monkeypatch):
     assert info["table_offset"] == 0
     assert info["pba_bir"] == 4
     assert info["pba_offset"] == 0x800
+
+
+def test_sysfs_collector_always_publishes_shared_learning(tmp_path, monkeypatch):
+    import pcileechfwgenerator.host_collect.collector as module
+    from pcileechfwgenerator.host_collect.snapshot import load_snapshot
+
+    calls = []
+    service = module.run_register_learning
+
+    def record(*args, **kwargs):
+        result = service(*args, **kwargs)
+        calls.append(result)
+        return result
+
+    monkeypatch.setattr(module, "run_register_learning", record)
+    monkeypatch.setattr(
+        module.HostCollector, "_read_config_space", lambda _: bytes(range(256))
+    )
+    assert (
+        module.HostCollector("03:00.0", tmp_path, enable_mmio_learning=False).run() == 0
+    )
+    snapshot = load_snapshot(
+        tmp_path / "device_context.json", tmp_path / "msix_data.json", "03:00.0"
+    )
+    assert len(calls) == 1 and snapshot.learning == calls[0]
+    assert snapshot.learning_status == "partial"
+    assert str(calls[0].context.capture_id) == str(snapshot.identity.capture_id)
+    assert any(g.reason == "backend_unavailable" for g in snapshot.learning.gaps)

@@ -1,5 +1,5 @@
 ---
-name: ✨ Feature Request
+name: Feature Request
 about: Suggest a new capability or improvement for PCILeechFWGenerator
 title: '[FEATURE] '
 labels: ['enhancement', 'needs-triage']
@@ -10,7 +10,7 @@ assignees: ''
 Before filing:
 - Search existing issues to avoid duplicates.
 - For open-ended ideas or "would it be possible to..." questions, please ask
-  in the support Discord (https://discord.gg/dwQfMNsb7W) — issues are for
+  in the support Discord (https://discord.gg/dwQfMNsb7W), issues are for
   concrete proposals we can act on.
 -->
 

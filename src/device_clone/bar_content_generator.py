@@ -235,9 +235,7 @@ class BarContentGenerator:
             )
 
         # Start with high-entropy base
-        content = bytearray(
-            self._get_seeded_bytes(size, f"learned_bar{bar_index}")
-        )
+        content = bytearray(self._get_seeded_bytes(size, f"learned_bar{bar_index}"))
 
         # Overlay learned register values
         for offset, reg in sorted(model.registers.items()):
@@ -252,6 +250,9 @@ class BarContentGenerator:
                 )
                 continue
 
+            # No known initial value: keep the seeded bytes, never invent one.
+            if reg.reset is None:
+                continue
             # Write reset value at offset
             if reg.width == 1:
                 content[offset] = reg.reset & 0xFF
@@ -324,7 +325,8 @@ class BarContentGenerator:
             raise ConfigSpaceError(
                 safe_format(
                     "Unknown content type: {content_type}", content_type=content_type
-                ), root_cause="Invalid BAR content type"
+                ),
+                root_cause="Invalid BAR content type",
             )
 
     def generate_all_bars(
@@ -340,7 +342,7 @@ class BarContentGenerator:
         """
         if not bar_sizes:
             return {}
-        
+
         # Technical header for BAR content generation
         log_info_safe(
             logger,
@@ -363,10 +365,10 @@ class BarContentGenerator:
             ),
             prefix="BARS",
         )
-        
+
         result = {}
         total_generated = 0
-        
+
         for bar_index, size in bar_sizes.items():
             if size <= 4096:
                 content_type = BarContentType.REGISTERS
@@ -377,16 +379,16 @@ class BarContentGenerator:
             else:
                 content_type = BarContentType.BUFFER
                 type_label = "BUF"
-            
+
             content = self.generate_bar_content(size, bar_index, content_type)
             result[bar_index] = content
             total_generated += size
-            
+
             # Calculate entropy for display
             stats = self.get_entropy_stats(content)
             entropy_pct = (stats["entropy"] / 8.0) * 100
             uniqueness_pct = stats["uniqueness"] * 100
-            
+
             # Format size for display
             size_mb = size / (1024 * 1024)
             if size_mb >= 1:
@@ -394,7 +396,7 @@ class BarContentGenerator:
             else:
                 size_kb = size / 1024
                 size_display = safe_format("{size:.2f} KB", size=size_kb)
-            
+
             # Log detailed generation info with stats
             bar_gen_line = safe_format(
                 "║ BAR{bar} [{type:>5}] {size:>12} │ "
@@ -403,33 +405,29 @@ class BarContentGenerator:
                 type=type_label,
                 size=size_display,
                 ent=entropy_pct,
-                uniq=uniqueness_pct
+                uniq=uniqueness_pct,
             )
             log_info_safe(logger, bar_gen_line, prefix="BARS")
-            
+
             # Visualize if requested
             if visualize and logger.isEnabledFor(logging.INFO):
                 self._visualize_bar_content(content, bar_index)
-        
+
         # Summary footer
-        separator = (
-            "╠═════════════════════════════════════════════════════════════╣"
-        )
+        separator = "╠═════════════════════════════════════════════════════════════╣"
         log_info_safe(logger, safe_format(separator), prefix="BARS")
-        
+
         total_mb = total_generated / (1024 * 1024)
         summary_line = safe_format(
             "║ GENERATED: {count} BAR(s) │ TOTAL SIZE: {total:.2f} MB      ║",
             count=len(result),
-            total=total_mb
+            total=total_mb,
         )
         log_info_safe(logger, summary_line, prefix="BARS")
-        
-        footer = (
-            "╚═════════════════════════════════════════════════════════════╝"
-        )
+
+        footer = "╚═════════════════════════════════════════════════════════════╝"
         log_info_safe(logger, safe_format(footer), prefix="BARS")
-        
+
         return result
 
     def get_entropy_stats(self, data: bytes) -> Dict[str, float]:
@@ -459,7 +457,7 @@ class BarContentGenerator:
         self, data: bytes, bar_index: int, max_samples: int = 4
     ) -> None:
         """Visualize BAR content with entropy mini-bars (info logging).
-        
+
         Args:
             data: BAR content bytes
             bar_index: BAR index for labeling
@@ -471,7 +469,7 @@ class BarContentGenerator:
         # Calculate overall stats
         stats = self.get_entropy_stats(data)
         size = len(data)
-        
+
         # Log overall stats
         log_info_safe(
             logger,
@@ -494,7 +492,7 @@ class BarContentGenerator:
         # Sample entropy at regular intervals
         window_size = min(4096, size // 4)
         step = max(window_size, size // max_samples)
-        
+
         samples = []
         offset = 0
         while offset < size and len(samples) < max_samples:
@@ -539,9 +537,9 @@ class BarContentGenerator:
             else:
                 style = "bold red"
                 prefix = "!"
-            
+
             bar_len = int((entropy / 8.0) * width)
-            
+
             # Use different characters for visual distinction
             if entropy >= 7.5:
                 bar_char = "█" * bar_len
@@ -549,7 +547,7 @@ class BarContentGenerator:
                 bar_char = "▓" * bar_len
             else:
                 bar_char = "▒" * bar_len
-            
+
             # Direct console output for color support
             console.print(
                 f"  {prefix} 0x{offset:08X}: ",
@@ -565,7 +563,7 @@ class BarContentGenerator:
         """Render entropy visualization using ASCII with intensity variation."""
         for offset, entropy in samples:
             bar_len = int((entropy / 8.0) * width)
-            
+
             # Use different characters based on entropy level
             if entropy >= 7.5:
                 bar_char = "█" * bar_len  # Solid block - high entropy
@@ -576,7 +574,7 @@ class BarContentGenerator:
             else:
                 bar_char = "░" * bar_len  # Light shade - low entropy
                 prefix = "!"
-            
+
             log_info_safe(
                 logger,
                 safe_format(

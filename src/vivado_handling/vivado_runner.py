@@ -8,6 +8,7 @@ designed to replace the complex container-based approach.
 
 import logging
 import os
+import shlex
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -18,12 +19,19 @@ from pcileechfwgenerator.string_utils import (
 )
 
 from ..log_config import get_logger
+from .build_evidence import (
+    PORTABLE_BEGIN_RUN,
+    PORTABLE_INPUT_CHECK,
+    PORTABLE_PUBLISH_RESULT,
+    record_build_success,
+    verify_build_manifest,
+)
 from .ip_lock_resolver import repair_ip_artifacts
+from .pcileech_build_integration import validate_vivado_jobs
 
 
 class VivadoIntegrationError(Exception):
     """Exception raised when Vivado integration fails."""
-
 
 
 class VivadoRunner:
@@ -46,6 +54,7 @@ class VivadoRunner:
         logger: Optional[logging.Logger] = None,
         device_config: Optional[Dict[str, Any]] = None,
         prefix: str = "VIVADO",
+        vivado_jobs: Optional[int] = None,
     ):
         """Initialize VivadoRunner with simplified configuration.
 
@@ -55,12 +64,17 @@ class VivadoRunner:
             vivado_path: Root path to Xilinx Vivado installation
             logger: Optional logger instance
             device_config: Optional device configuration dictionary
+            vivado_jobs: Selected launch_runs job count; None keeps the
+                generated script's default
         """
         self.logger: logging.Logger = logger or get_logger(self.__class__.__name__)
         self.board: str = board
         self.output_dir: Path = Path(output_dir)
         self.vivado_path: str = vivado_path
         self.device_config: Optional[Dict[str, Any]] = device_config
+        self.vivado_jobs: Optional[int] = (
+            None if vivado_jobs is None else validate_vivado_jobs(vivado_jobs)
+        )
 
         # Derive paths from vivado_path
         self.vivado_executable: str = f"{self.vivado_path}/bin/vivado"
@@ -104,80 +118,46 @@ class VivadoRunner:
         return False
 
     def _run_vivado_on_host(self) -> None:
-        """Drop out of container and run Vivado on the host system."""
-        log_info_safe(
-            self.logger,
-            "Dropping out of container to run Vivado on host",
-            prefix=self.prefix,
-        )
-
-        # Prepare the host command to run Vivado
-        host_output_dir = Path("/app/output")  # This should be mounted from host
-        host_vivado_path = os.environ.get(
-            "HOST_VIVADO_PATH", "/tools/Xilinx/2025.1/Vivado"
-        )
-
-        # Create a script that the host can execute
-        host_script = host_output_dir / "run_vivado_on_host.sh"
-
-        script_content = safe_format(
-            """#!/bin/bash
-set -e
-
-echo "Running Vivado on host system"
-echo "Vivado path: {host_vivado_path}"
-echo "Output directory: {host_output_dir}"
-echo "Board: {self.board}"
-
-# Change to output directory
-cd {host_output_dir}
-
-# Run Vivado with the generated scripts
-{host_vivado_path}/bin/vivado -mode batch -source vivado_build.tcl
-
-echo "Vivado synthesis completed on host"
-""",
-            host_vivado_path=host_vivado_path,
-            host_output_dir=str(host_output_dir),
-            self=self,
-        )
+        """Export the same validated project for execution beside the artifacts."""
+        from .pcileech_build_integration import integrate_pcileech_build
 
         try:
-            with open(host_script, "w") as f:
-                f.write(script_content)
-
-            # Make script executable (owner only)
-            os.chmod(host_script, 0o700)
-
-            log_info_safe(
-                self.logger,
-                safe_format(
-                    "Created host execution script: {path}",
-                    path=str(host_script),
-                ),
-                prefix=self.prefix,
+            build_script = integrate_pcileech_build(
+                self.board,
+                self.output_dir,
+                device_config=self.device_config,
+                vivado_jobs=self.vivado_jobs,
             )
-            log_info_safe(
-                self.logger,
-                "To complete Vivado synthesis, run this on the host:",
-                prefix=self.prefix,
+            relative_script = (
+                Path(build_script).resolve().relative_to(self.output_dir.resolve())
             )
-
+            verify_build_manifest(Path(build_script))
+            executable = str(
+                Path(os.environ.get("HOST_VIVADO_PATH", self.vivado_path))
+                / "bin"
+                / "vivado"
+            )
+            host_script = self.output_dir / "run_vivado_on_host.sh"
+            host_script.write_text(
+                "#!/bin/sh\nset -eu\n"
+                'cd -- "$(dirname -- "$0")"\n'
+                f"python3 -c {shlex.quote(PORTABLE_BEGIN_RUN)} "
+                f"{shlex.quote(str(relative_script.parent / 'build_inputs.json'))}\n"
+                f"python3 -c {shlex.quote(PORTABLE_INPUT_CHECK)} "
+                f"{shlex.quote(str(relative_script.parent / 'build_inputs.json'))}\n"
+                f"{shlex.quote(executable)} -mode batch -source "
+                f"{shlex.quote(str(relative_script))}\n"
+                f"python3 -c {shlex.quote(PORTABLE_PUBLISH_RESULT)} "
+                f"{shlex.quote(str(relative_script.parent / 'build_inputs.json'))}\n"
+            )
+            host_script.chmod(0o700)
+        except Exception as exc:
             raise VivadoIntegrationError(
-                safe_format(
-                    "Container detected. Vivado must be run on host. "
-                    "Please execute: {host_script}",
-                    host_script=str(host_script),
-                )
-            )
-
-        except Exception as e:
-            raise VivadoIntegrationError(
-                safe_format(
-                    "Failed to create host execution script: {err}",
-                    err=str(e),
-                )
-            )
+                f"Cannot prepare the host build from generated artifacts: {exc}"
+            ) from exc
+        raise VivadoIntegrationError(
+            f"Container detected. Run the exported script on the host: {host_script}"
+        )
 
     def run(self) -> None:
         """
@@ -222,16 +202,15 @@ echo "Vivado synthesis completed on host"
             from .pcileech_build_integration import integrate_pcileech_build
             from .vivado_error_reporter import run_vivado_with_error_reporting
         except ImportError as e:
-            raise VivadoIntegrationError(
-                "Vivado handling modules not available"
-            ) from e
+            raise VivadoIntegrationError("Vivado handling modules not available") from e
 
         try:
-            # Use integrated build if available
+            # All donor builds use the same validated project constructor.
             build_script = integrate_pcileech_build(
                 self.board,
                 self.output_dir,
                 device_config=self.device_config,
+                vivado_jobs=self.vivado_jobs,
             )
             log_info_safe(
                 self.logger,
@@ -243,25 +222,12 @@ echo "Vivado synthesis completed on host"
             )
             build_tcl = build_script
         except Exception as e:
-            log_warning_safe(
-                self.logger,
-                safe_format(
-                    "Failed to use integrated build; "
-                    "falling back to generated scripts: {err}",
-                    err=str(e),
-                ),
-                prefix=self.prefix,
-            )
-            build_tcl = self.output_dir / "vivado_build.tcl"
+            raise VivadoIntegrationError(
+                f"Cannot prepare the generated build artifacts: {e}. "
+                "Refusing to fall back to a different source set."
+            ) from e
 
-            # Ensure fallback script exists
-            if not build_tcl.exists():
-                raise VivadoIntegrationError(
-                    safe_format(
-                        "No build script found at {build_tcl}. Cannot proceed.",
-                        build_tcl=build_tcl,
-                    )
-                )
+        verify_build_manifest(Path(build_tcl))
 
         # Execute Vivado with comprehensive error reporting
         return_code, report = run_vivado_with_error_reporting(
@@ -280,6 +246,7 @@ echo "Vivado synthesis completed on host"
                 )
             )
 
+        record_build_success(Path(build_tcl))
         log_info_safe(
             self.logger,
             "Vivado implementation finished successfully ✓",
@@ -324,6 +291,7 @@ def create_vivado_runner(
     vivado_path: str,
     device_config: Optional[Dict[str, Any]] = None,
     logger: Optional[logging.Logger] = None,
+    vivado_jobs: Optional[int] = None,
 ) -> "VivadoRunner":
     """Factory function to create a VivadoRunner instance."""
     return VivadoRunner(
@@ -332,4 +300,5 @@ def create_vivado_runner(
         vivado_path=vivado_path,
         device_config=device_config,
         logger=logger,
+        vivado_jobs=vivado_jobs,
     )

@@ -259,6 +259,7 @@ def test_fresh_builtin_profiles_are_supported_and_old_profiles_are_preserved(
 @pytest.mark.parametrize("with_output", [True, False])
 def test_build_command_datastore_outside_output(tmp_path, monkeypatch, with_output):
     from pathlib import Path
+
     from pcileechfwgenerator.tui.core.build_contract import build_command
 
     monkeypatch.chdir(tmp_path)
@@ -291,6 +292,7 @@ async def test_undo_never_deletes_capture_files(tmp_path, monkeypatch):
     import threading
     from pathlib import Path
     from unittest.mock import MagicMock
+
     from pcileechfwgenerator.tui.core.build_manager import BuildManager
 
     output = tmp_path / "out"
@@ -326,3 +328,75 @@ async def test_undo_never_deletes_capture_files(tmp_path, monkeypatch):
     assert len(threads) == 2 and all(t != main_thread for t in threads)
     assert await manager.clean_build_artifacts(artifacts)
     assert (capture / "device_context.json").exists()
+
+
+@pytest.mark.parametrize("learning", [True, False])
+def test_mmio_learning_opt_out_reaches_real_parser(learning):
+    from pcileechfwgenerator.tui.core.build_contract import build_command
+
+    config = BuildConfiguration(board_type="pcileech_75t484_x1", mmio_learning=learning)
+    parsed = pcileech.create_parser().parse_args(
+        build_command("0000:03:00.0", config)[3:]
+    )
+    assert parsed.no_mmio_learning is (not learning)
+
+
+@pytest.mark.parametrize("flag", [[], ["--no-mmio-learning"]])
+def test_capture_collect_honours_mmio_opt_out(monkeypatch, tmp_path, flag):
+    from pcileechfwgenerator.host_collect import collector, offline
+
+    seen = {}
+
+    class FakeCollector:
+        def __init__(self, bdf, directory, **kwargs):
+            seen.update(kwargs)
+
+        def run(self):
+            return 0
+
+    monkeypatch.setattr(collector, "HostCollector", FakeCollector)
+    monkeypatch.setattr(offline, "load_offline_capture", lambda *a: None)
+    args = pcileech.create_parser().parse_args(
+        ["capture", "collect", "--bdf", "0000:03:00.0", "--output", str(tmp_path)]
+        + flag
+    )
+    assert pcileech.handle_capture(args) == 0
+    assert seen["enable_mmio_learning"] is (not flag)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_mmio_exercise_opt_out_reaches_real_parser(enabled):
+    from pcileechfwgenerator.tui.core.build_contract import build_command
+
+    config = BuildConfiguration(board_type="pcileech_75t484_x1", mmio_exercise=enabled)
+    parsed = pcileech.create_parser().parse_args(
+        build_command("0000:03:00.0", config)[3:]
+    )
+    assert parsed.no_mmio_exercise is (not enabled)
+
+
+def test_capture_collect_accepts_no_mmio_exercise():
+    args = pcileech.create_parser().parse_args(
+        [
+            "capture",
+            "collect",
+            "--bdf",
+            "0000:03:00.0",
+            "--output",
+            "/tmp/x",
+            "--no-mmio-exercise",
+        ]
+    )
+    assert args.no_mmio_exercise is True
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("field", ["writable_bar_fallback", "ft601_legacy_phy"])
+def test_build_opt_ins_reach_real_parser(field, enabled):
+    from pcileechfwgenerator.tui.core.build_contract import build_command
+
+    config = BuildConfiguration(board_type="pcileech_100t484_x1", **{field: enabled})
+    parsed = pcileech.create_parser().parse_args(
+        build_command("0000:03:00.0", config)[3:]
+    )
+    assert getattr(parsed, field) is enabled

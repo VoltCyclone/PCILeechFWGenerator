@@ -839,7 +839,9 @@ def test_container_build_renders_donor_modules_from_capture(tmp_path, monkeypatc
 
     output = _container_render(tmp_path, monkeypatch)
     coe = (output / "src" / "pcileech_cfgspace.coe").read_text()
-    donor_dw0 = config_bytes()[:4][::-1].hex()  # first DWORD, as the COE prints it
+    # Shadow-BRAM word order: config byte +0 is the most significant byte, so
+    # the first COE word reads as the donor's raw config bytes in order.
+    donor_dw0 = config_bytes()[:4].hex()
     assert donor_dw0 in coe.lower()
     assert list((output / "src").glob("*.sv")), "generator SV modules missing"
     info = json.loads((output / "device_info.json").read_text())
@@ -945,7 +947,6 @@ def test_offline_msix_preload_passes_only_layout_fields(tmp_path):
     }
 
 
-
 @pytest.mark.parametrize(
     "svid, ssid",
     [(0x0000, 0x0000), (0x1AF4, 0x0000), (0x0000, 0x1100), (0xFFFF, 0xFFFF)],
@@ -956,6 +957,256 @@ def test_render_keeps_raw_subsystem_ids(tmp_path, monkeypatch, svid, ssid):
 
     output = _container_render(tmp_path, monkeypatch, subsystem=(svid, ssid))
     coe = (output / "src" / "pcileech_cfgspace.coe").read_text().lower()
-    # COE rows are DWORDs; DWORD 0x2C holds SSID:SVID.
+    # COE rows are BRAM-order DWORDs; DWORD 0x2C holds config bytes
+    # SVID[7:0], SVID[15:8], SSID[7:0], SSID[15:8] (byte +0 most significant).
     dwords = re.findall(r"^([0-9a-f]{8}),", coe, re.MULTILINE)
-    assert dwords[0x2C // 4] == f"{ssid:04x}{svid:04x}"
+    raw = svid.to_bytes(2, "little") + ssid.to_bytes(2, "little")
+    assert dwords[0x2C // 4] == raw.hex()
+
+
+# --- Local builds render from the Stage 1 capture ---------------------
+
+
+def _present_donor(tmp_path, monkeypatch, **fixture):
+    from pcileechfwgenerator.host_collect import snapshot as snapshot_mod
+
+    datastore = tmp_path / "datastore"
+    context = offline_fixture(datastore, size=16384, msix=True, **fixture)
+    config = bytes.fromhex(json.loads(context.read_text())["config_space_hex"])
+    root = tmp_path / "sysfs"
+    (root / "0000:03:00.0").mkdir(parents=True)
+    (root / "0000:03:00.0" / "config").write_bytes(config)
+    monkeypatch.setattr(snapshot_mod, "SYSFS_PCI_ROOT", root)
+    return datastore
+
+
+def _local_args(datastore, output, *extra):
+    return pcileech.create_parser().parse_args(
+        [
+            "build",
+            "--bdf",
+            "0000:03:00.0",
+            "--board",
+            "pcileech_75t484_x1",
+            "--datastore",
+            str(datastore),
+            "--output",
+            str(output),
+            "--local",
+            *extra,
+        ]
+    )
+
+
+def test_local_build_renders_capture_with_hardware_forbidden(tmp_path, monkeypatch):
+    """The complete local Stage 2 (context, templates, COE) does no device I/O;
+    its only live access is the identity check of the (fake) PCI header."""
+    import builtins
+    import io
+    import os
+    import subprocess
+
+    from tests.snapshot_helpers import config_bytes
+
+    datastore = _present_donor(tmp_path, monkeypatch)
+    monkeypatch.delenv("PCILEECH_PRODUCTION_DEFAULTS", raising=False)
+    touched = []
+
+    def guarded(original):
+        def wrapped(path, *args, **kwargs):
+            value = (
+                os.fspath(path) if isinstance(path, (str, bytes, os.PathLike)) else ""
+            )
+            value = value.decode() if isinstance(value, bytes) else value
+            if value.startswith(("/sys", "/dev/vfio", "/proc/bus")):
+                touched.append(value)
+                raise AssertionError("local Stage 2 touched hardware: " + value)
+            return original(path, *args, **kwargs)
+
+        return wrapped
+
+    for module, name in (
+        (builtins, "open"),
+        (io, "open"),
+        (os, "open"),
+        (os, "stat"),
+        (os, "lstat"),
+        (os, "listdir"),
+    ):
+        monkeypatch.setattr(module, name, guarded(getattr(module, name)))
+    real_popen = subprocess.Popen
+
+    def only_git(*args, **kwargs):
+        if args and isinstance(args[0], (list, tuple)) and args[0][0] == "git":
+            return real_popen(*args, **kwargs)
+        raise AssertionError("local Stage 2 launched a subprocess")
+
+    monkeypatch.setattr(subprocess, "Popen", only_git)
+    output = tmp_path / "out"
+    assert pcileech.run_local_templating(_local_args(datastore, output)) == 0
+    assert not touched
+    info = json.loads((output / "device_info.json").read_text())
+    assert info["input_capture"]["mode"] == "local"
+    coe = (output / "src" / "pcileech_cfgspace.coe").read_text()
+    assert config_bytes()[:4].hex() in coe.lower()
+    assert not (output / "OFFLINE_BUILD_WARNING.txt").exists()
+
+
+def test_local_profile_request_keeps_the_live_path(tmp_path, monkeypatch):
+    from pcileechfwgenerator import build
+
+    seen = {}
+
+    class Builder:
+        def __init__(self, cfg):
+            seen["cfg"] = cfg
+
+        def build(self):
+            return []
+
+    monkeypatch.setattr(build, "FirmwareBuilder", Builder)
+    monkeypatch.setattr(
+        build,
+        "make_vfio_decision",
+        lambda *a, **kw: type("Decision", (), {"enabled": True})(),
+    )
+    monkeypatch.delenv("PCILEECH_PRODUCTION_DEFAULTS", raising=False)
+    datastore = tmp_path / "datastore"
+    args = _local_args(datastore, tmp_path / "out")
+    assert pcileech.run_local_templating(args) == 0
+    assert seen["cfg"].capture_dir == datastore.resolve()
+    args = _local_args(datastore, tmp_path / "out", "--profile", "5")
+    assert pcileech.run_local_templating(args) == 0
+    assert seen["cfg"].capture_dir is None
+
+
+def _local_builder(tmp_path, datastore, **overrides):
+    from pcileechfwgenerator.build import BuildConfiguration, FirmwareBuilder
+
+    values = dict(
+        bdf="0000:03:00.0",
+        board="pcileech_75t484_x1",
+        output_dir=tmp_path / "out",
+        enable_profiling=False,
+        capture_dir=datastore,
+    )
+    values.update(overrides)
+    return FirmwareBuilder(BuildConfiguration(**values))
+
+
+def test_local_capture_requires_the_same_present_donor(tmp_path, monkeypatch):
+    from pcileechfwgenerator.host_collect import snapshot as snapshot_mod
+    from pcileechfwgenerator.host_collect.snapshot import SnapshotError
+
+    datastore = _present_donor(tmp_path, monkeypatch)
+    assert _local_builder(tmp_path, datastore).capture_mode == "local"
+    monkeypatch.setattr(snapshot_mod, "SYSFS_PCI_ROOT", tmp_path / "empty")
+    with pytest.raises(SnapshotError, match="--from-capture"):
+        _local_builder(tmp_path, datastore)
+
+
+def test_local_capture_refuses_profiling(tmp_path, monkeypatch):
+    from pcileechfwgenerator.exceptions import ConfigurationError
+
+    datastore = _present_donor(tmp_path, monkeypatch)
+    with pytest.raises(ConfigurationError, match="profiling"):
+        _local_builder(tmp_path, datastore, enable_profiling=True, profile_duration=5.0)
+
+
+def test_local_stage_one_records_bar_lengths_strictly(monkeypatch, tmp_path):
+    """Every render reads BAR lengths from the capture; Stage 1 must fail
+    rather than publish a capture no build can use."""
+    from pcileechfwgenerator.host_collect import collector as collector_mod
+
+    seen = {}
+
+    class Collector:
+        def __init__(self, *args, **kwargs):
+            seen.update(kwargs)
+
+        def run(self):
+            return 1
+
+    monkeypatch.setattr(collector_mod, "HostCollector", Collector)
+    args = _local_args(tmp_path / "datastore", tmp_path / "out")
+    pcileech.run_host_collect(args)
+    assert seen["strict_offline_resources"] is True
+
+
+def _bar_capture(tmp_path, bar0, upper=0):
+    from types import SimpleNamespace
+
+    from tests.snapshot_helpers import config_bytes
+
+    config = bytearray(config_bytes())
+    config[16:20] = bar0.to_bytes(4, "little")
+    config[20:24] = upper.to_bytes(4, "little")
+    config[24:28] = (0xF7E00000).to_bytes(4, "little")
+    context = {
+        "offline_resources": {
+            "schema_version": 1,
+            "source": "linux_sysfs_resource",
+            "bar_sizes": [0, 0, 4096, 0, 0, 0],
+        }
+    }
+    return SimpleNamespace(config_space=bytes(config), context=context)
+
+
+def test_unassigned_64bit_bar_is_unimplemented_not_refused(tmp_path):
+    from pcileechfwgenerator.host_collect.offline import captured_bars
+
+    bars = captured_bars(_bar_capture(tmp_path, 0x0000000C))
+    assert [bar.index for bar in bars] == [2]
+
+
+@pytest.mark.parametrize("bar0,upper", [(0xE000000C, 0), (0x0000000C, 0x1)])
+def test_bar_with_an_address_but_no_length_is_still_refused(tmp_path, bar0, upper):
+    from pcileechfwgenerator.host_collect.offline import captured_bars
+
+    with pytest.raises(SnapshotError, match="without a measured length"):
+        captured_bars(_bar_capture(tmp_path, bar0, upper))
+
+
+def test_learned_model_on_huge_bar_is_clamped_or_refused():
+    import logging
+
+    from pcileechfwgenerator.device_clone.bar_model_loader import (
+        BarModel,
+        RegisterSpec,
+    )
+    from pcileechfwgenerator.exceptions import PCILeechGenerationError
+    from pcileechfwgenerator.templating.sv_overlay_generator import (
+        SVOverlayGenerator,
+    )
+    from pcileechfwgenerator.templating.template_renderer import TemplateRenderer
+
+    generator = SVOverlayGenerator(TemplateRenderer(), logging.getLogger("t"))
+    reg = RegisterSpec(0x10, 4, 0, 0xFF, {})
+    generator._select_served_bar_model = lambda c: BarModel(
+        size=16 << 30, registers={0x10: reg}
+    )
+    model, fidelity = generator._served_bar_impl({})
+    assert (model.size, fidelity) == (1 << 32, "learned")
+    far = RegisterSpec((1 << 32), 4, 0, 0xFF, {})
+    generator._select_served_bar_model = lambda c: BarModel(
+        size=16 << 30, registers={1 << 32: far}
+    )
+    with pytest.raises(PCILeechGenerationError, match="4 GiB"):
+        generator._served_bar_impl({})
+    # A 4 GiB BAR decodes every offset bit (no bit-31 alias).
+    generator._select_served_bar_model = lambda c: BarModel(
+        size=4 << 30, registers={0x10: reg}
+    )
+    assert generator._served_bar_impl({})[0].size == 4 << 30
+
+
+def test_provenance_records_an_applied_donor_template(tmp_path, monkeypatch):
+    datastore = _present_donor(tmp_path, monkeypatch)
+    template = tmp_path / "donor.json"
+    template.write_text("{}")
+    builder = _local_builder(tmp_path, datastore, donor_template=str(template))
+    written = {}
+    builder.file_manager.write_json = lambda name, data: written.update({name: data})
+    builder._save_device_info({"config_space_data": {"device_info": {"x": 1}}})
+    capture = written["device_info.json"]["input_capture"]
+    assert capture["mode"] == "local" and capture["donor_template_applied"] is True

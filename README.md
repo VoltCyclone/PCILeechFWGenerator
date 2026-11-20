@@ -15,43 +15,32 @@
 [![Latest Release](https://img.shields.io/github/v/release/voltcyclone/PCILeechFWGenerator?include_prereleases)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
 [![Downloads](https://img.shields.io/github/downloads/voltcyclone/PCILeechFWGenerator/total)](https://github.com/voltcyclone/PCILeechFWGenerator/releases)
 
-## Build Artifacts
-
-[![Package Build](https://img.shields.io/badge/packages-available-brightgreen)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
-[![Wheel](https://img.shields.io/badge/wheel-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
-[![Source Distribution](https://img.shields.io/badge/sdist-✓-green)](https://github.com/voltcyclone/PCILeechFWGenerator/actions/workflows/consolidated-ci.yml)
-
 [![Discord](https://img.shields.io/badge/Discord-Support-5865F2?logo=discord&logoColor=white)](https://discord.gg/dwQfMNsb7W)
 
-Generate authentic PCIe DMA firmware from real donor hardware using a **3-stage host-container-host pipeline**. This tool extracts donor configurations from a local device via VFIO and generates unique PCILeech FPGA bitstreams.
+Generate PCIe DMA firmware from real donor hardware. The tool reads a donor card's configuration over VFIO and builds a PCILeech FPGA bitstream from it.
 
 > [!WARNING]
-> This tool requires *real* hardware. The templates are built using the device identifiers directly from a donor card and placeholder values are explicitly avoided. Using your own donor device ensures your firmware will be unique.
+> This tool requires *real* hardware. Templates are built from the identifiers of an actual donor card, and placeholder values are rejected. Using your own donor device keeps your firmware unique.
 
 ## Build Pipeline
 
-The generator uses a 3-stage pipeline:
+The generator runs three stages:
 
-1. **Stage 1 (Host)**: Collects PCIe device data via VFIO on the host
-2. **Stage 2 (Container or Local)**: Generates firmware artifacts from collected data (no VFIO access in container)
-3. **Stage 3 (Host)**: Runs Vivado synthesis on the host (optional)
+1. **Stage 1 (Host):** Collects PCIe device data via VFIO. This includes config space, BARs, the capability chain, MSI-X tables, and register behavior learned by tracing the native driver with `mmiotrace` (skip with `--no-mmio-learning`).
+2. **Stage 2 (Container or local):** Renders SystemVerilog, TCL, and COE files from the collected data. The container has no VFIO access.
+3. **Stage 3 (Host):** Runs Vivado through `build_all.tcl`, the only Stage 3 entry. Routed timing, clock coverage, DRC, and CDC checks must pass before the bitstream is written. Stage 3 is optional (`--templates-only` stops after Stage 2).
 
-The container does **NOT** access VFIO devices - it only performs templating using pre-collected data. See [Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline) for details.
+See [Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline) for details.
 
 ## Key Features
 
-- **Donor Hardware Analysis**: Extract real PCIe device configurations and register maps from live hardware via VFIO
-- **Overlay-Only Architecture**: Generate device-specific `.coe` configuration files that integrate with upstream `pcileech-fpga` HDL modules
-- **Dynamic Device Capabilities**: Generate realistic network, storage, media, and USB controller capabilities with pattern-based analysis
-- **Full 4KB Config-Space Shadow**: Complete configuration space emulation with BRAM-based overlay memory
-- **MSI-X Table Replication**: Exact replication of MSI-X tables from donor devices with interrupt delivery logic
-- **Unified Context Building**: Centralized template context generation ensuring consistency across all output files
-- **Active Device Interrupts**: MSI-X interrupt controller with timer-based and event-driven interrupt generation
-- **Interactive TUI**: Modern Textual-based interface with real-time device monitoring and guided workflows
-- **Containerized Build Pipeline**: Podman-based synthesis environment with automated VFIO setup
-- **USB-JTAG Flashing**: Direct firmware deployment to DMA boards via integrated flash utilities
-
- **[Complete Documentation](https://pcileechfwgenerator.voltcyclone.info)** |  **[Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)** |  **[Template Architecture](https://pcileechfwgenerator.voltcyclone.info/template-architecture)** |  **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** |  **[Device Cloning Guide](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** | **[Dynamic Capabilities](https://pcileechfwgenerator.voltcyclone.info/dynamic-device-capabilities)** |  **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)**
+- **Donor analysis:** Real PCIe configuration and register maps from live hardware via VFIO.
+- **Register learning:** Native driver behavior captured with `mmiotrace` during Stage 1.
+- **Config-space shadow:** Full 4 KB shadow in BRAM with an explicit writemask policy.
+- **MSI-X:** Served from the donor's own BAR, including multi-BAR layouts. Overview and limits are in [MSIX_STATUS.md](docs/development/MSIX_STATUS.md).
+- **Offline capture:** Collect once, then render later without the donor (see below).
+- **Interactive TUI:** Textual-based interface for device selection and builds.
+- **Flashing:** USB flashing of a `.bin` image through `usbloader`.
 
 ## Quick Start
 
@@ -70,30 +59,6 @@ pip install pcileechfwgenerator[tui]
 # Verify installation
 pcileech version
 ```
-
-Saved donor captures now require matching, versioned device-context and MSI-X
-files. Older or incomplete captures must be collected again into a fresh
-`--datastore`; collection never overwrites an existing capture. Reuse checks the
-requested PCI address and current device identity. See the
-[capture format and migration guide](docs/development/CAPTURE_FORMAT.md).
-
-The CLI also provides `capture collect`, `capture
-validate`, `capture import`, and `build --from-capture DIR --templates-only`.
-Complete captures include measured BAR lengths and can be rebuilt later without
-the donor connected, on the machine that collected them. See the
-[offline workflow and its current limits](docs/development/OFFLINE_CAPTURE.md).
-
-> [!WARNING]
-> **Builds from a saved capture are unverified.** The donor is not read during
-> the build, so nothing confirms the capture still describes hardware you have.
-> Every such build prints a large warning, asks you to accept the risk (or
-> requires `--accept-offline-risk` when not run at a terminal), and writes
-> `OFFLINE_BUILD_WARNING.txt` next to its artifacts. Captures are locked to the
-> machine that collected them and are marked with `CAPTURE_WARNING.txt`; do not
-> share them. Use the firmware only with hardware you own, against systems you
-> own or are explicitly authorised to test.
-
-> ⚠️ **Don't skip the venv!** Running `pip install pcileechfwgenerator` directly will fail with `externally-managed-environment` on modern systems.
 
 ### Running with Root Access (Required for VFIO)
 
@@ -117,16 +82,15 @@ For complete setup including IOMMU configuration, see the **[Installation Guide]
 
 ### Requirements
 
-- **Python ≥ 3.11**
-- **Donor PCIe card** (any inexpensive NIC, sound, or capture card)
-- **Linux OS** with VFIO support (required for Stage 1 data collection)
+- Python 3.11 or newer
+- Linux with VFIO support (Stage 1)
+- A donor PCIe card (any inexpensive NIC, sound, or capture card)
 
-### Optional Requirements
+Optional:
 
-- **Podman** - For isolated Stage 2 templating (container does NOT access VFIO)
-- **DMA board** - pcileech_75t484_x1, pcileech_35t325_x4, or pcileech_100t484_x1
-- **Vivado** - 2022.2+ for bitstream synthesis (Stage 3)
-
+- Podman, for isolated Stage 2 templating
+- A PCILeech DMA board (for example `pcileech_75t484_x1`, `pcileech_35t325_x4`, or `pcileech_100t484_x1`)
+- Vivado 2022.2 or newer for Stage 3
 
 ### CLI Commands
 
@@ -134,74 +98,86 @@ For complete setup including IOMMU configuration, see the **[Installation Guide]
 # Interactive TUI (recommended for first-time users)
 pcileech-sudo tui
 
-# Full 3-stage build pipeline
+# Full 3-stage build
 pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1
 
-# Stage 1 only (collect device data, no templating)
+# Stage 1 only (collect device data, then exit)
 pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1 --host-collect-only
 
-# Force local mode for Stage 2 (skip container)
+# Run Stage 2 locally (skip the container)
 pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1 --local
 
-# Full build with Vivado synthesis (Stage 3)
+# Full build with an explicit Vivado install
 pcileech-sudo build --bdf 0000:03:00.0 --board pcileech_35t325_x1 \
     --vivado-path /tools/Xilinx/2025.1/Vivado --vivado-jobs 8 --vivado-timeout 7200
+
+# Opt-in build flags (see `pcileech build --help`)
+#   --writable-bar-fallback  emulate writable RAM for a served BAR with no learned register model
+#                            (default is read-only; this is not donor behavior)
+#   --ft601-legacy-phy       legacy FT601 PHY instead of the MMCM one (CaptainDMA 100T only)
+#   --no-mmio-learning       skip the mmiotrace driver capture in Stage 1
+#   --force-recapture        redo MMIO capture even if cached models exist
 
 # Check VFIO configuration
 pcileech-sudo check --device 0000:03:00.0
 
-# Flash firmware to device (after Vivado synthesis produces .bit file)
-pcileech-sudo flash pcileech_datastore/output/*.bit --board pcileech_35t325_x1
+# Flash a firmware image (.bin, written through usbloader)
+pcileech-sudo flash firmware.bin --board pcileech_35t325_x1
 
-# Show version information (doesn't need sudo)
+# Show version information (no sudo needed)
 pcileech version
 ```
 
+### Offline Captures
+
+Saved donor captures need matching, versioned device-context and MSI-X files. Older or incomplete captures must be collected again into a fresh `--datastore`, because collection never overwrites an existing capture. Reuse checks the requested PCI address and the current device identity. See the [capture format and migration guide](docs/development/CAPTURE_FORMAT.md).
+
+The CLI provides `capture collect`, `capture validate`, `capture import`, and `build --from-capture DIR --templates-only`. Complete captures include measured BAR lengths and can be rebuilt without the donor, on the machine that collected them. See the [offline workflow and its limits](docs/development/OFFLINE_CAPTURE.md).
+
+> [!WARNING]
+> **Builds from a saved capture are unverified.** The donor is not read during
+> the build, so nothing confirms the capture still describes hardware you have.
+> Every such build prints a large warning, asks you to accept the risk (or
+> requires `--accept-offline-risk` when not run at a terminal), and writes
+> `OFFLINE_BUILD_WARNING.txt` next to its artifacts. Captures are locked to the
+> machine that collected them and are marked with `CAPTURE_WARNING.txt`; do not
+> share them. Use the firmware only with hardware you own, against systems you
+> own or are explicitly authorised to test.
+
+> [!IMPORTANT]
+> Use the venv. Running `pip install pcileechfwgenerator` into the system Python fails with `externally-managed-environment` on modern distros.
+
 ### Version Updates
 
-The tool automatically checks for newer versions during CLI builds. You can:
-
-- Disable automatic checks: set `PCILEECH_DISABLE_UPDATE_CHECK=1`
-- Show current version: `pcileech version`
-
+CLI builds check for newer versions. Set `PCILEECH_DISABLE_UPDATE_CHECK=1` to disable the check, or run `pcileech version` to see the current version.
 
 ### Development from Repository
 
 ```bash
-# Clone the repository
-git clone https://github.com/voltcyclone/PCILeechFWGenerator.git
+# Clone with the board submodule
+git clone --recurse-submodules https://github.com/voltcyclone/PCILeechFWGenerator.git
 cd PCILeechFWGenerator
-
-# Initialize submodule (only needed for local development, NOT for container builds)
-git submodule update --init --recursive
 
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-# From a dev checkout you can still run the root script
+# From a checkout, run the root script
 sudo -E python3 pcileech.py tui
 ```
 
-> **Note for developers**: When working from a git checkout for local development, you must clone with `--recurse-submodules` or run `git submodule update --init --recursive` after cloning. The `lib/voltcyclone-fpga` submodule contains FPGA board definitions and synthesis templates.
->
-> **Note for container users**: The container (used only for Stage 2 templating) automatically clones the `voltcyclone-fpga` repository during image build. The container does NOT access VFIO - it only generates firmware from pre-collected device data.
->
-> **Note for pip users**: The voltcyclone-fpga submodule contents are bundled automatically in pip distributions, so no additional steps are needed.
+- If you cloned without `--recurse-submodules`, run `git submodule update --init --recursive`. The `lib/voltcyclone-fpga` submodule holds the board definitions and synthesis sources.
+- The container clones `voltcyclone-fpga` during the image build and needs no submodule.
+- pip installs bundle the board files (installed under `pcileechfwgenerator/voltcyclone_fpga`), so they need no checkout. Only a source checkout needs `--recurse-submodules`.
 
 ## Troubleshooting
 
-Having issues? Check our comprehensive **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** which covers:
-
-- **VFIO Setup Issues** - IOMMU configuration, module loading, device binding
-- **Installation Problems** - Virtual environment setup, Python 3.12+ issues
-- **BAR Detection Issues** - Power state problems, device compatibility  
-- **Locked IP Cores** - Vivado licensing and IP regeneration
+See the [Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting) for VFIO setup, installation problems, BAR detection, and locked IP cores.
 
 ### Common Issues
 
 #### "externally-managed-environment" Error
 
-You **must** use a virtual environment on modern Linux:
+Use a virtual environment:
 
 ```bash
 python3 -m venv ~/.pcileech-venv
@@ -219,11 +195,7 @@ pip install pcileechfwgenerator[tui]
 
 #### TUI build settings and older profiles
 
-The TUI uses the shared CLI pipeline in the active Python environment. Select a
-real board and choose local or container templating; both modes still collect on
-the Linux host and run Vivado on the host. Unsupported legacy profile settings
-produce an error before collection. See the [TUI build contract and migration
-guide](docs/development/TUI_BUILD_CONTRACT.md) for supported options.
+The TUI uses the shared CLI pipeline in the active Python environment. Select a real board and choose local or container templating. Both modes collect and run Vivado on the Linux host. Unsupported legacy profile settings fail before collection. See the [TUI build contract and migration guide](docs/development/TUI_BUILD_CONTRACT.md).
 
 #### "Permission denied" / VFIO Errors
 
@@ -239,49 +211,45 @@ sudo ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech_main tui
 pcileech-sudo check --device 0000:03:00.0 --interactive
 ```
 
-## Direct Documentation Links
+## Documentation Links
 
-- **[Installation Guide](https://pcileechfwgenerator.voltcyclone.info/installation)** - Complete installation instructions
-- **[Quick Start Guide](https://pcileechfwgenerator.voltcyclone.info/quick-start)** - Get started in minutes
-- **[Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)** - Understanding the 3-stage build flow
-- **[Container Builds](https://pcileechfwgenerator.voltcyclone.info/container-builds)** - Container configuration and troubleshooting
-- **[Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)** - Comprehensive troubleshooting and diagnostic guide
-- **[Device Cloning Process](https://pcileechfwgenerator.voltcyclone.info/device-cloning)** - Complete guide to the cloning workflow
-- **[Firmware Uniqueness](https://pcileechfwgenerator.voltcyclone.info/firmware-uniqueness)** - How authenticity is achieved
-- **[Manual Donor Dump](https://pcileechfwgenerator.voltcyclone.info/manual-donor-dump)** - Step-by-step manual extraction
-- **[PCILeech Configuration](https://pcileechfwgenerator.voltcyclone.info/pcileech-configuration)** - Key configuration parameters explained
-- **[Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)** - Contributing and development guide
-- **[TUI Documentation](https://pcileechfwgenerator.voltcyclone.info/tui-readme)** - Interactive interface guide
-- **[Config space info](https://pcileechfwgenerator.voltcyclone.info/config-space-shadow)** - Config space shadow info
+- [Installation Guide](https://pcileechfwgenerator.voltcyclone.info/installation)
+- [Quick Start Guide](https://pcileechfwgenerator.voltcyclone.info/quick-start)
+- [Host-Container Pipeline](https://pcileechfwgenerator.voltcyclone.info/host-container-pipeline)
+- [Container Builds](https://pcileechfwgenerator.voltcyclone.info/container-builds)
+- [Troubleshooting Guide](https://pcileechfwgenerator.voltcyclone.info/troubleshooting)
+- [Device Cloning Process](https://pcileechfwgenerator.voltcyclone.info/device-cloning)
+- [Firmware Uniqueness](https://pcileechfwgenerator.voltcyclone.info/firmware-uniqueness)
+- [Manual Donor Dump](https://pcileechfwgenerator.voltcyclone.info/manual-donor-dump)
+- [PCILeech Configuration](https://pcileechfwgenerator.voltcyclone.info/pcileech-configuration)
+- [Development Setup](https://pcileechfwgenerator.voltcyclone.info/development)
+- [TUI Documentation](https://pcileechfwgenerator.voltcyclone.info/tui-readme)
+- [Config Space Shadow](https://pcileechfwgenerator.voltcyclone.info/config-space-shadow)
+
+The docs are managed in the [site repo](https://github.com/voltcyclone/pcileechfwgenerator-site) and served by Cloudflare.
 
 ## Output Files
 
-After a successful build, artifacts are placed in the datastore (default: `pcileech_datastore/`):
+Artifacts go to the datastore (default `pcileech_datastore/`):
 
 ```
 pcileech_datastore/
-├── device_context.json       # Stage 1: Collected device data
+├── device_context.json       # Stage 1: collected device data
 ├── msix_data.json            # Stage 1: MSI-X capability data
-└── output/
+└── output/                   # Stage 2 and 3 artifacts, including a per-board directory
     ├── pcileech_top.sv       # Top-level SystemVerilog module
     ├── device_config.sv      # Device configuration module
-    ├── config_space_init.hex # Configuration space initialization (BRAM)
-    ├── *.tcl                 # Vivado project/build scripts
-    └── *.bit                 # Bitstream (only after Stage 3 Vivado synthesis)
+    ├── build_all.tcl         # Stage 3 entry script
+    └── *.bit                 # Bitstream (only after Stage 3)
 ```
 
-## Cleanup & Safety
+Board `vivado_*.tcl` project scripts are not staged. `build_all.tcl` is the only Stage 3 entry.
 
-- **Rebind donors**: Use TUI/CLI to rebind donor devices to original drivers
-- **Keep firmware private**: Generated firmware contains real device identifiers
-- **Use isolated build environments**: Never build on production systems
+## Cleanup and Safety
 
-> [!IMPORTANT]
-> This tool is intended for educational research and legitimate PCIe development purposes only. Users are responsible for ensuring compliance with all applicable laws and regulations. The authors assume no liability for misuse of this software.
-
-## Docs
-
-Docs are managed in the [site repo](github.com/voltcyclone/pcileechfwgenerator-site) and served by cloudflare.
+- Rebind donors to their original drivers through the TUI or CLI after collection.
+- Keep generated firmware private. It contains real device identifiers.
+- Build in an isolated environment, never on a production system.
 
 ## Acknowledgments
 
@@ -294,12 +262,8 @@ This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.t
 
 ## Legal Notice
 
-*AGAIN* This tool is intended for educational research and legitimate PCIe development purposes only. Users are responsible for ensuring compliance with all applicable laws and regulations. The authors assume no liability for misuse of this software.
+> [!IMPORTANT]
+> This tool is intended for educational research and legitimate PCIe development only. Users are responsible for complying with all applicable laws. The authors assume no liability for misuse of this software.
 
-**Security Considerations:**
-
-- Never build firmware on systems used for production or sensitive operations
-- Use isolated build environments (Seperate dedicated hardware)
-- Keep generated firmware private and secure
-- Follow responsible disclosure practices for any security research
-- Use the SECURITY.md template to raise security concerns
+- Use dedicated, separate hardware for builds.
+- Follow responsible disclosure for any security research, and see [SECURITY.md](SECURITY.md) to report a vulnerability.

@@ -174,34 +174,38 @@ refused with a pointer to `--from-capture`, so they cannot bypass the offline
 rules. If both variables are supplied they must name the canonical files in the
 same directory. Missing data stops the build.
 
-## Current limits and evidence
+## Current limits
 
-All builds currently ship zeroed extended configuration space (`0x100`–`0xFFF`);
-see [Known issue: extended configuration space is always zero](EXTENDED_CONFIG_SPACE.md).
+Offline builds clone extended configuration space from the capture when it
+holds the full 4096 bytes. See [EXTENDED_CONFIG_SPACE.md](EXTENDED_CONFIG_SPACE.md).
 
 Offline rendering disables live profiling, MMIO learning, sysfs/VFIO enrichment,
 interrupt-table reads and PCI name lookup subprocesses. Profiling, force-recapture
 and donor-template overrides conflict with offline input and are rejected.
 `device_info.json` records the input identity and explicitly marks BAR content
 as derived rather than sampled. The standalone generator's generation metadata
-records the same provenance. Timing and other derived template behavior still
-need a separate provenance audit.
+records the same provenance.
 
-The current dense renderer requires at least one memory BAR and supports at
-most 16 MiB of total BAR content. Structurally valid larger captures can be
-validated/imported, but rendering rejects them before output creation. Sparse
-apertures and physical BAR/MSI-X capacity remain separate capacity work.
+Rendering requires at least one memory BAR of the minimum size. No dense BAR
+content is generated (the served BAR is the learned register model or the
+read-only fallback), so the renderer does not cap BAR size.
 
-Existing generation validators can also reject structurally consistent layouts:
-one test capture placed its table at `0x100` and PBA at `0x200`, inside the
-generator's generic `0x0000`–`0x1000` device-control reservation. That reservation
-policy remains a separate validation-policy investigation; this workflow does not relocate captured
-MSI-X structures to make them fit. The successful rendering fixture uses table
-offset `0x1000` and PBA offset `0x2000` in a 16 KiB BAR.
+Local builds (`--local`) of a donor that is present render from the Stage 1
+capture in the datastore the same way, recorded as mode `local`. Stage 2 then
+reads only the PCI header, to verify identity. An explicit `--profile` request
+keeps the live path, because behavior profiling observes the running donor.
+Stage 1 fails if it cannot record BAR lengths, because no render can use such
+a capture. A BAR the kernel left unassigned is not implemented in the generated
+firmware. Whether the Vivado PCIe IP accepts very large donor BAR sizes is
+bounded by the IP; a refused size fails in the Stage 3 build.
+
+The workflow never relocates captured MSI-X structures. The layout checker
+(`src/device_clone/msix_layout.py`) rejects a table or PBA that does not fit its
+BAR. MSI-X lives in its own served BAR when the donor splits it from the
+registers ([MSIX_MULTIBAR_DESIGN.md](MSIX_MULTIBAR_DESIGN.md)).
 
 Software tests render through the real builder with direct hardware-path reads
-and non-Git subprocesses blocked, verify input preservation, exercise malformed and
-legacy captures, and check container arguments against the real Stage 2 parser.
-They run on macOS with synthetic fixtures. Linux collection, a running container,
-Vivado, Windows execution and FPGA/driver behavior have not been validated here.
-Passing these tests does not establish hardware or VBS/IOMMU compatibility.
+and non-Git subprocesses blocked. They verify input preservation, exercise
+malformed and legacy captures, and check container arguments against the real
+Stage 2 parser. They run with synthetic fixtures. They do not exercise a running container,
+Vivado, Windows execution or FPGA/driver behavior.

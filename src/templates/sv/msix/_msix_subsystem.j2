@@ -1,0 +1,152 @@
+{#
+    MSI-X subsystem (MX-07), called by pcileech_tlps128_bar_controller.sv.j2 in
+    the served BAR's slot. `_msix` is MsixSubsystemPlan.rtl_parameters() plus
+    bar_size; `k` is the served slot. The slot's register implementation
+    follows this block and becomes the router's inner owner.
+#}
+{% macro msix_subsystem(_msix, k) %}
+    // ========================================================================
+    // MSI-X subsystem: table {{ "0x%X" % _msix.table_first }}-{{ "0x%X" % _msix.table_last }}, PBA {{ "0x%X" % _msix.pba_first }}-{{ "0x%X" % _msix.pba_last }} in BAR{{ k }}, {{ _msix.vectors }} vectors
+    // Router: src/templates/sv/msix/pcileech_msix_bar_router.sv
+    // Core:   src/templates/sv/vendor/verilog-pcie/pcie_msix.v (contracts in its README)
+    // Merger: src/templates/sv/msix/pcileech_msix_tlp_tx.sv
+    // No event producer exists: irq_valid is tied low, so no message is ever
+    // requested. The table and PBA are served and the transmit path is live.
+    // ========================================================================
+    localparam MSIX_IRQ_INDEX_WIDTH = {{ _msix.irq_index_width }};
+
+    // Live controls from the PCIe core, on this clock (clk_pcie).
+    wire        msix_live_enable = pcie_ctx.cfg_interrupt_msixenable;
+    wire        msix_live_fm     = pcie_ctx.cfg_interrupt_msixfm;
+    wire        msix_live_bme    = pcie_ctx.cfg_command[2];
+    // PCIe-defined resets clear the table and PBA. rst alone does not: it
+    // also carries PCILeech's own soft reset.
+    wire        msix_clear_req   = rst_pcie_user || pcie_ctx.pl_received_hot_rst ||
+                                   pcie_ctx.cfg_received_func_lvl_rst;
+    wire        msix_clear;
+    // pcie_id is {function, device, bus}; a requester ID is {bus, device, function}.
+    wire [15:0] msix_requester_id = { pcie_id[7:0], pcie_id[12:8], pcie_id[15:13] };
+
+    wire        msix_inner_wr_valid;
+    wire        msix_inner_rd_req_valid;
+    wire [87:0] msix_inner_rd_rsp_ctx;
+    wire [31:0] msix_inner_rd_rsp_data;
+    wire        msix_inner_rd_rsp_valid;
+
+    wire                            msix_host_wr_valid;
+    wire                            msix_host_wr_pba;
+    wire [MSIX_IRQ_INDEX_WIDTH+1:0] msix_host_wr_dw;
+    wire [31:0]                     msix_host_wr_data;
+    wire [3:0]                      msix_host_wr_be;
+    wire                            msix_host_rd_valid;
+    wire                            msix_host_rd_pba;
+    wire [MSIX_IRQ_INDEX_WIDTH+1:0] msix_host_rd_dw;
+    wire [31:0]                     msix_host_rd_data;
+
+    pcileech_msix_bar_router #(
+        .BAR_SIZE           ( {{ _msix.bar_size }} ),
+        .IRQ_INDEX_WIDTH    ( MSIX_IRQ_INDEX_WIDTH ),
+        .TABLE_FIRST        ( 32'h{{ "%08X" % _msix.table_first }} ),
+        .TABLE_LAST         ( 32'h{{ "%08X" % _msix.table_last }} ),
+        .PBA_FIRST          ( 32'h{{ "%08X" % _msix.pba_first }} ),
+        .PBA_LAST           ( 32'h{{ "%08X" % _msix.pba_last }} )
+    ) i_msix_router (
+        .rst                ( rst                           ),
+        .clk                ( clk                           ),
+        .wr_addr            ( wr_addr                       ),
+        .wr_be              ( wr_be                         ),
+        .wr_data            ( wr_data                       ),
+        .wr_valid           ( wr_valid && wr_bar[{{ k }}]         ),
+        .rd_req_ctx         ( rd_req_ctx                    ),
+        .rd_req_addr        ( rd_req_addr                   ),
+        .rd_req_valid       ( rd_req_valid && rd_req_bar[{{ k }}] ),
+        .rd_rsp_ctx         ( bar_rsp_ctx[{{ k }}]                ),
+        .rd_rsp_data        ( bar_rsp_data[{{ k }}]               ),
+        .rd_rsp_valid       ( bar_rsp_valid[{{ k }}]              ),
+        .inner_wr_valid     ( msix_inner_wr_valid           ),
+        .inner_rd_req_valid ( msix_inner_rd_req_valid       ),
+        .inner_rd_rsp_ctx   ( msix_inner_rd_rsp_ctx         ),
+        .inner_rd_rsp_data  ( msix_inner_rd_rsp_data        ),
+        .inner_rd_rsp_valid ( msix_inner_rd_rsp_valid       ),
+        .host_wr_valid      ( msix_host_wr_valid            ),
+        .host_wr_pba        ( msix_host_wr_pba              ),
+        .host_wr_dw         ( msix_host_wr_dw               ),
+        .host_wr_data       ( msix_host_wr_data             ),
+        .host_wr_be         ( msix_host_wr_be               ),
+        .host_rd_valid      ( msix_host_rd_valid            ),
+        .host_rd_pba        ( msix_host_rd_pba              ),
+        .host_rd_dw         ( msix_host_rd_dw               ),
+        .host_rd_data       ( msix_host_rd_data             )
+    );
+
+    wire [31:0]  msix_tlp_data;
+    wire [127:0] msix_tlp_hdr;
+    wire         msix_tlp_valid;
+    wire         msix_tlp_ready;
+
+    pcie_msix #(
+        .IRQ_INDEX_WIDTH        ( MSIX_IRQ_INDEX_WIDTH ),
+        .TLP_HDR_WIDTH          ( 128 ),
+        .TLP_FORCE_64_BIT_ADDR  ( 0 )   // a 4DW header below 4 GiB is malformed
+    ) i_msix_core (
+        .clk                    ( clk                           ),
+        .rst                    ( rst                           ),
+        .host_wr_valid          ( msix_host_wr_valid            ),
+        .host_wr_pba            ( msix_host_wr_pba              ),
+        .host_wr_dw             ( msix_host_wr_dw               ),
+        .host_wr_data           ( msix_host_wr_data             ),
+        .host_wr_be             ( msix_host_wr_be               ),
+        .host_rd_valid          ( msix_host_rd_valid            ),
+        .host_rd_pba            ( msix_host_rd_pba              ),
+        .host_rd_dw             ( msix_host_rd_dw               ),
+        .host_rd_data           ( msix_host_rd_data             ),
+        .irq_index              ( {MSIX_IRQ_INDEX_WIDTH{1'b0}}  ),
+        .irq_valid              ( 1'b0                          ),   // no event producer
+        .irq_ready              (                               ),
+        .tx_wr_req_tlp_data     ( msix_tlp_data                 ),
+        .tx_wr_req_tlp_strb     (                               ),
+        .tx_wr_req_tlp_hdr      ( msix_tlp_hdr                  ),
+        .tx_wr_req_tlp_valid    ( msix_tlp_valid                ),
+        .tx_wr_req_tlp_sop      (                               ),
+        .tx_wr_req_tlp_eop      (                               ),
+        .tx_wr_req_tlp_ready    ( msix_tlp_ready                ),
+        .requester_id           ( msix_requester_id             ),
+        .msix_enable            ( msix_live_enable              ),
+        .msix_mask              ( msix_live_fm                  ),
+        .bus_master_enable      ( msix_live_bme                 ),
+        .msix_clear             ( msix_clear                    ),
+        .msix_clearing          (                               )
+    );
+
+    // msg_allow is the live send condition. While a committed message is
+    // buffered msg_ready is low anyway, so gating on the clear request is
+    // the same as gating on the core's msix_clear (clear_out). That holds
+    // only while irq_valid is tied low: after the drain the core's sweep
+    // presents nothing. An event producer must re-check this (gate on
+    // msix_clear instead).
+    pcileech_msix_tlp_tx i_msix_tlp_tx (
+        .clk            ( clk                           ),
+        .rst            ( rst                           ),
+        .msg_hdr        ( msix_tlp_hdr                  ),
+        .msg_data       ( msix_tlp_data                 ),
+        .msg_valid      ( msix_tlp_valid                ),
+        .msg_allow      ( msix_live_enable && !msix_live_fm && msix_live_bme && !msix_clear_req ),
+        .msg_ready      ( msix_tlp_ready                ),
+        .clear_req      ( msix_clear_req                ),
+        .clear_out      ( msix_clear                    ),
+        .cpl_tdata      ( tlps_bar_cpl.tdata            ),
+        .cpl_tkeepdw    ( tlps_bar_cpl.tkeepdw          ),
+        .cpl_tlast      ( tlps_bar_cpl.tlast            ),
+        .cpl_tuser      ( tlps_bar_cpl.tuser            ),
+        .cpl_tvalid     ( tlps_bar_cpl.tvalid           ),
+        .cpl_has_data   ( tlps_bar_cpl.has_data         ),
+        .cpl_tready     ( tlps_bar_cpl.tready           ),
+        .out_tdata      ( tlps_out.tdata                ),
+        .out_tkeepdw    ( tlps_out.tkeepdw              ),
+        .out_tlast      ( tlps_out.tlast                ),
+        .out_tuser      ( tlps_out.tuser                ),
+        .out_tvalid     ( tlps_out.tvalid               ),
+        .out_has_data   ( tlps_out.has_data             ),
+        .out_tready     ( tlps_out.tready               )
+    );
+{% endmacro %}

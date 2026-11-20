@@ -11,7 +11,6 @@ UnifiedContextBuilder is consumable by the template system.
 from typing import Any, Dict
 
 import pytest
-
 from pcileechfwgenerator.templating.template_renderer import (
     TemplateRenderer,
     TemplateRenderError,
@@ -60,8 +59,8 @@ def test_render_critical_pcileech_templates(baseline_context):
     """Render a minimal set of critical templates to ensure fallback paths work."""
     renderer = TemplateRenderer(strict=True)
     critical = [
-        # BAR implementation fallback & register map
-        "sv/pcileech_bar_impl_device.sv.j2",
+        # No-model builds select the generic implementation in the controller.
+        "sv/pcileech_tlps128_bar_controller.sv.j2",
         # Python integration script
         "python/pcileech_build_integration.py.j2",
     ]
@@ -73,28 +72,21 @@ def test_render_critical_pcileech_templates(baseline_context):
         except TemplateRenderError as e:
             pytest.fail(f"Failed rendering {name}: {e}")
         # Assertions specific to each template type.
-        if name.endswith("pcileech_bar_impl_device.sv.j2"):
-            # Device signature expected in SV output.
-            assert str(baseline_context.get("device_signature")) in content
-            # Fallback path text should appear when bar_model is None.
-            assert "No learned register map" in content or "Fallback" in content
-            assert "module pcileech_bar_impl_device" in content
+        if name.endswith("pcileech_tlps128_bar_controller.sv.j2"):
+            assert "pcileech_bar_impl_zerowrite4k" in content
         elif name.endswith("pcileech_build_integration.py.j2"):
             # Python integration script does not embed the device signature.
             # Assert header marker only.
             assert "pcileech build integration".lower() in content.lower()
 
 
-def test_bar_impl_injects_default_bar_size(baseline_context):
-    """BAR_SIZE parameter should fall back to 4096 when bar_model is absent."""
+def test_bar_impl_rejects_missing_model(baseline_context):
+    """The device template cannot invent a writable BAR when learning is absent."""
     renderer = TemplateRenderer(strict=True)
-    tmpl = "sv/pcileech_bar_impl_device.sv.j2"
-    content = renderer.render_template(tmpl, dict(baseline_context))
-    # Parameter line should include BAR_SIZE = 4096 when no model provided.
-    assert (
-        "BAR_SIZE = 4096" in content
-        or "bar_size = 4096" in content.lower()
-    )
+    with pytest.raises(TemplateRenderError, match="nonempty learned register model"):
+        renderer.render_template(
+            "sv/pcileech_bar_impl_device.sv.j2", dict(baseline_context)
+        )
 
 
 def test_interrupt_config_strategy_default(baseline_context):
@@ -102,6 +94,11 @@ def test_interrupt_config_strategy_default(baseline_context):
     # Remove interrupt_config to force validator default path
     ctx = dict(baseline_context)
     ctx.pop("interrupt_config", None)
+    # Supply an observed read-only storage fixture; model absence now fails.
+    ctx["bar_model"] = {
+        "size": 4096,
+        "registers": {0: {"width": 4, "reset": 0xC7813596, "rw_mask": 0, "hints": {}}},
+    }
     renderer = TemplateRenderer(strict=True)
     content = renderer.render_template("sv/pcileech_bar_impl_device.sv.j2", ctx)
     # Presence is indirect (conditional blocks disabled);

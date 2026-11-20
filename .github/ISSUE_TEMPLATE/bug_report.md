@@ -1,5 +1,5 @@
 ---
-name: 🐛 Bug Report
+name: Bug Report
 about: Create a detailed bug report to help us improve PCILeech FW Generator
 title: '[BUG] '
 labels: ['bug', 'needs-triage']
@@ -8,12 +8,12 @@ assignees: ''
 ---
 
 <!-- 
-⚠️ IMPORTANT: Please no UUIDs or personally identifiable information in this report
-🔍 Before submitting, please search existing issues to avoid duplicates
-📚 Consider checking our documentation and wiki first
+IMPORTANT: Please no UUIDs or personally identifiable information in this report
+Before submitting, please search existing issues to avoid duplicates
+Consider checking our documentation and wiki first
 -->
 
-## 📋 Bug Summary
+## Bug Summary
 
 **Brief Description:**
 <!-- Provide a clear and concise description of the bug -->
@@ -25,11 +25,11 @@ assignees: ''
 - [ ] **Medium** - Minor functionality issues, workarounds available
 - [ ] **Low** - Cosmetic issues, minor inconveniences
 
-## 📦 Environment Details
+## Environment Details
 
 Run help_ticket.sh and give the output
 
-## 🚨 Problem Description
+## Problem Description
 
 **What happened?**
 <!-- Describe the issue in detail. Include exact error messages, unexpected behaviors, or failures -->
@@ -52,9 +52,9 @@ Run help_ticket.sh and give the output
 ```
 
 **Configuration Details:**
-<!-- If using config.json or custom configurations, describe them -->
+<!-- Describe any donor template, profile, or custom configuration used -->
 
-## 🎯 Expected Behavior
+## Expected Behavior
 
 **What should happen instead?**
 <!-- Describe what you expected to happen -->
@@ -62,7 +62,7 @@ Run help_ticket.sh and give the output
 **Reference Implementation:**
 <!-- If applicable, mention if this worked in a previous version or similar setup -->
 
-## 🔬 Additional Context
+## Additional Context
 
 **Frequency:**
 - [ ] Always reproducible
@@ -83,10 +83,10 @@ Run help_ticket.sh and give the output
 **Workaround Description:**
 <!-- If you found a way to work around this issue, please describe it -->
 
-## 📎 Attachments
+## Attachments
 
 **Required Files:**
-- [ ] `config.json` (sanitized)
+- [ ] Output of `help_ticket.sh`
 - [ ] `generate.log` or relevant log files
 - [ ] Error screenshots or terminal output
 
@@ -98,11 +98,11 @@ Run help_ticket.sh and give the output
 - [ ] Core dump files
 
 <!-- 
-📎 Attach files by dragging and dropping them here or clicking to select
-⚠️ Please remove any sensitive information before attaching
+Attach files by dragging and dropping them here or clicking to select
+Please remove any sensitive information before attaching
 -->
 
-## 🛠️ Debugging Information
+## Debugging Information
 
 **Commands Run for Debugging:**
 ```bash
@@ -116,7 +116,7 @@ Run help_ticket.sh and give the output
 # e.g., uname -a, python --version, pip list | grep -i pci
 ```
 
-## ✅ Pre-submission Checklist
+## Pre-submission Checklist
 
 **I have:**
 - [ ] Checked that I'm using the latest version from the main branch
@@ -128,13 +128,13 @@ Run help_ticket.sh and give the output
 - [ ] Verified this isn't a configuration issue
 
 **Module-specific checks (if applicable):**
-- [ ] `device_emulator` - Checked device configuration and capabilities
-- [ ] `cap_parser` - Verified PCI capability parsing
-- [ ] `svgen` - Checked SystemVerilog generation
+- [ ] `host_collect` - Checked Stage 1 collection, VFIO binding, and permissions
+- [ ] `device_clone` / `pci_capability` - Checked device configuration and capability parsing
+- [ ] `templating` - Checked SystemVerilog and TCL generation
+- [ ] `vivado_handling` - Checked Stage 3 (`build_all.tcl`) logs and gates
 - [ ] `flash` - Verified flash operations and board connectivity
-- [ ] `vfio` - Checked VFIO driver binding and permissions
 
-## 🏷️ Labels
+## Labels
 
 **Issue Type:**
 - [ ] Synthesis Error
@@ -146,9 +146,9 @@ Run help_ticket.sh and give the output
 
 **Component:**
 - [ ] Core Generator
-- [ ] Device Emulation
-- [ ] Capability Parser
-- [ ] SystemVerilog Generation
+- [ ] Device Cloning
+- [ ] Capability Parsing
+- [ ] Templating (SystemVerilog and TCL)
 - [ ] Flash Operations
 - [ ] VFIO Integration
 - [ ] TUI Interface

@@ -6,7 +6,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from pcileechfwgenerator.device_clone.bar_model_loader import (
     BarModel,
     RegisterSpec,
@@ -102,9 +101,7 @@ class TestLoadBarModel:
             },
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(model_data, f)
             temp_path = Path(f.name)
 
@@ -186,9 +183,7 @@ class TestSaveBarModel:
             size=4096,
             registers={
                 0x0: RegisterSpec(0x0, 4, 0x10EC8168, 0x0, {}),
-                0x50: RegisterSpec(
-                    0x50, 2, 0x1234, 0xFFFF, {"maybe_rw1c": True}
-                ),
+                0x50: RegisterSpec(0x50, 2, 0x1234, 0xFFFF, {"maybe_rw1c": True}),
             },
         )
 
@@ -213,3 +208,158 @@ class TestSaveBarModel:
 
             assert nested_path.exists()
             assert nested_path.parent.is_dir()
+
+
+@pytest.mark.parametrize("absent", [False, True])
+def test_evidence_round_trip_preserves_initial_value_and_provenance(tmp_path, absent):
+    from pcileechfwgenerator.device_clone.bar_model_loader import (
+        deserialize_bar_model,
+        serialize_bar_model,
+    )
+    from pcileechfwgenerator.device_clone.register_evidence import (
+        RegisterClassification,
+        RegisterRef,
+    )
+    from pcileechfwgenerator.device_clone.register_policy import compile_bar_model
+
+    classification = RegisterClassification(
+        ref=RegisterRef(
+            space="mem_bar", bar_index=0, offset=0x14, width=2, field_mask=0xFFFF
+        ),
+        observed_initial_value=None if absent else 0x539A,
+    )
+    model = (
+        _null_initial_model(0x14, 2)
+        if absent
+        else compile_bar_model([classification], 0, 4096).model
+    )
+    serialized = serialize_bar_model(model)
+    assert serialized["regs"]["0x14"]["reset"] == classification.observed_initial_value
+    decoded = deserialize_bar_model(serialized)
+    path = tmp_path / "model.json"
+    save_bar_model(model, path)
+    for result in (decoded, load_bar_model(path)):
+        register = result.registers[0x14]
+        assert register.offset == 0x14
+        assert register.reset == classification.observed_initial_value
+        assert register.hints["unknown_mask"] == 0xFFFF
+        assert register.hints["provenance_status"] == "evidence_backed"
+        assert register.hints["evidence"] == model.registers[0x14].hints["evidence"]
+        if absent:
+            assert register.hints["initial_value_absent_reason"]
+            assert serialize_bar_model(result)["regs"]["0x14"]["reset"] is None
+
+
+@pytest.mark.parametrize("hints", [{}, {"initial_value_absent_reason": ""}])
+def test_absent_initial_value_requires_reason_in_both_loaders(tmp_path, hints):
+    from pcileechfwgenerator.device_clone.bar_model_loader import deserialize_bar_model
+
+    data = {
+        "size": 16,
+        "regs": {"0x0": {"width": 1, "reset": None, "rw_mask": 0, "hints": hints}},
+    }
+    with pytest.raises(ValueError, match="requires a reason"):
+        deserialize_bar_model(data)
+    path = tmp_path / "missing.json"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="requires a reason"):
+        load_bar_model(path)
+
+
+@pytest.mark.parametrize(
+    "hints",
+    [
+        {},
+        {"maybe_rw1c": False},
+        {"maybe_rw1c": True, "evidence": {"classifications": [{"legacy": True}]}},
+        {"evidence": {}},
+        {"provenance_status": "measured"},
+    ],
+)
+def test_legacy_cache_stays_loadable_but_unverified(tmp_path, hints):
+    from pcileechfwgenerator.device_clone.bar_model_loader import (
+        deserialize_bar_model,
+        serialize_bar_model,
+    )
+
+    data = {
+        "size": 16,
+        "regs": {"0x4": {"width": 4, "reset": 0x9573, "rw_mask": 0xFF, "hints": hints}},
+    }
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(data))
+    for model in (deserialize_bar_model(data), load_bar_model(path)):
+        assert model.registers[4].hints["provenance_status"] == "legacy_unverified"
+        assert model.registers[4].offset == 4
+        assert model.registers[4].reset == 0x9573
+        assert model.registers[4].rw_mask == 0xFF
+        assert (
+            serialize_bar_model(model)["regs"]["0x4"]["hints"]["provenance_status"]
+            == "legacy_unverified"
+        )
+    # Loading must not mutate the supplied dictionary.
+    assert data["regs"]["0x4"]["hints"] == hints
+
+
+@pytest.mark.parametrize(
+    "registers, message",
+    [
+        ({0: RegisterSpec(4, 1, 0, 0, {})}, "key and offset"),
+        ({2: RegisterSpec(2, 4, 0, 0, {})}, "aligned"),
+        (
+            {0: RegisterSpec(0, 4, 0, 0, {}), 2: RegisterSpec(2, 2, 0, 0, {})},
+            "Overlapping",
+        ),
+    ],
+)
+def test_invalid_register_layout_is_rejected(registers, message):
+    with pytest.raises(ValueError, match=message):
+        BarModel(16, registers)
+
+
+@pytest.mark.parametrize("field", ["reset", "rw_mask"])
+def test_negative_register_bits_rejected(field):
+    values = dict(offset=0, width=4, reset=0, rw_mask=0, hints={})
+    values[field] = -1
+    with pytest.raises(ValueError):
+        RegisterSpec(**values)
+
+
+def test_legacy_decimal_string_size_remains_loadable(tmp_path):
+    from pcileechfwgenerator.device_clone.bar_model_loader import deserialize_bar_model
+
+    data = {"size": "4096", "regs": {}}
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(data))
+    assert load_bar_model(path).size == 4096
+    assert deserialize_bar_model(data).size == 4096
+
+
+def _null_initial_model(offset, width):
+    """compile_bar_model omits registers without an initial value; build one
+    directly so the defensive loader/template guards stay covered."""
+    from pcileechfwgenerator.device_clone.bar_model_loader import BarModel
+    from pcileechfwgenerator.device_clone.register_policy import EvidenceRegisterSpec
+
+    reason = "No successful read or explicit reset value"
+    return BarModel(
+        size=4096,
+        registers={
+            offset: EvidenceRegisterSpec(
+                offset=offset,
+                width=width,
+                reset=None,
+                rw_mask=0,
+                hints={
+                    "evidence": {
+                        "classifications": [{"observed_initial_value": None}],
+                        "state_epoch": None,
+                        "initial_value_source": None,
+                    },
+                    "initial_value_absent_reason": reason,
+                    "unknown_mask": (1 << (8 * width)) - 1,
+                    "unsupported": [],
+                },
+            )
+        },
+    )

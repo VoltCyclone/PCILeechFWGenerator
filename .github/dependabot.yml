@@ -42,3 +42,17 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+
+  # Container base image (pinned by digest)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "⬆️"
+      include: "scope"
+    labels:
+      - "dependencies"

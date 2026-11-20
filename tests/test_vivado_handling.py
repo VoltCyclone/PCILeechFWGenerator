@@ -812,6 +812,11 @@ class TestVivadoRunner:
 
         build_tcl = out_dir / "build.tcl"
         build_tcl.write_text("# tcl")
+        from pcileechfwgenerator.vivado_handling.build_evidence import (
+            write_build_manifest,
+        )
+
+        write_build_manifest(out_dir, board=r.board, part="part", inputs=[build_tcl])
 
         # Patch the dynamically-imported integration + reporting functions on
         # their real modules.
@@ -824,6 +829,10 @@ class TestVivadoRunner:
             lambda *a, **k: (0, "ok"),
         )
 
+        (out_dir / "output").mkdir()
+        (out_dir / "output" / "image.bit").write_bytes(b"test artifact")
+        (out_dir / "reports").mkdir()
+        (out_dir / "reports" / "tool_version.txt").write_text("test tool")
         # Should not raise.
         assert r.run() is None
 
@@ -836,6 +845,11 @@ class TestVivadoRunner:
 
         build_tcl = out_dir / "build.tcl"
         build_tcl.write_text("# tcl")
+        from pcileechfwgenerator.vivado_handling.build_evidence import (
+            write_build_manifest,
+        )
+
+        write_build_manifest(out_dir, board=r.board, part="part", inputs=[build_tcl])
 
         import pcileechfwgenerator.vivado_handling.pcileech_build_integration as pbi
 
@@ -849,9 +863,7 @@ class TestVivadoRunner:
         with pytest.raises(VivadoIntegrationError):
             r.run()
 
-    def test_run_falls_back_to_generated_script_when_integration_fails(
-        self, tmp_path, monkeypatch
-    ):
+    def test_run_refuses_fallback_when_integration_fails(self, tmp_path, monkeypatch):
         out_dir = tmp_path / "out"
         out_dir.mkdir()
         r = self._make(tmp_path, output_dir=out_dir)
@@ -875,8 +887,9 @@ class TestVivadoRunner:
 
         monkeypatch.setattr(rep_mod, "run_vivado_with_error_reporting", _runner)
 
-        assert r.run() is None
-        assert captured["tcl"] == out_dir / "vivado_build.tcl"
+        with pytest.raises(VivadoIntegrationError, match="Refusing to fall back"):
+            r.run()
+        assert captured == {}
 
     def test_run_fallback_missing_script_raises(self, tmp_path, monkeypatch):
         out_dir = tmp_path / "out"

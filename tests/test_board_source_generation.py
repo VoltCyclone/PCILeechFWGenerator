@@ -6,13 +6,15 @@ the real upstream submodule for the two boards reported in #593:
 - ``75t`` (EnigmaX1): build succeeds; FIFO carries donor IDs and not Xilinx
   defaults.
 - ``pcileech_75t484_x1`` (CaptainDMA/75t484_x1): the staged FIFO is rewritten
-  with donor IDs *and* the cfg-id assigns are commented so synthesis no
-  longer fails on undeclared interface fields.
+  with donor IDs, and no active assign to an undeclared cfg-id interface field
+  remains. Upstream dropped those assigns (voltcyclone-fpga 572dc64); the
+  patcher still comments them out if a board ships them.
 
 These are the canary for future submodule drift — if upstream changes the
 RW reset block or the IfPCIeFifoCore interface again, these tests fail
 before users hit a multi-minute Vivado synthesis error.
 """
+
 import sys
 from pathlib import Path
 
@@ -86,16 +88,16 @@ class TestBoard75t:
         assert "rw[143:128] <= 16'h8086;" in fifo  # subsys vendor
         assert "rw[175:160] <= 16'h8086;" in fifo  # vendor
         assert "rw[191:176] <= 16'h1533;" in fifo  # device
-        assert "rw[199:192] <= 8'h03;" in fifo     # rev
+        assert "rw[199:192] <= 8'h03;" in fifo  # rev
         # And that the Xilinx defaults are gone in the patched lines.
         for default_line in (
             "rw[143:128] <= 16'h10EE",
             "rw[175:160] <= 16'h10EE",
             "rw[191:176] <= 16'h0666",
         ):
-            assert default_line not in fifo, (
-                f"Xilinx default still present after patch: {default_line!r}"
-            )
+            assert (
+                default_line not in fifo
+            ), f"Xilinx default still present after patch: {default_line!r}"
 
     def test_pcie_core_config_initializer_uses_donor(self, staged_board):
         staging_root = staged_board("75t")
@@ -103,10 +105,7 @@ class TestBoard75t:
 
         fifo = (staging_root / "src" / "pcileech_fifo.sv").read_text()
         # Trailing 5 fields of the packed initializer become donor IDs.
-        assert (
-            "8'h03, 16'h1533, 16'h8086, 16'h0001, 16'h8086"
-            in fifo
-        )
+        assert "8'h03, 16'h1533, 16'h8086, 16'h0001, 16'h8086" in fifo
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +120,11 @@ class TestBoardPcileech75t484x1:
 
         assert result["processed"] is True
         assert result["changed"] is True
-        # CaptainDMA/75t484_x1 ships fifo writes to interface fields the
-        # header doesn't declare — patcher must comment them.
-        assert result["cfg_assigns_commented"] is True
+        # Upstream no longer ships assigns to the undeclared pcie_cfg_* fields
+        # (voltcyclone-fpga 572dc64), so there is nothing to comment out.
+        # test_undefined_cfg_id_assigns_commented_out still guards that none
+        # stays active.
+        assert result["cfg_assigns_commented"] is False
 
         fifo = (staging_root / "src" / "pcileech_fifo.sv").read_text()
         assert "rw[175:160] <= 16'h8086;" in fifo
@@ -153,9 +154,9 @@ class TestBoardPcileech75t484x1:
             for line in fifo.splitlines()
             if "dpcie.pcie_rst_core" in line and "assign" in line
         ]
-        assert rst_lines and not rst_lines[0].lstrip().startswith("//"), (
-            "pcie_rst_core assign was incorrectly commented out"
-        )
+        assert rst_lines and not rst_lines[0].lstrip().startswith(
+            "//"
+        ), "pcie_rst_core assign was incorrectly commented out"
 
     def test_balanced_blocks_after_patch(self, staged_board):
         staging_root = staged_board("pcileech_75t484_x1")

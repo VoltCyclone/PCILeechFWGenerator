@@ -8,13 +8,10 @@ and error scenarios in the PCILeech FPGA Firmware Builder.
 import argparse
 import json
 import logging
-import os
-import re
 import sys
 import tempfile
-from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
+from concurrent.futures import Future, TimeoutError
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 from unittest import mock
 
 import pytest
@@ -27,11 +24,7 @@ if str(project_root) not in sys.path:
 from pcileechfwgenerator.build import (  # Exception classes; Data classes; Manager classes; Main class; CLI functions; Constants
     BUFFER_SIZE,
     CONFIG_SPACE_PATH_TEMPLATE,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DURATION,
-    FILE_WRITE_TIMEOUT,
     MAX_PARALLEL_FILE_WRITES,
-    REQUIRED_MODULES,
     BuildConfiguration,
     ConfigurationError,
     ConfigurationManager,
@@ -46,9 +39,6 @@ from pcileechfwgenerator.build import (  # Exception classes; Data classes; Mana
     MSIXPreloadError,
     PCILeechBuildError,
     VivadoIntegrationError,
-    _display_summary,
-    main,
-    parse_args,
 )
 from pcileechfwgenerator.error_utils import build_issue_report
 
@@ -559,11 +549,15 @@ def test_msix_manager_preload_data_success(valid_bdf, mock_logger):
     # Mock config space path existence and read_config_space
     config_path = CONFIG_SPACE_PATH_TEMPLATE.format(valid_bdf)
 
-    with mock.patch("os.path.exists", return_value=True), mock.patch.object(
-        manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
-    ), mock.patch(
-        "pcileechfwgenerator.build.parse_msix_capability",
-        return_value={"table_size": 16},
+    with (
+        mock.patch("os.path.exists", return_value=True),
+        mock.patch.object(
+            manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
+        ),
+        mock.patch(
+            "pcileechfwgenerator.build.parse_msix_capability",
+            return_value={"table_size": 16},
+        ),
     ):
 
         result = manager.preload_data()
@@ -593,9 +587,16 @@ def test_msix_manager_preload_data_no_msix(valid_bdf, mock_logger):
     manager = MSIXManager(valid_bdf, mock_logger)
 
     # Mock config space path existence and read_config_space
-    with mock.patch("os.path.exists", return_value=True), mock.patch.object(
-        manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
-    ), mock.patch("pcileechfwgenerator.build.parse_msix_capability", return_value={"table_size": 0}):
+    with (
+        mock.patch("os.path.exists", return_value=True),
+        mock.patch.object(
+            manager, "_read_config_space", return_value=b"\xde\xad\xbe\xef"
+        ),
+        mock.patch(
+            "pcileechfwgenerator.build.parse_msix_capability",
+            return_value={"table_size": 0},
+        ),
+    ):
         result = manager.preload_data()
 
         # New behavior: treat absence of MSI-X capability as not preloaded
@@ -610,8 +611,11 @@ def test_msix_manager_preload_data_exception(valid_bdf, mock_logger):
     manager = MSIXManager(valid_bdf, mock_logger)
 
     # Mock config space path existence but raise exception in read_config_space
-    with mock.patch("os.path.exists", return_value=True), mock.patch.object(
-        manager, "_read_config_space", side_effect=IOError("Test error")
+    with (
+        mock.patch("os.path.exists", return_value=True),
+        mock.patch.object(
+            manager, "_read_config_space", side_effect=IOError("Test error")
+        ),
     ):
 
         result = manager.preload_data()
@@ -860,9 +864,10 @@ def test_file_operations_manager_write_json(temp_dir, mock_logger):
     data = {"key": "value", "nested": {"key": "value"}}
 
     # Mock both open and json.dump
-    with mock.patch("builtins.open", mock.mock_open()) as mock_file, mock.patch(
-        "json.dump"
-    ) as mock_json_dump:
+    with (
+        mock.patch("builtins.open", mock.mock_open()) as mock_file,
+        mock.patch("json.dump") as mock_json_dump,
+    ):
 
         manager.write_json("test.json", data)
 
@@ -985,8 +990,11 @@ def test_file_operations_manager_parallel_write(temp_dir, mock_logger):
     mock_future = mock.MagicMock(spec=Future)
     mock_future.result.return_value = None
 
-    with mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
-        "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
+    with (
+        mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls,
+        mock.patch(
+            "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
+        ),
     ):
 
         mock_executor = mock_executor_cls.return_value.__enter__.return_value
@@ -1018,8 +1026,11 @@ def test_file_operations_manager_parallel_write_error(temp_dir, mock_logger):
     mock_future = mock.MagicMock(spec=Future)
     mock_future.result.side_effect = IOError("Test error")
 
-    with mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
-        "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
+    with (
+        mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls,
+        mock.patch(
+            "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
+        ),
     ):
 
         mock_executor = mock_executor_cls.return_value.__enter__.return_value
@@ -1046,8 +1057,11 @@ def test_file_operations_manager_parallel_write_timeout(temp_dir, mock_logger):
     mock_future = mock.MagicMock(spec=Future)
     mock_future.result.side_effect = TimeoutError("Test timeout")
 
-    with mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls, mock.patch(
-        "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
+    with (
+        mock.patch("pcileechfwgenerator.build.ThreadPoolExecutor") as mock_executor_cls,
+        mock.patch(
+            "pcileechfwgenerator.build.as_completed", return_value=[mock_future]
+        ),
     ):
 
         mock_executor = mock_executor_cls.return_value.__enter__.return_value
@@ -1235,15 +1249,17 @@ def test_firmware_builder_init_dependency_injection(build_config, mock_logger):
 @pytest.fixture
 def mock_firmware_builder(build_config, mock_logger):
     """Create a FirmwareBuilder with mocked dependencies."""
-    with mock.patch("pcileechfwgenerator.build.MSIXManager") as mock_msix_cls, mock.patch(
-        "pcileechfwgenerator.build.FileOperationsManager"
-    ) as mock_file_cls, mock.patch(
-        "pcileechfwgenerator.build.ConfigurationManager"
-    ) as mock_config_cls, mock.patch(
-        "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
-    ) as mock_gen_cls, mock.patch(
-        "pcileechfwgenerator.device_clone.behavior_profiler.BehaviorProfiler"
-    ) as mock_profiler_cls:
+    with (
+        mock.patch("pcileechfwgenerator.build.MSIXManager") as mock_msix_cls,
+        mock.patch("pcileechfwgenerator.build.FileOperationsManager") as mock_file_cls,
+        mock.patch("pcileechfwgenerator.build.ConfigurationManager") as mock_config_cls,
+        mock.patch(
+            "pcileechfwgenerator.device_clone.pcileech_generator.PCILeechGenerator"
+        ) as mock_gen_cls,
+        mock.patch(
+            "pcileechfwgenerator.device_clone.behavior_profiler.BehaviorProfiler"
+        ) as mock_profiler_cls,
+    ):
 
         mock_msix = mock.MagicMock()
         mock_file = mock.MagicMock()
@@ -1287,6 +1303,7 @@ def test_firmware_builder_build_success(mock_firmware_builder):
     builder._write_modules = mock.MagicMock()
     builder._generate_profile = mock.MagicMock()
     builder._generate_tcl_scripts = mock.MagicMock()
+    builder._finalize_stage2_artifacts = mock.MagicMock()
     builder._save_device_info = mock.MagicMock()
     builder._store_device_config = mock.MagicMock()
     builder._generate_donor_template = mock.MagicMock()
@@ -1308,8 +1325,51 @@ def test_firmware_builder_build_success(mock_firmware_builder):
     builder._store_device_config.assert_called_once()
     builder._generate_donor_template.assert_not_called()  # output_template not set
 
+    # Stage 2 is finalized once, with this run's generation result, after
+    # every step that writes src/ip/constraints and before later phases.
+    generation_result = builder._generate_firmware.return_value
+    builder._finalize_stage2_artifacts.assert_called_once_with(generation_result)
+    order = mock.Mock()
+    order.attach_mock(builder._generate_tcl_scripts, "tcl")
+    order.attach_mock(builder._finalize_stage2_artifacts, "finalize")
+    order.attach_mock(builder._save_device_info, "save")
+    builder._generate_tcl_scripts.reset_mock()
+    builder._finalize_stage2_artifacts.reset_mock()
+    builder._save_device_info.reset_mock()
+    builder.build()
+    assert [c[0] for c in order.mock_calls] == ["tcl", "finalize", "save"]
+
     # Verify artifacts returned
     assert artifacts == ["file1.sv", "file2.tcl"]
+
+
+def test_firmware_builder_build_fails_without_generated_cfgspace(mock_firmware_builder):
+    """With the real finalize step, a run that generated no config-space COE
+    fails instead of building the stock board memory, and nothing after
+    finalization runs."""
+    builder, mocks = mock_firmware_builder
+
+    builder._load_donor_template = mock.MagicMock(return_value=None)
+    builder._preload_msix = mock.MagicMock(return_value=MSIXData(preloaded=False))
+    builder._generate_firmware = mock.MagicMock(
+        return_value={
+            "systemverilog_modules": {},
+            "template_context": {"device_config": {}},
+            "config_space_data": {"device_info": {}},
+        }
+    )
+    builder._inject_msix = mock.MagicMock()
+    builder._write_modules = mock.MagicMock()
+    builder._generate_profile = mock.MagicMock()
+    builder._generate_tcl_scripts = mock.MagicMock()
+    builder._save_device_info = mock.MagicMock()
+    builder._store_device_config = mock.MagicMock()
+
+    with pytest.raises(PCILeechBuildError, match="pcileech_cfgspace.coe"):
+        builder.build()
+    builder._save_device_info.assert_not_called()
+    builder._store_device_config.assert_not_called()
+    assert not (builder.config.output_dir / "stage2_artifacts.json").exists()
 
 
 def test_firmware_builder_build_with_donor_template(mock_firmware_builder):
@@ -1333,6 +1393,7 @@ def test_firmware_builder_build_with_donor_template(mock_firmware_builder):
     builder._write_modules = mock.MagicMock()
     builder._generate_profile = mock.MagicMock()
     builder._generate_tcl_scripts = mock.MagicMock()
+    builder._finalize_stage2_artifacts = mock.MagicMock()
     builder._save_device_info = mock.MagicMock()
     builder._store_device_config = mock.MagicMock()
     builder._generate_donor_template = mock.MagicMock()
@@ -1365,6 +1426,7 @@ def test_firmware_builder_build_with_output_template(mock_firmware_builder):
     builder._write_modules = mock.MagicMock()
     builder._generate_profile = mock.MagicMock()
     builder._generate_tcl_scripts = mock.MagicMock()
+    builder._finalize_stage2_artifacts = mock.MagicMock()
     builder._save_device_info = mock.MagicMock()
     builder._store_device_config = mock.MagicMock()
     builder._generate_donor_template = mock.MagicMock()
@@ -1570,23 +1632,83 @@ def test_firmware_builder_generate_tcl_scripts(mock_firmware_builder):
     }
 
     # Mock file manager for TCL copying and source file operations
-    with mock.patch("pcileechfwgenerator.file_management.file_manager.FileManager") as mock_fm_cls:
+    with mock.patch(
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
+    ) as mock_fm_cls:
         from pathlib import Path
-        
+
         mock_fm = mock.MagicMock()
         mock_fm_cls.return_value = mock_fm
         mock_fm.create_pcileech_structure.return_value = None
-        mock_fm.copy_pcileech_sources.return_value = {}
-        # Mock TCL script copying
-        mock_fm.copy_vivado_tcl_scripts.return_value = [
-            Path("vivado_generate_project.tcl"),
-            Path("vivado_build.tcl"),
-        ]
+        staged = {
+            "systemverilog": [Path("pcileech_fifo.sv")],
+            "constraints": [Path("board.xdc")],
+        }
+        mock_fm.copy_pcileech_sources.return_value = staged
+        builder._generated_sources = {"pcileech_tlps128_bar_controller.sv"}
+        # Donor patching and the (now mandatory) IP override are exercised
+        # in test_fifo_donor_patcher / test_msix_artifact_staging.
+        builder._patch_fifo_with_donor_ids = mock.MagicMock()
 
         builder._generate_tcl_scripts(result)
 
-        # Verify TCL scripts were copied from submodule
-        mock_fm.copy_vivado_tcl_scripts.assert_called_once_with(builder.config.board)
+        # The board's own project scripts are not staged.
+        assert not any("tcl_scripts" in name for name, *_ in mock_fm.method_calls)
+        # Board sources must not overwrite this run's generated modules, and
+        # the staged set is recorded for the Stage 2 manifest.
+        mock_fm.copy_pcileech_sources.assert_called_once_with(
+            builder.config.board,
+            generated={"pcileech_tlps128_bar_controller.sv"},
+        )
+        assert builder._staged_board_files is staged
+        builder._patch_fifo_with_donor_ids.assert_called_once_with(result)
+
+
+def test_firmware_builder_generate_tcl_scripts_override_failure_is_fatal(
+    mock_firmware_builder,
+):
+    """If the donor IP override cannot be written the build stops; it does
+    not warn and continue with stock hard-IP identity."""
+    from pcileechfwgenerator.vivado_handling.pcie_ip_donor_override import (
+        PcieIpOverrideError,
+    )
+
+    builder, _ = mock_firmware_builder
+    src = builder.config.output_dir / "src"
+    src.mkdir(parents=True)
+    result = {
+        "template_context": {
+            "bar_config": {"bars": [{"index": 0, "size": 4096, "is_memory": True}]},
+            "device_config": {
+                "class_code": 0x020000,
+                # Intel 82574L: a real donor pair, not a placeholder.
+                "vendor_id_int": 0x8086,
+                "device_id_int": 0x10D3,
+                "subsystem_vendor_id_int": 0x8086,
+                "subsystem_device_id_int": 0x0001,
+                "revision_id_int": 0x03,
+            },
+        }
+    }
+    with mock.patch(
+        "pcileechfwgenerator.file_management.file_manager.FileManager"
+    ) as mock_fm_cls:
+        mock_fm = mock_fm_cls.return_value
+        mock_fm.copy_pcileech_sources.return_value = {}
+
+        def _fail(*_a, **_k):
+            raise PcieIpOverrideError("cannot write override")
+
+        with (
+            mock.patch(
+                "pcileechfwgenerator.vivado_handling.pcie_ip_donor_override."
+                "apply_pcie_ip_donor_override",
+                _fail,
+            ),
+            pytest.raises(PcieIpOverrideError, match="cannot write override"),
+        ):
+            builder._generate_tcl_scripts(result)
+    assert not (builder.config.output_dir / "pcileech_donor_ip_overrides.tcl").exists()
 
 
 def test_firmware_builder_save_device_info(mock_firmware_builder):
@@ -1645,10 +1767,16 @@ def test_firmware_builder_run_vivado_user_path(mock_firmware_builder):
     builder, mocks = mock_firmware_builder
     builder.config.vivado_path = "/custom/vivado/path"
 
-    with mock.patch(
-        "pcileechfwgenerator.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
-        "pcileechfwgenerator.vivado_handling.find_vivado_installation", return_value=None
-    ), mock.patch("pathlib.Path.exists") as mock_path_exists:
+    with (
+        mock.patch(
+            "pcileechfwgenerator.vivado_handling.VivadoRunner"
+        ) as mock_runner_cls,
+        mock.patch(
+            "pcileechfwgenerator.vivado_handling.find_vivado_installation",
+            return_value=None,
+        ),
+        mock.patch("pathlib.Path.exists") as mock_path_exists,
+    ):
         # Mock Path.exists to return True for vivado executable check
         # The check is: Path(vivado_path) / "bin" / "vivado" -> exists()
         mock_path_exists.return_value = True
@@ -1664,6 +1792,7 @@ def test_firmware_builder_run_vivado_user_path(mock_firmware_builder):
             vivado_path="/custom/vivado/path",
             logger=builder.logger,
             device_config=None,
+            vivado_jobs=builder.config.vivado_jobs,
         )
         mock_runner.run.assert_called_once()
 
@@ -1675,8 +1804,14 @@ def test_firmware_builder_run_vivado_auto_detect(mock_firmware_builder):
 
     vivado_info = {"executable": "/tools/xilinx/vivado/bin/vivado"}
 
-    with mock.patch("pcileechfwgenerator.vivado_handling.VivadoRunner") as mock_runner_cls, mock.patch(
-        "pcileechfwgenerator.vivado_handling.find_vivado_installation", return_value=vivado_info
+    with (
+        mock.patch(
+            "pcileechfwgenerator.vivado_handling.VivadoRunner"
+        ) as mock_runner_cls,
+        mock.patch(
+            "pcileechfwgenerator.vivado_handling.find_vivado_installation",
+            return_value=vivado_info,
+        ),
     ):
 
         mock_runner = mock.MagicMock()
@@ -1691,6 +1826,7 @@ def test_firmware_builder_run_vivado_auto_detect(mock_firmware_builder):
             vivado_path=expected_path,
             logger=builder.logger,
             device_config=None,
+            vivado_jobs=builder.config.vivado_jobs,
         )
         mock_runner.run.assert_called_once()
 
@@ -1700,7 +1836,10 @@ def test_firmware_builder_run_vivado_not_found(mock_firmware_builder):
     builder, mocks = mock_firmware_builder
     builder.config.vivado_path = None
 
-    with mock.patch("pcileechfwgenerator.vivado_handling.find_vivado_installation", return_value=None):
+    with mock.patch(
+        "pcileechfwgenerator.vivado_handling.find_vivado_installation",
+        return_value=None,
+    ):
         with pytest.raises(VivadoIntegrationError, match="Vivado not found"):
             builder.run_vivado()
 

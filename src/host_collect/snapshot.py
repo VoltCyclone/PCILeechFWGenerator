@@ -1,7 +1,8 @@
 """Versioned donor captures shared by host collection and build consumers.
 
-A capture is an immutable pair. Publish the sidecar first and context last;
-readers reject incomplete pairs, and exclusive links never replace old data.
+A capture is immutable. Publish learning, then MSI-X, then context last;
+context is the commit point, and exclusive links never replace old data.
+An unreferenced learning file is not part of a capture and is never loaded.
 """
 
 from __future__ import annotations
@@ -10,11 +11,12 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 from uuid import UUID, uuid4
 
 from pcileechfwgenerator.exceptions import ConfigurationError
@@ -27,11 +29,21 @@ from pydantic import (
     field_validator,
 )
 
+if TYPE_CHECKING:
+    # device_clone's package initializer imports snapshot consumers.
+    from pcileechfwgenerator.device_clone.register_evidence import (
+        LearningManifest,
+        LearningStatus,
+    )
+
 CONTEXT_NAME = "device_context.json"
 MSIX_NAME = "msix_data.json"
+LEARNING_NAME: Final = "register_learning.json"
 SYSFS_PCI_ROOT = Path("/sys/bus/pci/devices")
 # Real captures are a few KiB; the cap bounds memory use on hostile input.
 MAX_CAPTURE_FILE_BYTES = 1 << 20
+MAX_LEARNING_FILE_BYTES = 16 << 20
+MAX_LEARNING_OBSERVATIONS = 100_000
 
 # How a capture used in a build was established: read via VFIO this run,
 # matched against live sysfs this run, or neither (offline input, or a reused
@@ -112,12 +124,145 @@ class CaptureIdentity(BaseModel):
 
 @dataclass(frozen=True)
 class DonorSnapshot:
-    """A validated device context and its matching MSI-X sidecar."""
+    """A validated context, MSI-X sidecar and optional learning evidence."""
 
     identity: CaptureIdentity
     context: dict[str, Any]
     msix: dict[str, Any]
     config_space: bytes
+    learning: LearningManifest | None = None
+    # Keep the original encoding so an offline import preserves the checksum.
+    _learning_json: bytes | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def learning_status(self) -> LearningStatus:
+        """Legacy captures have absent evidence, not an invented manifest."""
+        return "absent" if self.learning is None else self.learning.status
+
+
+class _LearningReference(BaseModel):
+    """Bounded context reference; all fields are checked against the artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: int
+    file: Literal["register_learning.json"]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    byte_size: int = Field(gt=0, le=MAX_LEARNING_FILE_BYTES)
+    status: str
+    observation_count: int = Field(ge=0, le=MAX_LEARNING_OBSERVATIONS)
+    experiment_count: int = Field(ge=0)
+    classification_count: int = Field(ge=0)
+
+    @field_validator("schema_version")
+    @classmethod
+    def supported_schema(cls, value: int) -> int:
+        from pcileechfwgenerator.device_clone.register_evidence import (
+            LEARNING_SCHEMA_VERSION,
+        )
+
+        if value != LEARNING_SCHEMA_VERSION:
+            raise ValueError("unsupported learning schema")
+        return value
+
+
+def _learning_reference(
+    learning: LearningManifest, document: bytes
+) -> _LearningReference:
+    try:
+        return _LearningReference(
+            schema_version=learning.schema_version,
+            file=LEARNING_NAME,
+            sha256=hashlib.sha256(document).hexdigest(),
+            byte_size=len(document),
+            status=learning.status,
+            observation_count=len(learning.observations),
+            experiment_count=len(learning.experiments),
+            classification_count=len(learning.classifications),
+        )
+    except ValidationError:
+        raise SnapshotError(
+            "invalid or oversized register learning reference"
+        ) from None
+
+
+def _validate_learning(
+    document: bytes, identity: CaptureIdentity, config: bytes
+) -> LearningManifest:
+    from pcileechfwgenerator.device_clone.register_evidence import LearningManifest
+
+    if len(document) > MAX_LEARNING_FILE_BYTES:
+        raise SnapshotError("register learning file is too large")
+    try:
+        # Bound the event count before allocating Pydantic observation models.
+        raw = json.loads(document)
+        if not isinstance(raw, dict) or type(raw.get("schema_version")) is not int:
+            raise ValueError("invalid learning schema")
+        observations = raw.get("observations", [])
+        if not isinstance(observations, list):
+            raise ValueError("invalid observations")
+        if len(observations) > MAX_LEARNING_OBSERVATIONS:
+            raise SnapshotError("register learning observation count is too large")
+        del raw, observations
+        learning = LearningManifest.model_validate_json(document)
+    except (ValueError, TypeError, RecursionError):
+        # Never expose Pydantic input values through CLI root-cause formatting.
+        raise SnapshotError("invalid register learning schema or JSON") from None
+    if learning.context.capture_id != identity.capture_id:
+        raise SnapshotError("register learning belongs to a different capture")
+    if normalize_bdf(learning.context.bdf) != identity.bdf:
+        raise SnapshotError("register learning PCI address conflicts with capture")
+    expected: dict[str, int | None] = dict(device_identity(config))
+    for key in ("subsystem_vendor_id", "subsystem_device_id"):
+        expected.setdefault(key, None)
+    if any(
+        getattr(learning.context.donor, key) != value for key, value in expected.items()
+    ):
+        raise SnapshotError("register learning donor identity conflicts with capture")
+    return learning
+
+
+def _read_learning(
+    context_path: Path,
+    context: dict[str, Any],
+    identity: CaptureIdentity,
+    config: bytes,
+) -> tuple[LearningManifest | None, bytes | None]:
+    if "register_learning" not in context:
+        return None, None
+    try:
+        reference = _LearningReference.model_validate(context["register_learning"])
+    except ValidationError:
+        raise SnapshotError("invalid register learning reference") from None
+    path = context_path.with_name(reference.file)
+    try:
+        # Check before open as well as on the descriptor; never follow symlinks,
+        # block on a FIFO, or trust a size check followed by an unbounded read.
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode):
+            raise SnapshotError("register learning file is not a regular file")
+        if info.st_size > MAX_LEARNING_FILE_BYTES:
+            raise SnapshotError("register learning file is too large")
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise SnapshotError("register learning file is not a regular file")
+            if info.st_size > MAX_LEARNING_FILE_BYTES:
+                raise SnapshotError("register learning file is too large")
+            document = stream.read(MAX_LEARNING_FILE_BYTES + 1)
+    except OSError:
+        raise SnapshotError("missing or unreadable register learning file") from None
+    if len(document) > MAX_LEARNING_FILE_BYTES:
+        raise SnapshotError("register learning file is too large")
+    if len(document) != reference.byte_size:
+        raise SnapshotError("register learning byte size mismatch")
+    if hashlib.sha256(document).hexdigest() != reference.sha256:
+        raise SnapshotError("register learning checksum mismatch")
+    learning = _validate_learning(document, identity, config)
+    if _learning_reference(learning, document) != reference:
+        raise SnapshotError("register learning metadata or counts mismatch")
+    return learning, document
 
 
 _HEX_FIELD = re.compile(r"0x[0-9a-fA-F]+")
@@ -182,7 +327,7 @@ def _read_capture(path: Path) -> tuple[dict[str, Any], CaptureIdentity, bytes]:
         raise SnapshotError(f"config space length mismatch in {path.name}")
     if hashlib.sha256(config).hexdigest() != identity.config_space_sha256:
         raise SnapshotError(f"config space checksum mismatch in {path.name}")
-    expected = device_identity(config)
+    expected: dict[str, int | None] = dict(device_identity(config))
     for key in ("subsystem_vendor_id", "subsystem_device_id"):
         expected.setdefault(key, None)
     for key, value in expected.items():
@@ -195,7 +340,11 @@ def _read_capture(path: Path) -> tuple[dict[str, Any], CaptureIdentity, bytes]:
 def load_snapshot(
     context_path: Path, msix_path: Path, expected_bdf: str
 ) -> DonorSnapshot:
-    """Load a complete pair, rejecting legacy, corrupt or mismatched captures."""
+    """Load a capture and every referenced artifact, including optional learning.
+
+    Schema-v1 captures predating learning remain valid. Unreferenced learning
+    files are ignored, even if corrupt; they are not trusted capture inputs.
+    """
     context, identity, config = _read_capture(context_path)
     if identity.bdf != normalize_bdf(expected_bdf):
         raise SnapshotError("capture PCI address does not match the requested donor")
@@ -207,7 +356,8 @@ def load_snapshot(
     if not isinstance(msix.get("msix_info"), dict):
         raise SnapshotError("invalid MSI-X sidecar")
     _check_msix_matches_config(msix["msix_info"], config)
-    return DonorSnapshot(identity, context, msix, config)
+    learning, document = _read_learning(context_path, context, identity, config)
+    return DonorSnapshot(identity, context, msix, config, learning, document)
 
 
 def _check_msix_matches_config(msix_info: dict[str, Any], config: bytes) -> None:
@@ -292,7 +442,7 @@ def verify_current_device(snapshot: DonorSnapshot) -> Literal["verified", "absen
 
 def ensure_capture_destination(directory: Path) -> None:
     """Refuse occupied or partially written capture destinations before probing."""
-    for name in (CONTEXT_NAME, MSIX_NAME):
+    for name in (CONTEXT_NAME, MSIX_NAME, LEARNING_NAME):
         path = directory / name
         if path.exists() or path.is_symlink():
             raise SnapshotError(f"destination already contains {name}")
@@ -304,19 +454,27 @@ def write_snapshot(
     config: bytes,
     msix_info: dict[str, Any],
     context: dict[str, Any] | None = None,
+    *,
+    learning: LearningManifest | None = None,
+    capture_id: UUID | None = None,
 ) -> DonorSnapshot:
     """Publish a complete capture without replacing any existing destination.
 
-    Both temporary files are serialized and fsynced before publication. A crash
-    between links leaves an orphan sidecar that readers reject, not a valid
-    capture. Concurrent collectors cannot replace one another's files.
+    Supply the ID allocated for the learning session as ``capture_id``. Without
+    it a fresh ID is generated, retaining the legacy writer behavior. Learning
+    must match that ID, BDF and the config header's donor identity. Its reference
+    is generated here, never accepted from the caller's context dictionary.
+
+    All temporary files are serialized and fsynced before publication. A crash
+    between links leaves orphan sidecars, not a valid capture. Concurrent
+    collectors cannot replace one another's files.
     """
     ensure_capture_destination(directory)
     directory.mkdir(parents=True, exist_ok=True)
     try:
         identity = CaptureIdentity(
             schema_version=1,
-            capture_id=uuid4(),
+            capture_id=uuid4() if capture_id is None else capture_id,
             collected_at=datetime.now(timezone.utc),
             bdf=normalize_bdf(bdf),
             config_space_size=len(config),
@@ -327,6 +485,21 @@ def write_snapshot(
         raise SnapshotError("invalid collected config space") from None
     metadata = identity.model_dump(mode="json", exclude_none=True)
     payload = dict(context or {})
+    if "register_learning" in payload:
+        raise SnapshotError("supply register learning through the learning argument")
+    document = None
+    if learning is not None:
+        from pcileechfwgenerator.device_clone.register_evidence import LearningManifest
+
+        if not isinstance(learning, LearningManifest):
+            raise SnapshotError("invalid collected register learning")
+        if len(learning.observations) > MAX_LEARNING_OBSERVATIONS:
+            raise SnapshotError("register learning observation count is too large")
+        document = learning.model_dump_json().encode("utf-8")
+        learning = _validate_learning(document, identity, config)
+        payload["register_learning"] = _learning_reference(
+            learning, document
+        ).model_dump()
     from .host_binding import HOST_BINDING_KEY, binding_record
 
     # Always this host's binding, never one supplied by the caller.
@@ -345,7 +518,7 @@ def write_snapshot(
     sidecar = {**common, "msix_info": msix_info}
     if not isinstance(msix_info, dict):
         raise SnapshotError("invalid collected MSI-X data")
-    snapshot = DonorSnapshot(identity, payload, sidecar, config)
+    snapshot = DonorSnapshot(identity, payload, sidecar, config, learning, document)
     # Offline-only checks run when a capture is loaded for offline use, never
     # here: a live collect must not reject what the live build would accept.
     publish_snapshot(directory, snapshot)
@@ -353,21 +526,45 @@ def write_snapshot(
 
 
 def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
-    """Exclusively publish an already validated pair without changing identity."""
+    """Exclusively publish a validated capture, retaining sidecar bytes and identity."""
     ensure_capture_destination(directory)
     directory.mkdir(parents=True, exist_ok=True)
+    documents: list[bytes] = []
+    names = []
+    if snapshot.learning is not None:
+        document = snapshot._learning_json
+        if document is None:
+            document = snapshot.learning.model_dump_json().encode("utf-8")
+        learning = _validate_learning(
+            document, snapshot.identity, snapshot.config_space
+        )
+        if learning != snapshot.learning:
+            raise SnapshotError("register learning conflicts with serialized evidence")
+        try:
+            reference = _LearningReference.model_validate(
+                snapshot.context.get("register_learning")
+            )
+        except ValidationError:
+            raise SnapshotError("invalid register learning reference") from None
+        if reference != _learning_reference(learning, document):
+            raise SnapshotError("register learning reference conflicts with evidence")
+        documents.append(document)
+        names.append(LEARNING_NAME)
+    elif "register_learning" in snapshot.context:
+        raise SnapshotError("register learning reference has no evidence")
     try:
-        documents = [
-            json.dumps(data, indent=2) for data in (snapshot.msix, snapshot.context)
-        ]
+        documents.extend(
+            json.dumps(data, indent=2).encode("utf-8")
+            for data in (snapshot.msix, snapshot.context)
+        )
     except (TypeError, ValueError):
         raise SnapshotError("capture context is not JSON-serialisable") from None
+    names.extend((MSIX_NAME, CONTEXT_NAME))
     temporary: list[Path] = []
     try:
         for document in documents:
             with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
+                mode="wb",
                 dir=directory,
                 prefix=".capture-",
                 delete=False,
@@ -378,7 +575,7 @@ def publish_snapshot(directory: Path, snapshot: DonorSnapshot) -> None:
                 # The Stage 2 container must be able to read the host capture.
                 os.fchmod(stream.fileno(), 0o644)
                 os.fsync(stream.fileno())
-        for temp, name in zip(temporary, (MSIX_NAME, CONTEXT_NAME)):
+        for temp, name in zip(temporary, names):
             os.link(temp, directory / name)
             # Persist sidecar before the context becomes the commit point.
             fd = os.open(directory, os.O_RDONLY)

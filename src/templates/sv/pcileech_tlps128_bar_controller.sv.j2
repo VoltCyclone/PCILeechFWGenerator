@@ -11,15 +11,19 @@
 
 `timescale 1ns / 1ps
 `include "pcileech_header.svh"
+{% from "sv/msix/_msix_subsystem.j2" import msix_subsystem %}
 
 module pcileech_tlps128_bar_controller(
     input                   rst,
     input                   clk,
     input                   bar_en,
     input [15:0]            pcie_id,
+    IfPCIeSignals.mpro      pcie_ctx,       // read-only PCIe core status (clk domain)
+    input                   rst_pcie_user,  // PCIe core user reset: PERST, link down
     IfAXIS128.sink_lite     tlps_in,
     IfAXIS128.source        tlps_out
 );
+{% set _msix = msix_rtl if (msix_rtl is defined and msix_rtl) else none %}
     
     // ------------------------------------------------------------------------
     // 1: TLP RECEIVE:
@@ -53,6 +57,12 @@ module pcileech_tlps128_bar_controller(
     wire [87:0] rd_rsp_ctx;
     wire [31:0] rd_rsp_data;
     wire        rd_rsp_valid;
+{% if _msix %}
+
+    // BAR completions go through the MSI-X transmit merger (below) on their
+    // way to tlps_out.
+    IfAXIS128 tlps_bar_cpl();
+{% endif %}
         
     pcileech_tlps128_bar_rdengine i_pcileech_tlps128_bar_rdengine(
         .rst            ( rst                           ),
@@ -61,7 +71,7 @@ module pcileech_tlps128_bar_controller(
         .pcie_id        ( pcie_id                       ),
         .tlps_in        ( tlps_in                       ),
         .tlps_in_valid  ( tlps_in.tvalid && in_is_bar && in_is_rd ),
-        .tlps_out       ( tlps_out                      ),
+        .tlps_out       ( {{ 'tlps_bar_cpl.source' if _msix else 'tlps_out' }}{{ ' ' * (31 - ('tlps_bar_cpl.source' if _msix else 'tlps_out')|length) }}),
         // BAR reads:
         .rd_req_ctx     ( rd_req_ctx                    ),
         .rd_req_bar     ( rd_req_bar                    ),
@@ -173,11 +183,30 @@ module pcileech_tlps128_bar_controller(
     response mux would be double-driven. When served_bar_index == 0 and 32-bit
     this reproduces the historical wiring (device@0, loopaddr@1, none@2..6).
 #}
-{% set _served = (bar_config.served_bar_index | default(0)) if bar_config else 0 %}
+{% if device_bar_served_index is defined %}
+{% set _served = device_bar_served_index %}
+{% else %}
+{% set _served = ((bar_config.served_bar_index | default(0)) if bar_config else 0) | int %}
+{% endif %}
 {% set _served64 = (bar_config.served_is_64bit | default(false)) if bar_config else false %}
-{% set _has_model = (bar_config and bar_config.get('bar_models')) %}
+{# The device implementation is used only when the served BAR itself has a
+   non-empty learned model. SVOverlayGenerator computes that once and passes
+   device_bar_impl_selected so this template and the generated implementation
+   cannot disagree. The fallback (direct renders only) counts registers rather
+   than relying on object truthiness: TemplateObject is always truthy. #}
+{% if device_bar_impl_selected is defined %}
+{% set _has_model = device_bar_impl_selected %}
+{% else %}
+{% set _models = (bar_config.get('bar_models') if bar_config else none) or {} %}
+{% set _served_model = _models.get(_served) or _models.get(_served | string) %}
+{% set _regs = (_served_model.get('regs') or _served_model.get('registers')) if _served_model else none %}
+{% set _has_model = (_regs.keys() | list | length > 0) if _regs else false %}
+{% endif %}
 {% set _bar_size = (bar_config.aperture_size | default(4096)) if bar_config else 4096 %}
-{% macro bar_inst(module, k, inst, param_size=None) -%}
+{% macro bar_inst(module, k, inst, param_size=None, wr_valid=None, rd_valid=None, rsp=None) -%}
+{% set _wr_valid = wr_valid or ('wr_valid && wr_bar[' ~ k ~ ']') %}
+{% set _rd_valid = rd_valid or ('rd_req_valid && rd_req_bar[' ~ k ~ ']') %}
+{% set _rsp = rsp or ['bar_rsp_ctx[' ~ k ~ ']', 'bar_rsp_data[' ~ k ~ ']', 'bar_rsp_valid[' ~ k ~ ']'] %}
 {% if param_size is not none %}    {{ module }} #(
         .BAR_SIZE       ( {{ param_size }} )
     ) {{ inst }}(
@@ -187,24 +216,55 @@ module pcileech_tlps128_bar_controller(
         .wr_addr        ( wr_addr                       ),
         .wr_be          ( wr_be                         ),
         .wr_data        ( wr_data                       ),
-        .wr_valid       ( wr_valid && wr_bar[{{ k }}]         ),
+        .wr_valid       ( {{ _wr_valid }} ),
         .rd_req_ctx     ( rd_req_ctx                    ),
         .rd_req_addr    ( rd_req_addr                   ),
-        .rd_req_valid   ( rd_req_valid && rd_req_bar[{{ k }}] ),
-        .rd_rsp_ctx     ( bar_rsp_ctx[{{ k }}]                ),
-        .rd_rsp_data    ( bar_rsp_data[{{ k }}]               ),
-        .rd_rsp_valid   ( bar_rsp_valid[{{ k }}]              )
+        .rd_req_valid   ( {{ _rd_valid }} ),
+        .rd_rsp_ctx     ( {{ _rsp[0] }} ),
+        .rd_rsp_data    ( {{ _rsp[1] }} ),
+        .rd_rsp_valid   ( {{ _rsp[2] }} )
     );
 {%- endmacro %}
     // ========================================================================
     // BAR implementations (served register window at BAR index {{ _served }})
     // ========================================================================
+{% if device_bar_slots is defined %}
+{% if _msix and ((_msix.bar_index | string) not in device_bar_slots or device_bar_slots.get(_msix.bar_index | string).size != _msix.bar_size) %}
+{% error "MSI-X layout disagrees with its served BAR descriptor" %}
+{% endif %}
+{% set _upper_slots = [] %}
+{% for slot in device_bar_slots.values() %}
+{% if slot.is_64bit %}{% set ignored = _upper_slots.append(slot.index + 1) %}{% endif %}
+{% endfor %}
+{% for k in range(7) %}
+{% set _slot = device_bar_slots.get(k | string) %}
+{% if _slot %}
+{% set _owns_msix = _msix and _msix.bar_index == k %}
+{% if _owns_msix %}{{ msix_subsystem(_msix, k) }}{% endif %}
+{% set _slot_inner = dict(wr_valid='msix_inner_wr_valid', rd_valid='msix_inner_rd_req_valid',
+                         rsp=['msix_inner_rd_rsp_ctx', 'msix_inner_rd_rsp_data', 'msix_inner_rd_rsp_valid']) if _owns_msix else {} %}
+{{ bar_inst(_slot.module, k, 'i_bar' ~ k, param_size=_slot.size if _slot.has_model else none, **_slot_inner) }}
+{% elif k == 1 and k not in _upper_slots %}
+{{ bar_inst('pcileech_bar_impl_loopaddr', k, 'i_bar' ~ k) }}
+{% else %}
+{{ bar_inst('pcileech_bar_impl_none', k, 'i_bar' ~ k) }}
+{% endif %}
+{% endfor %}
+{% else %}
+{% if _msix and (_msix.bar_index != _served or _msix.bar_size != _bar_size) %}
+{% error "MSI-X layout BAR" ~ _msix.bar_index ~ " does not match the served BAR" ~ _served %}
+{% endif %}
+{% set _inner = dict(wr_valid='msix_inner_wr_valid', rd_valid='msix_inner_rd_req_valid',
+                     rsp=['msix_inner_rd_rsp_ctx', 'msix_inner_rd_rsp_data', 'msix_inner_rd_rsp_valid']) if _msix else {} %}
 {% for k in range(7) %}
 {% if k == _served %}
+{% if _msix %}
+{{ msix_subsystem(_msix, k) }}
+{% endif %}
 {% if _has_model %}
-{{ bar_inst('pcileech_bar_impl_device', k, 'i_bar' ~ k, param_size=_bar_size) }}
+{{ bar_inst('pcileech_bar_impl_device', k, 'i_bar' ~ k, param_size=_bar_size, **_inner) }}
 {% else %}
-{{ bar_inst('pcileech_bar_impl_zerowrite4k', k, 'i_bar' ~ k) }}
+{{ bar_inst('pcileech_bar_impl_zerowrite4k', k, 'i_bar' ~ k, **_inner) }}
 {% endif %}
 {% elif _served64 and k == _served + 1 %}
 {{ bar_inst('pcileech_bar_impl_none', k, 'i_bar' ~ k) }}
@@ -216,6 +276,7 @@ module pcileech_tlps128_bar_controller(
 {{ bar_inst('pcileech_bar_impl_none', k, 'i_bar' ~ k) }}
 {% endif %}
 {% endfor %}
+{% endif %}
 
 
 endmodule

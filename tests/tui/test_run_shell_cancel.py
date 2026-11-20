@@ -98,11 +98,11 @@ async def test_stop_terminates_descendant_that_ignores_sigterm(tmp_path):
         assert result.returncode != 0
         assert orch._build_process is None
         for _ in range(100):
-            if (
-                not psutil.pid_exists(pid)
-                or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
-            ):
-                break
+            try:
+                if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                    break
+            except psutil.NoSuchProcess:
+                break  # already reaped, which is the outcome we want
             await asyncio.sleep(0.02)
         else:
             pytest.fail("descendant survived cancellation")

@@ -122,6 +122,34 @@ class BuildConfiguration(BaseModel):
     disable_ftrace: bool = Field(
         default=False, description="Disable ftrace instrumentation"
     )
+    mmio_learning: bool = Field(
+        default=True,
+        description=(
+            "Learn BAR registers by tracing the native driver's probe "
+            "(mmiotrace; rebinds the donor driver and offlines CPUs briefly)"
+        ),
+    )
+    writable_bar_fallback: bool = Field(
+        default=False,
+        description=(
+            "Serve generic writable RAM for a BAR with no learned register "
+            "model instead of read-only zeros (not donor behavior)"
+        ),
+    )
+    ft601_legacy_phy: bool = Field(
+        default=False,
+        description=(
+            "Build the legacy FT601 PHY instead of the MMCM-compensated one "
+            "(CaptainDMA 100T only)"
+        ),
+    )
+    mmio_exercise: bool = Field(
+        default=True,
+        description=(
+            "While tracing, exercise the donor through its driver (link "
+            "up/down, block reads, runtime suspend), restoring afterwards"
+        ),
+    )
     # Some callers expect a shorthand 'performance_counters' flag (legacy)
     performance_counters: bool = Field(
         default=False, description="Enable performance counters (legacy alias)"

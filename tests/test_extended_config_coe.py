@@ -4,10 +4,12 @@ import re
 from copy import deepcopy
 from typing import List
 
+from pcileechfwgenerator.device_clone.coe_word_order import bswap32, is_bram_order
 from pcileechfwgenerator.device_clone.extended_config import (
     build_relocated_extended_config,
 )
 from pcileechfwgenerator.pci_capability.core import ConfigSpace
+
 from tests.test_coe_error_injection import (
     _minimal_base_context,
     _render_cfgspace_coe,
@@ -27,7 +29,12 @@ def _parse_coe_dwords(coe_text: str) -> List[int]:
     for t in tokens:
         assert re.fullmatch(r"[0-9A-Fa-f]{1,8}", t), f"bad COE token {t!r}"
     assert len(tokens) == 1024, len(tokens)
-    return [int(t, 16) for t in tokens]
+    words = [int(t, 16) for t in tokens]
+    # Files tagged with the BRAM marker store config byte +0 in bits [31:24];
+    # hand back logical PCI DWORD values either way.
+    if is_bram_order(coe_text):
+        words = [bswap32(w) for w in words]
+    return words
 
 
 def _coe_chain_ids(dwords: List[int], start: int) -> List[int]:

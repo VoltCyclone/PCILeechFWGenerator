@@ -62,7 +62,7 @@ directory for inspection and collect into a fresh directory.
 
 ## Existing captures and migration
 
-Unversioned captures, missing metadata, incomplete pairs and mismatches now
+Unversioned captures, missing metadata, incomplete pairs and mismatches
 stop the build with a recollection message. Do not add invented identity metadata
 to old files: their original device and capture association cannot be verified.
 
@@ -88,15 +88,13 @@ The older container entry point writes to `./output`; repeated collection there
 also requires a fresh destination (for example, a fresh working directory).
 Use the unified command's `--datastore` option when managing multiple captures.
 
-## Verification
+## Tests
 
-The original three regression tests failed before this change: wrong-donor
-orchestration proceeded, an unidentified snapshot was accepted, and collection
-omitted identity metadata. The test suite now exercises matching/mismatched
-addresses, changed live identities, legacy/malformed files, conflicting sidecars,
-both MSI-X consumers, BAR-model error propagation, both collectors, interrupted
-publication and exclusive publication when another writer creates the destination.
+The test suite covers matching and mismatched addresses, changed live
+identities, legacy and malformed files, conflicting sidecars, both MSI-X
+consumers, BAR-model error propagation, both collectors, interrupted publication
+and exclusive publication when another writer creates the destination.
 
-Software tests run on macOS with in-memory PCI fixtures. Linux sysfs/VFIO,
-container operation, Vivado synthesis and physical donor/FPGA behavior still
-require their separate acceptance checks.
+The tests use in-memory PCI fixtures and run on any host. Linux sysfs/VFIO,
+container operation, Vivado synthesis and physical donor/FPGA behavior need
+their own acceptance checks.

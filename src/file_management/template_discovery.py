@@ -37,10 +37,14 @@ class TemplateDiscovery:
     TEMPLATE_PATTERNS = {
         "vivado_tcl": ["*.tcl", "build/*.tcl", "scripts/*.tcl"],
         "systemverilog": [
-            "*.sv", "*.svh",
-            "src/*.sv", "src/*.svh",
-            "rtl/*.sv", "rtl/*.svh",
-            "hdl/*.sv", "hdl/*.svh"
+            "*.sv",
+            "*.svh",
+            "src/*.sv",
+            "src/*.svh",
+            "rtl/*.sv",
+            "rtl/*.svh",
+            "hdl/*.sv",
+            "hdl/*.svh",
         ],
         "verilog": ["*.v", "src/*.v", "rtl/*.v", "hdl/*.v"],
         "constraints": ["*.xdc", "constraints/*.xdc", "xdc/*.xdc", "src/*.xdc"],
@@ -162,67 +166,6 @@ class TemplateDiscovery:
             )
 
         return templates
-
-    @classmethod
-    def get_vivado_build_script(
-        cls, board_name: str, repo_root: Optional[Path] = None
-    ) -> Path:
-        """
-        Get the main Vivado build script for a board.
-
-        Args:
-            board_name: Name of the board
-            repo_root: Optional repository root path
-
-        Returns:
-            Path to the build script
-
-        Raises:
-            TemplateNotFoundError: If no build script found for the board
-        """
-        templates = cls.discover_templates(board_name, repo_root)
-        tcl_scripts = templates.get("vivado_tcl", [])
-
-        if not tcl_scripts:
-            raise TemplateNotFoundError(
-                safe_format(
-                    "No Vivado TCL scripts found for board {board}",
-                    board=board_name,
-                )
-            )
-
-        # Look for common build script names (in priority order)
-        build_script_names = [
-            "vivado_build.tcl",
-            "build.tcl",
-            "generate_project.tcl",
-            "vivado_generate_project.tcl",
-            "create_project.tcl",
-        ]
-
-        for script_name in build_script_names:
-            for script in tcl_scripts:
-                if script.name == script_name:
-                    log_info_safe(
-                        logger,
-                        safe_format(
-                            "Using build script: {script}",
-                            script=script.name,
-                        ),
-                        prefix="TEMPLATE_DISCOVERY",
-                    )
-                    return script
-
-        # If no standard name found, return the first TCL script
-        log_warning_safe(
-            logger,
-            safe_format(
-                "No standard build script found; using first available: {script}",
-                script=tcl_scripts[0].name,
-            ),
-            prefix="TEMPLATE_DISCOVERY",
-        )
-        return tcl_scripts[0]
 
     @classmethod
     def get_source_files(

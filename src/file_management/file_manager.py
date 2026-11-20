@@ -11,10 +11,9 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..__version__ import __version__
-from ..device_clone.constants import PCILEECH_BUILD_SCRIPT, PCILEECH_PROJECT_SCRIPT
 from ..string_utils import (
     format_kv_table,
     get_project_name,
@@ -67,9 +66,7 @@ class FileManager:
         ip_path.mkdir(parents=True, exist_ok=True)
         directories["ip"] = ip_path
 
-        log_info_safe(
-            logger, "Created PCILeech directory structure", prefix="FILEMGR"
-        )
+        log_info_safe(logger, "Created PCILeech directory structure", prefix="FILEMGR")
         log_info_safe(
             logger,
             safe_format("  Source directory: {src_path}", src_path=src_path),
@@ -156,7 +153,7 @@ class FileManager:
         try:
             # Check for TCL build file (main output when Vivado not available)
             tcl_files = self._find_tcl_build_script()
-            
+
             if tcl_files:
                 tcl_file = tcl_files[0]
                 file_size = tcl_file.stat().st_size
@@ -319,79 +316,67 @@ class FileManager:
         return validation_results
 
     def _find_tcl_build_script(self) -> List[Path]:
-        """Find TCL build script, checking both legacy and current naming conventions."""
-        # Check legacy names for backward compatibility
-        for legacy_name in ["build_firmware.tcl", "build_all.tcl"]:
-            tcl_files = list(self.output_dir.glob(legacy_name))
-            if tcl_files:
-                return tcl_files
-        
-        # Check current PCILeech script names
-        for script_name in [PCILEECH_BUILD_SCRIPT, PCILEECH_PROJECT_SCRIPT]:
-            tcl_files = list(self.output_dir.glob(script_name))
-            if tcl_files:
-                return tcl_files
-        
-        return []
+        """Find the generated Stage 3 build script (build_all.tcl)."""
+        return list(self.output_dir.glob("build_all.tcl"))
 
     def _determine_validation_status(self, validation_results: Dict[str, Any]) -> str:
         """Determine overall validation status based on build outputs."""
         if not validation_results.get("tcl_file_info"):
             return "failed_no_tcl"
-        
+
         if validation_results["build_mode"] == "full_vivado":
             return self._validate_full_vivado_build(validation_results)
-        
+
         return self._validate_tcl_only_build(validation_results)
 
     def _validate_full_vivado_build(self, validation_results: Dict[str, Any]) -> str:
         """Validate full Vivado build outputs."""
         bitstream_info = validation_results.get("bitstream_info", {})
-        
+
         if not bitstream_info:
             return "failed_no_bitstream"
-        
+
         if isinstance(bitstream_info, dict):
             size_bytes = bitstream_info.get("size_bytes", 0)
             if size_bytes > 1_000_000:  # > 1MB
                 return "success_full_build"
-        
+
         return "warning_small_bitstream"
 
     def _validate_tcl_only_build(self, validation_results: Dict[str, Any]) -> str:
         """Validate TCL-only build outputs."""
         tcl_info = validation_results.get("tcl_file_info", {})
-        
+
         if not isinstance(tcl_info, dict):
             return "warning_incomplete_tcl"
-        
+
         has_device_config = tcl_info.get("has_device_config", False)
         size_bytes = tcl_info.get("size_bytes", 0)
         has_hex_generation = tcl_info.get("has_hex_generation", False)
-        
+
         if not has_hex_generation:
             return "warning_missing_hex"
-        
+
         if has_device_config and size_bytes > 1000:
             return "success_tcl_ready"
-        
+
         return "warning_incomplete_tcl"
 
     def _determine_report_type(self, filename: str) -> str:
         """Determine the type of report based on filename."""
         filename_lower = filename.lower()
-        
+
         report_types = {
             "timing": "timing_analysis",
             "utilization": "resource_utilization",
             "power": "power_analysis",
             "drc": "design_rule_check",
         }
-        
+
         for keyword, report_type in report_types.items():
             if keyword in filename_lower:
                 return report_type
-        
+
         return "general"
 
     def generate_project_file(
@@ -463,14 +448,103 @@ class FileManager:
 
         return manifest
 
-    def copy_pcileech_sources(self, board: str) -> Dict[str, List[str]]:
-        """Copy PCILeech source files to output directory."""
+    _MODULE_BLOCK = re.compile(
+        r"^[ \t]*module[ \t]+(\w+)\b.*?^[ \t]*endmodule\b[^\n]*\n?",
+        re.MULTILINE | re.DOTALL,
+    )
+
+    _SIMULATION_DIRECTORIES = frozenset(
+        {
+            "sim",
+            "simulation",
+            "simulations",
+            "test",
+            "tests",
+            "testbench",
+            "testbenches",
+            "tb",
+        }
+    )
+
+    @classmethod
+    def _production_board_files(cls, board_path: Path, pattern: str) -> Iterable[Path]:
+        """Find board sources while excluding simulation/test subdirectories.
+
+        Match directory components relative to the board, not filename prefixes
+        or ancestors of the board checkout. Production files may otherwise live
+        at the board root or in any nested layout.
+        """
+        for source in board_path.rglob(pattern):
+            directories = source.relative_to(board_path).parts[:-1]
+            if source.is_file() and not any(
+                name.casefold() in cls._SIMULATION_DIRECTORIES for name in directories
+            ):
+                yield source
+
+    def _keep_generated(self, board_file: Path, generated_file: Path) -> Optional[Path]:
+        """Keep a generated source; salvage the board file's other modules.
+
+        The generated BAR controller defines only ``pcileech_tlps128_bar_controller``
+        and relies on the board's engines and ``pcileech_bar_impl_*`` modules,
+        which live in the board file of the same name. Copying the board file
+        over it would silently discard the generated controller (learned BAR
+        models, served BAR index, read-only fallback). Returns the companion
+        path, or None when the board file adds nothing.
+        """
+        generated_text = generated_file.read_text()
+        board_text = board_file.read_text()
+        defined = set(
+            re.findall(r"^[ \t]*module[ \t]+(\w+)\b", generated_text, re.MULTILINE)
+        )
+        blocks = list(self._MODULE_BLOCK.finditer(board_text))
+        kept = [m.group(0) for m in blocks if m.group(1) not in defined]
+        log_info_safe(
+            logger,
+            safe_format(
+                "Kept generated {name}; board copy contributes {count} module(s)",
+                name=generated_file.name,
+                count=len(kept),
+            ),
+            prefix="FILEMGR",
+        )
+        if not kept:
+            return None
+        preamble = board_text[: blocks[0].start()] if blocks else ""
+        companion = generated_file.with_name(
+            generated_file.stem + "_board_modules" + generated_file.suffix
+        )
+        companion.write_text(
+            "// Board modules from "
+            + board_file.name
+            + "; its "
+            + ", ".join(sorted(defined))
+            + " is replaced by the generated "
+            + generated_file.name
+            + ".\n"
+            + preamble
+            + "\n".join(kept)
+        )
+        return companion
+
+    def copy_pcileech_sources(
+        self, board: str, *, generated: Iterable[str] = ()
+    ) -> Dict[str, List[str]]:
+        """Copy PCILeech source files to output directory.
+
+        ``generated`` names files already written by the generator. They are
+        never overwritten: a board file with the same name contributes only
+        the modules the generated file does not define, written to a
+        ``<stem>_board_modules.sv`` companion (see ``_keep_generated``).
+        """
+        generated_names = set(generated)
         copied_files = {
             "systemverilog": [],
             "verilog": [],
             "packages": [],
             "constraints": [],
             "ip_files": [],
+            "impl_hooks": [],
+            "cdc_check": [],
         }
 
         try:
@@ -502,9 +576,14 @@ class FileManager:
             if board_path.exists():
                 # Look for SystemVerilog/Verilog files in board directory
                 for pattern in ["*.sv", "*.v"]:
-                    for src_file in board_path.rglob(pattern):
+                    for src_file in self._production_board_files(board_path, pattern):
                         if src_file.is_file():
                             dest_file = src_dir / src_file.name
+                            if src_file.name in generated_names:
+                                companion = self._keep_generated(src_file, dest_file)
+                                if companion is not None:
+                                    copied_files["systemverilog"].append(str(companion))
+                                continue
                             shutil.copy2(src_file, dest_file)
 
                             if src_file.suffix == ".sv":
@@ -524,6 +603,62 @@ class FileManager:
                 self._copy_package_files(
                     board_path, src_dir, copied_files, copied_names
                 )
+
+                # Board implementation hooks (whitelisted names only).
+                from ..vivado_handling.pcileech_build_integration import (
+                    IMPL_HOOK_STEPS,
+                    IMPL_HOOKS_DIR,
+                )
+
+                for hook_name in sorted(IMPL_HOOK_STEPS):
+                    hook_src = board_path / hook_name
+                    if not hook_src.is_file():
+                        continue
+                    hooks_dir = self.output_dir / IMPL_HOOKS_DIR
+                    hooks_dir.mkdir(parents=True, exist_ok=True)
+                    hook_dest = hooks_dir / hook_name
+                    shutil.copy2(hook_src, hook_dest)
+                    copied_files["impl_hooks"].append(str(hook_dest))
+                    log_info_safe(
+                        logger,
+                        "Copied implementation hook: {hook_name}",
+                        prefix="FILEMGR",
+                        hook_name=hook_name,
+                    )
+
+                # Board CDC disposition checker, run on the routed design.
+                from ..vivado_handling.pcileech_build_integration import (
+                    CDC_CHECK_BOARD_PATH,
+                    CDC_CHECK_DIR,
+                    CDC_CHECK_NAME,
+                    QUALIFIED_CDC_CHECKER_SHA256,
+                )
+
+                cdc_src = board_path / CDC_CHECK_BOARD_PATH
+                cdc_ok = cdc_src.is_file() and (
+                    hashlib.sha256(cdc_src.read_bytes()).hexdigest()
+                    == QUALIFIED_CDC_CHECKER_SHA256.get(board)
+                )
+                if cdc_src.is_file() and not cdc_ok:
+                    log_warning_safe(
+                        logger,
+                        "Board CDC checker {path} is not the qualified version; "
+                        "using the blanket CDC gate",
+                        prefix="FILEMGR",
+                        path=CDC_CHECK_BOARD_PATH,
+                    )
+                if cdc_ok:
+                    cdc_dir = self.output_dir / CDC_CHECK_DIR
+                    cdc_dir.mkdir(parents=True, exist_ok=True)
+                    cdc_dest = cdc_dir / CDC_CHECK_NAME
+                    shutil.copy2(cdc_src, cdc_dest)
+                    copied_files["cdc_check"].append(str(cdc_dest))
+                    log_info_safe(
+                        logger,
+                        "Copied board CDC checker: {path}",
+                        prefix="FILEMGR",
+                        path=CDC_CHECK_BOARD_PATH,
+                    )
 
             # Copy local PCILeech files from project directory
             local_pcileech_dir = Path(__file__).parent.parent.parent / "pcileech"
@@ -545,8 +680,7 @@ class FileManager:
                     log_info_safe(
                         logger,
                         safe_format(
-                            "Copied local package: {pkg_name}",
-                            pkg_name=pkg_file.name
+                            "Copied local package: {pkg_name}", pkg_name=pkg_file.name
                         ),
                         prefix="FILEMGR",
                     )
@@ -556,13 +690,15 @@ class FileManager:
                 if rtl_dir.exists():
                     for rtl_file in rtl_dir.glob("*.sv"):
                         dest_file = src_dir / rtl_file.name
+                        if rtl_file.name in generated_names:
+                            self._keep_generated(rtl_file, dest_file)
+                            continue
                         shutil.copy2(rtl_file, dest_file)
                         copied_files["systemverilog"].append(str(dest_file))
                         log_info_safe(
                             logger,
                             safe_format(
-                                "Copied local RTL: {rtl_name}",
-                                rtl_name=rtl_file.name
+                                "Copied local RTL: {rtl_name}", rtl_name=rtl_file.name
                             ),
                             prefix="FILEMGR",
                         )
@@ -580,8 +716,7 @@ class FileManager:
                     log_info_safe(
                         logger,
                         safe_format(
-                            "Copied constraint file: {xdc_name}",
-                            xdc_name=xdc_file.name
+                            "Copied constraint file: {xdc_name}", xdc_name=xdc_file.name
                         ),
                         prefix="FILEMGR",
                     )
@@ -592,7 +727,7 @@ class FileManager:
                     safe_format(
                         "Constraint files not found for board {board}: {error}",
                         board=board,
-                        error=str(e)
+                        error=str(e),
                     ),
                     prefix="FILEMGR",
                 )
@@ -600,8 +735,7 @@ class FileManager:
                 log_warning_safe(
                     logger,
                     safe_format(
-                        "Could not copy constraint files: {error}",
-                        error=str(e)
+                        "Could not copy constraint files: {error}", error=str(e)
                     ),
                     prefix="FILEMGR",
                 )
@@ -610,7 +744,7 @@ class FileManager:
                     logger,
                     safe_format(
                         "Unexpected error copying constraint files: {error}",
-                        error=str(e)
+                        error=str(e),
                     ),
                     prefix="FILEMGR",
                 )
@@ -630,8 +764,7 @@ class FileManager:
             log_error_safe(
                 logger,
                 safe_format(
-                    "Could not import repo manager module: {error}",
-                    error=str(e)
+                    "Could not import repo manager module: {error}", error=str(e)
                 ),
                 prefix="FILEMGR",
             )
@@ -641,7 +774,7 @@ class FileManager:
                 safe_format(
                     "Source files not found for board {board}: {error}",
                     board=board,
-                    error=str(e)
+                    error=str(e),
                 ),
                 prefix="FILEMGR",
             )
@@ -649,8 +782,7 @@ class FileManager:
             log_error_safe(
                 logger,
                 safe_format(
-                    "Filesystem error copying PCILeech sources: {error}",
-                    error=str(e)
+                    "Filesystem error copying PCILeech sources: {error}", error=str(e)
                 ),
                 prefix="FILEMGR",
             )
@@ -658,8 +790,7 @@ class FileManager:
             log_error_safe(
                 logger,
                 safe_format(
-                    "Unexpected error copying PCILeech sources: {error}",
-                    error=str(e)
+                    "Unexpected error copying PCILeech sources: {error}", error=str(e)
                 ),
                 prefix="FILEMGR",
             )
@@ -675,7 +806,7 @@ class FileManager:
     ) -> None:
         """Copy header and package files from board path to source directory."""
         # Copy header files (.svh)
-        for header_file in board_path.rglob("*.svh"):
+        for header_file in self._production_board_files(board_path, "*.svh"):
             if header_file.is_file() and header_file.name not in copied_names:
                 dest_file = src_dir / header_file.name
                 shutil.copy2(header_file, dest_file)
@@ -688,7 +819,7 @@ class FileManager:
                 )
 
         # Copy package files (*_pkg.sv*)
-        for pkg_file in board_path.rglob("*_pkg.sv*"):
+        for pkg_file in self._production_board_files(board_path, "*_pkg.sv*"):
             if pkg_file.is_file() and pkg_file.name not in copied_names:
                 dest_file = src_dir / pkg_file.name
                 shutil.copy2(pkg_file, dest_file)
@@ -700,136 +831,20 @@ class FileManager:
                     prefix="FILEMGR",
                 )
 
-    def copy_vivado_tcl_scripts(self, board: str) -> List[Path]:
-        """Copy Vivado TCL scripts from submodule to output directory.
-        
-        Copies the static TCL scripts (vivado_generate_project.tcl, vivado_build.tcl)
-        from lib/voltcyclone-fpga/<board>/ to the output directory.
-        
-        Args:
-            board: Board name (e.g., 'pciescreamer', 'ac701_ft601')
-            
-        Returns:
-            List of copied TCL script paths
-            
-        Raises:
-            FileNotFoundError: If board directory or TCL scripts not found
-        """
-        copied_scripts = []
-        
-        try:
-            from ..file_management.repo_manager import RepoManager
-
-            # Get repository and board paths
-            repo_path = RepoManager.ensure_repo()
-            board_path = RepoManager.get_board_path(board, repo_root=repo_path)
-            
-            if not board_path.exists():
-                error_msg = safe_format(
-                    "Board directory not found: {board_path}",
-                    board_path=board_path
-                )
-                log_error_safe(logger, error_msg, prefix="FILEMGR")
-                raise FileNotFoundError(error_msg)
-            
-            log_info_safe(
-                logger,
-                safe_format(
-                    "Copying Vivado TCL scripts for board: {board}",
-                    board=board
-                ),
-                prefix="FILEMGR",
-            )
-            
-            # Copy all vivado_*.tcl files
-            tcl_pattern = "vivado_*.tcl"
-            tcl_files = list(board_path.glob(tcl_pattern))
-            
-            if not tcl_files:
-                log_warning_safe(
-                    logger,
-                    safe_format(
-                        "No TCL scripts found matching {pattern} in {board_path}",
-                        pattern=tcl_pattern,
-                        board_path=board_path
-                    ),
-                    prefix="FILEMGR",
-                )
-                return copied_scripts
-            
-            for tcl_file in tcl_files:
-                dest_file = self.output_dir / tcl_file.name
-                shutil.copy2(tcl_file, dest_file)
-                copied_scripts.append(dest_file)
-                
-                log_info_safe(
-                    logger,
-                    safe_format(
-                        "  Copied TCL script: {script_name}",
-                        script_name=tcl_file.name
-                    ),
-                    prefix="FILEMGR",
-                )
-            
-            log_info_safe(
-                logger,
-                safe_format(
-                    "Successfully copied {count} TCL scripts",
-                    count=len(copied_scripts)
-                ),
-                prefix="FILEMGR",
-            )
-            
-        except FileNotFoundError as e:
-            log_error_safe(
-                logger,
-                safe_format(
-                    "TCL scripts not found for board {board}: {error}",
-                    board=board,
-                    error=str(e)
-                ),
-                prefix="FILEMGR",
-            )
-            raise
-        except (OSError, IOError) as e:
-            log_error_safe(
-                logger,
-                safe_format(
-                    "Filesystem error copying TCL scripts for {board}: {error}",
-                    board=board,
-                    error=str(e)
-                ),
-                prefix="FILEMGR",
-            )
-            raise
-        except Exception as e:
-            log_error_safe(
-                logger,
-                safe_format(
-                    "Unexpected error copying TCL scripts for {board}: {error}",
-                    board=board,
-                    error=str(e)
-                ),
-                prefix="FILEMGR",
-            )
-            raise
-        
-        return copied_scripts
-
     def copy_ip_files(self, board: str) -> List[Path]:
         """Copy IP files (.coe, .xci) from voltcyclone-fpga submodule to output.
-        
+
         This method copies IP files from the lib/voltcyclone-fpga submodule
         to support Vivado builds that reference these files. If generated .coe
         files exist in output/src/ (with device-specific configuration), they
         will overwrite the template files from the submodule.
-        
+
         Args:
             board: Board name (e.g., 'pcileech_squirrel')
-            
+
         Returns:
             List of copied IP file paths
-            
+
         Raises:
             FileNotFoundError: If IP files are not found
         """
@@ -842,15 +857,15 @@ class FileManager:
                 raise FileNotFoundError(
                     f"Board '{board}' not found in voltcyclone-fpga"
                 )
-            
+
             # Create IP directory in output
             ip_dir = self.output_dir / "ip"
             ip_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Look for IP files in board's ip directory
             board_ip_dir = board_path / "ip"
             copied_files = []
-            
+
             if board_ip_dir.exists():
                 # Copy all IP files (.coe, .xci)
                 for pattern in ["*.coe", "*.xci"]:
@@ -859,16 +874,15 @@ class FileManager:
                             dest_file = ip_dir / ip_file.name
                             shutil.copy2(ip_file, dest_file)
                             copied_files.append(dest_file)
-                            
+
                             log_info_safe(
                                 logger,
                                 safe_format(
-                                    "  Copied IP file: {ip_name}",
-                                    ip_name=ip_file.name
+                                    "  Copied IP file: {ip_name}", ip_name=ip_file.name
                                 ),
                                 prefix="FILEMGR",
                             )
-                
+
                 # CRITICAL FIX: Overwrite template .coe files with generated ones
                 # The generator creates device-specific .coe files in output/src/
                 # These must replace the template .coe files to inject device IDs
@@ -881,16 +895,17 @@ class FileManager:
                             "Injecting device IDs into IP configuration files",
                             prefix="FILEMGR",
                         )
-                        
+
                         # Extract and display device IDs from config space file
                         for coe_file in generated_coe_files:
-                            if "cfgspace" in coe_file.name and "writemask" not in coe_file.name:
+                            if (
+                                "cfgspace" in coe_file.name
+                                and "writemask" not in coe_file.name
+                            ):
                                 try:
                                     content = coe_file.read_text()
                                     match = re.search(
-                                        r'^\s*([0-9a-fA-F]{8})', 
-                                        content, 
-                                        re.MULTILINE
+                                        r"^\s*([0-9a-fA-F]{8})", content, re.MULTILINE
                                     )
                                     if match:
                                         hex_value = match.group(1)
@@ -901,7 +916,7 @@ class FileManager:
                                             safe_format(
                                                 "Device: 0x{device}  Vendor: 0x{vendor}",
                                                 device=device_id,
-                                                vendor=vendor_id
+                                                vendor=vendor_id,
                                             ),
                                             prefix="FILEMGR",
                                         )
@@ -915,27 +930,27 @@ class FileManager:
                                         ),
                                         prefix="FILEMGR",
                                     )
-                    
+
                     # Copy generated files over templates
                     for coe_file in generated_coe_files:
                         dest_file = ip_dir / coe_file.name
                         shutil.copy2(coe_file, dest_file)
-                        
+
                         log_info_safe(
                             logger,
                             safe_format("✓ {ip_name}", ip_name=coe_file.name),
                             prefix="FILEMGR",
                         )
-                        
+
                         # Add to copied files if not already there
                         if dest_file not in copied_files:
                             copied_files.append(dest_file)
-                
+
                 log_info_safe(
                     logger,
                     safe_format(
                         "Successfully prepared {count} IP files",
-                        count=len(copied_files)
+                        count=len(copied_files),
                     ),
                     prefix="FILEMGR",
                 )
@@ -945,20 +960,20 @@ class FileManager:
                     safe_format(
                         "No IP directory found for board {board} at {path}",
                         board=board,
-                        path=board_ip_dir
+                        path=board_ip_dir,
                     ),
                     prefix="FILEMGR",
                 )
-            
+
             return copied_files
-            
+
         except FileNotFoundError as e:
             log_error_safe(
                 logger,
                 safe_format(
                     "IP files not found for board {board}: {error}",
                     board=board,
-                    error=str(e)
+                    error=str(e),
                 ),
                 prefix="FILEMGR",
             )
@@ -969,7 +984,7 @@ class FileManager:
                 safe_format(
                     "Filesystem error copying IP files for {board}: {error}",
                     board=board,
-                    error=str(e)
+                    error=str(e),
                 ),
                 prefix="FILEMGR",
             )
@@ -980,7 +995,7 @@ class FileManager:
                 safe_format(
                     "Unexpected error copying IP files for {board}: {error}",
                     board=board,
-                    error=str(e)
+                    error=str(e),
                 ),
                 prefix="FILEMGR",
             )
@@ -1229,9 +1244,7 @@ class FileManager:
 
             safe_print_format("   Features:", prefix="FILEMGR")
             for feature in features:
-                safe_print_format(
-                    "     {feature}", prefix="FILEMGR", feature=feature
-                )
+                safe_print_format("     {feature}", prefix="FILEMGR", feature=feature)
 
         # Bitstream information (only if Vivado was run)
         if validation_results.get("bitstream_info"):
@@ -1266,9 +1279,7 @@ class FileManager:
                     max_size=self.max_bitstream_size_mb,
                 )
             else:
-                safe_print_format(
-                    "   ✅ Bitstream size looks normal", prefix="FILEMGR"
-                )
+                safe_print_format("   ✅ Bitstream size looks normal", prefix="FILEMGR")
 
         # Flash file information
         if validation_results.get("flash_file_info"):

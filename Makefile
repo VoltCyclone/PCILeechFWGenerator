@@ -192,7 +192,7 @@ check-deps:
 security:
 	@echo "Running security scans..."
 	bandit -r src/
-	safety check
+	pip-audit -r requirements.txt -r requirements-tui.txt
 
 
 # Container targets. The container image bundles VFIO constants, so
@@ -222,7 +222,7 @@ help-build:
 	@echo ""
 	@echo "Options for build-pypi:"
 	@echo "  - Runs code quality checks (black, isort, flake8, mypy)"
-	@echo "  - Runs security scans (bandit, safety)"
+	@echo "  - Runs security scans (bandit, pip-audit)"
 	@echo "  - Runs test suite with coverage"
 	@echo "  - Validates package structure"
 	@echo "  - Tests installation in virtual environment"

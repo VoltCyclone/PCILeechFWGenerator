@@ -10,6 +10,7 @@ The keys this module produces are consumed by the override extractor
 specific paths in template_context; this module's job is to make sure those
 paths exist with real donor values.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -89,6 +90,7 @@ _CTRS_BITS_TO_TOKEN = {
     0b1000: "D",
     0b0011: "AB",
     0b0110: "BC",
+    0b0111: "ABC",
     0b1110: "BCD",
     0b1111: "ABCD",
 }
@@ -132,7 +134,9 @@ def extract_cpl_timeout_caps(hex_data: str) -> dict:
     disable_sup = bool(devcap2 & 0x10)
 
     return {
-        "cpl_timeout_ranges": _CTRS_BITS_TO_TOKEN.get(ctrs_bits),
+        "cpl_timeout_ranges": _CTRS_BITS_TO_TOKEN.get(
+            ctrs_bits, f"reserved:{ctrs_bits:04b}"
+        ),
         "cpl_timeout_disable_supported": disable_sup,
     }
 

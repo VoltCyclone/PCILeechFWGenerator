@@ -1,177 +1,87 @@
 #!/usr/bin/env python3
-"""Synthesize BAR models from captured MMIO traces.
+"""Adapt legacy passive MMIO traces to evidence-based, read-only BAR models.
 
-Converts runtime MMIO access patterns into static register models
-for deterministic BAR content generation.
+Legacy traces carry no verified completion, mediation, device-state transitions
+or reset experiment. Their values are observations only, never permissions.
+Epoch zero is a local grouping label, not a measured donor state. Unknown read
+values stay None; unsupported generation details remain in register hints.
 """
 
-from collections import defaultdict
-from typing import Dict, List
-
-from pcileechfwgenerator.device_clone.bar_model_loader import BarModel, RegisterSpec
-from pcileechfwgenerator.device_clone.mmio_tracer import MmioAccess, MmioTrace
+from pcileechfwgenerator.device_clone.bar_model_loader import BarModel
+from pcileechfwgenerator.device_clone.mmio_tracer import MmioTrace
+from pcileechfwgenerator.device_clone.register_classifier import classify_registers
+from pcileechfwgenerator.device_clone.register_evidence import (
+    Observation,
+    RegisterRef,
+    width_mask,
+)
+from pcileechfwgenerator.device_clone.register_policy import compile_bar_model
 from pcileechfwgenerator.log_config import get_logger
-from pcileechfwgenerator.string_utils import log_debug_safe, log_info_safe, safe_format
+from pcileechfwgenerator.string_utils import log_info_safe, safe_format
 
 logger = get_logger(__name__)
 
 
 def synthesize_model(trace: MmioTrace) -> BarModel:
-    """Synthesize BAR model from captured MMIO trace.
+    """Retain observed initial values; passive traffic never grants writes.
 
-    Algorithm:
-    1. Group accesses by offset
-    2. Infer width from most common access width per offset
-    3. Reset value = first read value OR first write value (fallback)
-    4. RW mask = OR of all written values (conservative estimate)
-    5. Detect RW1C hint: write(1) followed by read(0) on same bit
-
-    Args:
-        trace: Captured MMIO trace
-
-    Returns:
-        BarModel ready for content generation
-
-    Raises:
-        ValueError: If trace is invalid or empty
+    Invalid operations, values, alignment, overlapping widths and out-of-bounds
+    accesses fail explicitly. Empty traces produce an empty, non-writable model.
+    A register without a successful read has reset=None with an absence reason;
+    the legacy renderer/loader cannot yet consume that nullable initial value.
     """
-    if trace.bar_size <= 0:
-        raise ValueError("Invalid BAR size in trace")
-
-    if not trace.accesses:
-        log_info_safe(
-            logger,
-            safe_format(
-                "Empty trace for BAR{idx}, creating minimal model",
-                idx=trace.bar_index
-            ),
-            prefix="SYNTH",
+    observations = []
+    for sequence_id, access in enumerate(trace.accesses):
+        if access.operation not in ("R", "W"):
+            raise ValueError("Unknown MMIO operation")
+        if type(access.width) is not int or access.width not in (1, 2, 4):
+            raise ValueError("Legacy MMIO trace requires a 1, 2 or 4 byte access")
+        ref = RegisterRef(
+            space="mem_bar",
+            bar_index=trace.bar_index,
+            offset=access.offset,
+            width=access.width,
+            field_mask=width_mask(access.width),
         )
-        # Return minimal model for empty trace
-        return BarModel(size=trace.bar_size, registers={})
-
-    # Group accesses by offset
-    by_offset: Dict[int, List[MmioAccess]] = defaultdict(list)
-    for access in trace.accesses:
-        by_offset[access.offset].append(access)
-
-    registers: Dict[int, RegisterSpec] = {}
-
-    for offset, accesses in sorted(by_offset.items()):
-        # Infer width (most common)
-        widths = [a.width for a in accesses]
-        width = max(set(widths), key=widths.count)
-
-        # Find reset value
-        reset = 0
-        reads = [a for a in accesses if a.operation ==
-                 "R" and a.value is not None]
-        writes = [a for a in accesses if a.operation == "W"]
-
-        if reads:
-            # First read typically represents reset/power-on state
-            reset = reads[0].value
-            log_debug_safe(
-                logger,
-                safe_format(
-                    "BAR{bar} offset 0x{off:04X}: reset=0x{val:0{w}X} (from read)",
-                    bar=trace.bar_index,
-                    off=offset,
-                    val=reset,
-                    w=width * 2,
+        observations.append(
+            Observation(
+                sequence_id=sequence_id,
+                monotonic_ns=access.timestamp_ns,
+                operation="read" if access.operation == "R" else "write",
+                ref=ref,
+                attempted_value=access.value if access.operation == "W" else None,
+                returned_value=access.value if access.operation == "R" else None,
+                absent_reason=(
+                    "Legacy trace did not record a value"
+                    if access.value is None
+                    else None
                 ),
-                prefix="SYNTH",
+                completion="ok" if access.value is not None else "unsupported",
+                source="native_driver",
+                mediation="unknown",
+                state_epoch=0,
             )
-        elif writes:
-            # Fallback: use first write value as reset approximation
-            reset = writes[0].value if writes[0].value is not None else 0
-            log_debug_safe(
-                logger,
-                safe_format(
-                    "BAR{bar} offset 0x{off:04X}: reset=0x{val:0{w}X} (from write)",
-                    bar=trace.bar_index,
-                    off=offset,
-                    val=reset,
-                    w=width * 2,
-                ),
-                prefix="SYNTH",
-            )
-
-        # Compute RW mask (conservative: OR all written values)
-        rw_mask = 0
-        for write in writes:
-            if write.value is not None:
-                rw_mask |= write.value
-
-        # If no writes observed, assume fully writable
-        if rw_mask == 0:
-            rw_mask = (1 << (8 * width)) - 1
-            log_debug_safe(
-                logger,
-                safe_format(
-                    "BAR{bar} offset 0x{off:04X}: no writes, assuming fully RW",
-                    bar=trace.bar_index,
-                    off=offset,
-                ),
-                prefix="SYNTH",
-            )
-
-        # Detect RW1C behavior (simple heuristic)
-        maybe_rw1c = _detect_rw1c(accesses)
-
-        # Clamp values to width
-        max_val = (1 << (8 * width)) - 1
-        reset &= max_val
-        rw_mask &= max_val
-
-        registers[offset] = RegisterSpec(
-            offset=offset,
-            width=width,
-            reset=reset,
-            rw_mask=rw_mask,
-            hints={"maybe_rw1c": maybe_rw1c},
         )
-
+    result = compile_bar_model(
+        classify_registers(observations), trace.bar_index, trace.bar_size
+    )
+    for reg in result.model.registers.values():
+        reg.hints["evidence"].update(
+            source="native_driver",
+            mediation="unknown",
+            trace_format="legacy_mmio",
+            completion_evidence="unverified",
+            epoch_reason="Local grouping label; legacy trace has no state metadata",
+        )
     log_info_safe(
         logger,
         safe_format(
-            "Synthesized model for BAR{idx}: {nregs} registers from {naccess} accesses",
+            "Compiled passive model for BAR{idx}: {nregs} registers, "
+            "{ngaps} unsupported items",
             idx=trace.bar_index,
-            nregs=len(registers),
-            naccess=len(trace.accesses),
+            nregs=len(result.model.registers),
+            ngaps=len(result.unsupported),
         ),
         prefix="SYNTH",
     )
-
-    return BarModel(size=trace.bar_size, registers=registers)
-
-
-def _detect_rw1c(accesses: List[MmioAccess]) -> bool:
-    """Detect potential RW1C (read/write-1-to-clear) behavior.
-
-    Heuristic: If we see a write of non-zero value followed by
-    a read that has fewer bits set, it may be RW1C.
-
-    Args:
-        accesses: List of accesses to same offset
-
-    Returns:
-        True if RW1C behavior detected
-    """
-    for i, access in enumerate(accesses[:-1]):
-        next_access = accesses[i + 1]
-
-        # Look for write followed by read
-        if (
-            access.operation == "W"
-            and access.value is not None
-            and access.value != 0
-            and next_access.operation == "R"
-            and next_access.value is not None
-        ):
-            # Check if any bits were cleared
-            cleared_bits = access.value & ~next_access.value
-            if cleared_bits:
-                return True
-
-    return False
+    return result.model

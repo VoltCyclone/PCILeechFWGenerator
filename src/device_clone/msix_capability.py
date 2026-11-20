@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Import BAR size constants
 from pcileechfwgenerator.device_clone.constants import BAR_SIZE_CONSTANTS
+from pcileechfwgenerator.device_clone.msix_layout import pba_size_bytes
 from pcileechfwgenerator.log_config import get_logger
 
 # Import PCI capability infrastructure for extended capabilities support
@@ -616,7 +617,7 @@ def validate_msix_configuration_enhanced(
             )
             # Fall back to basic overlap detection
             table_end = table_offset + (table_size * 16)  # 16 bytes per entry
-            pba_size = ((table_size + 31) // 32) * 4  # PBA size in bytes
+            pba_size = pba_size_bytes(table_size)
             pba_end = pba_offset + pba_size
 
             if table_offset < pba_end and table_end > pba_offset:
@@ -642,7 +643,7 @@ def validate_msix_configuration_enhanced(
 
             # Calculate table and PBA regions with proper 64-bit support
             table_end = table_offset + (table_size * 16)  # 16 bytes per entry
-            pba_size = ((table_size + 31) // 32) * 4  # PBA size in bytes
+            pba_size = pba_size_bytes(table_size)
             pba_end = pba_offset + pba_size
 
             # Check if regions fit within the BAR
@@ -775,7 +776,7 @@ def validate_msix_configuration(
         # Basic overlap detection for legacy mode
         if table_bir == pba_bir:
             table_end = table_offset + (table_size * 16)  # 16 bytes per entry
-            pba_size = ((table_size + 31) // 32) * 4  # PBA size in bytes
+            pba_size = pba_size_bytes(table_size)
             pba_end = pba_offset + pba_size
 
             if table_offset < pba_end and table_end > pba_offset:

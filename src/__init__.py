@@ -69,7 +69,7 @@ from .string_utils import (
 )
 
 # Templating functionality
-from .templating import AdvancedSVGenerator, TCLBuilder, TemplateRenderer
+from .templating import AdvancedSVGenerator, TemplateRenderer
 
 # Vivado handling
 from .vivado_handling import VivadoErrorReporter
@@ -111,7 +111,6 @@ __all__ = [
     # Templating
     "TemplateRenderer",
     "AdvancedSVGenerator",
-    "TCLBuilder",
     # CLI
     "VFIOBinder",
     "BuildConfig",

@@ -9,10 +9,7 @@ handle missing dictionary keys gracefully and don't cause runtime errors.
 import sys
 import unittest
 
-from pcileechfwgenerator.templating.tcl_builder import (
-    BuildContext,
-    TCLBuilder,
-)
+from pcileechfwgenerator.templating.tcl_builder import BuildContext
 
 # Add parent directory to path for imports
 
@@ -22,10 +19,6 @@ from pcileechfwgenerator.templating.tcl_builder import (
 
 class TestTCLBuilderSafety(unittest.TestCase):
     """Test TCL Builder for safe dictionary access patterns."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.tcl_builder = TCLBuilder()
 
     def test_build_context_creation(self):
         """Test that BuildContext can be created with minimal parameters."""
@@ -95,7 +88,7 @@ class TestTCLBuilderSafety(unittest.TestCase):
 
         # Check required keys
         pcileech = template_context["pcileech"]
-        required_keys = ["src_dir", "ip_dir", "project_script", "build_script"]
+        required_keys = ["src_dir", "ip_dir"]
         for key in required_keys:
             self.assertIn(key, pcileech, f"Missing required key: {key}")
 
@@ -130,32 +123,6 @@ class TestTCLBuilderSafety(unittest.TestCase):
         self.assertEqual(pcileech["ip_dir"], "custom_ip")
         self.assertEqual(pcileech["source_files"], ["file1.sv", "file2.sv"])
 
-    def test_build_pcileech_scripts_without_context(self):
-        """Test that build methods handle missing PCILeech context gracefully."""
-        context = BuildContext(
-            board_name="test_board",
-            fpga_part="xc7a35tcsg324-2",
-            fpga_family="Artix-7",
-            pcie_ip_type="7x",
-            max_lanes=4,
-            supports_msi=True,
-            supports_msix=False,
-            # Required donor-derived device IDs
-            vendor_id=0x10EC,
-            device_id=0x8168,
-            revision_id=0x15,
-            class_code=0x020000,
-        )
-
-        # These should not raise KeyError even if pcileech context is somehow missing
-        try:
-            # Note: These will fail with TemplateNotFoundError in test environment
-            # but that's expected - we're testing they don't fail with KeyError
-            self.tcl_builder.build_pcileech_project_script(context)
-        except Exception as e:
-            # Should not be a KeyError
-            self.assertNotIsInstance(e, KeyError)
-
 
 class TestImportResilience(unittest.TestCase):
     """Test that imports are resilient to missing modules."""
@@ -163,12 +130,8 @@ class TestImportResilience(unittest.TestCase):
     def test_tcl_builder_imports(self):
         """Test that TCL builder can be imported."""
         try:
-            from pcileechfwgenerator.templating.tcl_builder import (
-                BuildContext,
-                TCLBuilder,
-            )
+            from pcileechfwgenerator.templating.tcl_builder import BuildContext
 
-            self.assertIsNotNone(TCLBuilder)
             self.assertIsNotNone(BuildContext)
         except ImportError as e:
             self.fail(f"Failed to import TCLBuilder: {e}")

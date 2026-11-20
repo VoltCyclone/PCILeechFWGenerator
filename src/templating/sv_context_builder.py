@@ -277,7 +277,7 @@ class SVContextBuilder:
         self, context: Dict[str, Any], template_context: Dict[str, Any]
     ) -> None:
         """Extract and normalize the donor device serial number (DSN).
-        
+
         If no DSN is available from the donor device, generates a deterministic
         unique DSN from device identifiers to avoid the fingerprint of zero DSN.
         """
@@ -296,7 +296,7 @@ class SVContextBuilder:
                 self.logger,
                 safe_format(
                     "Device serial number unavailable; generated deterministic DSN: 0x{dsn:016X}",
-                    dsn=serial_int
+                    dsn=serial_int,
                 ),
                 prefix=self.prefix,
             )
@@ -318,18 +318,18 @@ class SVContextBuilder:
     ) -> int:
         """
         Generate a deterministic DSN when donor device doesn't provide one.
-        
+
         The DSN is derived from:
         - Vendor ID (16 bits) -> forms part of OUI
         - Device ID (16 bits) -> forms part of serial component
         - Subsystem IDs if available
         - A mixing function to spread bits
-        
+
         This ensures:
         1. Same device config always produces same DSN (reproducible builds)
         2. Different devices produce different DSNs (unique identification)
         3. Never produces zero (avoids fingerprint)
-        
+
         Per PCIe DSN Extended Capability (offset 0x100, Cap ID 0x0003):
         - Lower 32 bits: Often IEEE OUI in bits [23:0] + extension byte
         - Upper 32 bits: Device-specific serial number
@@ -339,26 +339,30 @@ class SVContextBuilder:
         # Gather device identifiers
         vendor_id = context.get("vendor_id_int", 0)
         device_id = context.get("device_id_int", 0)
-        
+
         # Try to get subsystem IDs for more entropy
         device_config = template_context.get("device_config", {})
         if hasattr(device_config, "get"):
-            subsys_vendor = self._safe_hex_to_int(device_config.get("subsystem_vendor_id", "0"))
-            subsys_device = self._safe_hex_to_int(device_config.get("subsystem_device_id", "0"))
+            subsys_vendor = self._safe_hex_to_int(
+                device_config.get("subsystem_vendor_id", "0")
+            )
+            subsys_device = self._safe_hex_to_int(
+                device_config.get("subsystem_device_id", "0")
+            )
         else:
             subsys_vendor = getattr(device_config, "subsystem_vendor_id_int", 0) or 0
             subsys_device = getattr(device_config, "subsystem_device_id_int", 0) or 0
-        
+
         # Create a seed string for hashing
         seed_str = f"PCILeech_DSN_{vendor_id:04X}_{device_id:04X}_{subsys_vendor:04X}_{subsys_device:04X}"
-        
+
         # Use SHA-256 for good distribution
         hash_bytes = hashlib.sha256(seed_str.encode()).digest()
-        
+
         # Extract upper 32 bits from hash. The lower 32 bits are
         # structured separately below per PCIe spec; we don't reuse the
         # raw hash bytes there.
-        dsn_upper = int.from_bytes(hash_bytes[0:4], byteorder='big')
+        dsn_upper = int.from_bytes(hash_bytes[0:4], byteorder="big")
 
         # Structure the lower 32 bits per PCIe spec:
         # Bits [23:0]: OUI derived from vendor ID (same derivation as
@@ -367,42 +371,40 @@ class SVContextBuilder:
         oui = self._compute_vendor_oui(vendor_id)
         extension = hash_bytes[9] & 0xFF
         dsn_lower_structured = (extension << 24) | (oui & 0xFFFFFF)
-        
+
         # Ensure non-zero (extremely unlikely with SHA-256, but be safe)
         dsn_full = (dsn_upper << 32) | dsn_lower_structured
         if dsn_full == 0:
             dsn_full = 0x0001000000000001  # Fallback: minimal valid DSN
-        
+
         return dsn_full
 
-    def _add_dsn_semantic_fields(
-        self, context: Dict[str, Any], dsn_value: int
-    ) -> None:
+    def _add_dsn_semantic_fields(self, context: Dict[str, Any], dsn_value: int) -> None:
         """
         Decompose DSN into semantic components for SystemVerilog defines.
-        
+
         Per PCIe specification, DSN is typically composed as:
         - Upper 32 bits: Device-specific serial number
         - Lower 32 bits: Often contains OUI in bits [23:0] + additional data
-        
+
         This matches the reference implementation pattern:
             `define PCI_EXP_EP_DSN_2 32'h00000001
             `define PCI_EXP_EP_DSN_1 {{ 8'h1 }, `PCI_EXP_EP_OUI }
-        
+
         Args:
             context: Context dictionary to update
             dsn_value: 64-bit DSN value
         """
         # Extract semantic components
         dsn_upper = (dsn_value >> 32) & 0xFFFFFFFF  # Upper 32 bits
-        dsn_lower = dsn_value & 0xFFFFFFFF           # Lower 32 bits
-        
+        dsn_lower = dsn_value & 0xFFFFFFFF  # Lower 32 bits
+
         # Extract OUI from lower 32 bits (typically bits [23:0])
         dsn_oui = dsn_lower & 0xFFFFFF
-        
+
         # Extract extension field from lower 32 bits (typically bits [31:24])
         dsn_ext = (dsn_lower >> 24) & 0xFF
-        
+
         # Add fields for SystemVerilog template use
         context["dsn_upper_32"] = dsn_upper
         context["dsn_lower_32"] = dsn_lower
@@ -410,12 +412,16 @@ class SVContextBuilder:
         context["dsn_oui_hex"] = safe_format("0x{value:06X}", value=dsn_oui)
         context["dsn_extension"] = dsn_ext
         context["dsn_extension_hex"] = safe_format("0x{value:02X}", value=dsn_ext)
-        
+
         # Add PCI Express endpoint define names (match reference implementation)
         context["pci_exp_ep_dsn_2"] = dsn_upper
         context["pci_exp_ep_dsn_1"] = dsn_lower
-        context["pci_exp_ep_dsn_2_hex"] = safe_format("32'h{value:08X}", value=dsn_upper)
-        context["pci_exp_ep_dsn_1_hex"] = safe_format("32'h{value:08X}", value=dsn_lower)
+        context["pci_exp_ep_dsn_2_hex"] = safe_format(
+            "32'h{value:08X}", value=dsn_upper
+        )
+        context["pci_exp_ep_dsn_1_hex"] = safe_format(
+            "32'h{value:08X}", value=dsn_lower
+        )
 
     def _extract_device_serial_number(self, template_context: Dict[str, Any]) -> Any:
         """Gather DSN candidates from the template context."""
@@ -552,6 +558,13 @@ class SVContextBuilder:
         ]:
             config_value = template_context.get(config_name, {})
             context[config_name] = self._ensure_template_object(config_value)
+
+        # The generation-time MSI-X decision (device_clone.msix_subsystem) must
+        # reach the BAR controller template unchanged: the hard IP override
+        # reads the same record, so dropping it here would advertise MSI-X
+        # that the RTL does not implement.
+        if template_context.get("msix_subsystem") is not None:
+            context["msix_subsystem"] = template_context["msix_subsystem"]
 
     def _add_feature_contexts(
         self,

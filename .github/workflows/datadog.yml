@@ -12,12 +12,12 @@ jobs:
     if: github.repository == 'VoltCyclone/PCILeechFWGenerator'
     steps:
     - name: Checkout
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         submodules: recursive
     - name: Check imported libraries are secure and compliant
       id: datadog-software-composition-analysis
-      uses: DataDog/datadog-sca-github-action@main
+      uses: DataDog/datadog-sca-github-action@37d973e751cff3de3d5dd4fc46160262688e1fa7 # v4.5.0
       with:
         dd_api_key: "${{ secrets.DD_API_KEY }}"
         dd_app_key: "${{ secrets.DD_APP_KEY }}"
@@ -30,12 +30,12 @@ jobs:
     if: github.repository == 'VoltCyclone/PCILeechFWGenerator'
     steps:
     - name: Checkout
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         submodules: recursive
     - name: Check code meets quality and security standards
       id: datadog-static-analysis
-      uses: DataDog/datadog-static-analyzer-github-action@v3
+      uses: DataDog/datadog-static-analyzer-github-action@8340f18875fcefca86844b5f947ce2431387e552 # v3
       with:
         dd_api_key: ${{ secrets.DD_API_KEY }}
         dd_app_key: ${{ secrets.DD_APP_KEY }}

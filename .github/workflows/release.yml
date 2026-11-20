@@ -23,37 +23,37 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    
+
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         fetch-depth: 0
         submodules: recursive
-    
+
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
       with:
         python-version: '3.11'
         cache: 'pip'
-    
+
     - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
         pip install build setuptools setuptools_scm wheel twine
-    
+
     - name: Build packages
       run: |
         python -m build
-    
+
     - name: Verify packages
       run: |
         twine check dist/*
-    
+
     - name: Attest build provenance
-      uses: actions/attest-build-provenance@v4
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
       with:
         subject-path: "dist/*"
-    
+
     - name: Resolve version
       id: version
       run: |
@@ -62,16 +62,16 @@ jobs:
 
     - name: Generate release notes
       id: changelog
-      uses: orhun/git-cliff-action@v4
+      uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4
       with:
         config: cliff.toml
         args: --latest --strip header
       env:
         OUTPUT: RELEASE_NOTES.md
-    
+
     - name: Create GitHub prerelease (rc/beta/alpha)
       if: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
       with:
         tag_name: ${{ github.ref_name }}
         name: v${{ steps.version.outputs.version }}
@@ -81,10 +81,10 @@ jobs:
           dist/*.whl
         draft: false
         prerelease: true
-    
+
     - name: Publish pre-release to TestPyPI (rc/beta/alpha)
       if: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
-      uses: pypa/gh-action-pypi-publish@release/v1
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
       with:
         packages-dir: dist
         repository-url: https://test.pypi.org/legacy/
@@ -92,7 +92,7 @@ jobs:
 
     - name: Create GitHub release (stable)
       if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
       with:
         tag_name: ${{ github.ref_name }}
         name: v${{ steps.version.outputs.version }}
@@ -105,7 +105,7 @@ jobs:
 
     - name: Publish to PyPI
       if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
-      uses: pypa/gh-action-pypi-publish@release/v1
+      uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
       with:
         packages-dir: dist
         skip-existing: true

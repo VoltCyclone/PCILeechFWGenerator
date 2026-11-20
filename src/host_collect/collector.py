@@ -7,6 +7,13 @@ from typing import Any, Dict, Optional
 
 # Reuse existing MSI-X parser
 from pcileechfwgenerator.device_clone.msix_capability import parse_msix_capability
+from pcileechfwgenerator.host_collect.mmiotrace import native_probe_observer
+from pcileechfwgenerator.host_collect.register_learning import (
+    LearningDiscovery,
+    LearningResource,
+    default_journal_directory,
+    run_register_learning,
+)
 from pcileechfwgenerator.host_collect.snapshot import (
     ensure_capture_destination,
     normalize_bdf,
@@ -20,6 +27,8 @@ from pcileechfwgenerator.string_utils import (
     log_warning_safe,
     safe_format,
 )
+
+logger = get_logger(__name__)
 
 CONFIG_PATH_TEMPLATE = "/sys/bus/pci/devices/{bdf}/config"
 
@@ -44,6 +53,8 @@ class HostCollector:
         self.bdf = normalize_bdf(bdf)
         self.datastore = datastore
         self.logger = logger or get_logger(self.__class__.__name__)
+        # Passive native-driver observation (mmiotrace); --no-mmio-learning
+        # skips it and the build serves the read-only fallback.
         self.enable_mmio_learning = enable_mmio_learning
         self.force_recapture = force_recapture
         self.complete_capture = complete_capture
@@ -64,7 +75,7 @@ class HostCollector:
             cfg_hex = cfg.hex()
             msix_info = self._parse_msix(cfg_hex)
 
-            context = None
+            context: dict[str, Any] | None = None
             if self.complete_capture:
                 from .offline import capture_bar_sizes
                 from .snapshot import SnapshotError
@@ -85,12 +96,42 @@ class HostCollector:
                         self.logger,
                         safe_format(
                             "BAR lengths not recorded ({err}); this capture "
-                            "serves local live builds only",
+                            "cannot be rendered",
                             err=str(error),
                         ),
                         prefix="COLLECT",
                     )
-            write_snapshot(self.datastore, self.bdf, cfg, msix_info, context)
+            sizes = (context or {}).get("offline_resources", {}).get("bar_sizes", [])
+            resources = tuple(
+                LearningResource(
+                    index=index,
+                    size=size,
+                    space="io_bar" if cfg[16 + index * 4] & 1 else "mem_bar",
+                )
+                for index, size in enumerate(sizes)
+                if size > 0
+            )
+            learning = run_register_learning(
+                self.bdf,
+                discover=lambda: LearningDiscovery.from_config(
+                    cfg, resources=resources
+                ),
+                journal_directory=default_journal_directory(),
+                passive_observer=(
+                    native_probe_observer(self.bdf)
+                    if self.enable_mmio_learning
+                    else None
+                ),
+            )
+            write_snapshot(
+                self.datastore,
+                self.bdf,
+                cfg,
+                msix_info,
+                context,
+                learning=learning,
+                capture_id=learning.context.capture_id,
+            )
             log_info_safe(
                 self.logger,
                 "Wrote matching device context and MSI-X capture files",

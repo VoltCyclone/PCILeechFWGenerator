@@ -39,6 +39,8 @@ def test_container_command_is_accepted_by_actual_stage_two_parser(
         "--no-mmio-learning",
         "--force-recapture",
         "--enable-error-injection",
+        "--writable-bar-fallback",
+        "--ft601-legacy-phy",
     )
     monkeypatch.setattr(pcileech, "_ensure_container_image", lambda *a, **kw: True)
     run = Mock(return_value=subprocess.CompletedProcess([], 0))
@@ -55,6 +57,8 @@ def test_container_command_is_accepted_by_actual_stage_two_parser(
     assert stage_two.output_template == "/template-output/export.json"
     assert stage_two.no_mmio_learning and stage_two.force_recapture
     assert stage_two.enable_error_injection
+    assert stage_two.writable_bar_fallback
+    assert stage_two.ft601_legacy_phy
     assert f"{output}:/artifacts" in command
     assert f"{donor}:/donor/template.json:ro" in command
     assert f"{export.parent}:/template-output" in command
@@ -218,3 +222,51 @@ def test_production_defaults_respects_explicit_profile_zero(
     assert args.profile_explicit is explicit
     config = build.ConfigurationManager().create_from_args(args)
     assert config.enable_profiling is (False if explicit else production_profiling)
+
+
+@pytest.mark.parametrize("opted", [False, True])
+def test_writable_bar_fallback_reaches_build_configuration(opted):
+    """Read-only is the default; only the explicit flag opts out."""
+    extra = ("--writable-bar-fallback",) if opted else ()
+    top = parsed(*extra)
+    assert getattr(top, "writable_bar_fallback", False) is opted
+    stage2 = build.parse_args(
+        ["--bdf", "0000:03:00.0", "--board", "pcileech_75t484_x1", *extra]
+    )
+    config = build.ConfigurationManager().create_from_args(stage2)
+    assert config.writable_bar_fallback is opted
+
+
+def test_container_forwards_writable_bar_fallback():
+    from pcileechfwgenerator.cli.container import BuildConfig
+
+    base = dict(bdf="0000:03:00.0", board="pcileech_35t325_x4")
+    assert "--writable-bar-fallback" not in BuildConfig(**base).cmd_args()
+    assert (
+        "--writable-bar-fallback"
+        in BuildConfig(**base, writable_bar_fallback=True).cmd_args()
+    )
+
+
+@pytest.mark.parametrize(
+    "opted,mode", [(False, "readonly_zero"), (True, "generic_ram")]
+)
+def test_context_records_fallback_mode(opted, mode):
+    from types import SimpleNamespace
+
+    from pcileechfwgenerator.device_clone.pcileech_context import (
+        PCILeechContextBuilder,
+    )
+
+    builder = PCILeechContextBuilder.__new__(PCILeechContextBuilder)
+    builder.logger = logging.getLogger("fallback")
+    builder.config = SimpleNamespace(writable_bar_fallback=opted)
+    config = {"served_bar_index": 0}
+    # Exercise the same assignment _build_bar_config performs.
+    config["bar_fallback"] = (
+        "generic_ram"
+        if getattr(builder.config, "writable_bar_fallback", False)
+        else "readonly_zero"
+    )
+    builder._record_served_bar_fidelity(config)
+    assert config["served_bar_fidelity"] == mode

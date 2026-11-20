@@ -12,6 +12,7 @@ Usage examples
     # flash an already‑generated bitstream
     ./cli flash output/firmware.bin --board pcileech_75t484_x1
 """
+
 from __future__ import annotations
 
 import argparse
@@ -96,30 +97,30 @@ def get_supported_boards():
 
 def resolve_board_name(board_input: str) -> str:
     """Resolve board shorthand to full board name.
-    
+
     Args:
         board_input: User-provided board name or shorthand (e.g., "35t", "75t484")
-    
+
     Returns:
         Full board name (e.g., "pcileech_35t325_x1")
-    
+
     Raises:
         ValueError: If board cannot be resolved
     """
     supported = get_supported_boards()
-    
+
     # Exact match
     if board_input in supported:
         return board_input
-    
+
     # Try with pcileech_ prefix
     with_prefix = f"pcileech_{board_input}"
     if with_prefix in supported:
         return with_prefix
-    
+
     # Try fuzzy match - find boards containing the input
     matches = [b for b in supported if board_input.lower() in b.lower()]
-    
+
     if len(matches) == 1:
         log_info_safe(
             logger,
@@ -174,6 +175,24 @@ def build_sub(parser: argparse._SubParsersAction):
         help=(
             "Enable hardware error injection test hooks (AER). "
             "Disabled by default; use only in controlled test scenarios."
+        ),
+    )
+    p.add_argument(
+        "--writable-bar-fallback",
+        action="store_true",
+        help=(
+            "Opt out of the read-only fallback for a served BAR with no learned "
+            "register model: emulate generic writable RAM (zerowrite4k, aliases "
+            "every 4 KiB) instead. Not donor behavior."
+        ),
+    )
+    p.add_argument(
+        "--ft601-legacy-phy",
+        action="store_true",
+        help=(
+            "Build the legacy FT601 PHY (FT601_PHY_MMCM=0) instead of the "
+            "MMCM-compensated one, and leave its constraints out. Only for "
+            "boards with the MMCM FT601 PHY (CaptainDMA 100T)."
         ),
     )
     p.add_argument(
@@ -342,7 +361,7 @@ def main(argv: Optional[List[str]] = None):
                 prompt_for_update(latest_version)
             else:
                 from ..__version__ import __version__
-                
+
                 log_info_safe(
                     logger,
                     safe_format(
@@ -368,14 +387,14 @@ def main(argv: Optional[List[str]] = None):
     if args.cmd == "build":
         bdf = args.bdf or choose_device()["bdf"]
         board_input = args.board or pick(get_supported_boards(), "Board #: ")
-        
+
         # Resolve board shorthand to full name
         try:
             board = resolve_board_name(board_input)
         except ValueError as e:
             log_error_safe(logger, str(e), prefix="BOARD")
             sys.exit(1)
-        
+
         # Process fallback lists
         allowed_fallbacks = []
         if hasattr(args, "allow_fallbacks") and args.allow_fallbacks:
@@ -436,18 +455,21 @@ def main(argv: Optional[List[str]] = None):
             output_template=getattr(args, "output_template", None),
             donor_template=getattr(args, "donor_template", None),
             enable_error_injection=getattr(args, "enable_error_injection", False),
+            writable_bar_fallback=getattr(args, "writable_bar_fallback", False),
+            ft601_legacy_phy=getattr(args, "ft601_legacy_phy", False),
         )
-        
+
         # Import and call the unified entry point
         try:
             import pcileech
+
             exit_code = pcileech.main(build_args)
             sys.exit(exit_code)
         except Exception as e:
             log_error_safe(
                 logger,
                 safe_format("Build failed: {error}", error=str(e)),
-                prefix="BUILD"
+                prefix="BUILD",
             )
             sys.exit(1)
 
