@@ -56,7 +56,7 @@ build":
      pip installs bundle the board files (installed under
      `pcileechfwgenerator/voltcyclone_fpga`) and need no checkout.
 3. Confirm root-access pattern: all commands that touch VFIO must run as root
-   via `sudo -E ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator ...` or
+   via `sudo -E ~/.pcileech-venv/bin/python3 -m pcileechfwgenerator.pcileech_main ...` or
    via the `pcileech-sudo` alias the README sets up. Running `sudo pcileech`
    without preserving the venv path will hit the wrong Python.
 4. Confirm Vivado is installed for Stage 3. If the user only wants to inspect
