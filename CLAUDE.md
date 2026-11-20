@@ -183,8 +183,8 @@ reimplementing:
   any change to `src/device_clone/`, `src/pci_capability/`,
   `src/templates/sv/`, or `src/vivado_handling/`. It complements the
   generic code reviewer with PCIe-domain checks.
-- **GitHub MCP server** (configured in `.mcp.json`), prefer it over
-  shelling out to `gh` for PR / issue / Actions work.
+- **GitHub MCP server** (when configured in a local, untracked `.mcp.json`),
+  prefer it over shelling out to `gh` for PR / issue / Actions work.
 
 ---
 
