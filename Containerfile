@@ -3,7 +3,7 @@
 # Build instructions are available in src/donor_dump/Makefile
 
 # ---------- build stage for VFIO constants ----------
-FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8 AS build
+FROM ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db AS build
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
@@ -35,7 +35,7 @@ RUN mkdir -p src/cli && \
     echo "Content of patched file:" && head -20 vfio_constants_patched.py | grep -A 10 "Ioctl numbers" || echo "No ioctl numbers section found"
 
 # ---------- runtime ----------
-FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8 AS runtime
+FROM ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
